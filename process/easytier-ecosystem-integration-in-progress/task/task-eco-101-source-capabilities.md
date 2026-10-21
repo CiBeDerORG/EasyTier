@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-001]
 task_type: analysis
-status: in_progress
+status: done
 owner: /root/iteration_exec1
 depends_on: []
 read_scope: ["easytier-web/frontend/src/modules/api.ts", "easytier-web/src/restful/network.rs", "easytier-web/src/db/entity/devices.rs", "easytier-web/src/db/entity/network_members.rs", "easytier-core/src/config/gateway.rs", "easytier-web/frontend/package.json"]
@@ -21,7 +21,7 @@ updated_at: 2026-10-21
 
 [汇总](../README.md) · [需求与验收](../require/README.md) · [PLAN-ECO-001](../plan/plan-eco-001-baseline.md) · [任务看板](README.md)
 
-当前已认领，状态为 `in_progress`，负责人见元数据；正在核查，尚未验收。
+当前已完成静态基线核查并经监工验收；应用运行不属于本任务通过结论。
 
 ## 目标与真实依据
 
@@ -59,8 +59,8 @@ updated_at: 2026-10-21
 
 ## 完成与交接
 
-- [ ] 每个拟接入操作有真实来源或明确缺口；不存在凭命名推断出的 API。
-- [ ] 记录宿主/业务设备、GeoIP/人工地点、配置原语/公网发布的区别，并列出仍需 ECO-103 决定的范围。
+- [x] 每个拟接入操作有真实来源或明确缺口；不存在凭命名推断出的 API。
+- [x] 记录宿主/业务设备、GeoIP/人工地点、配置原语/公网发布的区别，并列出仍需 ECO-103 决定的范围。
 
 交给 ECO-103；发现运行问题交 ECO-102 核实，不能把本任务的静态核查标成运行验证通过。
 
@@ -71,3 +71,5 @@ updated_at: 2026-10-21
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
 
 2026-10-21：用户授权启动，由 `/root/iteration_exec1` 认领，基线1e92296b；正在核查，尚未交付或验收。状态以本次认领及frontmatter为准。
+
+2026-10-21：交付基线产物并经 `/root/iteration_monitor` 审查通过，源码入口及文档链接已核对，未运行应用测试。

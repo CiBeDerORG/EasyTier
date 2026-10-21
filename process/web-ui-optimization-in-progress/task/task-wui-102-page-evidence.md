@@ -3,8 +3,8 @@ id: WUI-102
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-001"]
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec3
 depends_on: ["WUI-101"]
 read_scope: ["process/web-ui-optimization-in-progress/require/baseline.md", "process/web-ui-optimization-in-progress/require/README.md", "easytier-web/frontend/src/components/"]
 write_scope: ["process/web-ui-optimization-in-progress/require/evidence/"]
@@ -18,7 +18,7 @@ updated_at: 2026-10-21
 
 [汇总](../README.md) · [PLAN-WUI-001](../plan/plan-wui-001-baseline.md) · [需求与验收](../require/README.md) · [任务看板](README.md)
 
-当前仅生成任务，`backlog`、`owner: null`；没有认领、实现或本专项运行验收。任务编号101段与原计划工作包001～008分开，不复用迁出的ECO-012。
+当前仅生成任务，`backlog`、`owner: /root/iteration_exec3`；没有认领、实现或本专项运行验收。任务编号101段与原计划工作包001～008分开，不复用迁出的ECO-012。
 
 ## 代码依据与启动条件
 
@@ -62,3 +62,5 @@ updated_at: 2026-10-21
 - [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
+
+2026-10-21：WUI-101经监工验收后由 `/root/iteration_exec3` 认领取证，复用ECO-102建立的隔离服务但独立浏览器上下文；尚未交付。

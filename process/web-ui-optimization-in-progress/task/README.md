@@ -16,16 +16,16 @@ updated_at: 2026-10-21
 
 | backlog | ready | in_progress | blocked | in_review | done | cancelled |
 | --- | --- | --- | --- | --- | --- | --- |
-| 12 | 0 | 1 | 0 | 0 | 0 | 0 |
+| 11 | 0 | 1 | 0 | 0 | 1 | 0 |
 
-已完成0/13；WUI-101已认领，其余12项backlog。下表状态由明细同步，依赖未交付与待核实项写在各任务的启动条件中，不能据计划编号将任务改为ready。
+已完成1/13；WUI-101已认领，其余12项backlog。下表状态由明细同步，依赖未交付与待核实项写在各任务的启动条件中，不能据计划编号将任务改为ready。
 
 ## 任务与计划对应
 
 | 任务明细 | 计划明细 | 状态 | 负责人 | 前置任务 | 并行批次 |
 | --- | --- | --- | --- | --- | --- |
-| [WUI-101 源码、路由与请求基线](task-wui-101-source-baseline.md) | [PLAN-WUI-001](../plan/plan-wui-001-baseline.md) | in_progress | /root/iteration_exec3 | 无 | WUI-G0 |
-| [WUI-102 现有页面前态与问题取证](task-wui-102-page-evidence.md) | [PLAN-WUI-001](../plan/plan-wui-001-baseline.md) | backlog | null | WUI-101 | WUI-G1 |
+| [WUI-101 源码、路由与请求基线](task-wui-101-source-baseline.md) | [PLAN-WUI-001](../plan/plan-wui-001-baseline.md) | done | /root/iteration_exec3 | 无 | WUI-G0 |
+| [WUI-102 现有页面前态与问题取证](task-wui-102-page-evidence.md) | [PLAN-WUI-001](../plan/plan-wui-001-baseline.md) | in_progress | /root/iteration_exec3 | WUI-101 | WUI-G1 |
 | [WUI-103 公共契约、主题与文案基础](task-wui-103-shared-foundation.md) | [PLAN-WUI-002](../plan/plan-wui-002-shared-foundation.md) | backlog | null | WUI-102 | WUI-G2 |
 | [WUI-104 登录注册与本人改密页面](task-wui-104-auth-pages.md) | [PLAN-WUI-003](../plan/plan-wui-003-accounts.md) | backlog | null | WUI-103 | WUI-G3 |
 | [WUI-105 用户管理组件交互与视觉](task-wui-105-user-management.md) | [PLAN-WUI-003](../plan/plan-wui-003-accounts.md) | backlog | null | WUI-103 | WUI-G3 |
@@ -91,3 +91,5 @@ WUI-111接线结束后才能WUI-112真实组合联调，失败回派原页面/�
 ## 本轮实施启动（2026-10-21）
 
 用户已授权两条迭代，采用3个执行agent与1个专职监工。代码基线为 `1e92296b17fc2e85dcd4521b6012232e11abed95`，文档基线为 `670eb3b42800d42333356da0cb15f41d76c92f1e`，工作分支 `feat/ecosystem-web-ui`。上文未认领/仅规划描述属于启动前记录；当前已完成0项，认领 WUI-101，其余backlog。监工 `/root/iteration_monitor` 审查依赖、契约、共享写入与联调准入；尚无本轮测试通过结论。
+
+2026-10-21 基线验收：WUI-101 已交付并经监工审查通过（静态核查，无应用测试）。WUI-102 正在真实页面取证，余11项backlog。

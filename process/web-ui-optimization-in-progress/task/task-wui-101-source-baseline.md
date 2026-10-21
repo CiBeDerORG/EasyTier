@@ -3,7 +3,7 @@ id: WUI-101
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-001"]
-status: in_progress
+status: done
 owner: /root/iteration_exec3
 depends_on: []
 read_scope: ["easytier-web/frontend/src/main.ts", "easytier-web/frontend/src/components/MainPage.vue", "easytier-web/frontend/src/components/DeviceList.vue", "easytier-web/frontend/src/components/NetworkDetail.vue", "easytier-web/frontend/package.json"]
@@ -18,7 +18,7 @@ updated_at: 2026-10-21
 
 [汇总](../README.md) · [PLAN-WUI-001](../plan/plan-wui-001-baseline.md) · [需求与验收](../require/README.md) · [任务看板](README.md)
 
-当前已认领，状态为 `in_progress`，负责人见元数据；正在核查，尚未验收。
+当前已完成静态基线核查并经监工验收；应用运行不属于本任务通过结论。
 
 ## 代码依据与启动条件
 
@@ -58,11 +58,13 @@ updated_at: 2026-10-21
 
 ## 完成条件与失败处理
 
-- [ ] 清单逐项有文件、符号、提交和核查范围；搜索未命中不表述为全项目不存在。
-- [ ] 保留账号边界、现有周期请求基线、接口字段和config-server命令生成语义；没有执行运行验收。
-- [ ] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
-- [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
+- [x] 清单逐项有文件、符号、提交和核查范围；搜索未命中不表述为全项目不存在。
+- [x] 保留账号边界、现有周期请求基线、接口字段和config-server命令生成语义；没有执行运行验收。
+- [x] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
+- [x] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
 
 2026-10-21：用户授权启动，由 `/root/iteration_exec3` 认领，基线1e92296b；正在核查，尚未交付或验收。状态以本次认领及frontmatter为准。
+
+2026-10-21：交付基线产物并经 `/root/iteration_monitor` 审查通过，源码入口及文档链接已核对，未运行应用测试。

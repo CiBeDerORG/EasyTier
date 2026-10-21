@@ -16,15 +16,15 @@ updated_at: 2026-10-21
 
 | backlog | ready | in_progress | blocked | in_review | done | cancelled | 总计 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 13 | 0 | 2 | 0 | 0 | 0 | 0 | 15 |
+| 13 | 0 | 1 | 0 | 0 | 1 | 0 | 15 |
 
-完成数 0/15；取消项0。文档已经生成不等于任务已完成，具体状态以明细元数据为准。
+完成数 1/15；取消项0。文档已经生成不等于任务已完成，具体状态以明细元数据为准。
 
 ## 任务明细
 
 | 任务 | 计划 | 状态 | 负责人 | 前置任务 | 并行组 |
 | --- | --- | --- | --- | --- | --- |
-| [ECO-101 源码基线与接口能力清单](task-eco-101-source-capabilities.md) | [PLAN-ECO-001](../plan/plan-eco-001-baseline.md) | in_progress | /root/iteration_exec1 | 无 | `eco-discovery` |
+| [ECO-101 源码基线与接口能力清单](task-eco-101-source-capabilities.md) | [PLAN-ECO-001](../plan/plan-eco-001-baseline.md) | done | /root/iteration_exec1 | 无 | `eco-discovery` |
 | [ECO-102 现有页面与请求行为取证](task-eco-102-page-baseline.md) | [PLAN-ECO-001](../plan/plan-eco-001-baseline.md) | in_progress | /root/iteration_exec2 | 无 | `eco-discovery` |
 | [ECO-103 资源视图与按需查询契约](task-eco-103-domain-contract.md) | [PLAN-ECO-002](../plan/plan-eco-002-contract.md) | backlog | null | ECO-101、ECO-102 | `eco-contract` |
 | [ECO-104 公共展示组件与语言资源](task-eco-104-shared-components.md) | [PLAN-ECO-002](../plan/plan-eco-002-contract.md) | backlog | null | ECO-103 | `eco-foundation` |
@@ -101,3 +101,5 @@ D为本需求plan/design目录，所有未来产物与精确源码写入范围�
 ## 本轮实施启动（2026-10-21）
 
 用户已授权两条迭代，采用3个执行agent与1个专职监工。代码基线为 `1e92296b17fc2e85dcd4521b6012232e11abed95`，文档基线为 `670eb3b42800d42333356da0cb15f41d76c92f1e`，工作分支 `feat/ecosystem-web-ui`。上文未认领/仅规划描述属于启动前记录；当前已完成0项，认领 ECO-101、ECO-102，其余backlog。监工 `/root/iteration_monitor` 审查依赖、契约、共享写入与联调准入；尚无本轮测试通过结论。
+
+2026-10-21 基线验收：ECO-101 已交付并经监工审查通过（静态核查，无应用测试）。ECO-102正在真实页面取证，余13项backlog。
