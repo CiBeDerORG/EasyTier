@@ -176,7 +176,7 @@ WUM-004 与 WUM-005 共同消费 WUM-003 已落地的 DB 接口和 WUM-001 契�
 - 2026-10-21：建立实施计划与并行边界；所有实施任务尚未执行。契约基线待 WUM-001 补齐。
 - 2026-10-21：补齐 UM-01 至 UM-10 的实施责任/验收映射及 M1 至 M5 阶段交付条件；沿用 11 个任务及现有依赖，不改变开发任务执行状态。
 
-## 8. WUM 契约 v1（2026-10-21）
+## 8. WUM 契约 v1.1（2026-10-21）
 
 本节是 WUM-001 交付的实现基线，取代上文“待明确”的候选行为。依据 UM-01 至 UM-10 及用户要求实施既有任务的授权，选择草案中本地控制台管理方案；不是功能已实现声明。所有任务沿用原编号、依赖和写入者。契约变更须协调者通知所有消费方。
 
@@ -204,7 +204,7 @@ type UserSummary = {
   created_at: string | null; last_login_at: string | null;
 };
 type Page<T> = { items: T[]; total: number; page: number; page_size: number };
-type CurrentUser = UserSummary & { capabilities: string[] };
+type CurrentUser = UserSummary & { capabilities: string[]; default_password_warning: boolean };
 type CredentialDelivery = { user: UserSummary; temporary_password: string; expires_at: string };
 type UserEvent = { id: number; actor_id: number | null; target_id: number | null;
   action: string; occurred_at: string; result: 'success' | 'denied' | 'failure' };
@@ -251,6 +251,8 @@ async fn save_user_access<C: ConnectionTrait>(conn: &C, access: &UserAccess)
 async fn set_user_role<C: ConnectionTrait>(conn: &C, user_id: i32, role: &str)
     -> Result<(), DbErr>; // 幂等维护 admins/users 关系，不删除其他既有组
 async fn count_enabled_admins<C: ConnectionTrait>(conn: &C) -> Result<u64, DbErr>;
+async fn has_manage_permission<C: ConnectionTrait>(conn: &C, user_id: i32)
+    -> Result<bool, DbErr>; // 按用户关联的真实 users.manage 权限查询，供事务内重新授权
 async fn lock_user_management(txn: &DatabaseTransaction) -> Result<(), DbErr>;
 async fn append_user_event<C: ConnectionTrait>(conn: &C, event: NewUserEvent)
     -> Result<(), DbErr>;
@@ -276,14 +278,18 @@ WUM-009 唯一持有 HTTP 状态和请求序号，忽略旧查询响应；组件
 
 首期支持同源浏览器部署，生产经 HTTPS；跨源带 Cookie 管理不支持。开发仅 loopback HTTP。WUM-006 对管理写入要求 `Content-Type: application/json` 和 `X-Requested-With: EasyTier`；浏览器 Origin 存在时必须与请求受信任外部 origin 完全一致，拒绝 null/跨源；未提供 Origin 的非浏览器客户端仍须自定义头。CORS 不允许任意来源携带此头，拒绝跨源预检。代理必须保留可信 Host；不信任客户端可伪造 forwarded header。会话 HttpOnly、SameSite=Lax；HTTPS 部署 Secure=true（配置由006独占接入），loopback 测试可 false。既有认证写入保持旧客户端兼容，不强制新增头；使用 JSON 内容类型并在 Origin 存在时校验同源。旧 GET logout 保留兼容且不承载其他操作。UA-14 必须验证实际策略而非仅配置存在。
 
-初始化不新增可预测密码、不提升首个注册用户。已有有效管理员关系、访问状态及凭据默认保持兼容，不根据用户名或已知哈希自动停用。**决策点 D-01（待用户决定）**：原迁移含公开固定凭据，自动禁用虽可降低风险，却与“已有管理员保持兼容、原凭据可用”冲突。暂停自动停用/强制改密这一升级变更，并阻塞 UA-12 最终交付结论；独立存储、恢复和管理功能继续。建议运维在隔离升级验收中验证显式离线恢复，再由用户决定是否授权针对仍使用原始固定凭据的账号强制处理，不默默改变访问。
+初始化不新增可预测密码、不提升首个注册用户。**D-01 已解除：用户明确选择 A，旧账号保留登录兼容，不因历史默认密码自动停用，并明确提示立即修改默认密码。** 因此既有管理员关系、访问状态及凭据保留，不因用户名或已知固定哈希自动停用、强制改密、提升角色或改变会话权限。
+
+v1.1 新增仅本人可见的 `CurrentUser.default_password_warning:boolean`：WUM-004 在 GET `/auth/me` 将当前账号密码哈希与原迁移已公开固定哈希精确比较，匹配时为 true，否则 false；不按用户名猜测，不返回哈希/默认密码，不放入用户列表、详情或审计。WUM-007 同步 DTO；WUM-008 提供中英文 `user_management.default_password_warning`（“当前账号仍使用历史默认密码，请立即修改密码。” / “This account still uses a historical default password. Change it immediately.”）及改密动作文案；WUM-009 在本人工作区持续显示可访问警告与本人改密入口，不能仅弹一次 toast。改密成功后的重新登录/身份刷新使标志归 false。历史默认凭据仍可登录，提示不阻断任何原有权限；新增临时凭据的强制改密规则不变。WUM-011 以隔离旧库验证默认凭据登录+警告、已改密码无警告及原资源保留。该决定不授权生产账号或凭据操作。
 
 WUM-005 提供显式离线 `--recover-admin <username>` 入口：复用 DB 路径，停止正常服务启动，仅在受控终端从 stdin 读取新密码（不放 argv/env/日志），按旧 MD5+password_auth 存储；存在账号则保留 ID/资源，设为 local 凭据可用（source 历史 unknown 不改）、启用访问、授予 admins、增加版本；新用户名可创建本地管理员。操作员掌握数据库访问权限才可调用，记录 actor_id=null 的 recover/bootstrap 审计。CLI 不输出密码。另提供离线 `--bind-oidc-user <username> --oidc-issuer <issuer> --oidc-subject <subject>`，只建立核实后的绑定，不授予角色、不解除停用；冲突拒绝。恢复/绑定不通过公开 HTTP 暴露。
 
-迁移保留所有旧用户 ID/哈希/关系/资源；历史日期 null。恢复入口在 WUM-011 用隔离旧库验证；弱预置凭据的自动处理等待 D-01 决策，不能标记 UA-12 完成。降级旧二进制无法执行新停用/版本/身份边界，不允许以“可启动”代表安全回退；恢复备份前须在外部维护窗口隔离控制台访问，本文不授权操作真实 VPN/防火墙或生产。
+迁移保留所有旧用户 ID/哈希/关系/资源；历史日期 null。恢复入口在 WUM-011 用隔离旧库验证；按 D-01 用户选择验证兼容登录和默认密码警告，UA-12 仍须实际验证后才能完成。降级旧二进制无法执行新停用/版本/身份边界，不允许以“可启动”代表安全回退；恢复备份前须在外部维护窗口隔离控制台访问，本文不授权操作真实 VPN/防火墙或生产。
 
 ### 8.6 契约评审与交接
 
-逐项覆盖 UM-01–10 和 UA-01–14 的责任仍见第1节；现有依赖无环。002→004 对 users.rs 串行交接，003 独占 DB/migration，005 独占 main.rs，006 独占 restful/mod.rs，007 独占客户端，008 独占组件/locale，009 独占页面接线；本契约不新增并行写入重叠。003/007/008 可基于本节并行实现；D-01 仅阻塞涉及旧弱预置凭据自动处理及 UA-12 最终结论。所有动态验收仍未执行，不能以本契约代替测试；OIDC 真 IdP、部署 Cookie 和升级验证是010/011的明确验收条件，环境缺失须记录阻塞，不能默默缩减支持范围。
+逐项覆盖 UM-01–10 和 UA-01–14 的责任仍见第1节；现有依赖无环。002→004 对 users.rs 串行交接，003 独占 DB/migration，005 独占 main.rs，006 独占 restful/mod.rs，007 独占客户端，008 独占组件/locale，009 独占页面接线；本契约不新增并行写入重叠。003/007/008 可基于本节并行实现；D-01 已由用户选择 A 解除，不再阻塞独立工作及 UA-12 的执行。所有动态验收仍未执行，不能以本契约代替测试；OIDC 真 IdP、部署 Cookie 和升级验证是010/011的明确验收条件，环境缺失须记录阻塞，不能默默缩减支持范围。
 
 - v1 实现注意：服务端生成凭据与离线恢复需要 MD5 摘要兼容现有客户端；当前 Web crate 无直接 MD5 依赖，由协调者指定清单/锁文件唯一写入者，不由003/005同时改依赖。
+
+- v1.1（2026-10-21）：根据协调者转交的可信用户决定 A 解除 D-01；新增本人 default_password_warning 字段和非阻断提示，新增 DB has_manage_permission 用于真实权限事务重查。其余 v1 行为不变。
