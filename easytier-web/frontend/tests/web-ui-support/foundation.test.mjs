@@ -56,8 +56,9 @@ for (const language of ['cn', 'en']) {
                     return { height: element.getBoundingClientRect().height,
                         widths: buttons.map(button => button.getBoundingClientRect().width),
                         overflow: document.documentElement.scrollWidth > innerWidth,
-                        title: element.firstElementChild.lastElementChild.textContent };
+                        title: element.querySelector('.console-page-title').textContent };
                 });
+                assert.equal(await page.locator('.console-page-title').getAttribute('title'), networkName);
                 assert.equal(metrics.title, networkName, 'full title remains available to assistive technology');
                 assert.ok(metrics.height <= 80, `title must not inflate topbar: ${metrics.height}`);
                 assert.ok(metrics.widths.every(value => value >= 28), `controls must not collapse: ${metrics.widths}`);
@@ -69,7 +70,7 @@ for (const language of ['cn', 'en']) {
                     await page.locator('.console-mobile-nav').waitFor();
                     await page.keyboard.press('Escape');
                     await page.locator('.console-mobile-nav').waitFor({ state: 'hidden' });
-                    // Focus restoration is owned by WUI-111; do not silently certify it here.
+                    await page.waitForFunction(() => document.activeElement?.classList.contains('mobile-nav-toggle'));
                 }
                 assert.deepEqual(errors, []);
             });

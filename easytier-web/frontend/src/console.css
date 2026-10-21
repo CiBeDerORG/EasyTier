@@ -49,9 +49,9 @@
 .console-topbar { min-height: 65px; padding: 10px 36px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--console-border); background: var(--console-panel); }
 /* The breadcrumb yields space to actions, never to a shrinking navigation
    button. Ellipsis changes presentation only; the full title stays in the DOM. */
-.console-topbar > div:first-child { flex: 1; min-width: 0; }
-.console-topbar > div:last-child { flex-shrink: 0; }
-.console-topbar > div:first-child > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.console-breadcrumb { flex: 1; min-width: 0; }
+.console-topbar-actions { flex-shrink: 0; }
+.console-page-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .console-topbar .p-button, .console-topbar .topbar-brand { flex-shrink: 0; }
 .topbar-brand { color: var(--console-muted); font-size: 12px; }
 .topbar-divider { height: 18px; width: 1px; background: var(--console-border); margin: 0 4px; }

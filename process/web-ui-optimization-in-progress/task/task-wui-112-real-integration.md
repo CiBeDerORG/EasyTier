@@ -3,8 +3,8 @@ id: WUI-112
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-008"]
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec1
 depends_on: ["WUI-111"]
 read_scope: ["process/web-ui-optimization-in-progress/require/evidence/", "process/web-ui-optimization-in-progress/plan/integration.md", "easytier-web/frontend/package.json", "easytier-web/frontend/tests/helpers/webTestBinary.mjs", "easytier-web/frontend/src/"]
 write_scope: ["easytier-web/frontend/tests/web-ui-integration.test.mjs", "easytier-web/frontend/tests/dashboard.test.mjs", "easytier-web/frontend/tests/user-management-e2e.test.mjs", "process/web-ui-optimization-in-progress/plan/verification/"]
@@ -69,3 +69,5 @@ updated_at: 2026-10-21
 - [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
+
+2026-10-21：监工准入：采用WUI111冻结前端产物与隔离后端/SQLite做集中与真实联调，和ECO113源码改动隔离。

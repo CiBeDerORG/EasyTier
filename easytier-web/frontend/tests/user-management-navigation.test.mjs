@@ -24,6 +24,7 @@ async function open(t, path = '/h/users', setup = () => {}) {
         state.requests.push({ path, method: req.method(), body: req.postDataJSON() });
         const json = (body, status = 200) => route.fulfill({ status, json: body });
         if (state.fail && path === state.fail.path) {
+            if (state.fail.delay) await new Promise(resolve => setTimeout(resolve, state.fail.delay));
             if (state.fail.network) return route.abort();
             return json({ code: state.fail.code, message: 'untrusted' }, state.fail.status);
         }
@@ -200,4 +201,40 @@ test('server local-password rejection explains the capability and stops further 
     assert.equal(await p.locator('#new-account-password').count(), 0);
     assert.equal(await p.getByText('You do not have permission for this operation.', { exact: true }).count(), 0);
     assert.equal(state.requests.filter(x => x.path === '/auth/password').length, 1);
+});
+
+test('mobile navigation dismissal restores toggle repeatedly; navigation closes onto content', async t => {
+    const { page: p } = await open(t);
+    await p.setViewportSize({ width: 360, height: 900 });
+    await p.getByRole('heading', { name: 'User management', exact: true }).waitFor();
+    const toggle = p.locator('.mobile-nav-toggle');
+    const drawer = p.locator('.console-mobile-nav');
+    for (let attempt = 0; attempt < 3; attempt++) {
+        await toggle.click(); await drawer.waitFor(); await p.keyboard.press('Escape');
+        await drawer.waitFor({ state: 'hidden' });
+        await p.waitForFunction(() => document.activeElement?.classList.contains('mobile-nav-toggle'));
+    }
+    await toggle.click(); await drawer.waitFor();
+    await drawer.getByRole('link', { name: 'Dashboard', exact: true }).click();
+    await p.waitForURL('**/#/h'); await drawer.waitFor({ state: 'hidden' });
+    await p.waitForFunction(() => document.activeElement?.id === 'main-content');
+    await toggle.click(); await drawer.waitFor();
+    await p.evaluate(() => { location.hash = '#/h/users'; });
+    await drawer.waitFor({ state: 'hidden' });
+    await p.waitForFunction(() => document.activeElement?.id === 'main-content');
+});
+
+test('forced-password identity arriving while mobile navigation is open focuses available content', async t => {
+    const { page: p, state } = await open(t);
+    await p.setViewportSize({ width: 360, height: 900 });
+    await p.getByRole('heading', { name: 'User management', exact: true }).waitFor();
+    state.fail = { path: '/admin/users', status: 403, code: 'forbidden', delay: 500 };
+    state.me.must_change_password = true;
+    await p.locator('form.filters').dispatchEvent('submit');
+    await p.locator('.mobile-nav-toggle').click();
+    await p.locator('.console-mobile-nav').waitFor();
+    await p.waitForURL('**/#/h/password');
+    await p.locator('.console-mobile-nav').waitFor({ state: 'hidden' });
+    assert.equal(await p.locator('.mobile-nav-toggle').count(), 0);
+    await p.waitForFunction(() => document.activeElement?.id === 'main-content');
 });

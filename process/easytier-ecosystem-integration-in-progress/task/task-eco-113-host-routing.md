@@ -4,8 +4,8 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-009]
 task_type: implementation
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec3
 depends_on: ["ECO-112"]
 read_scope: ["easytier-web/frontend/src/components/ecosystem/EcosystemPage.vue", "easytier-web/frontend/src/modules/api.ts", "easytier-web/frontend/src/components/ChangePassword.vue", "process/easytier-ecosystem-integration-in-progress/plan/design/integration-composition.md"]
 write_scope: ["easytier-web/frontend/src/main.ts", "easytier-web/frontend/src/components/MainPage.vue", "easytier-web/frontend/tests/ecosystem-host.test.mjs", "process/easytier-ecosystem-integration-in-progress/plan/design/integration.md"]
@@ -71,3 +71,5 @@ updated_at: 2026-10-21
 ## 当前记录
 
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
+
+2026-10-21：ECO112和WUI111已验收，领取MainPage/main.ts及构建锁，保留WUI111语义与焦点改动。

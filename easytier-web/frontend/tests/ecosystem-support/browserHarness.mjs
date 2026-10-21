@@ -8,7 +8,7 @@ import vue from '@vitejs/plugin-vue';
 import yaml from '@modyfi/vite-plugin-yaml';
 
 export const frontendRoot = fileURLToPath(new URL('../../', import.meta.url));
-const fixtureKeys = ['topology', 'nodeDetails', 'resourceDetails', 'access', 'navigation', 'queryNotice', 'capabilityNotice'];
+const fixtureKeys = ['topology', 'nodeDetails', 'resourceDetails', 'access', 'navigation', 'queryNotice', 'capabilityNotice', 'composition'];
 
 async function availableLoopbackPort() {
     const reservation = createPortReservation();
@@ -44,20 +44,23 @@ import '/src/console.css';
 import '/src/style.css';
 import Component from ${JSON.stringify('/' + componentPath)};
 import { createEcosystemFixture, fixtureScenarios } from '/tests/ecosystem-support/fixtures.ts';
+import { createCompositionFixture } from '/tests/ecosystem-support/compositionFixture.ts';
 import en from '/@fs/${frontendRoot}../frontend-lib/src/locales/en.yaml';
 import cn from '/@fs/${frontendRoot}../frontend-lib/src/locales/cn.yaml';
 const query = new URLSearchParams(location.search);
 const scenario = query.get('scenario') || 'central';
 if (!fixtureScenarios.includes(scenario)) throw new Error('Unknown fixture scenario: ' + scenario);
-const props = reactive(createEcosystemFixture(scenario)[${JSON.stringify(fixtureKey)}]);
+const props = reactive(${fixtureKey === 'composition' ? 'createCompositionFixture()' : `createEcosystemFixture(scenario)[${JSON.stringify(fixtureKey)}]`});
 const events = [];
 const handlers = Object.fromEntries(${JSON.stringify(eventNames)}.map(name => ['on' + name[0].toUpperCase() + name.slice(1), (...args) => events.push({ name, args })]));
 window.ecosystemFixture = { props, events, setProps(next) { Object.assign(props, next); }, clearEvents() { events.length = 0; } };
 document.documentElement.classList.toggle('app-dark', query.get('theme') === 'dark');
-createApp({ render: () => h(Component, { ...props, ...handlers }) })
+const app = createApp({ render: () => h(Component, { ...props, ...handlers }) })
     .use(PrimeVue, { theme: { preset: ConsoleTheme, options: { darkModeSelector: '.app-dark' } } })
     .use(createI18n({ legacy: false, locale: query.get('lang') === 'cn' ? 'cn' : 'en', messages: { en, cn } }))
-    .mount('#app');`;
+    ;
+app.mount('#app');
+window.ecosystemFixture.unmount = () => app.unmount();`;
     let server;
     async function close() {
         try { await server?.close(); }

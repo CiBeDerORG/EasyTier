@@ -16,7 +16,7 @@ const cycleThemeMode = () => {
 };
 
 import { I18nUtils } from 'easytier-frontend-lib'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, nextTick, ref, watch, type ComponentPublicInstance } from 'vue';
 import { Button, Drawer, Menu, OverlayBadge, Popover, TieredMenu, useToast } from 'primevue';
 import { useRoute, useRouter } from 'vue-router';
 import ChangePassword from './ChangePassword.vue';
@@ -281,6 +281,30 @@ const pageTitle = computed(() => {
 });
 const forceShowSideBar = ref(false);
 const mainContent = ref<HTMLElement>();
+const mobileNavigationToggle = ref<ComponentPublicInstance>();
+let navigationOriginPath: string | undefined;
+
+function openMobileNavigation() {
+    navigationOriginPath = route.fullPath;
+    forceShowSideBar.value = true;
+}
+
+async function restoreNavigationFocus() {
+    if (navigationOriginPath === undefined) return;
+    const navigated = navigationOriginPath !== route.fullPath;
+    navigationOriginPath = undefined;
+    await nextTick();
+    const toggle = mobileNavigationToggle.value?.$el as HTMLElement | undefined;
+    const target = !navigated && toggle?.isConnected && toggle.getClientRects().length
+        ? toggle : mainContent.value;
+    target?.focus();
+}
+
+watch(() => currentUser.value?.must_change_password, async required => {
+    if (!required || navigationOriginPath === undefined) return;
+    forceShowSideBar.value = false;
+    await restoreNavigationFocus();
+});
 
 // 切换页面后关闭移动端侧边栏。
 watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
@@ -322,7 +346,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                 <i class="pi pi-book" aria-hidden="true"></i>{{ t('web.console.documentation') }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i>
             </a>
         </aside>
-        <Drawer v-if="!currentUser?.must_change_password" v-model:visible="forceShowSideBar" :header="t('web.console.navigation')" class="console-mobile-nav">
+        <Drawer v-if="!currentUser?.must_change_password" v-model:visible="forceShowSideBar" :header="t('web.console.navigation')" class="console-mobile-nav" @after-hide="restoreNavigationFocus">
             <nav :aria-label="t('web.console.navigation')">
                 <div class="nav-caption">{{ t('web.console.workspace') }}</div>
                 <Menu :model="workspaceNavigation" :aria-label="t('web.console.navigation')" class="console-navigation">
@@ -351,13 +375,13 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
         </Drawer>
         <div class="console-workspace">
             <header class="console-topbar">
-                <div class="flex items-center gap-3 min-w-0">
-                    <Button icon="pi pi-bars" text severity="secondary" class="mobile-nav-toggle"
-                        :aria-label="t('web.console.navigation')" @click="forceShowSideBar = true" />
+                <div class="console-breadcrumb flex items-center gap-3 min-w-0">
+                    <Button v-if="!currentUser?.must_change_password" ref="mobileNavigationToggle" icon="pi pi-bars" text severity="secondary" class="mobile-nav-toggle"
+                        :aria-label="t('web.console.navigation')" @click="openMobileNavigation" />
                     <span class="topbar-brand">{{ t('web.console.workspace') }}</span>
-                    <i class="pi pi-angle-right topbar-brand" aria-hidden="true"></i><span>{{ pageTitle }}</span>
+                    <i class="pi pi-angle-right topbar-brand" aria-hidden="true"></i><span class="console-page-title" :title="pageTitle">{{ pageTitle }}</span>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="console-topbar-actions flex items-center gap-2">
                     <Button v-if="currentUser && !currentUser.must_change_password" icon="pi pi-objects-column" :label="t('web.console.enroll_title')"
                         severity="secondary" outlined size="small" class="enroll-button"
                         :aria-label="t('web.console.enroll_title')"

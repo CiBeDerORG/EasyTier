@@ -7,8 +7,8 @@
 | 独立需求 / 汇总入口 | 总体状态 | 需求 | 计划 | 任务看板 |
 | --- | --- | --- | --- | --- |
 | [Web 用户管理](web-user-management-done/README.md) | `done`；交付基线 `feat/web-user-management@1e92296b` | [require](web-user-management-done/require/README.md) | [plan](web-user-management-done/plan/README.md) | [task](web-user-management-done/task/README.md) |
-| [网络拓扑与资源集成](easytier-ecosystem-integration-in-progress/README.md) | `in-progress`；ECO-101–103完成，ECO-104/105公共基础中 | [require](easytier-ecosystem-integration-in-progress/require/README.md) | [plan](easytier-ecosystem-integration-in-progress/plan/README.md) | [task](easytier-ecosystem-integration-in-progress/task/README.md) |
-| [现有 Web 交互优化与页面美化](web-ui-optimization-in-progress/README.md) | `in-progress`；WUI-101–103完成，WUI-105用户表优化中 | [require](web-ui-optimization-in-progress/require/README.md) | [plan](web-ui-optimization-in-progress/plan/README.md) | [task](web-ui-optimization-in-progress/task/README.md) |
+| [网络拓扑与资源集成](easytier-ecosystem-integration-in-progress/README.md) | `in-progress`；ECO-101–112已验收；ECO-113宿主接线中 | [require](easytier-ecosystem-integration-in-progress/require/README.md) | [plan](easytier-ecosystem-integration-in-progress/plan/README.md) | [task](easytier-ecosystem-integration-in-progress/task/README.md) |
+| [现有 Web 交互优化与页面美化](web-ui-optimization-in-progress/README.md) | `in-progress`；WUI-101–111已验收；WUI-112隔离联调中 | [require](web-ui-optimization-in-progress/require/README.md) | [plan](web-ui-optimization-in-progress/plan/README.md) | [task](web-ui-optimization-in-progress/task/README.md) |
 
 ## 2. 固定目录与命名
 
@@ -115,7 +115,7 @@ process/
 
 ### 跨需求共享文件调度
 
-以下适用于本轮拓扑与 Web 美化的任务拆分。`F` 为 `easytier-web/frontend`，`L` 为 `easytier-web/frontend-lib`；任务身份见两项需求的[拓扑看板](easytier-ecosystem-integration-in-progress/task/README.md)和[Web 美化看板](web-ui-optimization-in-progress/task/README.md)。表内指定未来写入任务，当前均未认领，不代表已经分配实际 Agent。
+以下适用于本轮拓扑与 Web 美化的任务拆分。`F` 为 `easytier-web/frontend`，`L` 为 `easytier-web/frontend-lib`；任务身份见两项需求的[拓扑看板](easytier-ecosystem-integration-in-progress/task/README.md)和[Web 美化看板](web-ui-optimization-in-progress/task/README.md)。表内约定唯一写入任务；实际认领与交接状态以各任务看板及当前共享锁为准。
 
 | 共享资源 / 文件 | 允许写入的任务 | 消费方及交接要求 |
 | --- | --- | --- |
@@ -129,7 +129,7 @@ process/
 
 **调度规则：**
 
-1. 任务开始写共享集合前，在任务交接记录与看板登记领取范围、执行者及采用提交。已有持有者时等待交还，不能通过新 worktree 绕过语义所有权；当前没有任何任务持有共享写入权。
+1. 任务开始写共享集合前，在任务交接记录与看板登记领取范围、执行者及采用提交。已有持有者时等待交还，不能通过新 worktree 绕过语义所有权；当前共享锁见下方实施记录。
 2. 两个写入者同时就绪且无人持有时，默认 WUI 对应任务先、ECO 对应任务后；只有一个就绪时可直接领取，不等待另一整项需求完成。此规则是条件调度，不往两个需求的 `depends_on` 中加入相互硬依赖。
 3. 一次领取任务本轮需要的完整共享集合，不能分别持有部分集合再互相等待。完成后交付提交/文件差异、契约或键名、实际验证证据与限制，交还写入权；接收者先吸收变更再写，不拿旧快照覆盖新代码。
 4. `MainPage.vue` 的 `loadUsers`、`selectUser`、`loadEvents`、`mutate`、身份刷新、迟到响应及凭据清除属于宿主边界。WUI-104/105 只改各自组件；发现宿主问题交 WUI-111，ECO-113 保持兼容，不自行重做账号流程。
@@ -152,3 +152,7 @@ process/
 2026-10-21：计划与任务改用带类型、编号、名称的小文件，README 保留索引/看板；拆分现有计划并重命名已交付任务文件，保留原任务编号与完成证据。
 
 2026-10-21：明确“需求拆分”必须落到小计划与小任务，强制多 Agent 依赖、独占文件、公共写入者和联调安排；据此继续拆分拓扑与 Web 美化需求。仅编写文档，不触发实施、构建、测试或 CI。
+
+## 当前共享锁（2026-10-21）
+
+`/root/iteration_exec3` 执行 ECO-113，接收 WUI-111 已验收的 MainPage.vue/main.ts 与构建写入权；保留语义类和焦点行为。`/root/iteration_exec1` 执行 WUI-112，仅使用冻结的 WUI-111 dist 与隔离服务，独占集中回归文件。`/root/iteration_exec2` 待 ECO-114 前置就绪；监工 `/root/iteration_monitor` 负责验收及联调准入。实际完成数以任务看板为准。

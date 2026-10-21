@@ -31,3 +31,5 @@ pnpm 入口在此环境触发自动依赖检查并尝试写不存在的 `/home/a
 - WUI-111 另修移动菜单焦点返回；当前测试只检查打开/关闭，不宣称焦点缺陷已解决。
 - WUI-105 修用户表窄列；不在公共 CSS 写页面特定补丁。
 - 监工验收后由总控交还 locale/package 锁，ECO-104/105 再接写。后续页面公共文案/样式请求继续经唯一所有者串行处理。
+
+2026-10-21，WUI-111 串行交接：已由同一公共资源负责人将 topbar 的 DOM 顺序选择器替换为 `console-breadcrumb`、`console-page-title`、`console-topbar-actions`。宿主补完整 title 提示及关闭焦点策略；foundation 12 项矩阵全部通过，360px 组合额外断言焦点恢复。见 [宿主接线证据](../integration.md)。

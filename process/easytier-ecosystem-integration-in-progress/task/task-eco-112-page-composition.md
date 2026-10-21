@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-009]
 task_type: implementation
-status: in_progress
+status: done
 owner: /root/iteration_exec3
 depends_on: ["ECO-106", "ECO-107", "ECO-108", "ECO-109", "ECO-110", "ECO-111"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "easytier-web/frontend/src/modules/ecosystemTypes.ts", "easytier-web/frontend/src/modules/ecosystemApi.ts", "easytier-web/frontend/src/components/ecosystem/topology/", "easytier-web/frontend/src/components/ecosystem/nodes/", "easytier-web/frontend/src/components/ecosystem/resources/", "easytier-web/frontend/src/components/ecosystem/access/", "easytier-web/frontend/src/components/ecosystem/navigation/"]
@@ -60,8 +60,8 @@ updated_at: 2026-10-21
 
 ## 完成与交接
 
-- [ ] 各页面/API已交付，组合后的输入输出、迟到响应、失败恢复和按需请求有证据。
-- [ ] 交付采用提交和组件契约；不以组件能够渲染声称真实外部操作已通过。
+- [x] 各页面/API已交付，组合后的输入输出、迟到响应、失败恢复和按需请求有证据。
+- [x] 交付采用提交和组件契约；不以组件能够渲染声称真实外部操作已通过。
 
 交给 ECO-113；局部缺陷按106～111所有权回派，修复后只复验受影响组合。
 
@@ -72,3 +72,5 @@ updated_at: 2026-10-21
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
 
 2026-10-21：106–111全部验收，认领组合页请求/身份/选择生命周期及交互验证，不提前写正式路由。
+
+2026-10-21：监工验收页面组合及代次隔离；类型检查通过，组合3/3、支撑4/4，新增pending成员遇overview失败精准回归1/1通过（非全套重跑）。真实后端联调留ECO114。
