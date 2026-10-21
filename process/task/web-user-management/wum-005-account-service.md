@@ -1,8 +1,8 @@
 ---
 id: WUM-005
 feature: web-user-management
-status: blocked
-owner: null
+status: in_progress
+owner: /root/wum005
 depends_on: ["WUM-003"]
 write_scope: ["easytier-web/src/user_management/","easytier-web/src/main.rs"]
 requirements: ["UM-02","UM-03","UM-04","UM-05","UM-06","UM-07","UM-08","UM-09","UM-10"]
@@ -52,3 +52,5 @@ updated_at: "2026-10-21"
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
 
 - 2026-10-21：协调者独占追加 `easytier-web/Cargo.toml` / 根 `Cargo.lock` 的 md5 直接依赖（沿用锁内0.7.0），供临时凭据和离线恢复兼容旧摘要输入；005不并行编辑清单或锁文件。
+
+- 2026-10-21：WUM-003实际测试通过后认领。DB完整侧表更新须持有数据库写锁；D-01按用户选择A保留旧登录并提示改密。

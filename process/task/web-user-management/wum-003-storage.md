@@ -1,7 +1,7 @@
 ---
 id: WUM-003
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum003
 depends_on: ["WUM-001"]
 write_scope: ["easytier-web/src/db/","easytier-web/src/migrator/"]
@@ -31,10 +31,10 @@ updated_at: "2026-10-21"
 
 ## 实施与验收
 
-- [ ] 旧用户 ID、用户名、密码哈希、组关系、资源归属保持；历史时间与身份来源未知时不造假。
-- [ ] 支持列表稳定分页、状态与角色查询、会话版本、身份唯一约束和审计写入；不返回包含密码哈希的公开 DTO。
-- [ ] 明确并发角色变更与最后管理员保护所需的事务保证，供 WUM-005 使用；提供必要的幂等关系操作。
-- [ ] 测试旧库升级、新库、冲突/回滚与未知值；新增实体和 migration 已注册并参与实际执行。
+- [x] 旧用户 ID、用户名、密码哈希、组关系、资源归属保持；历史时间与身份来源未知时不造假。
+- [x] 支持列表稳定分页、状态与角色查询、会话版本、身份唯一约束和审计写入；不返回包含密码哈希的公开 DTO。
+- [x] 明确并发角色变更与最后管理员保护所需的事务保证，供 WUM-005 使用；提供必要的幂等关系操作。
+- [x] 测试旧库升级、新库、冲突/回滚与未知值；新增实体和 migration 已注册并参与实际执行。
 
 ## 交付清单
 
@@ -51,3 +51,6 @@ updated_at: "2026-10-21"
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
 
 - 2026-10-21：基于 WUM-001 v1 独立契约认领；D-01 未决，不实施自动停用旧预置账号。独占原 write_scope；协调者维护状态与提交。
+
+- 2026-10-21：新增011迁移、user_access/user_identities/user_events/数据库写锁及 `db::user_management` 持久化接口；不改生成实体或历史迁移。`has_manage_permission` 查真实权限。完整access upsert须在 begin→lock→read→save 事务中使用，防止覆盖并发会话版本。
+- 验证：`cargo test --locked -p easytier-web user_management_`：3 passed / 0 failed / 273 filtered（真实隔离SQLite，旧库资源/组/凭据保留、分页筛选、身份唯一、失败回滚、两个独立连接池写锁序列化）；rustfmt/check及 `git diff --check` 通过。编译warning未用import已删除，无语义变更。此结果不替代WUM-011完整升级验收。
