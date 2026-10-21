@@ -1,7 +1,7 @@
 ---
 id: WUM-007
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum007
 depends_on: ["WUM-001"]
 write_scope: ["easytier-web/frontend/src/modules/api.ts","easytier-web/frontend/src/modules/userManagement.ts","easytier-web/frontend/tests/user-management-client.test.mjs"]
@@ -31,10 +31,10 @@ updated_at: "2026-10-21"
 
 ## 实施与验收
 
-- [ ] DTO 保持 snake_case 契约及旧密码输入兼容；401、403、网络失败可区分，不把所有失败归为未登录。
-- [ ] 创建/重置凭据不进入完整 Axios 日志、URL、localStorage 或通用提示；不改变其他业务接口的无关行为。
-- [ ] 通过类型/构建检查和可执行的客户端针对性验证，覆盖错误映射、请求参数与敏感日志；明确 mock 不能证明后端授权。
-- [ ] 新测试可用明确命令独立运行；固定公共 runner 的扩展由 WUM-010 汇总，不以未运行的文件作为测试证据。
+- [x] DTO 保持 snake_case 契约及旧密码输入兼容；401、403、网络失败可区分，不把所有失败归为未登录。
+- [x] 创建/重置凭据不进入完整 Axios 日志、URL、localStorage 或通用提示；不改变其他业务接口的无关行为。
+- [x] 通过类型/构建检查和可执行的客户端针对性验证，覆盖错误映射、请求参数与敏感日志；明确 mock 不能证明后端授权。
+- [x] 新测试可用明确命令独立运行；固定公共 runner 的扩展由 WUM-010 汇总，不以未运行的文件作为测试证据。
 
 ## 交付清单
 
@@ -51,3 +51,6 @@ updated_at: "2026-10-21"
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
 
 - 2026-10-21：基于 WUM-001 v1 独立契约认领；D-01 未决，不实施自动停用旧预置账号。独占原 write_scope；协调者维护状态与提交。
+
+- 2026-10-21：交付 `api.userManagement` 及 v1.1 DTO（含 `default_password_warning`），安全错误 `UserManagementError/toUserManagementError`；移除完整 Axios/认证响应日志。方法为 getMe/getPolicy/listUsers/getUser/createUser/setAccess/setRole/resetPassword/revokeSessions/listEvents。
+- 验证：`pnpm --filter easytier-frontend build` 通过（共享库、vue-tsc、Vite）；`node --test easytier-web/frontend/tests/user-management-client.test.mjs` 5/5 通过；`git diff --check` 通过。使用实际 Axios + 隔离模拟 HTTP 服务，不证明后端授权；真实后端由 WUM-010 验证。

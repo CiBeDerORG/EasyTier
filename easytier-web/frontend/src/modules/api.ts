@@ -1,6 +1,7 @@
 import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { type Api, NetworkTypes, Utils } from 'easytier-frontend-lib';
 import { Md5 } from 'ts-md5';
+import { UserManagementClient } from './userManagement';
 
 export interface ValidateConfigResponse {
     toml_config: string;
@@ -211,6 +212,7 @@ export interface AclPolicyInfo {
 
 export class ApiClient {
     private client: AxiosInstance;
+    public readonly userManagement: UserManagementClient;
     private authFailedCb: Function | undefined;
 
     constructor(baseUrl: string, authFailedCb: Function | undefined = undefined) {
@@ -232,35 +234,22 @@ export class ApiClient {
 
         // 添加响应拦截器
         this.client.interceptors.response.use((response: AxiosResponse) => {
-            console.debug('Axios Response:', response);
             return response.data; // 假设服务器返回的数据都在data属性中
         }, (error: any) => {
-            if (error.response) {
-                let response: AxiosResponse = error.response;
-                if (response.status == 401 && this.authFailedCb) {
-                    console.error('Unauthorized:', response.data);
-                    this.authFailedCb();
-                } else {
-                    // 请求已发出，但是服务器响应的状态码不在2xx范围
-                    console.error('Response Error:', error.response.data);
-                }
-            } else if (error.request) {
-                // 请求已发出，但是没有收到响应
-                console.error('Request Error:', error.request);
-            } else {
-                // 发生了一些问题导致请求未发出
-                console.error('Error:', error.message);
+            // Do not log Axios objects: they can contain credentials and request bodies.
+            if (axios.isAxiosError(error) && error.response?.status === 401) {
+                this.authFailedCb?.();
             }
             return Promise.reject(error);
         });
+        this.userManagement = new UserManagementClient(this.client);
     }
 
     // 注册
     public async register(data: RegisterData): Promise<RegisterResponse> {
         try {
             data.credentials.password = Md5.hashStr(data.credentials.password);
-            const response = await this.client.post<RegisterResponse>('/auth/register', data);
-            console.log("register response:", response);
+            await this.client.post<RegisterResponse>('/auth/register', data);
             return { success: true, message: 'Register success', };
         } catch (error) {
             if (error instanceof AxiosError) {
@@ -274,8 +263,7 @@ export class ApiClient {
     public async login(data: Credential): Promise<LoginResponse> {
         try {
             data.password = Md5.hashStr(data.password);
-            const response = await this.client.post<any>('/auth/login', data);
-            console.log("login response:", response);
+            await this.client.post('/auth/login', data);
             return { success: true, message: 'Login success', };
         } catch (error) {
             if (error instanceof AxiosError) {
