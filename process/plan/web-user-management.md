@@ -1,6 +1,6 @@
 ---
 id: PLAN-WUM
-status: draft
+status: in_progress
 requirement: docs/requirements/web-user-management.md
 task_board: process/task/README.md
 updated_at: 2026-10-21
@@ -10,7 +10,7 @@ updated_at: 2026-10-21
 
 需求依据：[Web 用户管理需求分析](../../docs/requirements/web-user-management.md)。执行入口：[任务看板](../task/README.md)与 [11 项任务文档](../task/web-user-management/README.md)。本文安排工作边界与依赖；任务状态、负责人和执行证据以各任务明细为准。
 
-本计划尚未执行。首期采用“平台管理员管理本地控制台账号”的建议范围，停用影响、凭据交付和适用身份部署仍需在 WUM-001 明确。这里的任务就绪不表示功能已经实现。
+本计划进入实施，WUM-001 的稳定契约见第8节；各任务状态由协调者维护。这里的契约就绪不表示功能已经实现。
 
 ## 1. 目标与范围
 
@@ -175,3 +175,115 @@ WUM-004 与 WUM-005 共同消费 WUM-003 已落地的 DB 接口和 WUM-001 契�
 
 - 2026-10-21：建立实施计划与并行边界；所有实施任务尚未执行。契约基线待 WUM-001 补齐。
 - 2026-10-21：补齐 UM-01 至 UM-10 的实施责任/验收映射及 M1 至 M5 阶段交付条件；沿用 11 个任务及现有依赖，不改变开发任务执行状态。
+
+## 8. WUM 契约 v1（2026-10-21）
+
+本节是 WUM-001 交付的实现基线，取代上文“待明确”的候选行为。依据 UM-01 至 UM-10 及用户要求实施既有任务的授权，选择草案中本地控制台管理方案；不是功能已实现声明。所有任务沿用原编号、依赖和写入者。契约变更须协调者通知所有消费方。
+
+### 8.1 角色、状态与凭据
+
+- 角色 `admin | user` 从 `admins` 组成员关系推导；新增 `users.manage` 权限仅授予 `admins`。有效管理员为控制台访问启用且属于 `admins` 的账号；受限首次改密不移除其角色。服务每次写事务内重新读取 actor 的访问状态、权限及受限状态，不相信 HTTP 输入的能力。
+- 禁止本人停用、本人降权和本人管理员密码重置，返回 `self_action_forbidden`；本人改密走既有接口。允许本人撤销全部会话，成功后退出。任何降低有效管理员数量的动作必须在同一写事务锁定、计数、更新，不允许零个有效管理员。
+- `web_login_enabled=false` 只拒绝控制台登录和后续认证请求；不删除资源，不触发设备断线、Core 重启或网络冻结。恢复仅启用后续登录。访问状态或角色实际改变、密码重置、本人改密及主动撤销均增加 `auth_version`；幂等重复设置不增加版本。会话认证摘要同时覆盖当前密码哈希和版本；上线时旧摘要会话失效一次。
+- 新建本地账号和重置由服务端生成 32 个十六进制字符（至少 128 位随机性）的临时密码；仅创建/重置成功响应返回一次，24 小时过期，`must_change_password=true`。数据库只保存现有 password_auth 哈希，输入仍为临时密码的 MD5 小写十六进制摘要；前端旧登录/改密摘要格式不改。新密码不可与临时密码相同。MD5 不提供传输保护。
+- 受限会话仅可 GET `auth/me`、旧 `auth/check_login_status`、PUT `auth/password`、退出；所有工作区及管理接口拒绝为 403 `password_change_required`。临时凭据过期后登录和受限会话均拒绝；重新重置可恢复。本人改密成功清除期限/受限标志并退出，必须重新登录。保留旧摘要输入兼容，因此服务端只能验证摘要为 32 位十六进制；UI 新密码要求 12–128 字符，不虚称服务端能由 MD5 验证原始密码强度。
+- 历史账号 `source=unknown`、`local_password_enabled=null`：保留原密码登录和成功登录后的本人改密，不向管理员开放重置。密码验证成功可确认本地凭据能力为 true，但 source 仍是 unknown。新注册/管理员创建为 local/true，新增 OIDC 为 oidc/false；设备自动建号为 device/false；历史来源不可由哈希或用户名推断。
+- OIDC 使用验证过的 `(issuer, subject)` 唯一绑定；绑定后以 user_id 查找并检查停用/受限。无绑定且用户名未占用可自动创建普通用户；同名已存在但无绑定返回 `identity_conflict`，绝不自动合并，即使名字与已有管理员一致。旧 OIDC 部署升级需运维离线核实映射再绑定，绑定不改变角色、密码或访问状态；禁止仅凭 username 自动迁移。外部 webhook/设备映射仍用原资源归属，不覆盖账号状态。
+
+- 管理写操作不新增二次因素或重新输入管理员密码：每次使用完整非受限会话、事务内权限重查、目标确认和同源保护；这是受信运维角色下的 v1 决定，不声称具备再次认证能力。
+
+### 8.2 HTTP 与 DTO（WUM-006/007/008/009）
+
+所有路径基于 `/api/v1`，JSON 使用 snake_case；ID 为正 i32，日期为 RFC3339 UTC 字符串或 null。用户摘要 `UserSummary`：
+
+```ts
+type UserSummary = {
+  id: number; username: string; role: 'admin' | 'user';
+  web_login_enabled: boolean; source: 'unknown' | 'local' | 'oidc' | 'device';
+  local_password_enabled: boolean | null; must_change_password: boolean;
+  created_at: string | null; last_login_at: string | null;
+};
+type Page<T> = { items: T[]; total: number; page: number; page_size: number };
+type CurrentUser = UserSummary & { capabilities: string[] };
+type CredentialDelivery = { user: UserSummary; temporary_password: string; expires_at: string };
+type UserEvent = { id: number; actor_id: number | null; target_id: number | null;
+  action: string; occurred_at: string; result: 'success' | 'denied' | 'failure' };
+```
+
+`capabilities` 当前只暴露 `users.manage`（满足访问/权限且非受限时），不得暴露设备 token、密码哈希、auth_version 或 OIDC subject。审计 action 固定为 `create/access/role/password_reset/revoke_sessions/bootstrap/recover/identity_bind`，不含请求体或凭据。未知时间返回 null，UI 显示未知。
+
+| 方法路径 | 请求 | 成功响应 |
+| --- | --- | --- |
+| GET `/auth/me` | 无 | 200 CurrentUser |
+| GET `/auth/policy` | 无 | 200 `{registration_enabled:boolean,oidc_enabled:boolean}` |
+| GET `/admin/users` | `search?`, `role?`, `web_login_enabled?`, `page=1`, `page_size=20` | 200 Page<UserSummary> |
+| GET `/admin/users/{id}` | 无 | 200 UserSummary |
+| POST `/admin/users` | `{username:string}`，默认普通用户 | 201 CredentialDelivery |
+| PUT `/admin/users/{id}/access` | `{web_login_enabled:boolean}` | 200 UserSummary |
+| PUT `/admin/users/{id}/role` | `{role:'admin'|'user'}` | 200 UserSummary |
+| POST `/admin/users/{id}/password-reset` | `{}` | 200 CredentialDelivery |
+| POST `/admin/users/{id}/revoke-sessions` | `{}` | 200 UserSummary |
+| GET `/admin/user-events` | `target_id?`, `page=1`, `page_size=20` | 200 Page<UserEvent> |
+
+新管理员创建用户名采用 `^[A-Za-z0-9_.@-]{3,64}$`、大小写敏感、不自动 trim；旧用户名保持可读可登录，不据此重新校验历史记录。列表 search 为用户名大小写不敏感字面子串，SQL LIKE 元字符转义；空 search 等于无筛选。角色/状态条件与 search AND 组合，用户按 id ASC，审计按 id DESC；page>=1、1<=page_size<=100，非法值 400，超出末页为空 items 且 total 保留。稳定排序不保证跨并发修改的快照游标。
+
+错误保持现有 `{message:string,code?:string}` 包络，新接口必须填写稳定 code：400 `invalid_request`；401 `unauthenticated`（包括停用/失效会话）；403 `forbidden`、`password_change_required`、`self_action_forbidden`、`local_password_unavailable`、`csrf_rejected`；404 `user_not_found`；409 `username_conflict`、`last_admin`、`identity_conflict`；500 `internal_error`。登录统一 401 `invalid_credentials`，不泄露是否存在/停用。临时密码过期归此登录失败。HTTP 403 不等于未登录；无响应的网络错误单独表示。
+
+角色/访问 PUT 为幂等设置，重复设置仍授权校验但不撤销会话/重复成功审计。创建/重置/撤销不自动重试；创建唯一约束冲突 409，重置成功但响应丢失需用户明确再次重置，旧临时凭据随即失效。不引入持久缓存凭据以实现幂等重放。
+
+### 8.3 存储与服务边界（WUM-003/004/005）
+
+采用新增 `user_access` 侧表（user_id 主键且外键 users.id），避免直接修改现有标为生成的 users 实体及改变设备端 users::Model 构造路径。字段为 `web_login_enabled`（默认 true）、`auth_version` i64（默认 0）、`must_change_password`（默认 false）、`source`（默认 unknown）、`local_password_enabled` nullable bool、`created_at`/`last_login_at`/`temporary_password_expires_at` nullable UTC 时间。迁移为已有用户建立 unknown 行；后续无侧表的旧自动建号路径读取为同样默认值，写入时幂等补行，不推断来源。
+
+新增 `user_identities`：id、user_id 外键、issuer、subject，唯一 `(issuer,subject)`；新增 `user_events`：上述 UserEvent 字段。新增单行写锁表 `user_management_lock`；事务首先 UPDATE 该锁行后再读取 actor/target/管理员数量，保证 SQLite 写入序列化，不用进程 mutex 代替数据库一致性。迁移添加 users.manage 并幂等关联 admins。历史默认凭据问题见 8.5。
+
+WUM-003 在 `db/user_management.rs` 暴露以下共享 Rust 契约，SeaORM 类型/连接复用已有依赖，不依赖 restful 或业务模块；允许泛型 `C: ConnectionTrait` 供事务和普通连接复用：
+
+```rust
+// UserAccess 的字段与侧表一致； UserRecord { user: users::Model, access: UserAccess,
+// role: String } 仅供服务端使用，禁止直接序列化到 HTTP。
+async fn get_user_record<C: ConnectionTrait>(conn: &C, user_id: i32)
+    -> Result<Option<UserRecord>, DbErr>;
+async fn ensure_user_access<C: ConnectionTrait>(conn: &C, user_id: i32)
+    -> Result<UserAccess, DbErr>;
+async fn save_user_access<C: ConnectionTrait>(conn: &C, access: &UserAccess)
+    -> Result<(), DbErr>;
+async fn set_user_role<C: ConnectionTrait>(conn: &C, user_id: i32, role: &str)
+    -> Result<(), DbErr>; // 幂等维护 admins/users 关系，不删除其他既有组
+async fn count_enabled_admins<C: ConnectionTrait>(conn: &C) -> Result<u64, DbErr>;
+async fn lock_user_management(txn: &DatabaseTransaction) -> Result<(), DbErr>;
+async fn append_user_event<C: ConnectionTrait>(conn: &C, event: NewUserEvent)
+    -> Result<(), DbErr>;
+async fn find_identity<C: ConnectionTrait>(conn: &C, issuer: &str, subject: &str)
+    -> Result<Option<i32>, DbErr>;
+async fn bind_identity<C: ConnectionTrait>(conn: &C, user_id: i32, issuer: &str, subject: &str)
+    -> Result<(), DbErr>;
+```
+
+WUM-003 同时提供 `list_user_records(conn, filter: UserListFilter) -> Result<(Vec<UserRecord>, u64), DbErr>`、`list_user_events(conn, target_id: Option<i32>, page: u64, page_size: u64) -> Result<(Vec<UserEvent>,u64), DbErr>`；UserListFilter 含 search/role/web_login_enabled 可选项及 page/page_size。具体时间类型统一 chrono UTC，存储与 JSON 间集中转换。接口若需调整由 WUM-003 交付前回报协调者并同步本节，004/005 不自行分叉。
+
+WUM-004 自主使用 db 契约实现认证、成功登录时间/凭据能力更新、OIDC 和本人改密事务；WUM-005 自主使用相同 db 契约实现 `UserManagementService::new(Db)`，方法 `list_users(actor_id,filter)`、`get_user(actor_id,target_id)`、`create_user(actor_id,username)`、`set_access(actor_id,target_id,enabled)`、`set_role(actor_id,target_id,role)`、`reset_password(actor_id,target_id)`、`revoke_sessions(actor_id,target_id)`、`list_events(actor_id,target_id,page,page_size)`，返回上述安全 DTO/稳定业务错误；WUM-006 将 HTTP 映射到这些方法。两者不互相调用未落地模块。
+
+每个管理写动作事务顺序：取得 DB 写锁→重新授权→读取目标及不变量→更新账号/版本/关系→成功审计→commit；任一步失败全部回滚。通过身份验证但被业务规则拒绝的管理写动作在回滚后单独记录 denied（actor/可确认 target/action），基础设施错误记录 failure；审计写失败返回 internal_error，不能宣称动作成功。匿名/CSRF 拒绝不写用户审计，避免伪造 actor。只读操作不写管理审计。
+
+### 8.4 UI 边界
+
+WUM-008 输出 `components/users/UserManagement.vue`（及其内部组件），结构化 props 使用上述 DTO 的等价本地类型，不 import 尚未交付客户端。props：`currentUser`, `users:Page<UserSummary>`, `events:Page<UserEvent>`, `selectedUser:UserSummary|null`, `loading:boolean`, `busy:boolean`, `stale:boolean`, `error:{code:string,message:string}|null`, `credential:CredentialDelivery|null`。events：`query(UserListFilter)`、`select(id)`、`create({username})`、`set-access({id,web_login_enabled})`、`set-role({id,role})`、`reset-password(id)`、`revoke-sessions(id)`、`query-events({target_id?,page,page_size})`、`dismiss-credential()`、`retry()`。
+
+WUM-009 唯一持有 HTTP 状态和请求序号，忽略旧查询响应；组件维持非敏感表单草稿，busy 禁止重复提交。成功之后重新读取列表/身份，失败不乐观改变账号。credential 默认遮蔽，关闭/导航/退出立即清空，不存缓存和 toast。组件负责目标/影响确认、键盘焦点、空/错误/过期反馈和窄屏；009 负责 401 退出、403 明确反馈并刷新能力、网络失败保留草稿。WUM-007 提供 `UserManagementClient`（复用 ApiClient 的 axios 实例或等价注入），方法与服务同名但省略 actor_id，另有 `getMe/getPolicy`，错误对象至少有 `status:number|null`、`code:string`、`message:string`。007 删除完整 Axios 响应日志。008 统一提供 `user_management.*` 双语键及强制改密/注册关闭文案，009 向其请求缺失键。
+
+### 8.5 部署、初始化、恢复与兼容
+
+首期支持同源浏览器部署，生产经 HTTPS；跨源带 Cookie 管理不支持。开发仅 loopback HTTP。WUM-006 对管理写入要求 `Content-Type: application/json` 和 `X-Requested-With: EasyTier`；浏览器 Origin 存在时必须与请求受信任外部 origin 完全一致，拒绝 null/跨源；未提供 Origin 的非浏览器客户端仍须自定义头。CORS 不允许任意来源携带此头，拒绝跨源预检。代理必须保留可信 Host；不信任客户端可伪造 forwarded header。会话 HttpOnly、SameSite=Lax；HTTPS 部署 Secure=true（配置由006独占接入），loopback 测试可 false。既有认证写入保持旧客户端兼容，不强制新增头；使用 JSON 内容类型并在 Origin 存在时校验同源。旧 GET logout 保留兼容且不承载其他操作。UA-14 必须验证实际策略而非仅配置存在。
+
+初始化不新增可预测密码、不提升首个注册用户。已有有效管理员关系、访问状态及凭据默认保持兼容，不根据用户名或已知哈希自动停用。**决策点 D-01（待用户决定）**：原迁移含公开固定凭据，自动禁用虽可降低风险，却与“已有管理员保持兼容、原凭据可用”冲突。暂停自动停用/强制改密这一升级变更，并阻塞 UA-12 最终交付结论；独立存储、恢复和管理功能继续。建议运维在隔离升级验收中验证显式离线恢复，再由用户决定是否授权针对仍使用原始固定凭据的账号强制处理，不默默改变访问。
+
+WUM-005 提供显式离线 `--recover-admin <username>` 入口：复用 DB 路径，停止正常服务启动，仅在受控终端从 stdin 读取新密码（不放 argv/env/日志），按旧 MD5+password_auth 存储；存在账号则保留 ID/资源，设为 local 凭据可用（source 历史 unknown 不改）、启用访问、授予 admins、增加版本；新用户名可创建本地管理员。操作员掌握数据库访问权限才可调用，记录 actor_id=null 的 recover/bootstrap 审计。CLI 不输出密码。另提供离线 `--bind-oidc-user <username> --oidc-issuer <issuer> --oidc-subject <subject>`，只建立核实后的绑定，不授予角色、不解除停用；冲突拒绝。恢复/绑定不通过公开 HTTP 暴露。
+
+迁移保留所有旧用户 ID/哈希/关系/资源；历史日期 null。恢复入口在 WUM-011 用隔离旧库验证；弱预置凭据的自动处理等待 D-01 决策，不能标记 UA-12 完成。降级旧二进制无法执行新停用/版本/身份边界，不允许以“可启动”代表安全回退；恢复备份前须在外部维护窗口隔离控制台访问，本文不授权操作真实 VPN/防火墙或生产。
+
+### 8.6 契约评审与交接
+
+逐项覆盖 UM-01–10 和 UA-01–14 的责任仍见第1节；现有依赖无环。002→004 对 users.rs 串行交接，003 独占 DB/migration，005 独占 main.rs，006 独占 restful/mod.rs，007 独占客户端，008 独占组件/locale，009 独占页面接线；本契约不新增并行写入重叠。003/007/008 可基于本节并行实现；D-01 仅阻塞涉及旧弱预置凭据自动处理及 UA-12 最终结论。所有动态验收仍未执行，不能以本契约代替测试；OIDC 真 IdP、部署 Cookie 和升级验证是010/011的明确验收条件，环境缺失须记录阻塞，不能默默缩减支持范围。
+
+- v1 实现注意：服务端生成凭据与离线恢复需要 MD5 摘要兼容现有客户端；当前 Web crate 无直接 MD5 依赖，由协调者指定清单/锁文件唯一写入者，不由003/005同时改依赖。

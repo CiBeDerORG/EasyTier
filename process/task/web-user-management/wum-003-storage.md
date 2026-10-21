@@ -1,8 +1,8 @@
 ---
 id: WUM-003
 feature: web-user-management
-status: blocked
-owner: null
+status: in_progress
+owner: /root/wum003
 depends_on: ["WUM-001"]
 write_scope: ["easytier-web/src/db/","easytier-web/src/migrator/"]
 requirements: ["UM-01","UM-02","UM-03","UM-04","UM-05","UM-06","UM-07","UM-09","UM-10"]
@@ -49,3 +49,5 @@ updated_at: "2026-10-21"
 ## 执行记录
 
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
+
+- 2026-10-21：基于 WUM-001 v1 独立契约认领；D-01 未决，不实施自动停用旧预置账号。独占原 write_scope；协调者维护状态与提交。
