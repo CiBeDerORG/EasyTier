@@ -183,6 +183,13 @@ export interface ConsoleInfo {
     webhook_auth: boolean;
 }
 
+/** Optional read bounds; omitted options preserve all existing callers. */
+export interface ApiReadOptions {
+    /** Axios request timeout in milliseconds. */
+    timeout?: number;
+    signal?: AbortSignal;
+}
+
 export type AclSelector =
     | { type: 'all' }
     | { type: 'member'; member_id: string }
@@ -299,8 +306,8 @@ export class ApiClient {
         return response;
     }
 
-    public async list_machines(): Promise<Array<any>> {
-        const response = await this.client.get<any, Record<string, Array<any>>>('/machines');
+    public async list_machines(options?: ApiReadOptions): Promise<Array<any>> {
+        const response = await this.client.get<any, Record<string, Array<any>>>('/machines', options);
         return response.machines;
     }
 
@@ -321,8 +328,8 @@ export class ApiClient {
         await this.client.delete(`/blocked-devices/${machine_id}`);
     }
 
-    public async get_console_info(): Promise<ConsoleInfo> {
-        const response = await this.client.get<any, ConsoleInfo>('/console-info');
+    public async get_console_info(options?: ApiReadOptions): Promise<ConsoleInfo> {
+        const response = await this.client.get<any, ConsoleInfo>('/console-info', options);
         return response;
     }
 
@@ -333,8 +340,8 @@ export class ApiClient {
 
     // --- Central networks ---
 
-    public async list_networks(): Promise<CentralNetworkSummary[]> {
-        const response = await this.client.get<any, { networks: CentralNetworkSummary[] }>('/networks');
+    public async list_networks(options?: ApiReadOptions): Promise<CentralNetworkSummary[]> {
+        const response = await this.client.get<any, { networks: CentralNetworkSummary[] }>('/networks', options);
         return response.networks;
     }
 
@@ -360,8 +367,8 @@ export class ApiClient {
         await this.client.delete(`/networks/${network_id}`);
     }
 
-    public async list_network_members(network_id: string): Promise<{ members: CentralNetworkMember[]; temporary_peers: TemporaryPeer[] }> {
-        const response = await this.client.get<any, { members: CentralNetworkMember[]; temporary_peers?: TemporaryPeer[] }>(`/networks/${network_id}/members`);
+    public async list_network_members(network_id: string, options?: ApiReadOptions): Promise<{ members: CentralNetworkMember[]; temporary_peers: TemporaryPeer[] }> {
+        const response = await this.client.get<any, { members: CentralNetworkMember[]; temporary_peers?: TemporaryPeer[] }>(`/networks/${network_id}/members`, options);
         return { members: response.members, temporary_peers: response.temporary_peers ?? [] };
     }
 

@@ -148,7 +148,7 @@ const handleSetAlias = (device: Utils.DeviceInfo) => {
 };
 
 const saveAlias = async () => {
-    if (!aliasTarget.value || !api) return;
+    if (aliasSaving.value || !aliasTarget.value || !api) return;
     const alias = aliasInput.value.trim();
     if (alias.length > 64) return;
     aliasSaving.value = true;
@@ -330,16 +330,17 @@ const locationText = (device: Utils.DeviceInfo) => {
         </section>
 
         <!-- 设置别名对话框 -->
-        <Dialog v-model:visible="aliasVisible" modal :header="t('web.console.alias_dialog_title')" :style="{ width: '26rem' }">
+        <Dialog v-model:visible="aliasVisible" modal :header="t('web.console.alias_dialog_title')" :style="{ width: '26rem' }"
+            :closable="!aliasSaving" :close-on-escape="!aliasSaving">
             <div class="flex flex-col gap-3">
                 <div class="text-sm muted">{{ t('web.console.alias_hint') }}</div>
                 <InputText v-model="aliasInput" id="device-alias-input" :maxlength="64" autocomplete="off"
-                    :placeholder="aliasTarget?.hostname" @keydown.enter="saveAlias" />
+                    :placeholder="aliasTarget?.hostname" :disabled="aliasSaving" @keydown.enter="saveAlias" />
                 <div class="text-xs muted text-right">{{ aliasInput.trim().length }}/64</div>
             </div>
             <template #footer>
-                <Button :label="t('web.common.cancel')" severity="secondary" @click="aliasVisible = false" />
-                <Button :label="t('web.common.confirm')" icon="pi pi-check" :loading="aliasSaving" @click="saveAlias" />
+                <Button :label="t('web.common.cancel')" severity="secondary" :disabled="aliasSaving" @click="aliasVisible = false" />
+                <Button :label="t('web.common.confirm')" icon="pi pi-check" :loading="aliasSaving" :disabled="aliasSaving" @click="saveAlias" />
             </template>
         </Dialog>
 
@@ -379,6 +380,11 @@ const locationText = (device: Utils.DeviceInfo) => {
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: 16px;
     padding: 18px;
+}
+
+/* A remembered desktop card preference must not duplicate the mobile list. */
+@media (max-width: 767px) {
+    .device-card-grid { display: none; }
 }
 
 .device-card {

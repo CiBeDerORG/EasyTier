@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-003]
 task_type: implementation
-status: in_progress
+status: done
 owner: /root/iteration_exec1
 depends_on: ["ECO-104", "ECO-105"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "easytier-web/frontend/src/modules/ecosystemTypes.ts", "easytier-web/frontend/src/components/ecosystem/shared/", "easytier-web/frontend/tests/ecosystem-support/", "process/easytier-ecosystem-integration-in-progress/plan/design/baseline.md"]
@@ -59,8 +59,8 @@ updated_at: 2026-10-21
 
 ## 完成与交接
 
-- [ ] 覆盖本计划关联验收中的正常、空、失败、未知、无权限和未支持状态；真实能力范围服从已冻结接入清单。
-- [ ] 实际实现时自身完成类型/构建和针对性行为验证，中文/英文、主题、窄屏及键盘可用；未执行项记录原因。
+- [x] 覆盖本计划关联验收中的正常、空、失败、未知、无权限和未支持状态；真实能力范围服从已冻结接入清单。
+- [x] 实际实现时自身完成类型/构建和针对性行为验证，中文/英文、主题、窄屏及键盘可用；未执行项记录原因。
 
 向 ECO-112 交付组件输入输出、采用契约版本、文件清单与证据。契约缺陷回103，文案/公共组件回104，验证入口回105，接口语义回111；本任务不跨目录代改。
 
@@ -71,3 +71,5 @@ updated_at: 2026-10-21
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
 
 2026-10-21：104/105通过后认领拓扑纯展示，104公共测试先复用105支撑，不能将成员关系画成实际连接。
+
+2026-10-21：监工审查纯展示拓扑通过；类型检查、全量7/7及追加跨网络错误保护后定向1/1通过，fixture不算真实链路。

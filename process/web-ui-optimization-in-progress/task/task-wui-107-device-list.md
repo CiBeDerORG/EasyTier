@@ -3,7 +3,7 @@ id: WUI-107
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-005"]
-status: in_progress
+status: done
 owner: /root/iteration_exec2
 depends_on: ["WUI-103"]
 read_scope: ["easytier-web/frontend/src/modules/api.ts", "easytier-web/frontend/src/components/DeviceManagement.vue", "easytier-web/frontend-lib/src/modules/utils.ts", "process/web-ui-optimization-in-progress/plan/contract.md"]
@@ -60,11 +60,13 @@ updated_at: 2026-10-21
 
 ## 完成条件与失败处理
 
-- [ ] 设备选择、空/加载/失败与详情展示不串对象；旧实例路由和复制命令一致。
-- [ ] 实际实施验证视图/长文本/语言主题、键盘与原请求来源；共享RemoteManagement保持只读。
-- [ ] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
-- [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
+- [x] 设备选择、空/加载/失败与详情展示不串对象；旧实例路由和复制命令一致。
+- [x] 实际实施验证视图/长文本/语言主题、键盘与原请求来源；共享RemoteManagement保持只读。
+- [x] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
+- [x] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
 
 2026-10-21：认领设备列表/资料展示针对验证，补有数据fixture，保留设备身份/命令/路由语义，不把mock当实际设备联通。
+
+2026-10-21：监工审查窄屏重复布局及别名重复PUT修复通过；类型/生产构建、4/4mock生产组件专项通过，真实设备联通未验证。

@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-008]
 task_type: implementation
-status: in_progress
+status: done
 owner: /root/iteration_exec3
 depends_on: ["ECO-104", "ECO-105"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "process/easytier-ecosystem-integration-in-progress/plan/design/baseline.md", "easytier-web/frontend/src/modules/ecosystemTypes.ts", "easytier-web/src/restful/network.rs", "easytier-web/src/db/entity/devices.rs", "easytier-web/src/db/entity/network_members.rs"]
@@ -60,8 +60,8 @@ updated_at: 2026-10-21
 
 ## 完成与交接
 
-- [ ] 接口行为、错误、未知结果和迟到响应在实际实现阶段有针对性证据；mock只证明相应前端契约。
-- [ ] 无后端/协议/config-server改动；不改变既有客户端消费者和账号错误语义。
+- [x] 接口行为、错误、未知结果和迟到响应在实际实现阶段有针对性证据；mock只证明相应前端契约。
+- [x] 无后端/协议/config-server改动；不改变既有客户端消费者和账号错误语义。
 
 交给 ECO-112；接口契约问题回103，已有后端缺口记录到汇总，不扩大为后端任务。
 
@@ -72,3 +72,5 @@ updated_at: 2026-10-21
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
 
 2026-10-21：104/105通过后认领实际API适配与专属验证；真实服务联调留114，禁止虚构后端或静默空数据。
+
+2026-10-21：监工审查通过，类型检查、9/9Axios本地HTTP适配及6/6旧客户端回归通过；info=null缺身份明确报错，真实API联调待114。

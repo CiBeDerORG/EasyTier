@@ -387,6 +387,8 @@ web:
       offline: "控制会话离线"
       unknown: "控制会话状态未知"
     topology:
+      all_locations: "全部估计位置"
+      no_matching_hosts: "没有符合此位置筛选条件的宿主。"
       title: "网络归属"
       network: "选择网络"
       all_hosts: "全部宿主"

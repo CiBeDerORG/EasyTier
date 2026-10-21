@@ -74,8 +74,8 @@ createApp({ render: () => h(Component, { ...props, ...handlers }) })
                 configureServer(vite) {
                     vite.middlewares.use((req, res, next) => {
                         if (req.url?.split('?')[0] !== '/ecosystem-preview') return next();
-                        res.setHeader('Content-Type', 'text/html');
-                        res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><p>Development sample — not live network data</p><main id="app"></main><script type="module" src="/ecosystem-fixture.js"></script></body></html>');
+                        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                        res.end('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><p>Development sample — not live network data</p><main id="app"></main><script type="module" src="/ecosystem-fixture.js"></script></body></html>');
                     });
                 },
             }],

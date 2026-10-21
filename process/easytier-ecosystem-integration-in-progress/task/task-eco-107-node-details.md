@@ -4,8 +4,8 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-004]
 task_type: implementation
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec1
 depends_on: ["ECO-104", "ECO-105"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "easytier-web/frontend/src/modules/ecosystemTypes.ts", "easytier-web/frontend/src/components/ecosystem/shared/", "easytier-web/frontend/tests/ecosystem-support/", "process/easytier-ecosystem-integration-in-progress/plan/design/baseline.md"]
 write_scope: ["easytier-web/frontend/src/components/ecosystem/nodes/", "easytier-web/frontend/tests/ecosystem-nodes.test.mjs", "process/easytier-ecosystem-integration-in-progress/plan/design/nodes/"]
@@ -69,3 +69,5 @@ updated_at: 2026-10-21
 ## 当前记录
 
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
+
+2026-10-21：认领节点资料/资源类型入口，未支持人工字段不假保存，按103身份与能力契约。

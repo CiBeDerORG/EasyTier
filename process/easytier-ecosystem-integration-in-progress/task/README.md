@@ -16,7 +16,7 @@ updated_at: 2026-10-21
 
 | backlog | ready | in_progress | blocked | in_review | done | cancelled | 总计 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 8 | 0 | 2 | 0 | 0 | 5 | 0 | 15 |
+| 6 | 0 | 2 | 0 | 0 | 7 | 0 | 15 |
 
 当前任务进度见下方实施快照与任务明细。
 
@@ -29,12 +29,12 @@ updated_at: 2026-10-21
 | [ECO-103 资源视图与按需查询契约](task-eco-103-domain-contract.md) | [PLAN-ECO-002](../plan/plan-eco-002-contract.md) | done | /root/iteration_exec1 | ECO-101、ECO-102 | `eco-contract` |
 | [ECO-104 公共展示组件与语言资源](task-eco-104-shared-components.md) | [PLAN-ECO-002](../plan/plan-eco-002-contract.md) | done | /root/iteration_exec1 | ECO-103 | `eco-foundation` |
 | [ECO-105 独立预览与验证入口](task-eco-105-preview-harness.md) | [PLAN-ECO-002](../plan/plan-eco-002-contract.md) | done | /root/iteration_exec3 | ECO-103 | `eco-foundation` |
-| [ECO-106 拓扑选择与可访问表达](task-eco-106-topology-view.md) | [PLAN-ECO-003](../plan/plan-eco-003-topology.md) | in_progress | /root/iteration_exec1 | ECO-104、ECO-105 | `eco-pages` |
-| [ECO-107 节点资料与类型目录](task-eco-107-node-details.md) | [PLAN-ECO-004](../plan/plan-eco-004-node-details.md) | backlog | null | ECO-104、ECO-105 | `eco-pages` |
+| [ECO-106 拓扑选择与可访问表达](task-eco-106-topology-view.md) | [PLAN-ECO-003](../plan/plan-eco-003-topology.md) | done | /root/iteration_exec1 | ECO-104、ECO-105 | `eco-pages` |
+| [ECO-107 节点资料与类型目录](task-eco-107-node-details.md) | [PLAN-ECO-004](../plan/plan-eco-004-node-details.md) | in_progress | /root/iteration_exec1 | ECO-104、ECO-105 | `eco-pages` |
 | [ECO-108 服务设备组与设备详情](task-eco-108-resource-details.md) | [PLAN-ECO-005](../plan/plan-eco-005-resource-details.md) | backlog | null | ECO-104、ECO-105 | `eco-pages` |
-| [ECO-109 公网映射与导航设置表单](task-eco-109-access-settings.md) | [PLAN-ECO-006](../plan/plan-eco-006-access-settings.md) | backlog | null | ECO-104、ECO-105 | `eco-pages` |
+| [ECO-109 公网映射与导航设置表单](task-eco-109-access-settings.md) | [PLAN-ECO-006](../plan/plan-eco-006-access-settings.md) | in_progress | /root/iteration_exec3 | ECO-104、ECO-105 | `eco-pages` |
 | [ECO-110 资源导航入口与回链](task-eco-110-navigation-view.md) | [PLAN-ECO-007](../plan/plan-eco-007-navigation.md) | backlog | null | ECO-104、ECO-105 | `eco-pages` |
-| [ECO-111 现有接口适配与请求结束](task-eco-111-api-adapter.md) | [PLAN-ECO-008](../plan/plan-eco-008-api-adapter.md) | in_progress | /root/iteration_exec3 | ECO-104、ECO-105 | `eco-pages` |
+| [ECO-111 现有接口适配与请求结束](task-eco-111-api-adapter.md) | [PLAN-ECO-008](../plan/plan-eco-008-api-adapter.md) | done | /root/iteration_exec3 | ECO-104、ECO-105 | `eco-pages` |
 | [ECO-112 拓扑页面组合与能力注入](task-eco-112-page-composition.md) | [PLAN-ECO-009](../plan/plan-eco-009-host-integration.md) | backlog | null | ECO-106、ECO-107、ECO-108、ECO-109、ECO-110、ECO-111 | `eco-composition` |
 | [ECO-113 正式路由与宿主导航接线](task-eco-113-host-routing.md) | [PLAN-ECO-009](../plan/plan-eco-009-host-integration.md) | backlog | null | ECO-112 | `eco-host-integration` |
 | [ECO-114 真实接口联调与失败回派](task-eco-114-integration-verification.md) | [PLAN-ECO-010](../plan/plan-eco-010-integration-verification.md) | backlog | null | ECO-113 | `eco-verification` |
@@ -101,8 +101,13 @@ D为本需求plan/design目录，所有未来产物与精确源码写入范围�
 
 
 
+
+
+
+
+
 ## 当前实施快照
 
-已验收 5/15；ECO-106（in_progress，/root/iteration_exec1）、ECO-111（in_progress，/root/iteration_exec3）；其余 8 项 backlog。
+已验收 7/15；ECO-107（in_progress，/root/iteration_exec1）、ECO-109（in_progress，/root/iteration_exec3）；其余 6 项 backlog。
 
 总控维护任务与共享锁；监工 `/root/iteration_monitor` 审查后才能完成或进入联调。实际验证见各任务交接，未运行场景不作通过结论。

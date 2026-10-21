@@ -3,8 +3,8 @@ id: WUI-108
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-005"]
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec2
 depends_on: ["WUI-103"]
 read_scope: ["easytier-web/frontend/src/components/DeviceList.vue", "easytier-web/frontend-lib/src/components/RemoteManagement.vue", "easytier-web/frontend/src/modules/api.ts", "process/web-ui-optimization-in-progress/plan/contract.md"]
 write_scope: ["easytier-web/frontend/src/components/DeviceManagement.vue", "easytier-web/frontend/tests/web-ui-instance-host.test.mjs", "process/web-ui-optimization-in-progress/plan/devices/instances.md"]
@@ -64,3 +64,5 @@ updated_at: 2026-10-21
 - [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
+
+2026-10-21：认领实例宿主深链/对象切换与RemoteClient契约验证，仅宿主范围，不改共享组件或运行真实VPN。

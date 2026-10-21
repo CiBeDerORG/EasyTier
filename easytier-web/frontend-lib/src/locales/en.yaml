@@ -387,6 +387,8 @@ web:
       offline: "Control session offline"
       unknown: "Control session unknown"
     topology:
+      all_locations: "All estimated locations"
+      no_matching_hosts: "No hosts match this location filter."
       title: "Network membership"
       network: "Select a network"
       all_hosts: "All hosts"
