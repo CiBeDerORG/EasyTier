@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-009]
 task_type: implementation
-status: in_progress
+status: done
 owner: /root/iteration_exec3
 depends_on: ["ECO-112"]
 read_scope: ["easytier-web/frontend/src/components/ecosystem/EcosystemPage.vue", "easytier-web/frontend/src/modules/api.ts", "easytier-web/frontend/src/components/ChangePassword.vue", "process/easytier-ecosystem-integration-in-progress/plan/design/integration-composition.md"]
@@ -61,8 +61,8 @@ updated_at: 2026-10-21
 
 ## 完成与交接
 
-- [ ] 原路由/深链接、用户入口与权限、命令复制、主题行为继续可用，新增资源查询没有周期副作用。
-- [ ] MainPage/main.ts跨需求交接完成，正式接线结果可供114在同一提交真实联调。
+- [x] 原路由/深链接、用户入口与权限、命令复制、主题行为继续可用，新增资源查询没有周期副作用。
+- [x] MainPage/main.ts跨需求交接完成，正式接线结果可供114在同一提交真实联调。
 
 交给 ECO-114；宿主回归由本任务修正，公共类型回103，页面/适配回各任务。
 
@@ -73,3 +73,5 @@ updated_at: 2026-10-21
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
 
 2026-10-21：ECO112和WUI111已验收，领取MainPage/main.ts及构建锁，保留WUI111语义与焦点改动。
+
+2026-10-21：监工验收正式宿主接线：生产preview22/22（生态5+导航17），中英文bundle已验证；先lib后frontend类型与Vite通过。完整codegen缺protoc且DNS错误未通过，schema与生成源未改。

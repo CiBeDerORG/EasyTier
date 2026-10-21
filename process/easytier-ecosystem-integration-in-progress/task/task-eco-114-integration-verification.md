@@ -4,8 +4,8 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-010]
 task_type: integration
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec2
 depends_on: ["ECO-113"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "process/easytier-ecosystem-integration-in-progress/plan/design/integration.md", "easytier-web/frontend/src/components/ecosystem/", "easytier-web/frontend/src/modules/ecosystemApi.ts", "easytier-web/frontend/tests/helpers/webTestBinary.mjs", "easytier-web/frontend/package.json"]
 write_scope: ["easytier-web/frontend/tests/ecosystem-integration.test.mjs", "process/easytier-ecosystem-integration-in-progress/plan/design/verification/"]
@@ -69,3 +69,5 @@ updated_at: 2026-10-21
 ## 当前记录
 
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
+
+2026-10-21：监工准入，使用113最终独立前端产物与隔离真实backend/SQLite；与WUI冻结产物隔离，空闲观察至少两轮旧周期。

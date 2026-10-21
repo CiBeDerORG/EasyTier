@@ -20,6 +20,7 @@ import DeviceManagement from './components/DeviceManagement.vue'
 import Dashboard from './components/Dashboard.vue'
 import NetworkList from './components/NetworkList.vue'
 import NetworkDetail from './components/NetworkDetail.vue'
+import EcosystemPage from './components/ecosystem/EcosystemPage.vue'
 import DialogService from 'primevue/dialogservice';
 import ToastService from 'primevue/toastservice';
 
@@ -43,6 +44,7 @@ const routes = [
     },
     {
         path: '/h', component: MainPage, children: [
+            { path: 'ecosystem', name: 'ecosystem', component: EcosystemPage },
             { path: 'users', name: 'users', component: UserManagement },
             { path: 'password', name: 'changePassword', component: ChangePassword },
             {

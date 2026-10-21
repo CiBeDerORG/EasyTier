@@ -250,6 +250,7 @@ type NavItem = {
 const workspaceNavigation = computed<NavItem[]>(() => [
     { key: 'dashboard', label: t('web.main.dashboard'), icon: 'pi pi-chart-pie', to: { name: 'dashboard' } },
     { key: 'deviceList', label: t('web.main.device_list'), icon: 'pi pi-server', to: { name: 'deviceList' } },
+    { key: 'ecosystem', label: t('web.ecosystem.title'), icon: 'pi pi-sitemap', to: { name: 'ecosystem' } },
     ...(canManage.value ? [{ key: 'users', label: t('user_management.title'), icon: 'pi pi-users', to: { name: 'users' } }] : []),
 ]);
 const networkNavigation = computed<NavItem[]>(() => [
@@ -456,7 +457,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <p v-else role="alert">{{ t('user_management.errors.forbidden') }}</p>
                 </template>
                 <RouterView v-else v-slot="{ Component }">
-                    <component :is="Component" :api="api" :central-enabled="centralEnabled" :key="route.name === 'networkDetail' ? String(route.params.networkId) : undefined" />
+                    <component :is="Component" :api="api" :central-enabled="centralEnabled" :current-user-id="currentUser.id" :key="route.name === 'networkDetail' ? String(route.params.networkId) : undefined" />
                 </RouterView>
                 </template>
             </main>
