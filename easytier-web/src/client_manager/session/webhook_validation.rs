@@ -575,6 +575,224 @@ async fn wait_webhook_connection_transition(
 mod tests {
     use super::*;
 
+    /// Real loopback webhook HTTP and production validation/mapping, with no
+    /// Core instance, TUN, RPC runtime consumer, or actual VPN configuration.
+    #[tokio::test]
+    async fn wum_external_webhook_and_device_heartbeat_preserve_disabled_account() {
+        use crate::{
+            central_network::device_auth::DeviceAuth,
+            db::{Db, user_management as accounts},
+            user_management::UserManagementService,
+            webhook::{ValidateTokenRequest, WebhookConfig, WebhookHandler as _},
+        };
+        use axum::{Json, Router, extract::State, routing::post};
+        use sea_orm::TransactionTrait as _;
+        use serde_json::{Value, json};
+
+        type Requests = Arc<std::sync::Mutex<Vec<(String, Value)>>>;
+        let requests: Requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let app = Router::new()
+            .route("/validate-token", post(|State(requests): State<Requests>, Json(body): Json<Value>| async move {
+                requests.lock().unwrap().push(("validate".into(), body));
+                Json(json!({"valid": true, "pre_approved": true, "binding_version": 1, "config_revision": "wum-revision"}))
+            }))
+            .route("/webhook/node-connected", post(|State(requests): State<Requests>, Json(body): Json<Value>| async move {
+                requests.lock().unwrap().push(("connected".into(), body));
+                Json(json!({}))
+            }))
+            .with_state(requests.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _server = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        }));
+
+        let db = Db::memory_db().await;
+        let operator = db.auto_create_user("wum-webhook-operator").await.unwrap();
+        let target = db.auto_create_user("wum-webhook-user").await.unwrap();
+        let tx = db.orm_db().begin().await.unwrap();
+        accounts::lock_user_management(&tx).await.unwrap();
+        accounts::set_user_role(&tx, operator.id, "admin")
+            .await
+            .unwrap();
+        accounts::bind_identity(
+            &tx,
+            target.id,
+            "https://idp.example.invalid",
+            "wum-bound-subject",
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let machine_id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO user_running_network_configs(user_id,device_id,network_instance_id,network_config,disabled,create_time,update_time,source) VALUES (?, ?, 'wum-instance', 'isolated-resource', FALSE, '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z', 'web')")
+            .bind(target.id).bind(machine_id.to_string()).execute(&db.inner()).await.unwrap();
+        let storage = Storage::new(db.clone());
+        let webhook_config = Arc::new(WebhookConfig::new(
+            Some(format!("http://{addr}")),
+            Some("wum-fictional-webhook-secret".into()),
+            None,
+            None,
+            None,
+        ));
+        let client_url = url::Url::parse("tcp://127.0.0.1:23456").unwrap();
+        let req = HeartbeatRequest {
+            user_token: target.username.clone(),
+            machine_id: Some(machine_id.into()),
+            hostname: "isolated-device".into(),
+            easytier_version: "test-version".into(),
+            ..Default::default()
+        };
+        let mut data = SessionData::new(
+            storage.weak_ref(),
+            client_url.clone(),
+            None,
+            Arc::new(crate::FeatureFlags::default()),
+            webhook_config.clone(),
+        );
+        data.req = Some(req.clone());
+        let session = Arc::new(RwLock::new(data));
+        let input = || WebhookValidationInput {
+            storage: storage.clone(),
+            webhook_config: webhook_config.clone(),
+            client_url: client_url.clone(),
+            applied_config_revision: None,
+            applied_config_revision_known: false,
+            failed_instance_ids: vec![],
+            req: req.clone(),
+            machine_id,
+        };
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            run_round(Arc::downgrade(&session), input(), 0),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(session.read().await.auth_state.is_authorized());
+        assert_eq!(
+            session.read().await.storage_token.as_ref().unwrap().user_id,
+            target.id
+        );
+        assert_eq!(
+            storage.get_client_url_by_machine_id(target.id, &machine_id),
+            Some(client_url.clone())
+        );
+
+        // Central mode consumes the same token independently of Web access state.
+        let central = DeviceAuth::new(db.clone(), true);
+        let heartbeat = ValidateTokenRequest {
+            token: target.username.clone(),
+            machine_id: machine_id.to_string(),
+            public_ip: None,
+            hostname: "isolated-device".into(),
+            version: "test-version".into(),
+            os_type: None,
+            os_version: None,
+            os_distribution: None,
+            web_instance_id: None,
+            web_instance_api_base_url: None,
+            persisted_config_revision: None,
+            applied_config_revision: None,
+            applied_config_revision_known: false,
+            failed_instance_ids: vec![],
+        };
+        assert!(central.validate_token(&heartbeat).await.unwrap().valid);
+        let device_before = db
+            .get_device((target.id, machine_id))
+            .await
+            .unwrap()
+            .unwrap();
+        let before = accounts::get_user_record(db.orm_db(), target.id)
+            .await
+            .unwrap()
+            .unwrap();
+        UserManagementService::new(db.clone())
+            .set_access(operator.id, target.id, false)
+            .await
+            .unwrap();
+        let disabled = accounts::get_user_record(db.orm_db(), target.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!disabled.access.web_login_enabled);
+        assert_eq!(disabled.access.auth_version, before.access.auth_version + 1);
+        // Console disable must not tear down the already-authorized device session.
+        assert!(session.read().await.auth_state.is_authorized());
+        assert_eq!(
+            storage.get_client_url_by_machine_id(target.id, &machine_id),
+            Some(client_url.clone())
+        );
+
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            run_round(Arc::downgrade(&session), input(), 0),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(central.validate_token(&heartbeat).await.unwrap().valid);
+        let after = accounts::get_user_record(db.orm_db(), target.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.user, target);
+        assert_eq!(after.access, disabled.access);
+        assert_eq!(after.role, disabled.role);
+        assert_eq!(
+            accounts::find_identity(
+                db.orm_db(),
+                "https://idp.example.invalid",
+                "wum-bound-subject"
+            )
+            .await
+            .unwrap(),
+            Some(target.id)
+        );
+        assert!(session.read().await.auth_state.is_authorized());
+        assert_eq!(
+            session.read().await.storage_token.as_ref().unwrap().user_id,
+            target.id
+        );
+        assert_eq!(
+            storage.get_client_url_by_machine_id(target.id, &machine_id),
+            Some(client_url)
+        );
+        let device_after = db
+            .get_device((target.id, machine_id))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(device_after.user_id, device_before.user_id);
+        assert_eq!(device_after.machine_id, device_before.machine_id);
+        assert_eq!(device_after.first_seen_time, device_before.first_seen_time);
+        let resource: (i32, String) = sqlx::query_as(
+            "SELECT user_id,network_config FROM user_running_network_configs WHERE device_id=?",
+        )
+        .bind(machine_id.to_string())
+        .fetch_one(&db.inner())
+        .await
+        .unwrap();
+        assert_eq!(resource, (target.id, "isolated-resource".into()));
+        let requests = requests.lock().unwrap();
+        let validations: Vec<_> = requests
+            .iter()
+            .filter(|(kind, _)| kind == "validate")
+            .collect();
+        assert_eq!(validations.len(), 2);
+        assert!(
+            validations
+                .iter()
+                .all(|(_, body)| body["token"] == target.username)
+        );
+        let connected: Vec<_> = requests
+            .iter()
+            .filter(|(kind, _)| kind == "connected")
+            .collect();
+        assert_eq!(connected.len(), 1);
+        assert_eq!(connected[0].1["user_id"], target.id);
+    }
+
     #[tokio::test]
     async fn unchanged_validation_does_not_repeat_runtime_notifications() {
         let storage = Storage::new(crate::db::Db::memory_db().await);

@@ -58,3 +58,5 @@ updated_at: "2026-10-21"
 - 2026-10-21：真实embed构建通过；OIDC日志复核发现错误Debug携带响应体风险，回派004，待其修复后联调验证。尚未声明真实浏览器/IdP通过。
 
 - 2026-10-21：移交003独占webhook_validation.rs现有tests区，补真实loopback外部webhook到本地用户映射的完整函数链；不启动Core/TUN/RPC消费者。验证停用后控制面会话与资源保持，实际数据面在线通信仍不在已执行验证内。010统一串行执行该Rust测试。
+
+- 2026-10-21：`cargo test --locked -p easytier-web wum_external_webhook_and_device_heartbeat_preserve_disabled_account` 实际1/1通过（/tmp/wum010-webhook.log）；真实外部HTTP验证2次、node-connected1次，中心DeviceAuth验证2次，停用前后会话授权与账号/设备/网络归属保持。未启动数据面。
