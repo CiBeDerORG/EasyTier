@@ -12,14 +12,14 @@ let server;
 
 before(async () => {
     if (!process.env.WEB_TEST_URL) {
-        server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '5198', '--strictPort'], { stdio: 'pipe' });
+        server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '5198', '--strictPort', ...(process.env.WEB_TEST_DIST ? ['--outDir', process.env.WEB_TEST_DIST] : [])], { stdio: 'pipe' });
         for (let i = 0; i < 100; i++) {
             if (server.exitCode !== null) throw new Error('Vite exited before starting');
             if (await fetch(base).then(r => r.ok).catch(() => false)) break;
             await delay(100);
         }
     }
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, executablePath: process.env.WEB_TEST_CHROMIUM || '/usr/bin/chromium' });
     if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
 });
 
@@ -82,7 +82,8 @@ async function open(t, route = '/h', options = {}, configure = () => {}) {
         if (method !== 'GET') state.writes.push({ path, method, payload });
         if (state.failures.has(path)) return route.fulfill({ status: 503, json: { message: 'Test unavailable' } });
         let result = {};
-        if (path === '/summary') result = { device_count: state.machines.length };
+        if (path === '/auth/me') result = { id: 1, username: 'test-user', role: 'user', capabilities: [], source: 'local', local_password_enabled: true, web_login_enabled: true, must_change_password: false, default_password_warning: false, created_at: null, last_login_at: null };
+        else if (path === '/summary') result = { device_count: state.machines.length };
         else if (path === '/console-info') result = { username: 'test-user', config_server_protocol: 'udp', config_server_port: 22020, webhook_auth: state.externalConsole ?? false };
         else if (path === '/machines') result = { machines: state.machines };
         else if (path === '/networks/gateway-info') {

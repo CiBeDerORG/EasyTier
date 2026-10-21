@@ -30,7 +30,7 @@ updated_at: 2026-10-21
 
 静态阅读仅证明上述入口存在；具体页面缺陷仍以WUI-102取证为准。未核实的行为/环境写清影响，不能补造问题或结果。
 
-前置任务：[WUI-104](task-wui-104-auth-pages.md)、[WUI-105](task-wui-105-user-management.md)、[WUI-106](task-wui-106-dashboard.md)、[WUI-107](task-wui-107-device-list.md)、[WUI-108](task-wui-108-instance-host.md)、[WUI-109](task-wui-109-network-list.md)、[WUI-110](task-wui-110-network-detail-acl.md)。收到对应输出、限制和采用版本后才进入本任务执行；当前前置均未执行。
+前置任务：[WUI-104](task-wui-104-auth-pages.md)、[WUI-105](task-wui-105-user-management.md)、[WUI-106](task-wui-106-dashboard.md)、[WUI-107](task-wui-107-device-list.md)、[WUI-108](task-wui-108-instance-host.md)、[WUI-109](task-wui-109-network-list.md)、[WUI-110](task-wui-110-network-detail-acl.md)。收到对应输出、限制和采用版本后才进入本任务执行；前置验收及采用版本见下方交接记录与任务元数据。
 
 ## 目标、输入与输出
 

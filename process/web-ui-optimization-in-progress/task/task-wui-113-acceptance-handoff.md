@@ -3,8 +3,8 @@ id: WUI-113
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-008"]
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec3
 depends_on: ["WUI-112"]
 read_scope: ["process/web-ui-optimization-in-progress/require/README.md", "process/web-ui-optimization-in-progress/require/evidence/", "process/web-ui-optimization-in-progress/plan/verification/", "process/web-ui-optimization-in-progress/task/"]
 write_scope: ["process/web-ui-optimization-in-progress/plan/acceptance.md"]
@@ -30,13 +30,13 @@ updated_at: 2026-10-21
 
 静态阅读仅证明上述入口存在；具体页面缺陷仍以WUI-102取证为准。未核实的行为/环境写清影响，不能补造问题或结果。
 
-前置任务：[WUI-112](task-wui-112-real-integration.md)。收到对应输出、限制和采用版本后才进入本任务执行；当前前置均未执行。
+前置任务：[WUI-112](task-wui-112-real-integration.md)。收到对应输出、限制和采用版本后才进入本任务执行；前置验收及采用版本见下方交接记录与任务元数据。
 
 ## 目标、输入与输出
 
 将真实实现与验收证据映射到需求，交付可审阅结果和剩余限制。
 
-交付 plan/acceptance.md；实际达到完成条件后才由协调者更新根汇总和状态，此轮保持backlog。
+交付 plan/acceptance.md；实际达到完成条件后才由协调者更新根汇总和状态，当前执行状态以任务元数据为准。
 
 ## 写入范围与多 Agent 边界
 
@@ -62,3 +62,5 @@ updated_at: 2026-10-21
 - [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
+
+2026-10-21：112已获监工验收，开始需求到实际证据映射、限制与回退归档；纯文档阶段不重跑应用。

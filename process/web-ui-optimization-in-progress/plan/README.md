@@ -10,7 +10,7 @@ updated_at: 2026-10-21
 
 # 现有 Web 交互优化与页面美化计划索引
 
-入口：[需求/计划汇总](../README.md)、[WUI-01～05 与 WUA-01～04](../require/README.md)、[任务入口](../task/README.md)。本计划替代原拓扑工作包 `ECO-012` 的执行安排，与拓扑开发独立；当前8份计划已细化为13项任务，全部backlog且owner为null，尚无开发认领，计划文件不作为执行状态事实源。
+入口：[需求/计划汇总](../README.md)、[WUI-01～05 与 WUA-01～04](../require/README.md)、[任务入口](../task/README.md)。本计划替代原拓扑工作包 `ECO-012` 的执行安排，与拓扑开发独立；当前8份计划已细化为13项任务；认领与验收以任务明细为事实源，当前汇总见下方实施快照。
 
 ## 基础与实施顺序
 
@@ -104,8 +104,9 @@ updated_at: 2026-10-21
 
 
 
+
 ## 当前实施快照
 
-已验收 11/13；WUI-112（in_progress，/root/iteration_exec1）；其余 1 项 backlog。
+已验收 12/13；WUI-113（in_progress，/root/iteration_exec3）；其余 0 项 backlog。
 
 总控维护任务与共享锁；监工 `/root/iteration_monitor` 审查后才能完成或进入联调。实际验证见各任务交接，未运行场景不作通过结论。

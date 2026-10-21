@@ -9,6 +9,7 @@ import { createServer } from 'node:http';
 import { createHash, generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright';
+import { preview } from 'vite';
 import { resolveWebTestBinary } from './helpers/webTestBinary.mjs';
 
 const binary = resolveWebTestBinary();
@@ -17,6 +18,7 @@ const testEnvironment = Object.fromEntries(Object.entries(process.env).filter(([
 const adminPassword = 'Fictional-admin-password-2026';
 const userPassword = 'Fictional-user-password-2026';
 const md5 = value => createHash('md5').update(value).digest('hex');
+let frontendPreview;
 let directory, web, browser, base, admin, idp, issuer, logs = '', identity, tokenMode;
 const errorMarker = 'FICTIONAL-OIDC-SECRET-MARKER';
 const errorMarkerBytes = Array.from(Buffer.from(errorMarker)).join(', ');
@@ -75,13 +77,18 @@ before(async () => {
     assert.ifError(recovery.error);
     assert.equal(recovery.status, 0, `offline recovery succeeds using stdin (backend: ${binary})`);
     logs += recovery.stdout + recovery.stderr;
-    base = `http://127.0.0.1:${await port()}`;
-    web = spawn(binary, ['--db', database, '--api-server-addr', '127.0.0.1', '--api-server-port', new URL(base).port, '--config-server-protocol', 'tcp', '--config-server-port', '0', '--disable-registration', '--console-log-level', 'warn', '--oidc-issuer-url', issuer, '--oidc-client-id', 'fictional-client', '--oidc-redirect-url', `${base}/api/v1/auth/oidc/callback`], { stdio: ['ignore', 'pipe', 'pipe'], env: testEnvironment });
+    const backendBase = `http://127.0.0.1:${await port()}`;
+    base = backendBase;
+    if (process.env.WEB_TEST_DIST) {
+        frontendPreview = await preview({ configFile: false, build: { outDir: process.env.WEB_TEST_DIST }, preview: { host: '127.0.0.1', port: 0, cors: false, proxy: { '/api/': { target: backendBase, changeOrigin: false }, '/api_meta.js': { target: backendBase, changeOrigin: false } } } });
+        base = `http://127.0.0.1:${frontendPreview.httpServer.address().port}`;
+    }
+    web = spawn(binary, ['--db', database, '--api-server-addr', '127.0.0.1', '--api-server-port', new URL(backendBase).port, '--config-server-protocol', 'tcp', '--config-server-port', '0', '--disable-registration', '--console-log-level', 'warn', '--oidc-issuer-url', issuer, '--oidc-client-id', 'fictional-client', '--oidc-redirect-url', `${base}/api/v1/auth/oidc/callback`], { stdio: ['ignore', 'pipe', 'pipe'], env: testEnvironment });
     let startError;
     web.once('error', error => { startError = error; });
     for (const stream of [web.stdout, web.stderr]) stream.on('data', data => { logs += data; });
     let ready = false;
-    for (let i = 0; i < 120; i++) { if (await fetch(`${base}/api/v1/auth/policy`).then(r => r.ok).catch(() => false)) { ready = true; break; } if (startError || web.exitCode !== null) break; await delay(250); }
+    for (let i = 0; i < 120; i++) { if (await fetch(`${backendBase}/api/v1/auth/policy`).then(r => r.ok).catch(() => false)) { ready = true; break; } if (startError || web.exitCode !== null) break; await delay(250); }
     assert.ifError(startError);
     assert.ok(ready, `isolated backend starts (backend: ${binary})`);
     browser = await chromium.launch({ headless: true, executablePath: process.env.WEB_TEST_CHROMIUM || '/usr/bin/chromium' });
@@ -91,6 +98,7 @@ after(async () => {
     for (const c of contexts) { secrets.push(...(await c.cookies()).map(cookie => cookie.value)); await c.close(); } await browser?.close();
     if (web && web.exitCode === null) { web.kill('SIGTERM'); await Promise.race([new Promise(r => web.once('exit', r)), delay(3000)]); if (web.exitCode === null) web.kill('SIGKILL'); }
     await new Promise(r => idp ? idp.close(r) : r());
+    await new Promise(r => frontendPreview ? frontendPreview.httpServer.close(r) : r());
     await rm(directory, { recursive: true, force: true });
     const output = logs + browserMessages.join('\n');
     for (const secret of [...secrets, errorMarker, errorMarkerBytes, 'fictional-access-token', '$argon2']) if (secret) assert.ok(!output.includes(secret), 'captured logs exclude credentials and provider response bodies');

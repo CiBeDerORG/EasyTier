@@ -3,7 +3,7 @@ id: WUI-112
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-008"]
-status: in_progress
+status: done
 owner: /root/iteration_exec1
 depends_on: ["WUI-111"]
 read_scope: ["process/web-ui-optimization-in-progress/require/evidence/", "process/web-ui-optimization-in-progress/plan/integration.md", "easytier-web/frontend/package.json", "easytier-web/frontend/tests/helpers/webTestBinary.mjs", "easytier-web/frontend/src/"]
@@ -31,7 +31,7 @@ updated_at: 2026-10-21
 
 静态阅读仅证明上述入口存在；具体页面缺陷仍以WUI-102取证为准。未核实的行为/环境写清影响，不能补造问题或结果。
 
-前置任务：[WUI-111](task-wui-111-host-integration.md)。收到对应输出、限制和采用版本后才进入本任务执行；当前前置均未执行。
+前置任务：[WUI-111](task-wui-111-host-integration.md)。收到对应输出、限制和采用版本后才进入本任务执行；前置验收及采用版本见下方交接记录与任务元数据。
 
 ## 目标、输入与输出
 
@@ -63,11 +63,13 @@ updated_at: 2026-10-21
 
 ## 完成条件与失败处理
 
-- [ ] 真实服务成功/失败/权限/对象切换及账号边界有证据，config-server行为与命令不变，无新增周期机制。
-- [ ] 通过、失败、未执行、mock/真实分别记录；历史浏览器下载403及旧通过数不替代本轮结果。
-- [ ] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
-- [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
+- [x] 真实服务成功/失败/权限/对象切换及账号边界有证据，config-server行为与命令不变，无新增周期机制。
+- [x] 通过、失败、未执行、mock/真实分别记录；历史浏览器下载403及旧通过数不替代本轮结果。
+- [x] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
+- [x] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
 
 2026-10-21：监工准入：采用WUI111冻结前端产物与隔离后端/SQLite做集中与真实联调，和ECO113源码改动隔离。
+
+2026-10-21：监工验收：集中fixture33/33、真实SQLite/OIDC9/9；真实专项三项通过后矩阵1/1定向通过，覆盖96组合（0溢出/异常），非单轮4/4；22秒请求及16截图留档。冻结97112bef前端，实际限制见verification。
