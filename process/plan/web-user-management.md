@@ -266,7 +266,7 @@ WUM-003 同时提供 `list_user_records(conn, filter: UserListFilter) -> Result<
 
 WUM-004 自主使用 db 契约实现认证、成功登录时间/凭据能力更新、OIDC 和本人改密事务；WUM-005 自主使用相同 db 契约实现 `UserManagementService::new(Db)`，方法 `list_users(actor_id,filter)`、`get_user(actor_id,target_id)`、`create_user(actor_id,username)`、`set_access(actor_id,target_id,enabled)`、`set_role(actor_id,target_id,role)`、`reset_password(actor_id,target_id)`、`revoke_sessions(actor_id,target_id)`、`list_events(actor_id,target_id,page,page_size)`，返回上述安全 DTO/稳定业务错误；WUM-006 将 HTTP 映射到这些方法。两者不互相调用未落地模块。
 
-每个管理写动作事务顺序：取得 DB 写锁→重新授权→读取目标及不变量→更新账号/版本/关系→成功审计→commit；任一步失败全部回滚。通过身份验证但被业务规则拒绝的管理写动作在回滚后单独记录 denied（actor/可确认 target/action），基础设施错误记录 failure；审计写失败返回 internal_error，不能宣称动作成功。匿名/CSRF 拒绝不写用户审计，避免伪造 actor。只读操作不写管理审计。
+每个管理写动作事务顺序：取得 DB 写锁→重新授权→读取目标及不变量→更新账号/版本/关系→成功审计→commit；任一步失败全部回滚。通过身份验证但被业务规则拒绝的管理写动作在回滚后单独记录 denied（actor/可确认 target/action），基础设施错误记录 failure；审计写失败返回 internal_error，不能宣称动作成功。路由层匿名、未获管理权限、受限会话及 CSRF 拒绝不执行账号动作，不写账号业务审计；服务层已进入管理动作后违反目标/自身/最后管理员等业务规则的拒绝记录 denied。只读操作不写管理审计。这不是全量 HTTP 安全事件日志，不宣称每个被拒请求均有审计。
 
 ### 8.4 UI 边界
 

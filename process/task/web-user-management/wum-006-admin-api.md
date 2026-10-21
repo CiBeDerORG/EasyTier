@@ -56,3 +56,5 @@ updated_at: "2026-10-21"
 
 - 2026-10-21：管理路由已接生产共用account_routes/browser_session_routes，真实权限/受限会话中间件、参数安全错误、仅安全DTO及no-store；管理同源检查在legacy CORS外层含OPTIONS，内部token仍独立。ET_WEB_PUBLIC_ORIGIN明确HTTPS/Secure与loopback开发边界。
 - 验证：`cargo test --locked -p easytier-web admin_http` 3/3通过（真实127.0.0.1动态端口HTTP+SQLite，所有管理方法身份矩阵/限制/参数/创建冲突/生命周期/独立撤销/筛选分页/审计/并发/Origin预检/旧auth跨源兼容/Secure配置）；原权限回归1/1再次通过。首轮测试fixture编译错误已修正。日志 `/tmp/wum006-http.log`、`/tmp/wum006-permissions.log`。真实浏览器与完整IdP交010。
+
+- 审计范围明确：路由层匿名/未授权/受限/CSRF拒绝不执行业务且不写账号审计；服务层目标/自身/最后管理员等业务拒绝由005单独事务记denied。只读请求不记审计；不承诺全量HTTP安全事件日志。
