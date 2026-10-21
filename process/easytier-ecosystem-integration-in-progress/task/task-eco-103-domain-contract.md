@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-002]
 task_type: implementation
-status: in_progress
+status: done
 owner: /root/iteration_exec1
 depends_on: ["ECO-101", "ECO-102"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/baseline.md", "process/easytier-ecosystem-integration-in-progress/plan/design/baseline-evidence/", "easytier-web/frontend/src/modules/api.ts", "easytier-web/src/db/entity/devices.rs", "easytier-web/src/db/entity/network_members.rs"]
@@ -59,8 +59,8 @@ updated_at: 2026-10-21
 
 ## 完成与交接
 
-- [ ] 下游可根据同一契约独立实现，不需要猜测另一页面或外部项目尚不存在的实现。
-- [ ] 契约记录 scope/未支持/未验证项，不把失败后降级当成验收通过；按需请求无心跳、轮询、自动重放。
+- [x] 下游可根据同一契约独立实现，不需要猜测另一页面或外部项目尚不存在的实现。
+- [x] 契约记录 scope/未支持/未验证项，不把失败后降级当成验收通过；按需请求无心跳、轮询、自动重放。
 
 先交 ECO-104/105；类型或契约缺陷回本任务修正，已开始消费者暂停相关写入后串行交接。
 
@@ -71,3 +71,5 @@ updated_at: 2026-10-21
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
 
 2026-10-21：101/102经监工验收，exec1认领契约及公共类型实现；未支持/未验证边界不得降格为成功。
+
+2026-10-21：监工审查契约通过，strict tsc --noEmit及Vue compiler-sfc props/events编译通过；未执行页面联调。

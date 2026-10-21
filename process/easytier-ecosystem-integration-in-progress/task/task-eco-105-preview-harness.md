@@ -4,8 +4,8 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-002]
 task_type: implementation
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec3
 depends_on: ["ECO-103"]
 read_scope: ["easytier-web/frontend/tests/dashboard.test.mjs", "easytier-web/frontend/tests/user-management-e2e.test.mjs", "easytier-web/frontend/tests/helpers/webTestBinary.mjs", "process/easytier-ecosystem-integration-in-progress/plan/design/contract.md"]
 write_scope: ["easytier-web/frontend/package.json", "easytier-web/frontend/tests/ecosystem-support/", "process/easytier-ecosystem-integration-in-progress/plan/design/test-support.md"]
@@ -70,3 +70,5 @@ updated_at: 2026-10-21
 ## 当前记录
 
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
+
+2026-10-21：103验收后认领；共享locale/package当前归WUI103，先实施独占组件/支撑目录，交还锁后才能修改共享文件。

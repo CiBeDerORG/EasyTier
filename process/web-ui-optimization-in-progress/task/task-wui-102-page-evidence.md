@@ -3,7 +3,7 @@ id: WUI-102
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-001"]
-status: in_progress
+status: done
 owner: /root/iteration_exec3
 depends_on: ["WUI-101"]
 read_scope: ["process/web-ui-optimization-in-progress/require/baseline.md", "process/web-ui-optimization-in-progress/require/README.md", "easytier-web/frontend/src/components/"]
@@ -56,11 +56,13 @@ updated_at: 2026-10-21
 
 ## 完成条件与失败处理
 
-- [ ] 每个待改问题有页面/动作/结果/证据/影响及优先级依据。
-- [ ] 缺少运行环境时明确阻塞的页面证据与解除条件，不运行构建/测试来完成本次文档编辑，也不伪造截图。
-- [ ] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
-- [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
+- [x] 每个待改问题有页面/动作/结果/证据/影响及优先级依据。
+- [x] 缺少运行环境时明确阻塞的页面证据与解除条件，不运行构建/测试来完成本次文档编辑，也不伪造截图。
+- [x] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
+- [x] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
 
 2026-10-21：WUI-101经监工验收后由 `/root/iteration_exec3` 认领取证，复用ECO-102建立的隔离服务但独立浏览器上下文；尚未交付。
+
+2026-10-21：监工验收WUI-EVIDENCE-1通过。96项真实API前态、18截图与故障注入分别记录，三项实证问题交103/105/111；未覆盖真实设备等范围保留。

@@ -3,8 +3,8 @@ id: WUI-103
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-002"]
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec2
 depends_on: ["WUI-102"]
 read_scope: ["process/web-ui-optimization-in-progress/require/baseline.md", "process/web-ui-optimization-in-progress/require/evidence/", "easytier-web/frontend/src/main.ts"]
 write_scope: ["easytier-web/frontend/src/console.css", "easytier-web/frontend/src/style.css", "easytier-web/frontend/src/theme.ts", "easytier-web/frontend-lib/src/locales/cn.yaml", "easytier-web/frontend-lib/src/locales/en.yaml", "easytier-web/frontend/package.json", "easytier-web/frontend/tests/web-ui-support/", "process/web-ui-optimization-in-progress/plan/contract.md", "process/web-ui-optimization-in-progress/plan/shared/"]
@@ -74,3 +74,5 @@ cn/en语言文件与ECO-104互斥，package.json与ECO-105互斥；公共theme/C
 - [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
+
+2026-10-21：102验收通过，exec2认领；独占公共CSS/theme/locales/package及支持目录，共享锁在交付前不交ECO。
