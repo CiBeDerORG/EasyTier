@@ -6,13 +6,13 @@
 
 | 主题 | 需求分析 | 实施计划 | 当前阶段 |
 | --- | --- | --- | --- |
-| Web 用户管理 | [需求与验收](../../docs/requirements/web-user-management.md) | [PLAN-WUM](../plan/web-user-management.md) | M3 业务与接线：前端接线已验收；认证/账号服务及存储回派验证进行中，D-01 已解除 |
+| Web 用户管理 | [需求与验收](../../docs/requirements/web-user-management.md) | [PLAN-WUM](../plan/web-user-management.md) | M4 真实联调：后端HTTP与前端接线已验收，010进行真实浏览器/身份联调 |
 
 ## 状态概览
 
 | backlog | ready | in_progress | blocked | in_review | done | cancelled |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | 0 | 1 | 2 | 0 | 8 | 0 |
+| 0 | 0 | 1 | 1 | 0 | 9 | 0 |
 
 `ready` 表示可认领，不表示已开发；此处 `blocked` 均为等待列出的前置任务。WUM-001 契约已交付，动态功能尚未完成；D-01 已解除：保留旧账号登录，增加明确改密提示；UA-12 仍需实际升级验证。
 
@@ -27,11 +27,11 @@
 | [WUM-003 账号存储与数据库迁移](web-user-management/wum-003-storage.md) | `done` | `/root/wum003` | WUM-001 |
 | [WUM-004 认证与会话生命周期](web-user-management/wum-004-auth-lifecycle.md) | `done` | `/root/wum004` | WUM-002、WUM-003 |
 | [WUM-005 账号管理业务与恢复](web-user-management/wum-005-account-service.md) | `done` | `/root/wum005` | WUM-003 |
-| [WUM-006 管理 API 与后端接线](web-user-management/wum-006-admin-api.md) | `in_progress` | `/root/wum006` | WUM-004、WUM-005 |
+| [WUM-006 管理 API 与后端接线](web-user-management/wum-006-admin-api.md) | `done` | `/root/wum006` | WUM-004、WUM-005 |
 | [WUM-007 Web HTTP 客户端与错误语义](web-user-management/wum-007-web-client.md) | `done` | `/root/wum007` | WUM-001 |
 | [WUM-008 用户管理组件与文案](web-user-management/wum-008-user-interface.md) | `done` | `/root/wum008` | WUM-001 |
 | [WUM-009 前端导航与身份流程接线](web-user-management/wum-009-web-integration.md) | `done` | `/root/wum009` | WUM-007、WUM-008 |
-| [WUM-010 真实前后端联调](web-user-management/wum-010-full-stack-integration.md) | `blocked` | 未认领 | WUM-006、WUM-009 |
+| [WUM-010 真实前后端联调](web-user-management/wum-010-full-stack-integration.md) | `in_progress` | `/root/wum010` | WUM-006、WUM-009 |
 | [WUM-011 旧库升级与交付验收](web-user-management/wum-011-upgrade-acceptance.md) | `blocked` | 未认领 | WUM-010 |
 
 ## 并行安排与联调

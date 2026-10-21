@@ -1,7 +1,7 @@
 ---
 id: WUM-006
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum006
 depends_on: ["WUM-004","WUM-005"]
 write_scope: ["easytier-web/src/restful/admin_users.rs","easytier-web/src/restful/admin_users/","easytier-web/src/restful/mod.rs"]
@@ -31,10 +31,10 @@ updated_at: "2026-10-21"
 
 ## 实施与验收
 
-- [ ] 每个管理路由服务端校验身份和 users.manage；匿名 401、普通用户 403；受限改密会话不能调用管理动作。
-- [ ] 使用安全 DTO，完成分页/参数/冲突等错误映射；无密码哈希泄漏，不扩大内部共享 token 权限。
-- [ ] 按部署契约实现 Cookie/同源/CSRF 策略；本项独占 restful/mod.rs 的路由、注入和必要 Session/CORS 接线。
-- [ ] 用真实 HTTP + 数据库验证创建、状态、重置、角色、撤销、审计和必要并发场景；记录故障与边界结果。
+- [x] 每个管理路由服务端校验身份和 users.manage；匿名 401、普通用户 403；受限改密会话不能调用管理动作。
+- [x] 使用安全 DTO，完成分页/参数/冲突等错误映射；无密码哈希泄漏，不扩大内部共享 token 权限。
+- [x] 按部署契约实现 Cookie/同源/CSRF 策略；本项独占 restful/mod.rs 的路由、注入和必要 Session/CORS 接线。
+- [x] 用真实 HTTP + 数据库验证创建、状态、重置、角色、撤销、审计和必要并发场景；记录故障与边界结果。
 
 ## 交付清单
 
@@ -53,3 +53,6 @@ updated_at: "2026-10-21"
 - 2026-10-21：004/005验收后认领；浏览器受限中间件须位于认证层内，管理路由同源保护必须覆盖OPTIONS并防止外层permissive CORS提前处理；内部token路径保持独立。
 
 - 2026-10-21：v1.2接线澄清见计划8.7：新增管理路径独立严格同源保护含OPTIONS，旧auth跨源兼容保持；ET_WEB_PUBLIC_ORIGIN明确部署origin并控制Secure，未配仅loopback管理。实际验证待本项交付。环境短暂断连通知后协调者只读核实仓库可用/无未提交业务改动/无残留构建，未重复启动测试。
+
+- 2026-10-21：管理路由已接生产共用account_routes/browser_session_routes，真实权限/受限会话中间件、参数安全错误、仅安全DTO及no-store；管理同源检查在legacy CORS外层含OPTIONS，内部token仍独立。ET_WEB_PUBLIC_ORIGIN明确HTTPS/Secure与loopback开发边界。
+- 验证：`cargo test --locked -p easytier-web admin_http` 3/3通过（真实127.0.0.1动态端口HTTP+SQLite，所有管理方法身份矩阵/限制/参数/创建冲突/生命周期/独立撤销/筛选分页/审计/并发/Origin预检/旧auth跨源兼容/Secure配置）；原权限回归1/1再次通过。首轮测试fixture编译错误已修正。日志 `/tmp/wum006-http.log`、`/tmp/wum006-permissions.log`。真实浏览器与完整IdP交010。

@@ -1,8 +1,8 @@
 ---
 id: WUM-010
 feature: web-user-management
-status: blocked
-owner: null
+status: in_progress
+owner: /root/wum010
 depends_on: ["WUM-006","WUM-009"]
 write_scope: ["easytier-web/frontend/tests/user-management-e2e.test.mjs","easytier-web/frontend/package.json"]
 requirements: ["UM-01","UM-02","UM-03","UM-04","UM-05","UM-06","UM-07","UM-08","UM-09","UM-10"]
@@ -52,3 +52,5 @@ updated_at: "2026-10-21"
 ## 执行记录
 
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
+
+- 2026-10-21：006真实HTTP验收、009导航mock验收后认领；从真实隔离后端/DB开始浏览器联调，补完整测试OIDC身份服务与各UA证据，禁止使用真实身份或凭据。

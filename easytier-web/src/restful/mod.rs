@@ -1,3 +1,4 @@
+mod admin_users;
 mod auth;
 pub(crate) mod captcha;
 mod central_network;
@@ -140,6 +141,169 @@ pub fn convert_db_error(e: DbErr) -> HttpHandleError {
         StatusCode::INTERNAL_SERVER_ERROR,
         other_error(format!("DB Error: {:#}", e)).into(),
     )
+}
+
+/// New account management is same-origin. Legacy API CORS remains unchanged.
+#[derive(Clone)]
+struct BrowserSecurity {
+    public_origin: Option<String>,
+    secure_cookie: bool,
+}
+impl BrowserSecurity {
+    fn from_origin(origin: Option<&str>) -> anyhow::Result<Self> {
+        let Some(origin) = origin else {
+            return Ok(Self {
+                public_origin: None,
+                secure_cookie: false,
+            });
+        };
+        let url =
+            url::Url::parse(origin).map_err(|_| anyhow::anyhow!("invalid ET_WEB_PUBLIC_ORIGIN"))?;
+        let loopback = url.host_str().is_some_and(is_loopback_host);
+        anyhow::ensure!(
+            url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none()
+                && url.path() == "/"
+                && (url.scheme() == "https" || (url.scheme() == "http" && loopback)),
+            "ET_WEB_PUBLIC_ORIGIN must be an HTTPS origin or loopback HTTP origin"
+        );
+        Ok(Self {
+            public_origin: Some(url.origin().ascii_serialization()),
+            secure_cookie: url.scheme() == "https",
+        })
+    }
+    fn from_env() -> anyhow::Result<Self> {
+        match std::env::var("ET_WEB_PUBLIC_ORIGIN") {
+            Ok(value) => Self::from_origin(Some(&value)),
+            Err(std::env::VarError::NotPresent) => Self::from_origin(None),
+            Err(_) => anyhow::bail!("invalid ET_WEB_PUBLIC_ORIGIN"),
+        }
+    }
+    fn expected_origin(&self, req: &Request<axum::body::Body>) -> Option<String> {
+        if let Some(origin) = &self.public_origin {
+            return Some(origin.clone());
+        }
+        let host = req.headers().get(header::HOST)?.to_str().ok()?;
+        let url = url::Url::parse(&format!("http://{host}")).ok()?;
+        if !url.username().is_empty()
+            || url.password().is_some()
+            || url.path() != "/"
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || !url.host_str().is_some_and(is_loopback_host)
+        {
+            return None;
+        }
+        Some(url.origin().ascii_serialization())
+    }
+}
+fn is_loopback_host(host: &str) -> bool {
+    host == "localhost"
+        || host
+            .trim_matches(['[', ']'])
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+async fn management_origin_guard(
+    Extension(security): Extension<BrowserSecurity>,
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    use axum::response::IntoResponse;
+    let path = req.uri().path();
+    if path != "/api/v1/admin" && !path.starts_with("/api/v1/admin/") {
+        let identity = path == "/api/v1/auth/me";
+        let response = next.run(req).await;
+        return if identity {
+            no_store(response)
+        } else {
+            response
+        };
+    }
+    let reject =
+        || no_store(auth::auth_error(StatusCode::FORBIDDEN, "csrf_rejected").into_response());
+    let Some(expected) = security.expected_origin(&req) else {
+        return reject();
+    };
+    if req
+        .headers()
+        .get(header::ORIGIN)
+        .is_some_and(|origin| origin.to_str().ok() != Some(expected.as_str()))
+    {
+        return reject();
+    }
+    if req
+        .headers()
+        .get("sec-fetch-site")
+        .is_some_and(|v| v != "same-origin" && v != "none")
+    {
+        return reject();
+    }
+    if req.method() == axum::http::Method::OPTIONS {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+    if !matches!(
+        *req.method(),
+        axum::http::Method::GET | axum::http::Method::HEAD
+    ) {
+        let json = req
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| {
+                v.split(';')
+                    .next()
+                    .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"))
+            });
+        if !json
+            || req
+                .headers()
+                .get("x-requested-with")
+                .is_none_or(|v| v != "EasyTier")
+        {
+            return reject();
+        }
+    }
+    no_store(next.run(req).await)
+}
+fn no_store(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
+}
+fn account_routes(db: &Db, flags: Arc<FeatureFlags>) -> Router<AppStateInner> {
+    auth::router()
+        .merge(admin_users::router())
+        .layer(Extension(flags))
+        .layer(Extension(
+            crate::user_management::UserManagementService::new(db.clone()),
+        ))
+}
+/// Shared by production and real HTTP tests; the outer origin guard runs before
+/// permissive legacy CORS can consume management OPTIONS requests.
+fn browser_session_routes(
+    router: Router,
+    db: Db,
+    store: SqliteStore,
+    security: BrowserSecurity,
+) -> Router {
+    let session = SessionManagerLayer::new(store)
+        .with_secure(security.secure_cookie)
+        .with_http_only(true)
+        .with_same_site(SameSite::Lax)
+        .with_expiry(Expiry::OnInactivity(Duration::days(1)))
+        .with_signed(Key::generate());
+    router
+        .layer(axum_mw::from_fn(auth::require_password_change))
+        .layer(MessagesManagerLayer)
+        .layer(AuthManagerLayerBuilder::new(Backend::new(db), session).build())
+        .layer(tower_http::cors::CorsLayer::very_permissive())
+        .layer(axum_mw::from_fn(management_origin_guard))
+        .layer(Extension(security))
 }
 
 impl RestfulServer {
@@ -289,21 +453,7 @@ impl RestfulServer {
                 .continuously_delete_expired(tokio::time::Duration::from_secs(60)),
         ));
 
-        // Generate a cryptographic key to sign the session cookie.
-        let key = Key::generate();
-
-        let session_layer = SessionManagerLayer::new(session_store)
-            .with_secure(false)
-            .with_same_site(SameSite::Lax)
-            .with_expiry(Expiry::OnInactivity(Duration::days(1)))
-            .with_signed(key);
-
-        // Auth service.
-        //
-        // This combines the session layer with our backend to establish the auth
-        // service which will provide the auth session as a request extension.
-        let backend = Backend::new(self.db.clone());
-        let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
+        let security = BrowserSecurity::from_env()?;
         let compression_layer = tower_http::compression::CompressionLayer::new()
             .br(true)
             .deflate(true)
@@ -348,7 +498,7 @@ impl RestfulServer {
             .merge(NetworkApi::build_route())
             .merge(rpc::router())
             .route_layer(login_required!(Backend))
-            .merge(auth::router().layer(Extension(self.feature_flags.clone())))
+            .merge(account_routes(&self.db, self.feature_flags.clone()))
             .merge(oidc::router())
             .with_state(self.client_mgr.clone())
             .route(
@@ -362,10 +512,8 @@ impl RestfulServer {
                 config_server_protocol: self.config_server_protocol.clone(),
                 config_server_port: self.config_server_port,
                 webhook_auth: self.webhook_config.has_external_endpoint(),
-            }))
-            .layer(MessagesManagerLayer)
-            .layer(auth_layer)
-            .layer(tower_http::cors::CorsLayer::very_permissive())
+            }));
+        app = browser_session_routes(app, self.db.clone(), session_store, security)
             .layer(compression_layer);
 
         if let Some(internal_routes) = internal_app {
