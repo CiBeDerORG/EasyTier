@@ -11,7 +11,10 @@
     "test:e2e": "pnpm build && cargo build -p easytier-web --features embed && node --test tests/central-e2e.test.mjs",
     "test:user-management": "pnpm build && cargo build --locked -p easytier-web --features embed && node --test --test-concurrency=1 tests/user-management-*.test.mjs",
     "test:user-management:e2e": "pnpm build && cargo build --locked -p easytier-web --features embed && node --test tests/user-management-e2e.test.mjs",
-    "test:web-ui:foundation": "pnpm build && node --test tests/web-ui-support/foundation.test.mjs"
+    "test:web-ui:foundation": "pnpm build && node --test tests/web-ui-support/foundation.test.mjs",
+    "test:ecosystem": "node tests/ecosystem-support/runTests.mjs",
+    "check:ecosystem": "node tests/ecosystem-support/checkComponents.mjs",
+    "preview:ecosystem": "node tests/ecosystem-support/preview.mjs"
   },
   "dependencies": {
     "@modyfi/vite-plugin-yaml": "^1.1.0",

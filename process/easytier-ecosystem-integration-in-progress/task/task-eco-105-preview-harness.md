@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-002]
 task_type: implementation
-status: in_progress
+status: done
 owner: /root/iteration_exec3
 depends_on: ["ECO-103"]
 read_scope: ["easytier-web/frontend/tests/dashboard.test.mjs", "easytier-web/frontend/tests/user-management-e2e.test.mjs", "easytier-web/frontend/tests/helpers/webTestBinary.mjs", "process/easytier-ecosystem-integration-in-progress/plan/design/contract.md"]
@@ -60,8 +60,8 @@ updated_at: 2026-10-21
 
 ## 完成与交接
 
-- [ ] 独立页面具备明确编译/预览/验证方式，真实联调与mock结果能区分。
-- [ ] 测试支持目录与各页面断言文件职责分离；缺环境/未运行不能写通过。
+- [x] 独立页面具备明确编译/预览/验证方式，真实联调与mock结果能区分。
+- [x] 测试支持目录与各页面断言文件职责分离；缺环境/未运行不能写通过。
 
 交给 ECO-106～111 及114；业务或页面缺陷回对应所有者，不在支持目录绕过断言。
 
@@ -72,3 +72,5 @@ updated_at: 2026-10-21
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
 
 2026-10-21：103验收后认领；共享locale/package当前归WUI103，先实施独占组件/支撑目录，交还锁后才能修改共享文件。
+
+2026-10-21：监工验收类型检查、4/4支持测试及CLI成功；明确开发fixture不等于业务或后端验收，package锁交还。

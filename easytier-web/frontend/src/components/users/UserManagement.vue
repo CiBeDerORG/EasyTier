@@ -91,7 +91,7 @@ const errorText = computed(() => props.error ? t(`user_management.errors.${known
         </form>
         <p v-if="loading" role="status">{{ t('user_management.loading') }}</p>
         <p v-else-if="!error && !users.items.length" role="status">{{ t(search || role || access ? 'user_management.no_matches' : 'user_management.empty') }}</p>
-        <div class="table-scroll"><table v-if="users.items.length"><caption class="sr-only">{{ t('user_management.title') }}</caption><thead><tr><th>{{ t('user_management.username') }}</th><th>{{ t('user_management.role') }}</th><th>{{ t('user_management.access') }}</th><th>{{ t('user_management.source') }}</th><th>{{ t('user_management.created') }}</th><th>{{ t('user_management.last_login') }}</th><th>{{ t('user_management.details') }}</th></tr></thead>
+        <div v-if="users.items.length" class="table-scroll" role="region" :aria-label="t('user_management.title')" tabindex="0"><table><caption class="sr-only">{{ t('user_management.title') }}</caption><thead><tr><th>{{ t('user_management.username') }}</th><th>{{ t('user_management.role') }}</th><th>{{ t('user_management.access') }}</th><th>{{ t('user_management.source') }}</th><th>{{ t('user_management.created') }}</th><th>{{ t('user_management.last_login') }}</th><th>{{ t('user_management.details') }}</th></tr></thead>
             <tbody><tr v-for="user in users.items" :key="user.id"><td class="username">{{ user.username }}</td><td>{{ t(`user_management.roles.${user.role}`) }}</td><td>{{ t(user.web_login_enabled ? 'user_management.enabled' : 'user_management.disabled') }}</td><td>{{ t(`user_management.sources.${user.source}`) }}</td><td>{{ date(user.created_at) }}</td><td>{{ date(user.last_login_at) }}</td><td><Button :label="t('user_management.details')" :aria-label="`${t('user_management.details')}: ${user.username}`" :disabled="busy || !canManage" @click="select(user)" /></td></tr></tbody></table></div>
         <nav class="pagination" :aria-label="t('user_management.pages')"><Button :label="t('user_management.previous')" :disabled="loading || users.page <= 1 || !canManage" @click="query(users.page - 1)" /><span>{{ t('user_management.page', { page: users.page, total: users.total }) }}</span><Button :label="t('user_management.next')" :disabled="loading || users.page * users.page_size >= users.total || !canManage" @click="query(users.page + 1)" /></nav>
         <section v-if="selectedUser" class="details" :aria-label="t('user_management.details')"><h2 class="username">{{ selectedUser.username }}</h2><p>{{ t('user_management.scope') }}</p>
@@ -123,7 +123,10 @@ header { justify-content: space-between; }
 .filters label, .dialog-form { display: flex; flex-direction: column; gap: .5rem; }
 .filters input, select { max-width: 100%; padding: .5rem; }
 .table-scroll { overflow-x: auto; max-width: 100%; }
-table { width: 100%; border-collapse: collapse; }
+table { width: 100%; min-width: 56rem; border-collapse: collapse; }
+.table-scroll:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 2px; }
+th { white-space: nowrap; }
+td.username { min-width: 12rem; }
 th, td { padding: .65rem; text-align: start; border-bottom: 1px solid var(--p-content-border-color, #ddd); }
 .username { overflow-wrap: anywhere; max-width: 22rem; }
 .pagination { margin: 1rem 0; }

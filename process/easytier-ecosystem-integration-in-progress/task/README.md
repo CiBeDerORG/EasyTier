@@ -10,15 +10,15 @@ updated_at: 2026-10-21
 
 [需求/计划汇总](../README.md) · [需求与验收](../require/README.md) · [11份小计划与公共说明](../plan/README.md) · [跨需求共享文件调度](../../README.md#跨需求共享文件调度)
 
-已将11个原工作包拆成15个小任务。原 ECO-001～011 是工作包编号，新 ECO-101～115 是实际任务编号；不复用已迁出的 ECO-012。ECO-101/102/103 done、ECO-104/105 in_progress，其余10项backlog；已完成3/15。需求总体为 in-progress；只有相应前置、契约和环境明确后才由协调者把任务推进 ready。
+当前任务进度见下方实施快照与任务明细。
 
 ## 进度
 
 | backlog | ready | in_progress | blocked | in_review | done | cancelled | 总计 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 10 | 0 | 2 | 0 | 0 | 3 | 0 | 15 |
+| 8 | 0 | 2 | 0 | 0 | 5 | 0 | 15 |
 
-完成数 3/15；取消项0。文档已经生成不等于任务已完成，具体状态以明细元数据为准。
+当前任务进度见下方实施快照与任务明细。
 
 ## 任务明细
 
@@ -27,14 +27,14 @@ updated_at: 2026-10-21
 | [ECO-101 源码基线与接口能力清单](task-eco-101-source-capabilities.md) | [PLAN-ECO-001](../plan/plan-eco-001-baseline.md) | done | /root/iteration_exec1 | 无 | `eco-discovery` |
 | [ECO-102 现有页面与请求行为取证](task-eco-102-page-baseline.md) | [PLAN-ECO-001](../plan/plan-eco-001-baseline.md) | done | /root/iteration_exec2 | 无 | `eco-discovery` |
 | [ECO-103 资源视图与按需查询契约](task-eco-103-domain-contract.md) | [PLAN-ECO-002](../plan/plan-eco-002-contract.md) | done | /root/iteration_exec1 | ECO-101、ECO-102 | `eco-contract` |
-| [ECO-104 公共展示组件与语言资源](task-eco-104-shared-components.md) | [PLAN-ECO-002](../plan/plan-eco-002-contract.md) | in_progress | /root/iteration_exec1 | ECO-103 | `eco-foundation` |
-| [ECO-105 独立预览与验证入口](task-eco-105-preview-harness.md) | [PLAN-ECO-002](../plan/plan-eco-002-contract.md) | in_progress | /root/iteration_exec3 | ECO-103 | `eco-foundation` |
-| [ECO-106 拓扑选择与可访问表达](task-eco-106-topology-view.md) | [PLAN-ECO-003](../plan/plan-eco-003-topology.md) | backlog | null | ECO-104、ECO-105 | `eco-pages` |
+| [ECO-104 公共展示组件与语言资源](task-eco-104-shared-components.md) | [PLAN-ECO-002](../plan/plan-eco-002-contract.md) | done | /root/iteration_exec1 | ECO-103 | `eco-foundation` |
+| [ECO-105 独立预览与验证入口](task-eco-105-preview-harness.md) | [PLAN-ECO-002](../plan/plan-eco-002-contract.md) | done | /root/iteration_exec3 | ECO-103 | `eco-foundation` |
+| [ECO-106 拓扑选择与可访问表达](task-eco-106-topology-view.md) | [PLAN-ECO-003](../plan/plan-eco-003-topology.md) | in_progress | /root/iteration_exec1 | ECO-104、ECO-105 | `eco-pages` |
 | [ECO-107 节点资料与类型目录](task-eco-107-node-details.md) | [PLAN-ECO-004](../plan/plan-eco-004-node-details.md) | backlog | null | ECO-104、ECO-105 | `eco-pages` |
 | [ECO-108 服务设备组与设备详情](task-eco-108-resource-details.md) | [PLAN-ECO-005](../plan/plan-eco-005-resource-details.md) | backlog | null | ECO-104、ECO-105 | `eco-pages` |
 | [ECO-109 公网映射与导航设置表单](task-eco-109-access-settings.md) | [PLAN-ECO-006](../plan/plan-eco-006-access-settings.md) | backlog | null | ECO-104、ECO-105 | `eco-pages` |
 | [ECO-110 资源导航入口与回链](task-eco-110-navigation-view.md) | [PLAN-ECO-007](../plan/plan-eco-007-navigation.md) | backlog | null | ECO-104、ECO-105 | `eco-pages` |
-| [ECO-111 现有接口适配与请求结束](task-eco-111-api-adapter.md) | [PLAN-ECO-008](../plan/plan-eco-008-api-adapter.md) | backlog | null | ECO-104、ECO-105 | `eco-pages` |
+| [ECO-111 现有接口适配与请求结束](task-eco-111-api-adapter.md) | [PLAN-ECO-008](../plan/plan-eco-008-api-adapter.md) | in_progress | /root/iteration_exec3 | ECO-104、ECO-105 | `eco-pages` |
 | [ECO-112 拓扑页面组合与能力注入](task-eco-112-page-composition.md) | [PLAN-ECO-009](../plan/plan-eco-009-host-integration.md) | backlog | null | ECO-106、ECO-107、ECO-108、ECO-109、ECO-110、ECO-111 | `eco-composition` |
 | [ECO-113 正式路由与宿主导航接线](task-eco-113-host-routing.md) | [PLAN-ECO-009](../plan/plan-eco-009-host-integration.md) | backlog | null | ECO-112 | `eco-host-integration` |
 | [ECO-114 真实接口联调与失败回派](task-eco-114-integration-verification.md) | [PLAN-ECO-010](../plan/plan-eco-010-integration-verification.md) | backlog | null | ECO-113 | `eco-verification` |
@@ -99,6 +99,10 @@ D为本需求plan/design目录，所有未来产物与精确源码写入范围�
 2026-10-21：完成需求→11份小计划→15项任务的文档拆分，补齐真实代码依据、多Agent依赖和共享文件调度。所有任务未认领、未实现，纯文档仅做目录/链接/编号/状态/内容检查，未运行构建、测试或CI。
 
 
+
+
 ## 当前实施快照
 
-ECO-101/102/103 done、ECO-104/105 in_progress，其余10项backlog；已完成3/15。 首批基线已由监工审查，ECO页面取证已验收，真实设备/公网仍未验证。当前基线提交 `af28b81e`，代码基础 `1e92296b`，指定文档 `670eb3b4`。用户授权3执行+1监工：exec1负责生态契约后续，exec2负责ECO-102，exec3负责WUI-102，iteration_monitor负责独立关卡审查。状态事实源为任务明细，未运行场景不作通过结论。
+已验收 5/15；ECO-106（in_progress，/root/iteration_exec1）、ECO-111（in_progress，/root/iteration_exec3）；其余 8 项 backlog。
+
+总控维护任务与共享锁；监工 `/root/iteration_monitor` 审查后才能完成或进入联调。实际验证见各任务交接，未运行场景不作通过结论。

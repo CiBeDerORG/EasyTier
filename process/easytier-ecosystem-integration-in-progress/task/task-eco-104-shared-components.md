@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-002]
 task_type: implementation
-status: in_progress
+status: done
 owner: /root/iteration_exec1
 depends_on: ["ECO-103"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "easytier-web/frontend/src/modules/ecosystemTypes.ts", "easytier-web/frontend/src/theme.ts"]
@@ -62,8 +62,8 @@ updated_at: 2026-10-21
 
 ## 完成与交接
 
-- [ ] 公共组件可独立消费103类型，不发隐式网络请求；调用者能表达真实结果与失败恢复。
-- [ ] 必要的组件行为验证和语言对照在实际实现阶段完成，证据交下游；本轮不执行。
+- [x] 公共组件可独立消费103类型，不发隐式网络请求；调用者能表达真实结果与失败恢复。
+- [x] 必要的组件行为验证和语言对照在实际实现阶段完成，证据交下游；本轮不执行。
 
 交给 ECO-106～111；脚本入口问题回105，类型问题回103。
 
@@ -74,3 +74,5 @@ updated_at: 2026-10-21
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
 
 2026-10-21：103验收后认领；共享locale/package当前归WUI103，先实施独占组件/支撑目录，交还锁后才能修改共享文件。
+
+2026-10-21：监工验收通过，2纯展示组件、配对译文与6/6浏览器检查，真实后端未验证；后续由原所有者复用105公共harness保持断言。

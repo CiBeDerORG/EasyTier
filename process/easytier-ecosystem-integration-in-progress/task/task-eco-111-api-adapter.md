@@ -4,8 +4,8 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-008]
 task_type: implementation
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec3
 depends_on: ["ECO-104", "ECO-105"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "process/easytier-ecosystem-integration-in-progress/plan/design/baseline.md", "easytier-web/frontend/src/modules/ecosystemTypes.ts", "easytier-web/src/restful/network.rs", "easytier-web/src/db/entity/devices.rs", "easytier-web/src/db/entity/network_members.rs"]
 write_scope: ["easytier-web/frontend/src/modules/api.ts", "easytier-web/frontend/src/modules/ecosystemApi.ts", "easytier-web/frontend/tests/ecosystem-api.test.mjs", "process/easytier-ecosystem-integration-in-progress/plan/design/api/"]
@@ -70,3 +70,5 @@ updated_at: 2026-10-21
 ## 当前记录
 
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
+
+2026-10-21：104/105通过后认领实际API适配与专属验证；真实服务联调留114，禁止虚构后端或静默空数据。

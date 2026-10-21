@@ -92,6 +92,10 @@ flowchart LR
 2026-10-21：继续完成需求→小计划→小任务的拆分；15项任务全部待认领，0项实现完成；本轮只读代码并整理文档，未运行构建、测试或 CI。
 
 
+
+
 ## 当前实施快照
 
-ECO-101/102/103 done、ECO-104/105 in_progress，其余10项backlog；已完成3/15。 首批基线已由监工审查，ECO页面取证已验收，真实设备/公网仍未验证。当前基线提交 `af28b81e`，代码基础 `1e92296b`，指定文档 `670eb3b4`。用户授权3执行+1监工：exec1负责生态契约后续，exec2负责ECO-102，exec3负责WUI-102，iteration_monitor负责独立关卡审查。状态事实源为任务明细，未运行场景不作通过结论。
+已验收 5/15；ECO-106（in_progress，/root/iteration_exec1）、ECO-111（in_progress，/root/iteration_exec3）；其余 8 项 backlog。
+
+总控维护任务与共享锁；监工 `/root/iteration_monitor` 审查后才能完成或进入联调。实际验证见各任务交接，未运行场景不作通过结论。
