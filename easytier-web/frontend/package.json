@@ -8,7 +8,9 @@
     "build": "pnpm --dir ../frontend-lib build && vue-tsc -b && vite build",
     "preview": "vite preview",
     "test:browser": "pnpm build && node --test tests/dashboard.test.mjs",
-    "test:e2e": "pnpm build && cargo build -p easytier-web --features embed && node --test tests/central-e2e.test.mjs"
+    "test:e2e": "pnpm build && cargo build -p easytier-web --features embed && node --test tests/central-e2e.test.mjs",
+    "test:user-management": "pnpm build && cargo build --locked -p easytier-web --features embed && node --test --test-concurrency=1 tests/user-management-*.test.mjs",
+    "test:user-management:e2e": "pnpm build && cargo build --locked -p easytier-web --features embed && node --test tests/user-management-e2e.test.mjs"
   },
   "dependencies": {
     "@modyfi/vite-plugin-yaml": "^1.1.0",

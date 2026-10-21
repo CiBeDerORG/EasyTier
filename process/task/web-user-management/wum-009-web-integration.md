@@ -1,7 +1,7 @@
 ---
 id: WUM-009
 feature: web-user-management
-status: in_review
+status: done
 owner: /root/wum009
 depends_on: ["WUM-007","WUM-008"]
 write_scope: ["easytier-web/frontend/src/main.ts","easytier-web/frontend/src/components/MainPage.vue","easytier-web/frontend/src/components/Login.vue","easytier-web/frontend/src/components/ChangePassword.vue","easytier-web/frontend/tests/user-management-navigation.test.mjs","easytier-web/frontend-lib/src/locales/en.yaml (username_help only)","easytier-web/frontend-lib/src/locales/cn.yaml (username_help only)"]
@@ -60,3 +60,5 @@ updated_at: "2026-10-21"
 - 2026-10-21：009定位为两份username_help文案裸@触发production vue-i18n linked-message解析错误（SyntaxError10），Vue捕获后Dialog插槽渲染注释。移交009独占en/cn两行转义修复，显示文本保持不变，并增加production preview回归；无须改组件或构建配置。
 
 - 2026-10-21：两行文案修复后pnpm build通过；导航测试默认改production preview，实际10/10通过（含中英文创建弹窗和字面量@断言），日志/tmp/wum009-production-navigation.log。已移除诊断日志，等待010真实embed复验后恢复done。
+
+- 2026-10-21：010统一runner真实embed浏览器管理全链已通过（创建/停用/恢复/角色/撤会话/重置/审计/离线草稿），生产Dialog缺陷关闭，009恢复done。010另一个测试路由定位修正仍在复验，不影响此已验证修复。

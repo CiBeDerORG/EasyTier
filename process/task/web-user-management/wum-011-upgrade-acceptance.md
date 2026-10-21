@@ -1,7 +1,7 @@
 ---
 id: WUM-011
 feature: web-user-management
-status: blocked
+status: ready
 owner: null
 depends_on: ["WUM-010"]
 write_scope: ["docs/operations/web-user-management.md","easytier-web/src/user_management/upgrade_tests.rs"]

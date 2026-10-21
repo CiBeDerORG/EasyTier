@@ -1,7 +1,7 @@
 ---
 id: WUM-010
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum010
 depends_on: ["WUM-006","WUM-009"]
 write_scope: ["easytier-web/frontend/tests/user-management-e2e.test.mjs","easytier-web/frontend/package.json","easytier-web/src/client_manager/session/webhook_validation.rs (tests only, /root/wum003)"]
@@ -31,13 +31,13 @@ updated_at: "2026-10-21"
 
 ## 实施与验收
 
-- [ ] 覆盖关联 UA 场景：真实权限、创建与冲突、停用/恢复、改密、角色并发、会话撤销、注册策略、审计及跨站写入策略。
-- [ ] 独立检查 UM-02 的服务端搜索、角色/状态筛选、稳定分页、空结果和历史未知值；不能仅验证列表读取成功。
-- [ ] 独立检查 UM-07：保持密码、角色和访问状态不变，主动撤销全部 Web 会话；旧会话失效，重新登录可用。
-- [ ] 按适用身份模式验证本地/OIDC/外部映射；未执行或不适用需具体说明，不用 mock 结果替代。
-- [ ] 验证组件反馈与服务器结果一致，设备/网络行为遵守仅停用控制台的范围；不输出真实凭据或哈希。
-- [ ] 接入可运行的测试命令并运行；单元、mock、HTTP、浏览器结果分别报告。
-- [ ] 所有关联运行时验收有结论，未解决缺陷不标为通过；旧库升级/恢复整体结论由 WUM-011 完成。
+- [x] 覆盖关联 UA 场景：真实权限、创建与冲突、停用/恢复、改密、角色并发、会话撤销、注册策略、审计及跨站写入策略。
+- [x] 独立检查 UM-02 的服务端搜索、角色/状态筛选、稳定分页、空结果和历史未知值；不能仅验证列表读取成功。
+- [x] 独立检查 UM-07：保持密码、角色和访问状态不变，主动撤销全部 Web 会话；旧会话失效，重新登录可用。
+- [x] 按适用身份模式验证本地/OIDC/外部映射；未执行或不适用需具体说明，不用 mock 结果替代。
+- [x] 验证组件反馈与服务器结果一致，设备/网络行为遵守仅停用控制台的范围；不输出真实凭据或哈希。
+- [x] 接入可运行的测试命令并运行；单元、mock、HTTP、浏览器结果分别报告。
+- [x] 所有关联运行时验收有结论，未解决缺陷不标为通过；旧库升级/恢复整体结论由 WUM-011 完成。
 
 ## 交付清单
 
@@ -60,3 +60,7 @@ updated_at: "2026-10-21"
 - 2026-10-21：移交003独占webhook_validation.rs现有tests区，补真实loopback外部webhook到本地用户映射的完整函数链；不启动Core/TUN/RPC消费者。验证停用后控制面会话与资源保持，实际数据面在线通信仍不在已执行验证内。010统一串行执行该Rust测试。
 
 - 2026-10-21：`cargo test --locked -p easytier-web wum_external_webhook_and_device_heartbeat_preserve_disabled_account` 实际1/1通过（/tmp/wum010-webhook.log）；真实外部HTTP验证2次、node-connected1次，中心DeviceAuth验证2次，停用前后会话授权与账号/设备/网络归属保持。未启动数据面。
+
+- 2026-10-21：统一入口`pnpm --dir easytier-web/frontend test:user-management`实际32/32通过，含客户端mock6、组件mock7、真实后端/SQLite/浏览器/OIDC9、production导航mock10；前端及embed构建通过，日志/tmp/wum010-runner-final.log。先前31/32失败为测试路由定位错误，已按真实/#/auth修正后完整重跑。追加OIDC字节泄漏断言与state/nonce失败路径正在单独复验，未进行旧代码red重演。
+
+- 2026-10-21：最后OIDC补强实际1/1通过（/tmp/wum010-oidc-final.log）：明文及Rust Debug字节数组泄漏检查、有效OAuth错误响应、错误state 400/nonce 401。所有适用运行时验收通过，010交付；UA-12交011。UA-11的403能力刷新/迟到响应为mock导航验证，其余核心动作使用真实服务；未执行真实VPN数据面或HTTPS代理部署。
