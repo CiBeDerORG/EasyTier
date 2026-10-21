@@ -1,7 +1,7 @@
 ---
 id: WUM-004
 feature: web-user-management
-status: done
+status: in_progress
 owner: /root/wum004
 depends_on: ["WUM-002","WUM-003"]
 write_scope: ["easytier-web/src/restful/users.rs","easytier-web/src/restful/auth.rs","easytier-web/src/restful/oidc.rs"]
@@ -58,3 +58,5 @@ updated_at: "2026-10-21"
 - 2026-10-21：完成密码哈希+auth_version会话摘要、登录/重载停用与临时期限校验、受限改密、稳定OIDC绑定及同名拒绝、me/policy、仅本人默认密码警告。认证更新在DB写锁事务内重读，不覆盖并发撤销。
 - 验证：`cargo test --locked -p easytier-web auth_lifecycle` 5/5通过，含真实SQLite与Cookie会话router（独立撤销/多会话/恢复不复活/受限改密/policy/历史默认密码提示）、OIDC绑定和禁用；rustfmt与diff检查通过。完整真实IdP HTTP尚未运行，留010。
 - 006接线：将 `auth::require_password_change` 放在合并browser API router中且AuthManagerLayer内，覆盖工作区/RPC/config解析生成；保持内部token路由独立。auth::router已注册me/policy，安全错误helper可复用。
+
+- 2026-10-21：WUM-010前置复核发现OIDC错误Debug可包含完整token响应体及外部回调文本，重新打开；004独占oidc.rs最小脱敏修复，010补真实失败响应日志回归。
