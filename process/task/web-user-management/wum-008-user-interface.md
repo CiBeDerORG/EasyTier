@@ -55,3 +55,7 @@ updated_at: "2026-10-21"
 
 - 2026-10-21：交付 `components/users/UserManagement.vue`、本地等价types及 `user_management.*` 双语资源；契约props/events接入，敏感凭据默认遮蔽，仅内存展示。公开登录文案含 registration_disabled/password_change_required/password_policy/password_changed/session_expired/policy_failed/default_password_warning。
 - 验证：`pnpm --filter easytier-frontend build` 通过；`node --test easytier-web/frontend/tests/user-management-components.test.mjs` 7/7通过（系统Chromium154，真实组件+模拟props/events，含中英文/375px/键盘焦点/错误草稿/重复提交/各动作确认/审计分页/凭据清除）。首轮fixture与定位器失败已修正并复验。真实后端与迟到HTTP响应由009/010验证，不以组件mock代替授权。
+
+- 2026-10-21：009接线反馈回派补充：007保留旧登录/注册响应的兼容可选code/status；008补invalid_credentials双语文案。原验收证据保留，本次补充完成后复验再关闭。
+
+- 2026-10-21：回派补充已交付：007登录/注册兼容code/status、安全错误及避免重复MD5，客户端6/6通过；008补invalid_credentials双语，92键一致。补充集成构建由009持锁执行，本轮未重复全构建。

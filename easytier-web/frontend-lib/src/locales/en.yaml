@@ -887,6 +887,7 @@ user_management:
     recover: "Recover administrator"
     identity_bind: "Bind identity"
   errors:
+    invalid_credentials: "Invalid username or password. Please try again."
     forbidden: "You do not have permission for this operation."
     password_change_required: "Change your temporary password before accessing the workspace."
     self_action_forbidden: "This operation is not allowed on your own account."

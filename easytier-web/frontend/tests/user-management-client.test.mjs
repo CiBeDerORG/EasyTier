@@ -138,8 +138,33 @@ test('credential responses and failures never log payloads; old MD5 input stays 
     }
 });
 
- test('current identity exposes the compatibility warning without altering unknown account fields', async () => {
+test('current identity exposes the compatibility warning without altering unknown account fields', async () => {
     const me = { ...user, capabilities: ['users.manage'], default_password_warning: true };
     const { client } = fixture(me);
     assert.deepEqual(await client.getMe(), me);
+});
+
+
+test('login and registration preserve safe error codes and retryable unmodified drafts', async () => {
+    const credentials = { username: 'test-account', password: 'fictional-password-for-retry' };
+    const registration = { credentials: { ...credentials }, captcha: 'test-captcha' };
+    const { createHash } = await import('node:crypto');
+    const digest = createHash('md5').update(credentials.password).digest('hex');
+    for (const [status, code] of [[401, 'invalid_credentials'], [403, 'forbidden'], [409, 'username_conflict'], [0, 'network_error']]) {
+        const { api } = fixture({ message: 'DO_NOT_EXPOSE_TEST_SECRET' }, status);
+        for (const operation of ['login', 'register']) {
+            const input = operation === 'login' ? credentials : registration;
+            const result = await api[operation](input);
+            assert.equal(result.success, false);
+            assert.equal(result.status, status || null);
+            assert.equal(result.code, operation === 'register' && status === 401 ? 'unauthenticated' : status === 409 ? 'request_failed' : code);
+            assert.ok(!result.message.includes('DO_NOT_EXPOSE'));
+            await api[operation](input);
+            const submitted = requests.at(-1).body;
+            assert.equal(operation === 'login' ? submitted.password : submitted.credentials.password, digest);
+        }
+    }
+    assert.equal(registration.credentials.password, credentials.password);
+    const { api } = fixture({ code: 'username_conflict', message: 'DO_NOT_EXPOSE_TEST_SECRET' }, 409);
+    assert.equal((await api.register(registration)).code, 'username_conflict');
 });

@@ -1,7 +1,7 @@
 import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { type Api, NetworkTypes, Utils } from 'easytier-frontend-lib';
 import { Md5 } from 'ts-md5';
-import { UserManagementClient } from './userManagement';
+import { UserManagementClient, UserManagementError, toUserManagementError } from './userManagement';
 
 export interface ValidateConfigResponse {
     toml_config: string;
@@ -15,11 +15,15 @@ export interface OidcConfigResponse {
 export interface LoginResponse {
     success: boolean;
     message: string;
+    code?: string;
+    status?: number | null;
 }
 
 export interface RegisterResponse {
     success: boolean;
     message: string;
+    code?: string;
+    status?: number | null;
 }
 
 // 定义请求体数据结构
@@ -245,35 +249,28 @@ export class ApiClient {
         this.userManagement = new UserManagementClient(this.client);
     }
 
-    // 注册
+    // Preserve the caller's draft so retries never hash an already hashed password.
     public async register(data: RegisterData): Promise<RegisterResponse> {
         try {
-            data.credentials.password = Md5.hashStr(data.credentials.password);
-            await this.client.post<RegisterResponse>('/auth/register', data);
-            return { success: true, message: 'Register success', };
-        } catch (error) {
-            if (error instanceof AxiosError) {
-                return { success: false, message: 'Failed to register, error: ' + JSON.stringify(error.response?.data), };
-            }
-            return { success: false, message: 'Unknown error, error: ' + error, };
+            await this.client.post<RegisterResponse>('/auth/register', {
+                ...data,
+                credentials: { ...data.credentials, password: Md5.hashStr(data.credentials.password) },
+            });
+            return { success: true, message: 'Register success' };
+        } catch (error: unknown) {
+            const failure = toUserManagementError(error);
+            return { success: false, message: failure.message, code: failure.code, status: failure.status };
         }
     }
 
-    // 登录
     public async login(data: Credential): Promise<LoginResponse> {
         try {
-            data.password = Md5.hashStr(data.password);
-            await this.client.post('/auth/login', data);
-            return { success: true, message: 'Login success', };
-        } catch (error) {
-            if (error instanceof AxiosError) {
-                if (error.response?.status === 401) {
-                    return { success: false, message: 'Invalid username or password', };
-                } else {
-                    return { success: false, message: 'Unknown error, status code: ' + error.response?.status, };
-                }
-            }
-            return { success: false, message: 'Unknown error, error: ' + error, };
+            await this.client.post('/auth/login', { ...data, password: Md5.hashStr(data.password) });
+            return { success: true, message: 'Login success' };
+        } catch (error: unknown) {
+            let failure = toUserManagementError(error);
+            if (failure.status === 401) failure = new UserManagementError(401, 'invalid_credentials');
+            return { success: false, message: failure.message, code: failure.code, status: failure.status };
         }
     }
 

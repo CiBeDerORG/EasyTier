@@ -54,3 +54,7 @@ updated_at: "2026-10-21"
 
 - 2026-10-21：交付 `api.userManagement` 及 v1.1 DTO（含 `default_password_warning`），安全错误 `UserManagementError/toUserManagementError`；移除完整 Axios/认证响应日志。方法为 getMe/getPolicy/listUsers/getUser/createUser/setAccess/setRole/resetPassword/revokeSessions/listEvents。
 - 验证：`pnpm --filter easytier-frontend build` 通过（共享库、vue-tsc、Vite）；`node --test easytier-web/frontend/tests/user-management-client.test.mjs` 5/5 通过；`git diff --check` 通过。使用实际 Axios + 隔离模拟 HTTP 服务，不证明后端授权；真实后端由 WUM-010 验证。
+
+- 2026-10-21：009接线反馈回派补充：007保留旧登录/注册响应的兼容可选code/status；008补invalid_credentials双语文案。原验收证据保留，本次补充完成后复验再关闭。
+
+- 2026-10-21：回派补充已交付：007登录/注册兼容code/status、安全错误及避免重复MD5，客户端6/6通过；008补invalid_credentials双语，92键一致。补充集成构建由009持锁执行，本轮未重复全构建。
