@@ -1,7 +1,7 @@
 ---
 id: WUM-002
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum002
 depends_on: []
 write_scope: ["easytier-web/src/restful/users.rs"]
@@ -31,9 +31,9 @@ updated_at: "2026-10-21"
 
 ## 实施与验收
 
-- [ ] 验证普通用户、管理员、无组用户以及多个组关系的查询结果；普通用户不能获得其他人的权限。
-- [ ] 使用真实测试数据库与彼此不同的权限关系，确保用例能发现原来的缺少过滤条件，而非仅复制实现。
-- [ ] 运行 easytier-web 包内实际注册的针对性测试，记录命令与命中用例；不宣称当前业务路由已有可利用的越权链路。
+- [x] 验证普通用户、管理员、无组用户以及多个组关系的查询结果；普通用户不能获得其他人的权限。
+- [x] 使用真实测试数据库与彼此不同的权限关系，确保用例能发现原来的缺少过滤条件，而非仅复制实现。
+- [x] 运行 easytier-web 包内实际注册的针对性测试，记录命令与命中用例；不宣称当前业务路由已有可利用的越权链路。
 
 ## 交付清单
 
@@ -49,3 +49,7 @@ updated_at: "2026-10-21"
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
 
 - 2026-10-21：由 `/root/wum002` 认领；独占原 write_scope，协调者维护任务状态和提交。基线为核实远端文档分支 `f48602e2674173be55871724f201da5982d62951`，功能分支 `feat/web-user-management`。
+
+- 2026-10-21：按稳定用户ID过滤，select_only+InnerJoin使无组/空权限组返回空集合；保持权限去重和签名。真实SQLite用例覆盖普通/管理员/无组/空权限组/多组共5场景。
+- 验证：隔离 worktree `/workspace/wum002-check` 执行 `cargo test --locked -p easytier-web group_permissions_are_scoped_to_user`，最终1 passed/0 failed/272 filtered；与主工作区users.rs逐字cmp一致。原查询红测为NULL解码错误；另仅移除ID过滤反证明确失败：普通用户错误获得 wum.manage/wum.audit/devices/sessions，恢复修复后通过。rustfmt及diff检查通过。
+- 环境：Rust1.95/protoc35.1/mold，source `/workspace/.wum-tools/env`，`BINDGEN_EXTRA_CLANG_ARGS=-isystem /usr/lib/gcc/x86_64-linux-gnu/14/include`。日志 `/tmp/wum002-isolated-{red,scope-red,final-green}.log`。初次缺工具及并行模块暂态错误已解决。users.rs移交004；本结果不声称管理API授权已实现。

@@ -1,8 +1,8 @@
 ---
 id: WUM-004
 feature: web-user-management
-status: blocked
-owner: null
+status: in_progress
+owner: /root/wum004
 depends_on: ["WUM-002","WUM-003"]
 write_scope: ["easytier-web/src/restful/users.rs","easytier-web/src/restful/auth.rs","easytier-web/src/restful/oidc.rs"]
 requirements: ["UM-01","UM-04","UM-05","UM-06","UM-07","UM-08"]
@@ -50,3 +50,5 @@ updated_at: "2026-10-21"
 ## 执行记录
 
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
+
+- 2026-10-21：002/003实际验收后认领，users.rs已串行移交；DB完整access保存需锁事务，用户选择A保留默认密码登录并返回仅本人警告。

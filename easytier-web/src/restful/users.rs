@@ -211,24 +211,26 @@ impl AuthzBackend for Backend {
 
     async fn get_group_permissions(
         &self,
-        _user: &Self::User,
+        user: &Self::User,
     ) -> Result<HashSet<Self::Permission>, Self::Error> {
         let permissions = entity::users::Entity::find()
+            .select_only()
+            .filter(entity::users::Column::Id.eq(user.id()))
             .column_as(entity::permissions::Column::Name, "name")
             .join(
-                JoinType::LeftJoin,
+                JoinType::InnerJoin,
                 entity::users::Relation::UsersGroups.def(),
             )
             .join(
-                JoinType::LeftJoin,
+                JoinType::InnerJoin,
                 entity::users_groups::Relation::Groups.def(),
             )
             .join(
-                JoinType::LeftJoin,
+                JoinType::InnerJoin,
                 entity::groups::Relation::GroupsPermissions.def(),
             )
             .join(
-                JoinType::LeftJoin,
+                JoinType::InnerJoin,
                 entity::groups_permissions::Relation::Permissions.def(),
             )
             .into_model::<Self::Permission>()
@@ -243,3 +245,95 @@ impl AuthzBackend for Backend {
 //
 // Note that we've supplied our concrete backend here.
 pub type AuthSession = axum_login::AuthSession<Backend>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Exercise the authentication backend against a real, migrated SQLite database.
+    /// The fixture uses no usable passwords and never starts a network or VPN service.
+    #[tokio::test]
+    async fn group_permissions_are_scoped_to_user() {
+        let db = db::Db::memory_db().await;
+        let pool = db.inner();
+        for name in ["wum-readers", "wum-admins", "wum-auditors", "wum-empty"] {
+            sqlx::query("INSERT INTO groups (name) VALUES (?)")
+                .bind(name)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        for name in ["wum.read", "wum.manage", "wum.audit"] {
+            sqlx::query("INSERT INTO permissions (name) VALUES (?)")
+                .bind(name)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        for (group, permission) in [
+            ("wum-readers", "wum.read"),
+            ("wum-admins", "wum.manage"),
+            ("wum-auditors", "wum.audit"),
+            // Shared permission must remain a set when a user belongs to both groups.
+            ("wum-auditors", "wum.read"),
+        ] {
+            sqlx::query(
+                "INSERT INTO groups_permissions (group_id, permission_id)
+                 SELECT groups.id, permissions.id FROM groups, permissions
+                 WHERE groups.name = ? AND permissions.name = ?",
+            )
+            .bind(group)
+            .bind(permission)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let cases: &[(&str, &[&str], &[&str])] = &[
+            ("wum-ordinary", &["wum-readers"], &["wum.read"]),
+            ("wum-administrator", &["wum-admins"], &["wum.manage"]),
+            ("wum-ungrouped", &[], &[]),
+            ("wum-no-permissions", &["wum-empty"], &[]),
+            (
+                "wum-multiple",
+                &["wum-readers", "wum-auditors", "wum-empty"],
+                &["wum.read", "wum.audit"],
+            ),
+        ];
+        for (username, groups, _) in cases {
+            sqlx::query("INSERT INTO users (username, password) VALUES (?, ?)")
+                .bind(*username)
+                .bind("unusable-test-password")
+                .execute(&pool)
+                .await
+                .unwrap();
+            for group in *groups {
+                sqlx::query(
+                    "INSERT INTO users_groups (user_id, group_id)
+                     SELECT users.id, groups.id FROM users, groups
+                     WHERE users.username = ? AND groups.name = ?",
+                )
+                .bind(*username)
+                .bind(group)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+        }
+        let backend = Backend::new(db);
+        for (username, _, expected) in cases {
+            let db_user = entity::users::Entity::find()
+                .filter(entity::users::Column::Username.eq(*username))
+                .one(backend.db().orm_db())
+                .await
+                .unwrap()
+                .unwrap();
+            let user = User {
+                db_user,
+                tokens: vec![],
+            };
+            let actual = backend.get_group_permissions(&user).await.unwrap();
+            let expected: HashSet<Permission> = expected.iter().copied().map(Into::into).collect();
+            assert_eq!(actual, expected, "permissions for {username}");
+        }
+    }
+}

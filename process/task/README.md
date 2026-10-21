@@ -12,7 +12,7 @@
 
 | backlog | ready | in_progress | blocked | in_review | done | cancelled |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | 0 | 3 | 4 | 0 | 4 | 0 |
+| 0 | 0 | 3 | 3 | 0 | 5 | 0 |
 
 `ready` 表示可认领，不表示已开发；此处 `blocked` 均为等待列出的前置任务。WUM-001 契约已交付，动态功能尚未完成；D-01 已解除：保留旧账号登录，增加明确改密提示；UA-12 仍需实际升级验证。
 
@@ -23,9 +23,9 @@
 | 任务与明细 | 状态 | 当前负责人 | 直接前置任务 |
 | --- | --- | --- | --- |
 | [WUM-001 范围与接口契约](web-user-management/wum-001-contract.md) | `done` | `/root/wum001` | 无 |
-| [WUM-002 按用户查询权限](web-user-management/wum-002-permissions.md) | `in_progress` | `/root/wum002` | 无 |
+| [WUM-002 按用户查询权限](web-user-management/wum-002-permissions.md) | `done` | `/root/wum002` | 无 |
 | [WUM-003 账号存储与数据库迁移](web-user-management/wum-003-storage.md) | `done` | `/root/wum003` | WUM-001 |
-| [WUM-004 认证与会话生命周期](web-user-management/wum-004-auth-lifecycle.md) | `blocked` | 未认领 | WUM-002、WUM-003 |
+| [WUM-004 认证与会话生命周期](web-user-management/wum-004-auth-lifecycle.md) | `in_progress` | `/root/wum004` | WUM-002、WUM-003 |
 | [WUM-005 账号管理业务与恢复](web-user-management/wum-005-account-service.md) | `in_progress` | `/root/wum005` | WUM-003 |
 | [WUM-006 管理 API 与后端接线](web-user-management/wum-006-admin-api.md) | `blocked` | 未认领 | WUM-004、WUM-005 |
 | [WUM-007 Web HTTP 客户端与错误语义](web-user-management/wum-007-web-client.md) | `done` | `/root/wum007` | WUM-001 |
