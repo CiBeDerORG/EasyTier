@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 kind: work-package
 work_package: ECO-007
 summary: ../README.md
-status: draft
+status: done
 owner: null
 requirement: ../require/README.md
 task_board: ../task/README.md

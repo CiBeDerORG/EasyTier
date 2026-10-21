@@ -3,7 +3,7 @@ id: WUI-108
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-005"]
-status: in_progress
+status: done
 owner: /root/iteration_exec2
 depends_on: ["WUI-103"]
 read_scope: ["easytier-web/frontend/src/components/DeviceList.vue", "easytier-web/frontend-lib/src/components/RemoteManagement.vue", "easytier-web/frontend/src/modules/api.ts", "process/web-ui-optimization-in-progress/plan/contract.md"]
@@ -58,11 +58,13 @@ updated_at: 2026-10-21
 
 ## 完成条件与失败处理
 
-- [ ] 设备/实例切换及返回路径符合原契约，不错配设备；新配置生成仍取正确hostname。
-- [ ] 已确认无须改动时交付证据和无改动结论，不为完成任务制造无意义实现。
-- [ ] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
-- [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
+- [x] 设备/实例切换及返回路径符合原契约，不错配设备；新配置生成仍取正确hostname。
+- [x] 已确认无须改动时交付证据和无改动结论，不为完成任务制造无意义实现。
+- [x] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
+- [x] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
 
 2026-10-21：认领实例宿主深链/对象切换与RemoteClient契约验证，仅宿主范围，不改共享组件或运行真实VPN。
+
+2026-10-21：监工审查deviceId生命周期key修复通过，红2/3→绿3/3，类型/生产构建通过；同host切实例与跨host同UUID、目标hostname均验证，实际下发/VPN未验证。

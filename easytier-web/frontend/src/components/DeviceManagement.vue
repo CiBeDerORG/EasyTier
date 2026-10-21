@@ -48,7 +48,7 @@ const newConfigGenerator = () => {
 </script>
 
 <template>
-    <RemoteManagement :api="remoteClient" v-model:instance-id="selectedInstanceId"
+    <RemoteManagement :key="deviceId" :api="remoteClient" v-model:instance-id="selectedInstanceId"
         :new-config-generator="newConfigGenerator" />
 </template>
 

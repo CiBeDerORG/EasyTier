@@ -4,8 +4,8 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-009]
 task_type: implementation
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec3
 depends_on: ["ECO-106", "ECO-107", "ECO-108", "ECO-109", "ECO-110", "ECO-111"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "easytier-web/frontend/src/modules/ecosystemTypes.ts", "easytier-web/frontend/src/modules/ecosystemApi.ts", "easytier-web/frontend/src/components/ecosystem/topology/", "easytier-web/frontend/src/components/ecosystem/nodes/", "easytier-web/frontend/src/components/ecosystem/resources/", "easytier-web/frontend/src/components/ecosystem/access/", "easytier-web/frontend/src/components/ecosystem/navigation/"]
 write_scope: ["easytier-web/frontend/src/components/ecosystem/EcosystemPage.vue", "easytier-web/frontend/tests/ecosystem-composition.test.mjs", "process/easytier-ecosystem-integration-in-progress/plan/design/integration-composition.md"]
@@ -70,3 +70,5 @@ updated_at: 2026-10-21
 ## 当前记录
 
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
+
+2026-10-21：106–111全部验收，认领组合页请求/身份/选择生命周期及交互验证，不提前写正式路由。

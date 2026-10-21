@@ -95,8 +95,12 @@ updated_at: 2026-10-21
 
 
 
+
+
+
+
 ## 当前实施快照
 
-已验收 7/13；WUI-108（in_progress，/root/iteration_exec2）；其余 5 项 backlog。
+已验收 8/13；WUI-109（in_progress，/root/iteration_exec2）、WUI-110（in_progress，/root/iteration_exec1）；其余 3 项 backlog。
 
 总控维护任务与共享锁；监工 `/root/iteration_monitor` 审查后才能完成或进入联调。实际验证见各任务交接，未运行场景不作通过结论。
