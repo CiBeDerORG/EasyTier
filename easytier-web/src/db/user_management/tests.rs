@@ -277,3 +277,64 @@ async fn user_management_write_lock_serializes_connections() {
     db.inner().close().await;
     std::fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn user_management_device_autocreate_preserves_existing_accounts() {
+    let db = Db::memory_db().await;
+    let created = db.auto_create_user("wum-device-created").await.unwrap();
+    let record = get_user_record(db.orm_db(), created.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.access.source, "device");
+    assert_eq!(record.access.local_password_enabled, Some(false));
+    assert!(record.access.created_at.is_some());
+    assert_eq!(record.role, "user");
+    assert!(
+        !has_manage_permission(db.orm_db(), created.id)
+            .await
+            .unwrap()
+    );
+
+    let tx = db.orm_db().begin().await.unwrap();
+    lock_user_management(&tx).await.unwrap();
+    let mut access = record.access;
+    access.web_login_enabled = false;
+    access.auth_version = 7;
+    access.source = "oidc".into();
+    save_user_access(&tx, &access).await.unwrap();
+    bind_identity(
+        &tx,
+        created.id,
+        "https://idp.example.invalid",
+        "device-autocreate-test",
+    )
+    .await
+    .unwrap();
+    tx.execute(stmt(&tx, "INSERT INTO user_running_network_configs(user_id,device_id,network_instance_id,network_config,disabled,create_time,update_time,source) VALUES (?, 'autocreate-device', 'autocreate-instance', 'isolated-config', FALSE, '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z', 'web')",vec![created.id.into()])).await.unwrap();
+    tx.commit().await.unwrap();
+
+    assert!(db.auto_create_user("wum-device-created").await.is_err());
+    let after = get_user_record(db.orm_db(), created.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.user, created);
+    assert_eq!(after.access, access);
+    assert_eq!(
+        find_identity(
+            db.orm_db(),
+            "https://idp.example.invalid",
+            "device-autocreate-test"
+        )
+        .await
+        .unwrap(),
+        Some(created.id)
+    );
+    let resource = db.orm_db().query_one(stmt(db.orm_db(), "SELECT user_id,network_config FROM user_running_network_configs WHERE device_id='autocreate-device'", vec![])).await.unwrap().unwrap();
+    assert_eq!(resource.try_get::<i32>("", "user_id").unwrap(), created.id);
+    assert_eq!(
+        resource.try_get::<String>("", "network_config").unwrap(),
+        "isolated-config"
+    );
+}

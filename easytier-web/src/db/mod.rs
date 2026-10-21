@@ -1,9 +1,9 @@
 // sea-orm-cli generate entity -u sqlite:./et.db -o easytier-web/src/db/entity/ --with-serde both --with-copy-enums
 mod central_intent;
 mod devices;
-pub(crate) mod user_management;
 #[allow(unused_imports)]
 pub mod entity;
+pub(crate) mod user_management;
 
 pub(crate) use central_intent::{CentralIntentError, CentralOwnedRuntimeConfig};
 pub use devices::DeviceHeartbeatRecord;
@@ -299,9 +299,20 @@ impl Db {
         username: &str,
         password_hash: String,
     ) -> Result<entity::users::Model, DbErr> {
+        self.create_user_with_source(username, password_hash, None)
+            .await
+    }
+
+    async fn create_user_with_source(
+        &self,
+        username: &str,
+        password_hash: String,
+        source: Option<&str>,
+    ) -> Result<entity::users::Model, DbErr> {
         use entity::{groups, users, users_groups};
 
         let txn = self.orm_db().begin().await?;
+        user_management::lock_user_management(&txn).await?;
 
         let user_active = users::ActiveModel {
             username: Set(username.to_string()),
@@ -328,6 +339,16 @@ impl Db {
         };
         users_groups::Entity::insert(ug_active).exec(&txn).await?;
 
+        if let Some(source) = source {
+            // Only the newly inserted account receives provenance. A conflicting
+            // username fails above without touching existing access or resources.
+            let mut access = user_management::UserAccess::legacy(new_user.id);
+            access.source = source.to_owned();
+            access.local_password_enabled = Some(false);
+            access.created_at = Some(chrono::Utc::now());
+            user_management::save_user_access(&txn, &access).await?;
+        }
+
         txn.commit().await?;
 
         Ok(new_user)
@@ -339,7 +360,7 @@ impl Db {
             tokio::task::spawn_blocking(move || password_auth::generate_hash(&random_password))
                 .await
                 .map_err(|e| DbErr::Custom(format!("Failed to hash password: {}", e)))?;
-        self.create_user_and_join_users_group(username, hashed_password)
+        self.create_user_with_source(username, hashed_password, Some("device"))
             .await
     }
 

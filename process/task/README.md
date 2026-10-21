@@ -6,13 +6,13 @@
 
 | 主题 | 需求分析 | 实施计划 | 当前阶段 |
 | --- | --- | --- | --- |
-| Web 用户管理 | [需求与验收](../../docs/requirements/web-user-management.md) | [PLAN-WUM](../plan/web-user-management.md) | M2 并行开发：契约已交付，权限回归与存储/客户端/组件开发推进；D-01 已按用户选择 A 解除 |
+| Web 用户管理 | [需求与验收](../../docs/requirements/web-user-management.md) | [PLAN-WUM](../plan/web-user-management.md) | M3 业务与接线：前端接线已验收；认证/账号服务及存储回派验证进行中，D-01 已解除 |
 
 ## 状态概览
 
 | backlog | ready | in_progress | blocked | in_review | done | cancelled |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | 0 | 3 | 3 | 0 | 5 | 0 |
+| 0 | 0 | 2 | 3 | 0 | 6 | 0 |
 
 `ready` 表示可认领，不表示已开发；此处 `blocked` 均为等待列出的前置任务。WUM-001 契约已交付，动态功能尚未完成；D-01 已解除：保留旧账号登录，增加明确改密提示；UA-12 仍需实际升级验证。
 
@@ -24,7 +24,7 @@
 | --- | --- | --- | --- |
 | [WUM-001 范围与接口契约](web-user-management/wum-001-contract.md) | `done` | `/root/wum001` | 无 |
 | [WUM-002 按用户查询权限](web-user-management/wum-002-permissions.md) | `done` | `/root/wum002` | 无 |
-| [WUM-003 账号存储与数据库迁移](web-user-management/wum-003-storage.md) | `in_progress` | `/root/wum003` | WUM-001 |
+| [WUM-003 账号存储与数据库迁移](web-user-management/wum-003-storage.md) | `done` | `/root/wum003` | WUM-001 |
 | [WUM-004 认证与会话生命周期](web-user-management/wum-004-auth-lifecycle.md) | `in_progress` | `/root/wum004` | WUM-002、WUM-003 |
 | [WUM-005 账号管理业务与恢复](web-user-management/wum-005-account-service.md) | `in_progress` | `/root/wum005` | WUM-003 |
 | [WUM-006 管理 API 与后端接线](web-user-management/wum-006-admin-api.md) | `blocked` | 未认领 | WUM-004、WUM-005 |

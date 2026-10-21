@@ -1,7 +1,7 @@
 ---
 id: WUM-003
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum003
 depends_on: ["WUM-001"]
 write_scope: ["easytier-web/src/db/","easytier-web/src/migrator/"]
@@ -56,3 +56,5 @@ updated_at: "2026-10-21"
 - 验证：`cargo test --locked -p easytier-web user_management_`：3 passed / 0 failed / 273 filtered（真实隔离SQLite，旧库资源/组/凭据保留、分页筛选、身份唯一、失败回滚、两个独立连接池写锁序列化）；rustfmt/check及 `git diff --check` 通过。编译warning未用import已删除，无语义变更。此结果不替代WUM-011完整升级验收。
 
 - 2026-10-21：004反馈新设备自动建号缺少device/false来源元数据，回派003在既有自动建号路径仅对新账号补齐，禁止覆盖已有同名状态。新增回归后复验。
+
+- 2026-10-21：自动建号回派已验收：`cargo test --locked -p easytier-web user_management` 共9/9通过，其中存储4项、服务5项。新建device/false与时间在同事务写入；已有同名的ID/密码/停用/版本/身份绑定/网络归属全部保持。
