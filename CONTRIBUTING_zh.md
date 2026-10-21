@@ -4,6 +4,8 @@
 
 感谢您对 EasyTier 项目的关注！本文档提供了参与项目贡献的指南和说明。
 
+修改代码前请阅读[架构规范索引](docs/architecture/README.md)，按改动范围遵循前端、后端、产品设计与命名规范。AI 编码助手从 [AGENTS.md](AGENTS.md) 开始；既有协议与配置兼容性优先于风格统一。
+
 ## 目录
 
 - [EasyTier 贡献指南](#easytier-贡献指南)

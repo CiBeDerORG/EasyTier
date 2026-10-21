@@ -4,6 +4,8 @@
 
 Thank you for your interest in contributing to EasyTier! This document provides guidelines and instructions for contributing to the project.
 
+Before making changes, read the [architecture standards](docs/architecture/README.md), covering frontend, backend, product design, and naming. AI coding assistants should start with [AGENTS.md](AGENTS.md). These standards are currently maintained in Chinese; existing protocol and configuration compatibility takes precedence over style cleanup.
+
 ## Table of Contents
 
 - [Development Environment Setup](#development-environment-setup)
