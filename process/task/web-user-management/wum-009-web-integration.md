@@ -1,7 +1,7 @@
 ---
 id: WUM-009
 feature: web-user-management
-status: done
+status: in_progress
 owner: /root/wum009
 depends_on: ["WUM-007","WUM-008"]
 write_scope: ["easytier-web/frontend/src/main.ts","easytier-web/frontend/src/components/MainPage.vue","easytier-web/frontend/src/components/Login.vue","easytier-web/frontend/src/components/ChangePassword.vue","easytier-web/frontend/tests/user-management-navigation.test.mjs"]
@@ -54,3 +54,5 @@ updated_at: "2026-10-21"
 
 - 2026-10-21：完成 `#/h/users` / `#/h/password`、能力导航、注册策略、受限改密与默认密码非阻断提示。MainPage单一持有me能力状态；403刷新、401退出、网络错误保留草稿，序号阻止迟到响应，导航/退出清除凭据。
 - 验证：`pnpm --filter easytier-frontend build`通过（覆盖007/008回派补丁）；`node --test easytier-web/frontend/tests/user-management-navigation.test.mjs` 9/9通过（系统Chromium154+契约mock）；`git diff --check`通过。首轮重复文案定位问题已修正复验。真实后端授权仍交010。
+
+- 2026-10-21：010真实embed浏览器发现创建按钮只呈现空遮罩、未渲染Dialog内容，无pageerror；重新打开并回派009诊断production构建与接线。现有mock测试通过不替代该真实失败。
