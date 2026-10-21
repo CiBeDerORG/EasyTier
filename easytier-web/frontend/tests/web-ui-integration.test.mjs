@@ -16,7 +16,7 @@ import { resolveWebTestBinary } from './helpers/webTestBinary.mjs';
 const binary = resolveWebTestBinary();
 const dist = process.env.WEB_TEST_DIST;
 if (!dist) throw new Error('WEB_TEST_DIST must point to the frozen frontend being verified.');
-const evidence = fileURLToPath(new URL('../../../process/web-ui-optimization-in-progress/plan/verification/', import.meta.url));
+const evidence = fileURLToPath(new URL('../../../process/web-ui-optimization-done/plan/verification/', import.meta.url));
 const username = 'fictional-wui-admin';
 const password = 'Fictional-wui-password-2026';
 const headers = { 'X-Requested-With': 'EasyTier' };

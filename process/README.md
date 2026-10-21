@@ -7,8 +7,8 @@
 | 独立需求 / 汇总入口 | 总体状态 | 需求 | 计划 | 任务看板 |
 | --- | --- | --- | --- | --- |
 | [Web 用户管理](web-user-management-done/README.md) | `done`；交付基线 `feat/web-user-management@1e92296b` | [require](web-user-management-done/require/README.md) | [plan](web-user-management-done/plan/README.md) | [task](web-user-management-done/task/README.md) |
-| [网络拓扑与资源集成](easytier-ecosystem-integration-in-progress/README.md) | `in-progress`；ECO-101–112已验收；ECO-113宿主接线中 | [require](easytier-ecosystem-integration-in-progress/require/README.md) | [plan](easytier-ecosystem-integration-in-progress/plan/README.md) | [task](easytier-ecosystem-integration-in-progress/task/README.md) |
-| [现有 Web 交互优化与页面美化](web-ui-optimization-in-progress/README.md) | `in-progress`；WUI-101–111已验收；WUI-112隔离联调中 | [require](web-ui-optimization-in-progress/require/README.md) | [plan](web-ui-optimization-in-progress/plan/README.md) | [task](web-ui-optimization-in-progress/task/README.md) |
+| [网络拓扑与资源集成](easytier-ecosystem-integration-done/README.md) | `done`；ECO-101–115已验收，缺失外部能力明确未支持 | [require](easytier-ecosystem-integration-done/require/README.md) | [plan](easytier-ecosystem-integration-done/plan/README.md) | [task](easytier-ecosystem-integration-done/task/README.md) |
+| [现有 Web 交互优化与页面美化](web-ui-optimization-done/README.md) | `done`；WUI-101–113已验收，真实与fixture证据分列 | [require](web-ui-optimization-done/require/README.md) | [plan](web-ui-optimization-done/plan/README.md) | [task](web-ui-optimization-done/task/README.md) |
 
 ## 2. 固定目录与命名
 
@@ -115,17 +115,17 @@ process/
 
 ### 跨需求共享文件调度
 
-以下适用于本轮拓扑与 Web 美化的任务拆分。`F` 为 `easytier-web/frontend`，`L` 为 `easytier-web/frontend-lib`；任务身份见两项需求的[拓扑看板](easytier-ecosystem-integration-in-progress/task/README.md)和[Web 美化看板](web-ui-optimization-in-progress/task/README.md)。表内约定唯一写入任务；实际认领与交接状态以各任务看板及当前共享锁为准。
+以下适用于本轮拓扑与 Web 美化的任务拆分。`F` 为 `easytier-web/frontend`，`L` 为 `easytier-web/frontend-lib`；任务身份见两项需求的[拓扑看板](easytier-ecosystem-integration-done/task/README.md)和[Web 美化看板](web-ui-optimization-done/task/README.md)。表内约定唯一写入任务；实际认领与交接状态以各任务看板及当前共享锁为准。
 
 | 共享资源 / 文件 | 允许写入的任务 | 消费方及交接要求 |
 | --- | --- | --- |
-| 宿主接线：`F/src/components/MainPage.vue`、`F/src/main.ts` | [WUI-111](web-ui-optimization-in-progress/task/task-wui-111-host-integration.md)、[ECO-113](easytier-ecosystem-integration-in-progress/task/task-eco-113-host-routing.md)，作为同一写入集合串行领取 | 保留原路由、账号操作状态与 config-server 命令；接收者先合入前序变更并核对页面 props/events |
-| 共享文案：`L/src/locales/cn.yaml`、`en.yaml` | [WUI-103](web-ui-optimization-in-progress/task/task-wui-103-shared-foundation.md)、[ECO-104](easytier-ecosystem-integration-in-progress/task/task-eco-104-shared-components.md)，串行领取 | 中英文成对交接、键与消费者同步；键前缀不同也不能并写同文件 |
-| 验证脚本：`F/package.json` | [WUI-103](web-ui-optimization-in-progress/task/task-wui-103-shared-foundation.md)、[ECO-105](easytier-ecosystem-integration-in-progress/task/task-eco-105-preview-harness.md)，串行领取 | 仅已有栈的必要入口，保留对方脚本；不因此修改依赖、锁文件或 CI |
-| Web 公共样式/主题：`F/src/console.css`、`style.css`、`theme.ts` | 仅 [WUI-103](web-ui-optimization-in-progress/task/task-wui-103-shared-foundation.md) | ECO 默认只读既有主题；消费者按采用版本开发，后续合入时核对视觉兼容 |
-| HTTP 客户端：`F/src/modules/api.ts` | 仅 [ECO-111](easytier-ecosystem-integration-in-progress/task/task-eco-111-api-adapter.md) | WUI 默认只读；ECO 仅按已核实接口适配，保留旧消费者与认证错误语义 |
-| 宿主导航回归：`F/tests/user-management-navigation.test.mjs` | 仅 [WUI-111](web-ui-optimization-in-progress/task/task-wui-111-host-integration.md) | 覆盖 MainPage 及多个账号页面，不能归单个页面任务；其他任务可只读执行，修改需求交该所有者 |
-| 集中回归：`F/tests/dashboard.test.mjs`、`user-management-e2e.test.mjs` | 仅 [WUI-112](web-ui-optimization-in-progress/task/task-wui-112-real-integration.md) | Dashboard 测试含跨页 mock 场景；真实后端证据另行记录。[ECO-114](easytier-ecosystem-integration-in-progress/task/task-eco-114-integration-verification.md) 使用专项联调文件，不抢写这两个文件 |
+| 宿主接线：`F/src/components/MainPage.vue`、`F/src/main.ts` | [WUI-111](web-ui-optimization-done/task/task-wui-111-host-integration.md)、[ECO-113](easytier-ecosystem-integration-done/task/task-eco-113-host-routing.md)，作为同一写入集合串行领取 | 保留原路由、账号操作状态与 config-server 命令；接收者先合入前序变更并核对页面 props/events |
+| 共享文案：`L/src/locales/cn.yaml`、`en.yaml` | [WUI-103](web-ui-optimization-done/task/task-wui-103-shared-foundation.md)、[ECO-104](easytier-ecosystem-integration-done/task/task-eco-104-shared-components.md)，串行领取 | 中英文成对交接、键与消费者同步；键前缀不同也不能并写同文件 |
+| 验证脚本：`F/package.json` | [WUI-103](web-ui-optimization-done/task/task-wui-103-shared-foundation.md)、[ECO-105](easytier-ecosystem-integration-done/task/task-eco-105-preview-harness.md)，串行领取 | 仅已有栈的必要入口，保留对方脚本；不因此修改依赖、锁文件或 CI |
+| Web 公共样式/主题：`F/src/console.css`、`style.css`、`theme.ts` | 仅 [WUI-103](web-ui-optimization-done/task/task-wui-103-shared-foundation.md) | ECO 默认只读既有主题；消费者按采用版本开发，后续合入时核对视觉兼容 |
+| HTTP 客户端：`F/src/modules/api.ts` | 仅 [ECO-111](easytier-ecosystem-integration-done/task/task-eco-111-api-adapter.md) | WUI 默认只读；ECO 仅按已核实接口适配，保留旧消费者与认证错误语义 |
+| 宿主导航回归：`F/tests/user-management-navigation.test.mjs` | 仅 [WUI-111](web-ui-optimization-done/task/task-wui-111-host-integration.md) | 覆盖 MainPage 及多个账号页面，不能归单个页面任务；其他任务可只读执行，修改需求交该所有者 |
+| 集中回归：`F/tests/dashboard.test.mjs`、`user-management-e2e.test.mjs` | 仅 [WUI-112](web-ui-optimization-done/task/task-wui-112-real-integration.md) | Dashboard 测试含跨页 mock 场景；真实后端证据另行记录。[ECO-114](easytier-ecosystem-integration-done/task/task-eco-114-integration-verification.md) 使用专项联调文件，不抢写这两个文件 |
 
 **调度规则：**
 
@@ -153,6 +153,6 @@ process/
 
 2026-10-21：明确“需求拆分”必须落到小计划与小任务，强制多 Agent 依赖、独占文件、公共写入者和联调安排；据此继续拆分拓扑与 Web 美化需求。仅编写文档，不触发实施、构建、测试或 CI。
 
-## 当前共享锁（2026-10-21）
+## 本轮共享文件交接完成（2026-10-21）
 
-`/root/iteration_exec3` 执行 ECO-113，接收 WUI-111 已验收的 MainPage.vue/main.ts 与构建写入权；保留语义类和焦点行为。`/root/iteration_exec1` 执行 WUI-112，仅使用冻结的 WUI-111 dist 与隔离服务，独占集中回归文件。`/root/iteration_exec2` 待 ECO-114 前置就绪；监工 `/root/iteration_monitor` 负责验收及联调准入。实际完成数以任务看板为准。
+3执行+1监工共完成ECO15项、WUI13项。WUI-111先交宿主给ECO-113；WUI-112冻结产物与ECO-114独立服务联调，均获监工验收。当前无活动写入锁；总体done仅指冻结范围内任务交付，外部能力、生产与真实VPN未验证边界见各包验收。

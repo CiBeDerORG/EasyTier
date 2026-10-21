@@ -5,7 +5,7 @@ import { chromium } from 'playwright';
 import { createEcosystemPreview, openEcosystemPreview } from './ecosystem-support/browserHarness.mjs';
 let browser, preview;
 const componentPath = 'src/components/ecosystem/navigation/EcosystemNavigation.vue';
-const evidenceDirectory = new URL('../../../process/easytier-ecosystem-integration-in-progress/plan/design/navigation/', import.meta.url);
+const evidenceDirectory = new URL('../../../process/easytier-ecosystem-integration-done/plan/design/navigation/', import.meta.url);
 before(async () => {
     preview = await createEcosystemPreview({ componentPath, fixtureKey: 'navigation', eventNames: ['backToNode'] });
     browser = await chromium.launch({ headless: true, executablePath: process.env.WEB_TEST_CHROMIUM || '/usr/bin/chromium' });

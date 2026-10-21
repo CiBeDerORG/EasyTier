@@ -6,7 +6,7 @@ import { createEcosystemPreview, openEcosystemPreview } from './ecosystem-suppor
 
 let browser, preview;
 const componentPath = 'src/components/ecosystem/access/EcosystemAccessSettings.vue';
-const evidenceDirectory = new URL('../../../process/easytier-ecosystem-integration-in-progress/plan/design/access/', import.meta.url);
+const evidenceDirectory = new URL('../../../process/easytier-ecosystem-integration-done/plan/design/access/', import.meta.url);
 before(async () => {
     preview = await createEcosystemPreview({ componentPath, fixtureKey: 'access' });
     browser = await chromium.launch({ headless: true, executablePath: process.env.WEB_TEST_CHROMIUM || '/usr/bin/chromium' });

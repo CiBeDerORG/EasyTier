@@ -55,7 +55,7 @@ updated_at: 2026-10-21
 
 完成状态来自已提交并推送的 `feat/web-user-management@1e92296b`：包含用户管理、OIDC/local 改密能力修复与 E2E 路径修复。本次仅集中已有文档和证据，没有重新运行测试，也没有把业务代码合并到当前文档分支。源码引用使用已交付提交，避免把旧文档工作区源码当作实现基线。
 
-用户管理与[拓扑资源集成](../easytier-ecosystem-integration-in-progress/README.md)、[现有 Web 交互美化](../web-ui-optimization-in-progress/README.md)是独立需求。后两者复用已交付账号/权限能力，不重做账号系统。保留 `config-server` 客户端连接、认证和配置下发行为。
+用户管理与[拓扑资源集成](../easytier-ecosystem-integration-done/README.md)、[现有 Web 交互美化](../web-ui-optimization-done/README.md)是独立需求。后两者复用已交付账号/权限能力，不重做账号系统。保留 `config-server` 客户端连接、认证和配置下发行为。
 
 原工作区未提交补充保留为[需求草案](require/history/local-draft.md)、[计划草案](plan/history/local-draft.md)及[契约任务草案](task/history/wum-001-local-draft.md)。它们的待执行/未核验状态仅是当时记录，不参与当前看板统计。
 
