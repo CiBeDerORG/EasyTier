@@ -12,7 +12,7 @@
 
 | backlog | ready | in_progress | blocked | in_review | done | cancelled |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | 0 | 2 | 1 | 0 | 8 | 0 |
+| 0 | 0 | 1 | 1 | 1 | 8 | 0 |
 
 `ready` 表示可认领，不表示已开发；此处 `blocked` 均为等待列出的前置任务。WUM-001 契约已交付，动态功能尚未完成；D-01 已解除：保留旧账号登录，增加明确改密提示；UA-12 仍需实际升级验证。
 
@@ -30,7 +30,7 @@
 | [WUM-006 管理 API 与后端接线](web-user-management/wum-006-admin-api.md) | `done` | `/root/wum006` | WUM-004、WUM-005 |
 | [WUM-007 Web HTTP 客户端与错误语义](web-user-management/wum-007-web-client.md) | `done` | `/root/wum007` | WUM-001 |
 | [WUM-008 用户管理组件与文案](web-user-management/wum-008-user-interface.md) | `done` | `/root/wum008` | WUM-001 |
-| [WUM-009 前端导航与身份流程接线](web-user-management/wum-009-web-integration.md) | `in_progress` | `/root/wum009` | WUM-007、WUM-008 |
+| [WUM-009 前端导航与身份流程接线](web-user-management/wum-009-web-integration.md) | `in_review` | `/root/wum009` | WUM-007、WUM-008 |
 | [WUM-010 真实前后端联调](web-user-management/wum-010-full-stack-integration.md) | `in_progress` | `/root/wum010` | WUM-006、WUM-009 |
 | [WUM-011 旧库升级与交付验收](web-user-management/wum-011-upgrade-acceptance.md) | `blocked` | 未认领 | WUM-010 |
 

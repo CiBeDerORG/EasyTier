@@ -845,7 +845,7 @@ user_management:
   actor: "操作者 ID："
   offline_operator: "离线运维人员"
   no_events: "暂无管理记录。"
-  username_help: "使用 3–64 个英文字母、数字、下划线、点、@ 或连字符，不允许空格。"
+  username_help: "使用 3–64 个英文字母、数字、下划线、点、{'@'} 或连字符，不允许空格。"
   create_help: "创建普通本地用户并生成临时密码。用户必须先改密才能进入工作区。"
   confirm: "确认操作"
   cancel: "取消"

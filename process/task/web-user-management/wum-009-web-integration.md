@@ -1,10 +1,10 @@
 ---
 id: WUM-009
 feature: web-user-management
-status: in_progress
+status: in_review
 owner: /root/wum009
 depends_on: ["WUM-007","WUM-008"]
-write_scope: ["easytier-web/frontend/src/main.ts","easytier-web/frontend/src/components/MainPage.vue","easytier-web/frontend/src/components/Login.vue","easytier-web/frontend/src/components/ChangePassword.vue","easytier-web/frontend/tests/user-management-navigation.test.mjs"]
+write_scope: ["easytier-web/frontend/src/main.ts","easytier-web/frontend/src/components/MainPage.vue","easytier-web/frontend/src/components/Login.vue","easytier-web/frontend/src/components/ChangePassword.vue","easytier-web/frontend/tests/user-management-navigation.test.mjs","easytier-web/frontend-lib/src/locales/en.yaml (username_help only)","easytier-web/frontend-lib/src/locales/cn.yaml (username_help only)"]
 requirements: ["UM-01","UM-02","UM-03","UM-04","UM-05","UM-06","UM-07","UM-08","UM-09"]
 acceptance: ["UA-01","UA-03","UA-05","UA-10","UA-11"]
 updated_at: "2026-10-21"
@@ -56,3 +56,7 @@ updated_at: "2026-10-21"
 - 验证：`pnpm --filter easytier-frontend build`通过（覆盖007/008回派补丁）；`node --test easytier-web/frontend/tests/user-management-navigation.test.mjs` 9/9通过（系统Chromium154+契约mock）；`git diff --check`通过。首轮重复文案定位问题已修正复验。真实后端授权仍交010。
 
 - 2026-10-21：010真实embed浏览器发现创建按钮只呈现空遮罩、未渲染Dialog内容，无pageerror；重新打开并回派009诊断production构建与接线。现有mock测试通过不替代该真实失败。
+
+- 2026-10-21：009定位为两份username_help文案裸@触发production vue-i18n linked-message解析错误（SyntaxError10），Vue捕获后Dialog插槽渲染注释。移交009独占en/cn两行转义修复，显示文本保持不变，并增加production preview回归；无须改组件或构建配置。
+
+- 2026-10-21：两行文案修复后pnpm build通过；导航测试默认改production preview，实际10/10通过（含中英文创建弹窗和字面量@断言），日志/tmp/wum009-production-navigation.log。已移除诊断日志，等待010真实embed复验后恢复done。

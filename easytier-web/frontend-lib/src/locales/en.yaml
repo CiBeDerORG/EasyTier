@@ -845,7 +845,7 @@ user_management:
   actor: "Actor ID:"
   offline_operator: "Offline operator"
   no_events: "No management events."
-  username_help: "Use 3–64 letters, digits, underscores, dots, @ or hyphens. Spaces are not allowed."
+  username_help: "Use 3–64 letters, digits, underscores, dots, {'@'} or hyphens. Spaces are not allowed."
   create_help: "Creates an ordinary local user with a temporary password. They must change it before entering the workspace."
   confirm: "Confirm operation"
   cancel: "Cancel"

@@ -1,21 +1,23 @@
 import assert from 'node:assert/strict';
 import { before, after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { createServer } from 'vite';
+import { createServer, preview } from 'vite';
 import { chromium } from 'playwright';
 let server, browser, base;
+// Default to built assets: development mode can hide production i18n failures.
+const usePreview = process.env.WEB_TEST_DEV !== '1';
 before(async () => {
-    server = await createServer({ root: fileURLToPath(new URL('../', import.meta.url)), server: { host: '127.0.0.1', port: 0 } });
-    await server.listen(); base = `http://127.0.0.1:${server.httpServer.address().port}`;
+    server = await (usePreview ? preview : createServer)({ root: fileURLToPath(new URL('../', import.meta.url)), server: { host: '127.0.0.1', port: 0 }, preview: { host: '127.0.0.1', port: 0 } });
+    if (!usePreview) await server.listen(); base = `http://127.0.0.1:${server.httpServer.address().port}`;
     browser = await chromium.launch({ headless: true, executablePath: process.env.WEB_TEST_CHROMIUM || '/usr/bin/chromium' });
 });
-after(async () => { await browser?.close(); await server?.close(); });
+after(async () => { await browser?.close(); if (server?.close) await server.close(); else server?.httpServer.close(); });
 const summary = { id: 2, username: 'fixture-user', role: 'user', web_login_enabled: true, source: 'unknown', local_password_enabled: true, must_change_password: false, created_at: null, last_login_at: null };
 async function open(t, path = '/h/users', setup = () => {}) {
-    const state = { me: { ...summary, id: 1, username: 'fixture-admin', role: 'admin', capabilities: ['users.manage'], default_password_warning: false }, policy: { registration_enabled: true, oidc_enabled: false }, users: [summary], requests: [], fail: null, listDelay: 0, meStatus: 200 };
+    const state = { language: 'en', me: { ...summary, id: 1, username: 'fixture-admin', role: 'admin', capabilities: ['users.manage'], default_password_warning: false }, policy: { registration_enabled: true, oidc_enabled: false }, users: [summary], requests: [], fail: null, listDelay: 0, meStatus: 200 };
     setup(state);
     const context = await browser.newContext(); t.after(() => context.close());
-    await context.addInitScript(() => localStorage.setItem('lang', 'en'));
+    await context.addInitScript(language => localStorage.setItem('lang', language), state.language);
     await context.route('**/api_meta.js', route => route.fulfill({ contentType: 'application/javascript', body: '' }));
     await context.route('**/api/v1/**', async route => {
         const req = route.request(), url = new URL(req.url()); const path = url.pathname.replace('/api/v1', '');
@@ -51,6 +53,7 @@ test('administrator navigation loads real client and components; credential clea
     await p.getByRole('cell', { name: 'fixture-user', exact: true }).waitFor();
     await p.getByRole('button', { name: 'Create user', exact: true }).click();
     const dialog = p.getByRole('dialog'); await dialog.getByLabel('Username', { exact: true }).fill('fixture-new');
+    assert.match(await dialog.innerText(), /dots, @ or hyphens/);
     await dialog.getByRole('button', { name: 'Create user', exact: true }).click();
     await p.locator('input#temporary-password').waitFor();
     assert.equal(await p.locator('input#temporary-password').getAttribute('type'), 'password');
@@ -137,4 +140,12 @@ test('login sends a temporary account directly to password change without mounti
     await p.getByRole('button', { name: 'Login', exact: true }).click();
     await p.getByText('Change your temporary password before accessing the workspace.', { exact: true }).waitFor();
     assert.equal(state.requests.some(x => x.path === '/console-info' || x.path === '/summary'), false);
+});
+
+test('production Chinese create dialog renders the literal username character guidance', async t => {
+    const { page: p } = await open(t, '/h/users', state => state.language = 'cn');
+    await p.getByRole('button', { name: '创建用户', exact: true }).click();
+    const dialog = p.getByRole('dialog');
+    await dialog.getByLabel('用户名', { exact: true }).waitFor();
+    assert.match(await dialog.innerText(), /点、@ 或连字符/);
 });
