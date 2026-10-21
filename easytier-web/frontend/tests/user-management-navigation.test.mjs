@@ -149,3 +149,55 @@ test('production Chinese create dialog renders the literal username character gu
     await dialog.getByLabel('用户名', { exact: true }).waitFor();
     assert.match(await dialog.innerText(), /点、@ 或连字符/);
 });
+
+for (const language of ['en', 'cn']) {
+    test(`OIDC-only password route explains external management without a form or menu action (${language})`, async t => {
+        const { page: p, state } = await open(t, '/h/password', s => {
+            s.language = language; s.me.source = 'oidc'; s.me.local_password_enabled = false;
+        });
+        await p.setViewportSize({ width: 375, height: 812 });
+        const message = language === 'cn'
+            ? '此账号使用外部身份认证平台，请前往该平台修改密码；当前无法在此控制台修改本地密码。'
+            : 'This account uses an external identity provider. Change your password there; a local password cannot be changed in this console.';
+        await p.getByRole('alert').filter({ hasText: message }).waitFor();
+        assert.equal(await p.locator('#new-account-password').count(), 0);
+        const account = p.locator('[aria-controls="user-menu"]');
+        await account.focus(); await p.keyboard.press('Enter');
+        await p.locator('#user-menu').waitFor();
+        assert.equal(await p.getByRole('menuitem', { name: language === 'cn' ? '修改密码' : 'Change Password', exact: true }).count(), 0);
+        assert.equal(await p.getByRole('menuitem').count(), 1, 'logout remains available');
+        assert.equal(state.requests.some(x => x.path === '/auth/password'), false);
+        assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    });
+}
+
+test('unknown local-password capability shows guidance without assuming an identity provider', async t => {
+    const { page: p, state } = await open(t, '/h/password', s => s.me.local_password_enabled = null);
+    await p.getByText('Local password changes are unavailable for this account. Contact your administrator to confirm your sign-in method.', { exact: true }).waitFor();
+    assert.equal(await p.locator('#new-account-password').count(), 0);
+    assert.equal(state.requests.some(x => x.path === '/auth/password'), false);
+});
+
+test('OIDC source with local credentials keeps the menu and can change its local password', async t => {
+    const { page: p, state } = await open(t, '/h/users', s => s.me.source = 'oidc');
+    await p.getByRole('heading', { name: 'User management', exact: true }).waitFor();
+    await p.locator('[aria-controls="user-menu"]').click();
+    await p.getByRole('menuitem', { name: 'Change Password', exact: true }).click();
+    await p.getByLabel('Password', { exact: true }).fill('Fixture-New-Local-Password-123');
+    await p.getByRole('button', { name: 'Change Password', exact: true }).click();
+    await p.getByText('Password changed. Sign in again with your new password.').waitFor();
+    assert.equal(state.requests.filter(x => x.path === '/auth/password').length, 1);
+});
+
+test('server local-password rejection explains the capability and stops further submissions', async t => {
+    const { page: p, state } = await open(t, '/h/password', s => {
+        s.me.source = 'oidc';
+        s.fail = { path: '/auth/password', status: 403, code: 'local_password_unavailable' };
+    });
+    await p.getByLabel('Password', { exact: true }).fill('Fixture-Rejected-Password-123');
+    await p.getByRole('button', { name: 'Change Password', exact: true }).click();
+    await p.getByRole('alert').filter({ hasText: 'This account uses an external identity provider.' }).waitFor();
+    assert.equal(await p.locator('#new-account-password').count(), 0);
+    assert.equal(await p.getByText('You do not have permission for this operation.', { exact: true }).count(), 0);
+    assert.equal(state.requests.filter(x => x.path === '/auth/password').length, 1);
+});

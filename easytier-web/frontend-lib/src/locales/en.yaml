@@ -863,6 +863,8 @@ user_management:
   password_change_required: "Change your temporary password before accessing the workspace."
   password_policy: "Use a new password with 12–128 characters, different from your temporary password."
   password_changed: "Password changed. Sign in again with your new password."
+  oidc_password_managed: "This account uses an external identity provider. Change your password there; a local password cannot be changed in this console."
+  local_password_change_unavailable: "Local password changes are unavailable for this account. Contact your administrator to confirm your sign-in method."
   session_expired: "Your session expired. Sign in again."
   policy_failed: "Unable to load registration policy. Retry before registering."
   roles:

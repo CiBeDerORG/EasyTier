@@ -5,13 +5,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { createHash, generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright';
+import { resolveWebTestBinary } from './helpers/webTestBinary.mjs';
 
-const binary = fileURLToPath(new URL('../../../target/debug/easytier-web', import.meta.url));
+const binary = resolveWebTestBinary();
 // Never inherit deployment credentials, endpoints, proxies or file-log locations.
 const testEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(ET_|OIDC_|RUST_LOG$|(?:HTTP|HTTPS|ALL)_PROXY$)/i.test(key)));
 const adminPassword = 'Fictional-admin-password-2026';
@@ -72,14 +72,18 @@ before(async () => {
     issuer = `http://127.0.0.1:${await listen(idp)}`;
     const database = join(directory, 'isolated.sqlite');
     const recovery = spawnSync(binary, ['--db', database, '--recover-admin', 'fictional-admin'], { input: `${adminPassword}\n`, encoding: 'utf8', env: testEnvironment });
-    assert.equal(recovery.status, 0, 'offline recovery succeeds using stdin');
+    assert.ifError(recovery.error);
+    assert.equal(recovery.status, 0, `offline recovery succeeds using stdin (backend: ${binary})`);
     logs += recovery.stdout + recovery.stderr;
     base = `http://127.0.0.1:${await port()}`;
     web = spawn(binary, ['--db', database, '--api-server-addr', '127.0.0.1', '--api-server-port', new URL(base).port, '--config-server-protocol', 'tcp', '--config-server-port', '0', '--disable-registration', '--console-log-level', 'warn', '--oidc-issuer-url', issuer, '--oidc-client-id', 'fictional-client', '--oidc-redirect-url', `${base}/api/v1/auth/oidc/callback`], { stdio: ['ignore', 'pipe', 'pipe'], env: testEnvironment });
+    let startError;
+    web.once('error', error => { startError = error; });
     for (const stream of [web.stdout, web.stderr]) stream.on('data', data => { logs += data; });
     let ready = false;
-    for (let i = 0; i < 120; i++) { if (await fetch(`${base}/api/v1/auth/policy`).then(r => r.ok).catch(() => false)) { ready = true; break; } if (web.exitCode !== null) break; await delay(250); }
-    assert.ok(ready, 'isolated backend starts');
+    for (let i = 0; i < 120; i++) { if (await fetch(`${base}/api/v1/auth/policy`).then(r => r.ok).catch(() => false)) { ready = true; break; } if (startError || web.exitCode !== null) break; await delay(250); }
+    assert.ifError(startError);
+    assert.ok(ready, `isolated backend starts (backend: ${binary})`);
     browser = await chromium.launch({ headless: true, executablePath: process.env.WEB_TEST_CHROMIUM || '/usr/bin/chromium' });
     admin = await context(); await login(admin, 'fictional-admin', adminPassword);
 }, { timeout: 45000 });
@@ -141,10 +145,23 @@ test('UA-04 and UM-07: independent revoke, disable and restore never revive old 
     await login(c, user.username, userPassword);
 });
 
-test('UA-06: real OIDC discovery/JWKS/code/PKCE/nonce, stable binding and disabled login', async () => {
+test('UA-06/15: real OIDC login, password capability, stable binding and disabled login', async () => {
     async function oidcLogin() { const c = await context(); const p = await c.newPage(); const response = await p.goto(`${base}/api/v1/auth/oidc/login`); return { c, p, response }; }
     const first = await oidcLogin(); assert.equal(first.response.status(), 200);
     const me = await api(first.c, '/auth/me'); assert.equal(me.role, 'user'); assert.equal(me.source, 'oidc'); assert.equal(me.local_password_enabled, false);
+    const passwordRequests = [];
+    first.p.on('request', request => {
+        if (new URL(request.url()).pathname === '/api/v1/auth/password') passwordRequests.push(request.method());
+    });
+    await first.p.goto(`${base}/#/h/password`);
+    await first.p.getByRole('alert').filter({ hasText: 'This account uses an external identity provider.' }).waitFor();
+    assert.equal(await first.p.locator('#new-account-password').count(), 0);
+    await first.p.locator('[aria-controls="user-menu"]').click();
+    await first.p.locator('#user-menu').waitFor();
+    assert.equal(await first.p.getByRole('menuitem', { name: 'Change Password', exact: true }).count(), 0);
+    assert.deepEqual(passwordRequests, [], 'OIDC-only password page never submits a local password');
+    const unavailable = await api(first.c, '/auth/password', 'PUT', { new_password: md5(userPassword) }, 403);
+    assert.equal(unavailable.code, 'local_password_unavailable', 'server capability check remains authoritative');
     await api(first.c, '/admin/users', 'GET', undefined, 403);
     await api(admin, `/admin/users/${me.id}/password-reset`, 'POST', {}, 403);
     identity.preferred_username = 'fictional-renamed';

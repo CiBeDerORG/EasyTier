@@ -10,7 +10,7 @@ updated_at: 2026-10-21
 
 需求依据：[Web 用户管理需求分析](../../docs/requirements/web-user-management.md)。执行入口：[任务看板](../task/README.md)与 [11 项任务文档](../task/web-user-management/README.md)。本文安排工作边界与依赖；任务状态、负责人和执行证据以各任务明细为准。
 
-本计划已处理（`done`），已完成实施与隔离验收。稳定契约见第8节；实际结果、复现步骤及限制见[运维验收记录](../../docs/operations/web-user-management.md)和各任务明细。
+本计划已处理（`done`），原11项实施与隔离验收及第10节3项审核修复均已完成。稳定契约见第8节；实际结果、复现步骤及限制见[运维验收记录](../../docs/operations/web-user-management.md)和各任务明细。
 
 ## 1. 目标与范围
 
@@ -305,3 +305,15 @@ WUM-005 提供显式离线 `--recover-admin <username>` 入口：复用 DB 路�
 WUM-001至011按依赖完成，累计11个子agent；独占文件交接、缺陷回派和复验均已记录。统一入口32/32（客户端mock6、组件mock7、真实全栈9、production导航mock10）；OIDC补强1/1、真实webhook/设备认证1/1；升级显式验收3/3、无管理员注册不提权1/1。其他模块针对性验证与UA映射见[运维说明](../../docs/operations/web-user-management.md)。
 
 联调修复OIDC外部错误日志泄漏和production i18n空弹窗，并实际复验。用户选择A的旧默认凭据兼容/警告/改密行为已在旧库验证。交付为从文档分支建立的独立功能分支，已正常推送至 origin/feat/web-user-management；未部署生产、操作真实账户、修改VPN/防火墙、合并main或强制推送。未执行旧二进制、HTTPS代理部署、真实VPN数据面和全量网络测试，不将这些项目算作通过。
+
+## 10. 审核修复计划（2026-10-21）
+
+对应需求第13节 UM-11/12，基于 `0326521d` 继续在 `feat/web-user-management` 实施。沿用 `/auth/me` 和改密错误码，不改 Rust、设备链路或数据库。
+
+1. [WUM-012 改密能力与反馈](../task/web-user-management/wum-012-password-capability.md)：协调者负责 MainPage、ChangePassword、中英文文案与导航测试；入口及表单均使用明确的本地密码能力，并处理服务器能力拒绝。
+2. [WUM-013 E2E 程序路径](../task/web-user-management/wum-013-e2e-binary.md)：独立 Agent 负责 E2E 文件的产物路径解析、专用 helper/路径回归和必要脚本，不改前端组件。优先显式二进制，其次 Cargo metadata 的 target 目录，保留错误信息。
+3. [WUM-014 修复联调与交付](../task/web-user-management/wum-014-review-integration.md)：等待上述两项交付，再执行生产构建、浏览器测试和真实服务 E2E；复核 diff 中没有 config-server 相关修改，记录通过/失败/未测范围后提交并正常推送。
+
+WUM-012 与013写入范围互不重叠，可并行；013的 E2E 文件交给014后，由014追加真实 OIDC 本人改密页面回归。所有需求/计划/任务/看板/运维记录仅由协调者写入。前期审核建立的忽略目录软链接须移除后验证，不能掩盖路径缺陷。失败回派对应所有者，联调通过前不标记完成。
+
+执行结果：WUM-012/013 独立验证后完成 WUM-014 联调，统一入口43/43、设备认证兼容1/1通过。无固定路径软链接，无后端/config-server变更，独立复核通过。旧Dashboard附加回归受浏览器下载403限制，未计入通过；完整证据与限制见[运维记录](../../docs/operations/web-user-management.md)。本次按授权提交并正常推送用户管理分支，原生态规划工作区保持不动。

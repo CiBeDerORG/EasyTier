@@ -1,6 +1,6 @@
 # Web 用户管理：升级、初始化与恢复
 
-适用范围为[需求 UM-01–10](../requirements/web-user-management.md)与[PLAN-WUM 契约](../../process/plan/web-user-management.md)规定的本地控制台账号管理。实施与验收见[任务看板](../../process/task/README.md)。这里提供操作者步骤；本次开发没有执行生产部署、真实账号修改、VPN 或防火墙操作。
+适用范围为[需求 UM-01–12](../requirements/web-user-management.md)与[PLAN-WUM 契约](../../process/plan/web-user-management.md)规定的本地控制台账号管理及审核修复。实施与验收见[任务看板](../../process/task/README.md)。这里提供操作者步骤；本次开发没有执行生产部署、真实账号修改、VPN 或防火墙操作。
 
 本轮状态：**已处理**。WUM-001–011 的实现与隔离验收已完成，功能分支 `feat/web-user-management` 已正常推送。此状态不代表生产部署或下文明确未执行的验证已完成。
 
@@ -12,6 +12,7 @@
 - 管理写入要求 JSON 和 `X-Requested-With: EasyTier`；拒绝跨源/null Origin及跨源预检。旧认证与其他接口保留兼容行为，这不是全站 CORS 改造。旧跨源前端需增加同源代理才能使用新管理能力。
 - 停用控制台访问、改密和撤销 Web 会话不删除设备或网络，也不承诺断开数据面。关闭自助注册不关闭独立设备/OIDC 自动建号。外部 webhook 身份不等于本地 Web 身份，不能将本地停用解释为删除外部账号。
 - OIDC 用 issuer/subject 稳定绑定。同名未绑定账号不会自动继承本地管理员。身份迁移需操作者核实绑定，不能仅按显示名匹配。
+- 本人改密仅在服务端明确支持本地密码时开放，不能按账号来源判断。有本地密码的绑定账号仍可改密；OIDC-only 账号直接访问改密地址时提示到外部认证平台操作，其他未知能力提示联系管理员。`config-server` 的客户端连接、设备认证和配置下发与这次页面修复无关，本次源码完全保留。
 
 ## 升级已有数据库
 
@@ -79,6 +80,14 @@ cargo test --locked -p easytier-web wum_external_webhook_and_device_heartbeat_pr
 
 统一前端入口先构建前端与 `easytier-web --features embed`，再运行所有用户管理测试。升级测试默认使用 `target/debug/easytier-web`；自定义 Cargo target 目录时以 `WUM_TEST_WEB_BINARY` 指向已构建的本次二进制。两项真实进程测试带有显式 ignore 原因，普通 Cargo/nextest CI 默认跳过，因为归档测试不保证附带独立 Web 二进制；上述 `--include-ignored` 是必须的升级验收入口，已实际运行。显式运行时找不到二进制会明确失败，不静默跳过。浏览器可用 `WEB_TEST_CHROMIUM` 指定已安装路径，默认 `/usr/bin/chromium`。测试会清理临时库；命令日志只报告状态，不应输出凭据。
 
+用户管理浏览器 E2E 已单独修复路径发现：优先使用 `WUM_TEST_WEB_BINARY`；未设置时，在 `easytier-web/frontend` 运行 Cargo metadata 获取实际 target 目录，支持 `CARGO_TARGET_DIR` 及 Cargo 配置。相对覆盖路径以该 frontend 目录为基准，路径不存在或不可执行时明确失败，不回退仓库旧产物。自动发现对应包脚本默认的 host/debug 构建；设置 `CARGO_BUILD_TARGET`、`build.target` 或其他 profile 时应显式指定可在本机运行的本次二进制。Rust 升级测试和旧 `central-e2e` 的路径逻辑未在本次修改。
+
+```sh
+CARGO_TARGET_DIR=/path/to/build-output pnpm --dir easytier-web/frontend test:user-management
+# 使用已经构建的指定程序直接验证真实用户管理 E2E：
+WUM_TEST_WEB_BINARY=/path/to/easytier-web pnpm --dir easytier-web/frontend exec node --test tests/user-management-e2e.test.mjs
+```
+
 已执行结果（2026-10-21）：
 
 | 检查 | 实际结果与证据 |
@@ -112,3 +121,17 @@ cargo test --locked -p easytier-web wum_external_webhook_and_device_heartbeat_pr
 | UA-14 | 真实 HTTP 同源/CSRF/Cookie/禁止缓存与 Secure 配置分支；未执行 HTTPS 代理部署 |
 
 本次没有运行全量 Cargo 网络套件、真实 VPN/防火墙修改、生产 IdP、生产账户、生产部署或旧二进制回退。支持范围及上述限制必须随交付保留。
+
+## 审核修复验证（2026-10-21，WUM-012～014）
+
+基线 `0326521d`；在 `feat/web-user-management` 继续交付，需求、计划和任务已同步。页面使用已存在的身份能力和错误码；没有 Rust、数据库、协议、config-server、设备认证、配置下发或计时器改动。独立代码复核通过。
+
+| 检查 | 结果与范围 |
+| --- | --- |
+| 生产构建及统一用户管理入口 | `pnpm --filter easytier-frontend test:user-management` 通过，含前端类型/构建、Rust embed 构建及 **43/43**：路径6、客户端mock6、组件mock7、真实服务/SQLite/Chromium/OIDC9、生产页面mock15；`/tmp/wum-fix-full.log` |
+| UA-15 改密能力 | 新增中英文/窄屏/键盘、未知能力、OIDC来源但本地凭据可用、服务端能力拒绝测试；真实OIDC登录后检查菜单与直接路由，并确认真实后端拒绝本地改密；原首次改密流程继续通过 |
+| UA-16 程序路径 | 真实 Cargo metadata 覆盖默认、绝对/相对 target、Cargo配置与显式覆盖；移除先前审核临时软链接后，在 `CARGO_TARGET_DIR=/workspace/.easytier-env/target` 下完整统一入口通过，没有设置 `WUM_TEST_WEB_BINARY` |
+| 设备认证兼容回归 | `cargo test --locked -p easytier-web wum_external_webhook_and_device_heartbeat_preserve_disabled_account -- --test-threads=1` **1/1** 通过；`/tmp/wum-fix-device-auth.log`；不代表真实VPN数据面测试 |
+| 附加旧 Dashboard 回归 | 未完成：默认 Playwright headless shell 缺失，33项均在启动钩子失败，未执行行为断言；安装下载被CDN返回403 Domain forbidden。记录 `/tmp/wum-fix-dashboard.log`、`/tmp/wum-fix-browser-install.log`，未修改该测试或降低断言 |
+
+用户管理43项使用已安装的系统Chromium，和上表旧Dashboard浏览器依赖限制不同。原有Browserslist过期与构建大包警告仍存在。新改动的Markdown链接和 `git diff --check` 已检查；`/tmp` 为当前环境临时证据，可用记录的命令重现。未重新运行全量Rust/网络测试、生产IdP/HTTPS代理或生产部署；在途改密与撤销会话的并发语义仍为先前单列的加固建议。

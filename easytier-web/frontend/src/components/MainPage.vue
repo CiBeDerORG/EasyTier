@@ -38,6 +38,7 @@ const userMenuItems = computed(() => [
     {
         label: t('web.main.change_password'),
         icon: 'pi pi-key',
+        visible: currentUser.value?.local_password_enabled === true,
         command: () => router.push({ name: 'changePassword' }),
     },
     {
@@ -415,11 +416,11 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
             <main ref="mainContent" id="main-content" class="console-content" tabindex="-1">
                 <div v-if="identityError" role="alert">{{ t(`user_management.errors.${identityError}`) }} <Button :label="t('user_management.retry')" @click="loadNavigation" /></div>
                 <div v-if="currentUser?.default_password_warning" role="alert" class="mb-4">
-                    {{ t('user_management.default_password_warning') }} <Button :label="t('web.main.change_password')" @click="router.push({ name: 'changePassword' })" />
+                    {{ t('user_management.default_password_warning') }} <Button v-if="currentUser.local_password_enabled === true" :label="t('web.main.change_password')" @click="router.push({ name: 'changePassword' })" />
                 </div>
                 <p v-if="!currentUser && !identityError" role="status">{{ t('web.common.loading') }}</p>
                 <template v-if="currentUser">
-                <ChangePassword v-if="currentUser.must_change_password || route.name === 'changePassword'" :api="api" :required="currentUser.must_change_password" />
+                <ChangePassword v-if="currentUser.must_change_password || route.name === 'changePassword'" :api="api" :required="currentUser.must_change_password" :local-password-enabled="currentUser.local_password_enabled" :source="currentUser.source" />
                 <template v-else-if="route.name === 'users'">
                     <UserManagement v-if="canManage" :current-user="currentUser" :users="users" :events="events" :selected-user="selectedUser" :loading="loading" :busy="busy" :stale="stale" :error="managementError" :credential="credential"
                         @query="loadUsers" @select="selectUser" @query-events="loadEvents" @retry="loadUsers()" @dismiss-credential="credential = null"

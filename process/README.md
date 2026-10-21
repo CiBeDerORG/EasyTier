@@ -72,6 +72,6 @@
 
 ## 当前入口
 
-- [Web 用户管理需求](../docs/requirements/web-user-management.md)：本轮已处理，后续需求池不在本轮完成范围。
-- [Web 用户管理实施计划](plan/web-user-management.md)：已处理（`done`），WUM-001–011 全部完成。
-- [任务看板](task/README.md)：11/11 已处理；[运维与验收记录](../docs/operations/web-user-management.md)保留未验证范围。
+- [Web 用户管理需求](../docs/requirements/web-user-management.md)：原11项已交付，新增审核修复见需求第13节。
+- [Web 用户管理实施计划](plan/web-user-management.md)：原11项完成，审核修复 WUM-012–014 见第10节。
+- [任务看板](task/README.md)：14/14 已完成，包含审核修复与真实联调；[运维与验收记录](../docs/operations/web-user-management.md)保留未验证范围。
