@@ -28,10 +28,13 @@
 
 ### 需求、计划与任务命名
 
-- 同一需求使用稳定的英文 `kebab-case` 主题名，例如 `web-user-management`；分析默认位于 `docs/requirements/<feature>.md`，计划位于 `process/plan/<feature>.md`，任务位于 `process/task/<feature>/`。
-- 需求和验收编号保持稳定，例如 `UM-01`、`UA-01`；计划使用 `PLAN-<领域缩写>`，任务使用 `<领域缩写>-<三位序号>`，例如 `PLAN-WUM`、`WUM-001`。不同主题选择不同前缀，不复用已取消编号。
-- 任务文件名使用小写编号与职责，例如 `wum-001-contract.md`；文件名不包含负责人或执行状态，以免状态变化破坏链接。
-- 看板固定入口为 `process/task/README.md`；字段、状态、模板和跨文档链接遵循 [协作规则](../../process/README.md)。
+- 同一需求使用稳定的英文 `kebab-case` 主题名，例如 `web-user-management`，统一目录为 `process/<feature>-<status>/`，如 `process/web-user-management-done/`。目录内固定使用 `require/`、`plan/`、`task/`，各自的 `README.md` 作为入口；需求目录根 `README.md` 是先于明细编写的需求/计划汇总，保存总体元数据、进度、问题、代码依据与三类文档链接，不另设第二份汇总。
+- 目录后缀允许 `draft`、`ready`、`in-progress`、`blocked`、`in-review`、`done`、`cancelled`。它表示该需求的总体状态，不等于某一任务的状态；任务元数据继续按协作规则使用自身 `status`，已有 `in_progress`、`in_review` 不因目录命名被重写。
+- 需求状态变化时整体重命名目录，并同步总索引、根元数据和所有受影响链接；稳定 `feature`、需求/验收/计划/任务编号不变。不通过复制一个新目录留下两套活动需求，也不能因文档写完将需求改为 `done`。
+- 不同需求独立命名、独立目录、独立计划。用户管理为 `web-user-management`，拓扑集成为 `easytier-ecosystem-integration`，现有 Web 交互优化与美化为 `web-ui-optimization`；跨需求只关联依赖和兼容边界，不混合任务归属。
+- 需求和验收编号保持稳定，例如 `UM-01`、`UA-01`；计划索引使用 `PLAN-<领域缩写>`，计划明细使用 `PLAN-<领域缩写>-<三位序号>`，任务使用 `<领域缩写>-<三位序号>`，例如 `PLAN-WUM`、`PLAN-WUM-001`、`WUM-001`。计划与任务编号属于不同命名空间，不默认一一对应，不同主题不复用编号。
+- 计划明细文件名为 `plan-<编号>-<名称>.md`，例如 `plan-wui-001-baseline.md`；任务明细为 `task-<任务编号>-<任务名称>.md`，例如 `task-wum-001-contract.md`。编号/名称转为小写 `kebab-case`；文件名不包含负责人或执行状态，以免状态变化破坏链接。既有任务迁移文件名仍保留原 ID 与完成证据。
+- 全局索引为 `process/README.md`，单需求汇总为 `process/<feature>-<status>/README.md`；`plan/README.md` 是计划索引，`task/README.md` 是任务看板，具体内容拆成各自目录内的小文件。模板统一位于 `process/templates/`：`summary.md`、`require.md`、`plan-index.md`、`plan.md`、`task-board.md`、`task.md`；字段、状态与链接遵循 [协作规则](../../process/README.md)。
 
 ## 代码符号
 
