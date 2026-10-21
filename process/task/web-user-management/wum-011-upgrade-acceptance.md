@@ -1,10 +1,10 @@
 ---
 id: WUM-011
 feature: web-user-management
-status: ready
-owner: null
+status: in_progress
+owner: /root/wum011
 depends_on: ["WUM-010"]
-write_scope: ["docs/operations/web-user-management.md","easytier-web/src/user_management/upgrade_tests.rs"]
+write_scope: ["docs/operations/web-user-management.md","easytier-web/src/user_management/upgrade_tests.rs","easytier-web/src/user_management/mod.rs (test module registration only)"]
 requirements: ["UM-04","UM-05","UM-06","UM-07","UM-09","UM-10"]
 acceptance: ["UA-08","UA-12","UA-13","UA-14"]
 updated_at: "2026-10-21"
@@ -50,3 +50,5 @@ updated_at: "2026-10-21"
 ## 执行记录
 
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
+
+- 2026-10-21：010通过后认领；由005串行移交mod.rs仅测试模块注册行。使用隔离旧库、虚构凭据、真实CLI进程验证升级/恢复/备份，禁止实际生产或VPN操作。首次初始化文档须明确旧迁移预置admin/user仍存在，显式恢复admin不会清理user，自选新管理员也不会替换它们。
