@@ -663,17 +663,16 @@ mod route {
 
         let user = match auth_session
             .backend
-            .find_or_create_oidc_user(&username)
+            .find_or_create_oidc_user(
+                &username,
+                claims.issuer().as_str(),
+                claims.subject().as_str(),
+            )
             .await
         {
             Ok(u) => u,
             Err(e) => {
-                tracing::error!("Failed to find or create OIDC user '{}': {:?}", username, e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(other_error("Failed to provision user account")),
-                )
-                    .into_response();
+                return super::super::auth::authentication_error(e).into_response();
             }
         };
 

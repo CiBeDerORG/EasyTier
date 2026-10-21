@@ -1053,10 +1053,13 @@ mod tests {
             .route(
                 "/views",
                 get(move |mut auth: AuthSession| async move {
-                    auth.user = Some(super::super::users::User {
-                        db_user,
-                        tokens: vec![],
-                    });
+                    auth.user = Some(super::super::users::User::from_record(
+                        crate::db::user_management::UserRecord {
+                            access: crate::db::user_management::UserAccess::legacy(db_user.id),
+                            user: db_user,
+                            role: "user".into(),
+                        },
+                    ));
                     let config = super::super::ConsoleInfoConfig {
                         config_server_protocol: "tcp".into(),
                         config_server_port: 22020,

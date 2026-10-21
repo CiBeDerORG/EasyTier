@@ -1,7 +1,7 @@
 ---
 id: WUM-004
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum004
 depends_on: ["WUM-002","WUM-003"]
 write_scope: ["easytier-web/src/restful/users.rs","easytier-web/src/restful/auth.rs","easytier-web/src/restful/oidc.rs"]
@@ -31,11 +31,11 @@ updated_at: "2026-10-21"
 
 ## 实施与验收
 
-- [ ] 密码登录、用户重载、适用 OIDC 登录遵守访问状态；恢复账号不复活旧会话。
-- [ ] 密码与会话版本一致参与认证有效性；首次改密会话只能访问必要身份/改密/退出接口。
-- [ ] 当前身份包含必要能力，注册策略不泄露秘密；网页注册与设备/OIDC 自动建号分别处理。
-- [ ] 启用 OIDC 的范围落实稳定身份与同名冲突策略；旧数据不被猜测为本地账号。
-- [ ] 使用真实数据库验证多会话、停用/恢复、改密、角色撤销与已支持登录模式；保留原有认证兼容性。
+- [x] 密码登录、用户重载、适用 OIDC 登录遵守访问状态；恢复账号不复活旧会话。
+- [x] 密码与会话版本一致参与认证有效性；首次改密会话只能访问必要身份/改密/退出接口。
+- [x] 当前身份包含必要能力，注册策略不泄露秘密；网页注册与设备/OIDC 自动建号分别处理。
+- [x] 启用 OIDC 的范围落实稳定身份与同名冲突策略；旧数据不被猜测为本地账号。
+- [x] 使用真实数据库验证多会话、停用/恢复、改密、角色撤销与已支持登录模式；保留原有认证兼容性。
 
 ## 交付清单
 
@@ -54,3 +54,7 @@ updated_at: "2026-10-21"
 - 2026-10-21：002/003实际验收后认领，users.rs已串行移交；DB完整access保存需锁事务，用户选择A保留默认密码登录并返回仅本人警告。
 
 - 2026-10-21：User新增认证元数据需要串行适配 `restful/network.rs` 唯一测试构造点；该文件由协调者独占，只将fixture改用User::from_record，不改变网络业务逻辑。
+
+- 2026-10-21：完成密码哈希+auth_version会话摘要、登录/重载停用与临时期限校验、受限改密、稳定OIDC绑定及同名拒绝、me/policy、仅本人默认密码警告。认证更新在DB写锁事务内重读，不覆盖并发撤销。
+- 验证：`cargo test --locked -p easytier-web auth_lifecycle` 5/5通过，含真实SQLite与Cookie会话router（独立撤销/多会话/恢复不复活/受限改密/policy/历史默认密码提示）、OIDC绑定和禁用；rustfmt与diff检查通过。完整真实IdP HTTP尚未运行，留010。
+- 006接线：将 `auth::require_password_change` 放在合并browser API router中且AuthManagerLayer内，覆盖工作区/RPC/config解析生成；保持内部token路由独立。auth::router已注册me/policy，安全错误helper可复用。
