@@ -1,7 +1,7 @@
 ---
 id: WUM-004
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum004
 depends_on: ["WUM-002","WUM-003"]
 write_scope: ["easytier-web/src/restful/users.rs","easytier-web/src/restful/auth.rs","easytier-web/src/restful/oidc.rs"]
@@ -60,3 +60,5 @@ updated_at: "2026-10-21"
 - 006接线：将 `auth::require_password_change` 放在合并browser API router中且AuthManagerLayer内，覆盖工作区/RPC/config解析生成；保持内部token路由独立。auth::router已注册me/policy，安全错误helper可复用。
 
 - 2026-10-21：WUM-010前置复核发现OIDC错误Debug可包含完整token响应体及外部回调文本，重新打开；004独占oidc.rs最小脱敏修复，010补真实失败响应日志回归。
+
+- 2026-10-21：004已将OIDC错误日志改为固定阶段文本；010增量embed构建通过，并通过真实IdP畸形200/400 token响应及callback error_description虚构marker回归，日志与callback响应均无marker。该缺陷关闭，浏览器联调其他问题仍由010跟踪。

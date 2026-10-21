@@ -361,19 +361,24 @@ mod route {
 
         let (auth_url, csrf_token, nonce) = auth_request.url();
 
-        if let Err(e) = session
+        if session
             .insert("oidc_csrf_token", csrf_token.secret().clone())
             .await
+            .is_err()
         {
-            tracing::error!("Failed to store csrf_token in session: {:?}", e);
+            tracing::error!("Failed to store csrf_token in session");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(other_error("Session error")),
             )
                 .into_response();
         }
-        if let Err(e) = session.insert("oidc_nonce", nonce.secret().clone()).await {
-            tracing::error!("Failed to store nonce in session: {:?}", e);
+        if session
+            .insert("oidc_nonce", nonce.secret().clone())
+            .await
+            .is_err()
+        {
+            tracing::error!("Failed to store nonce in session");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(other_error("Session error")),
@@ -381,19 +386,24 @@ mod route {
                 .into_response();
         }
         if let Some(verifier) = pkce_verifier
-            && let Err(e) = session
+            && session
                 .insert("oidc_pkce_verifier", verifier.secret().clone())
                 .await
+                .is_err()
         {
-            tracing::error!("Failed to store pkce_verifier in session: {:?}", e);
+            tracing::error!("Failed to store pkce_verifier in session");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(other_error("Session error")),
             )
                 .into_response();
         }
-        if let Err(e) = session.insert("oidc_pkce_used", pkce_enabled).await {
-            tracing::error!("Failed to store pkce_used in session: {:?}", e);
+        if session
+            .insert("oidc_pkce_used", pkce_enabled)
+            .await
+            .is_err()
+        {
+            tracing::error!("Failed to store pkce_used in session");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(other_error("Session error")),
@@ -409,7 +419,6 @@ mod route {
         code: Option<String>,
         state: Option<String>,
         error: Option<String>,
-        error_description: Option<String>,
     }
 
     async fn cleanup_oidc_session(session: &tower_sessions::Session) {
@@ -433,12 +442,10 @@ mod route {
                 .into_response();
         }
 
-        if let Some(ref error) = params.error {
-            tracing::error!(
-                "OIDC provider returned error: {}, description: {:?}",
-                error,
-                params.error_description
-            );
+        if params.error.is_some() {
+            // Provider errors and token-exchange errors can contain credentials.
+            // Keep logs stage-only; never format external error bodies or claims.
+            tracing::error!("OIDC provider returned an authentication error");
             return (
                 StatusCode::BAD_REQUEST,
                 Json(other_error(
@@ -530,8 +537,8 @@ mod route {
 
         let mut token_request = match client.exchange_code(AuthorizationCode::new(code)) {
             Ok(req) => req,
-            Err(e) => {
-                tracing::error!("Failed to create token request: {:?}", e);
+            Err(_) => {
+                tracing::error!("Failed to create token request");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(other_error("Failed to create token exchange request")),
@@ -555,8 +562,8 @@ mod route {
 
         let token_response = match token_request.request_async(http_client).await {
             Ok(resp) => resp,
-            Err(e) => {
-                tracing::error!("Failed to exchange code for token: {:?}", e);
+            Err(_) => {
+                tracing::error!("Failed to exchange code for token");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(other_error("Token exchange failed")),
@@ -578,8 +585,8 @@ mod route {
 
         let claims = match id_token.claims(&client.id_token_verifier(), &Nonce::new(stored_nonce)) {
             Ok(c) => c,
-            Err(e) => {
-                tracing::error!("Failed to verify ID token: {:?}", e);
+            Err(_) => {
+                tracing::error!("Failed to verify ID token");
                 return (
                     StatusCode::UNAUTHORIZED,
                     Json(other_error("ID token verification failed")),
@@ -608,8 +615,8 @@ mod route {
                 signing_key,
             ) {
                 Ok(hash) => hash,
-                Err(e) => {
-                    tracing::error!("Failed to compute access token hash: {:?}", e);
+                Err(_) => {
+                    tracing::error!("Failed to compute access token hash");
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(other_error("Failed to verify access token hash")),
@@ -630,8 +637,8 @@ mod route {
 
         let claims_json = match serde_json::to_value(claims) {
             Ok(v) => v,
-            Err(e) => {
-                tracing::error!("Failed to serialize claims: {:?}", e);
+            Err(_) => {
+                tracing::error!("Failed to serialize claims");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(other_error("Failed to process ID token claims")),
@@ -649,10 +656,7 @@ mod route {
         let username = match username {
             Some(u) if !u.is_empty() => u,
             _ => {
-                tracing::error!(
-                    "Could not extract username from claim '{}' in token",
-                    oidc.username_claim
-                );
+                tracing::error!("Could not extract configured username claim from ID token");
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(other_error("Could not extract username from token claims")),
@@ -676,8 +680,8 @@ mod route {
             }
         };
 
-        if let Err(e) = auth_session.login(&user).await {
-            tracing::error!("Failed to login user via OIDC: {:?}", e);
+        if auth_session.login(&user).await.is_err() {
+            tracing::error!("Failed to login user via OIDC");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(other_error("Failed to establish session")),
@@ -685,8 +689,8 @@ mod route {
                 .into_response();
         }
 
-        if let Err(e) = session.cycle_id().await {
-            tracing::error!("Failed to cycle session ID after OIDC login: {:?}", e);
+        if session.cycle_id().await.is_err() {
+            tracing::error!("Failed to cycle session ID after OIDC login");
         }
         if let Some(frontend_url) = &oidc.frontend_base_url {
             Redirect::temporary(frontend_url).into_response()

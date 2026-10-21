@@ -4,7 +4,7 @@ feature: web-user-management
 status: in_progress
 owner: /root/wum010
 depends_on: ["WUM-006","WUM-009"]
-write_scope: ["easytier-web/frontend/tests/user-management-e2e.test.mjs","easytier-web/frontend/package.json"]
+write_scope: ["easytier-web/frontend/tests/user-management-e2e.test.mjs","easytier-web/frontend/package.json","easytier-web/src/client_manager/session/webhook_validation.rs (tests only, /root/wum003)"]
 requirements: ["UM-01","UM-02","UM-03","UM-04","UM-05","UM-06","UM-07","UM-08","UM-09","UM-10"]
 acceptance: ["UA-01","UA-02","UA-03","UA-04","UA-05","UA-06","UA-07","UA-08","UA-09","UA-10","UA-11","UA-13","UA-14"]
 updated_at: "2026-10-21"
@@ -56,3 +56,5 @@ updated_at: "2026-10-21"
 - 2026-10-21：006真实HTTP验收、009导航mock验收后认领；从真实隔离后端/DB开始浏览器联调，补完整测试OIDC身份服务与各UA证据，禁止使用真实身份或凭据。
 
 - 2026-10-21：真实embed构建通过；OIDC日志复核发现错误Debug携带响应体风险，回派004，待其修复后联调验证。尚未声明真实浏览器/IdP通过。
+
+- 2026-10-21：移交003独占webhook_validation.rs现有tests区，补真实loopback外部webhook到本地用户映射的完整函数链；不启动Core/TUN/RPC消费者。验证停用后控制面会话与资源保持，实际数据面在线通信仍不在已执行验证内。010统一串行执行该Rust测试。
