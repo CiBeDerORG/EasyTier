@@ -23,7 +23,7 @@
 | `/h/networks` | `NetworkList.vue` 接收 api；创建草稿包含网络名、CIDR、安全模式及高级节点 | `loadNetworks/openCreate/createNetwork`、网关读取；创建成功再跳转返回 network_id 的详情。保留 Gateway/Manual/Standalone 等原有语义和规范化 |
 | `/h/networks/:networkId` | `NetworkDetail.vue` 以 route.params.networkId 驱动网络、成员、临时节点、配置、凭据、节点抽屉和 ACL | `loadAll`、成员增删改、设置保存、成员配置读取/保存/重置、凭据生成/撤销、节点路由/peer/ACL统计、日志级别与配置导出、删除网络；ACL 子组件接收 api/networkId/members |
 
-`MainPage` 在 `must_change_password` 时限制工作区，`users.manage` 能力决定管理入口；`centralEnabled` 由 console-info 的 `webhook_auth === false` 决定，外部认证控制台访问中央网络路由会返回工作台。页面隐藏不能替代后端授权。
+`MainPage` 在 `must_change_password` 时限制工作区，`users.manage` 能力决定管理入口；`centralEnabled` 由 console-info 的 `webhook_auth === false` 决定，外部认证控制台访问中央网络路由会返回工作台。其 RouterView 为 networkDetail 使用 networkId 作为 key，切换网络会重建详情组件，不能仅因详情没有 watch(networkId) 就断言路由切换失效。页面隐藏不能替代后端授权。
 
 ## 请求触发、周期与清理
 

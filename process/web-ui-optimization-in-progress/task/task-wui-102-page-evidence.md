@@ -18,7 +18,7 @@ updated_at: 2026-10-21
 
 [汇总](../README.md) · [PLAN-WUI-001](../plan/plan-wui-001-baseline.md) · [需求与验收](../require/README.md) · [任务看板](README.md)
 
-当前仅生成任务，`backlog`、`owner: /root/iteration_exec3`；没有认领、实现或本专项运行验收。任务编号101段与原计划工作包001～008分开，不复用迁出的ECO-012。
+当前状态与负责人见元数据；执行与验证证据见本任务交接记录。
 
 ## 代码依据与启动条件
 

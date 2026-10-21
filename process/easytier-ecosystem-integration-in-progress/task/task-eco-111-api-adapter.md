@@ -21,7 +21,7 @@ updated_at: 2026-10-21
 
 [汇总](../README.md) · [需求与验收](../require/README.md) · [PLAN-ECO-008](../plan/plan-eco-008-api-adapter.md) · [任务看板](README.md)
 
-本任务尚未认领或执行；`backlog` 不表示已满足启动条件。实际采用基线为 `feat/web-user-management@1e92296b17fc2e85dcd4521b6012232e11abed95` 或经核对的后续提交；本轮只生成文档，未运行应用或测试。
+当前状态与负责人见元数据；执行与验证证据见本任务交接记录。
 
 ## 目标与真实依据
 

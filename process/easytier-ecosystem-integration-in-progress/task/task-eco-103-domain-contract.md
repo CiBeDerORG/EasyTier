@@ -4,8 +4,8 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-002]
 task_type: implementation
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec1
 depends_on: ["ECO-101", "ECO-102"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/baseline.md", "process/easytier-ecosystem-integration-in-progress/plan/design/baseline-evidence/", "easytier-web/frontend/src/modules/api.ts", "easytier-web/src/db/entity/devices.rs", "easytier-web/src/db/entity/network_members.rs"]
 write_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "easytier-web/frontend/src/modules/ecosystemTypes.ts"]
@@ -21,7 +21,7 @@ updated_at: 2026-10-21
 
 [汇总](../README.md) · [需求与验收](../require/README.md) · [PLAN-ECO-002](../plan/plan-eco-002-contract.md) · [任务看板](README.md)
 
-本任务尚未认领或执行；`backlog` 不表示已满足启动条件。实际采用基线为 `feat/web-user-management@1e92296b17fc2e85dcd4521b6012232e11abed95` 或经核对的后续提交；本轮只生成文档，未运行应用或测试。
+当前状态与负责人见元数据；执行与验证证据见本任务交接记录。
 
 ## 目标与真实依据
 
@@ -69,3 +69,5 @@ updated_at: 2026-10-21
 ## 当前记录
 
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
+
+2026-10-21：101/102经监工验收，exec1认领契约及公共类型实现；未支持/未验证边界不得降格为成功。

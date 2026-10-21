@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 kind: work-package
 work_package: ECO-001
 summary: ../README.md
-status: draft
+status: in-progress
 owner: null
 requirement: ../require/README.md
 task_board: ../task/README.md
@@ -19,7 +19,7 @@ updated_at: 2026-10-21
 
 [需求/计划汇总](../README.md) · [计划索引](README.md) · [需求与验收](../require/README.md) · [任务入口](../task/README.md)
 
-本文件只描述该工作包的计划，尚未认领或实施；公共范围见 [PLAN-ECO-000](plan-eco-000-overview.md)。路径别名 `D`、`F`、`L` 的定义也见该公共说明，所有拟新增文件仍未实现。
+本文件描述工作包计划，执行状态以关联任务与本文件元数据为准；公共范围见 [PLAN-ECO-000](plan-eco-000-overview.md)。路径别名 `D`、`F`、`L` 的定义也见该公共说明，所有拟新增文件仍未实现。
 
 ## 对应小任务
 
