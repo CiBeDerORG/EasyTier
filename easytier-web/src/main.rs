@@ -32,6 +32,7 @@ mod config_server_listener_tests;
 mod db;
 mod migrator;
 mod restful;
+mod user_management;
 mod webhook;
 
 #[cfg(feature = "embed")]
@@ -53,6 +54,17 @@ struct Cli {
         help = t!("cli.db").to_string()
     )]
     db: String,
+
+    /// Offline: recover/create an administrator; read the new password from stdin.
+    #[arg(long, conflicts_with = "bind_oidc_user", help = t!("user_management.recover_help").to_string())]
+    recover_admin: Option<String>,
+    /// Offline: bind an independently verified OIDC identity to an existing account.
+    #[arg(long, requires_all = ["oidc_issuer", "oidc_subject"], help = t!("user_management.bind_help").to_string())]
+    bind_oidc_user: Option<String>,
+    #[arg(long, requires = "bind_oidc_user", help = t!("user_management.issuer_help").to_string())]
+    oidc_issuer: Option<String>,
+    #[arg(long, requires = "bind_oidc_user", help = t!("user_management.subject_help").to_string())]
+    oidc_subject: Option<String>,
 
     #[arg(
         long,
@@ -282,6 +294,44 @@ fn get_config_server_listeners(
     }
 }
 
+async fn run_offline_account_operation(cli: &Cli) -> Result<(), String> {
+    let db = db::Db::new(&cli.db)
+        .await
+        .map_err(|_| t!("user_management.database_unavailable").to_string())?;
+    let service = user_management::UserManagementService::new(db);
+    if let Some(username) = &cli.recover_admin {
+        use std::io::{IsTerminal, Read};
+        // Avoid terminal echo and argv/env secrets; accept redirected protected input.
+        if std::io::stdin().is_terminal() {
+            return Err(t!("user_management.protected_stdin_required").to_string());
+        }
+        let mut password = String::new();
+        std::io::stdin()
+            .take(1025)
+            .read_to_string(&mut password)
+            .map_err(|_| t!("user_management.stdin_failed").to_string())?;
+        let password = password.trim_end_matches(['\r', '\n']);
+        service
+            .recover_admin(username, password)
+            .await
+            .map_err(|e| e.to_string())?;
+    } else if let Some(username) = &cli.bind_oidc_user {
+        service
+            .bind_oidc_user(
+                username,
+                cli.oidc_issuer
+                    .as_deref()
+                    .ok_or_else(|| t!("user_management.identity_arguments_required").to_string())?,
+                cli.oidc_subject
+                    .as_deref()
+                    .ok_or_else(|| t!("user_management.identity_arguments_required").to_string())?,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
     let locale = sys_locale::get_locale().unwrap_or_else(|| String::from("en-US"));
@@ -290,6 +340,16 @@ async fn main() {
     easytier::utils::init_crypto_provider();
 
     let cli = Cli::parse();
+    // Offline account operations exit before logger/server/network initialization.
+    if cli.recover_admin.is_some() || cli.bind_oidc_user.is_some() {
+        let result = run_offline_account_operation(&cli).await;
+        if let Err(error) = result {
+            eprintln!("{}", t!("user_management.offline_failed", reason = error));
+            std::process::exit(2);
+        }
+        println!("{}", t!("user_management.offline_completed"));
+        return;
+    }
     log::init_with_default_console_targets(&cli, false, &["CORE", "easytier_web"]).unwrap();
     tracing::info!(
         version = EASYTIER_VERSION,

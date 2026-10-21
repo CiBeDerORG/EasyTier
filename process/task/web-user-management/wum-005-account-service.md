@@ -1,10 +1,10 @@
 ---
 id: WUM-005
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum005
 depends_on: ["WUM-003"]
-write_scope: ["easytier-web/src/user_management/","easytier-web/src/main.rs"]
+write_scope: ["easytier-web/src/user_management/","easytier-web/src/main.rs","easytier-web/locales/app.yml"]
 requirements: ["UM-02","UM-03","UM-04","UM-05","UM-06","UM-07","UM-08","UM-09","UM-10"]
 acceptance: ["UA-02","UA-04","UA-05","UA-06","UA-07","UA-08","UA-09","UA-12","UA-13"]
 updated_at: "2026-10-21"
@@ -31,11 +31,11 @@ updated_at: "2026-10-21"
 
 ## 实施与验收
 
-- [ ] 默认创建普通本地账号；关闭自助注册不影响获授权管理员创建；用户名不可修改、不物理删除资源。
-- [ ] 在事务中处理状态/会话版本/角色及成功审计；并发降权或停用不能产生零个有效管理员。
-- [ ] 仅按确认的凭据能力重置密码；初始/恢复管理员路径不依赖用户名硬编码或首个注册用户自动提权。
-- [ ] 验证重复用户名、并发角色变更、失败回滚、日志脱敏、旧会话撤销需要的版本更新；保持已有资源。
-- [ ] 在 main.rs 注册新模块，确保代码和测试真正参与编译；记录服务测试命令及结果。
+- [x] 默认创建普通本地账号；关闭自助注册不影响获授权管理员创建；用户名不可修改、不物理删除资源。
+- [x] 在事务中处理状态/会话版本/角色及成功审计；并发降权或停用不能产生零个有效管理员。
+- [x] 仅按确认的凭据能力重置密码；初始/恢复管理员路径不依赖用户名硬编码或首个注册用户自动提权。
+- [x] 验证重复用户名、并发角色变更、失败回滚、日志脱敏、旧会话撤销需要的版本更新；保持已有资源。
+- [x] 在 main.rs 注册新模块，确保代码和测试真正参与编译；记录服务测试命令及结果。
 
 ## 交付清单
 
@@ -54,3 +54,8 @@ updated_at: "2026-10-21"
 - 2026-10-21：协调者独占追加 `easytier-web/Cargo.toml` / 根 `Cargo.lock` 的 md5 直接依赖（沿用锁内0.7.0），供临时凭据和离线恢复兼容旧摘要输入；005不并行编辑清单或锁文件。
 
 - 2026-10-21：WUM-003实际测试通过后认领。DB完整侧表更新须持有数据库写锁；D-01按用户选择A保留旧登录并提示改密。
+
+- 2026-10-21：005独占追加 `easytier-web/locales/app.yml` 中离线恢复/身份绑定CLI中英文文案；不与008的前端locale范围重叠。
+
+- 2026-10-21：交付已注册UserManagementService与安全DTO/ManagementError，锁内重授权、账号事务/审计、最后管理员和并发保护、临时凭据、显式离线恢复与OIDC绑定；stdin读取秘密，离线操作在网络服务启动前退出，CLI双语已接。
+- 验证：`cargo test --locked -p easytier-web user_management` 9/9通过（存储4+服务5），覆盖角色/停用并发、重复建号、最后管理员直接分支、审计失败回滚、凭据期限/脱敏、离线服务恢复绑定；auth_lifecycle补充5/5通过；rustfmt/diff通过。进程级CLI恢复与整体升级由011验证，尚未运行。数据库完全不可写时failure审计也不能落库，操作返回错误，不能承诺此时仍有数据库审计。

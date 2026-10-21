@@ -76,3 +76,35 @@ cli:
   oidc_frontend_base_url:
     en: "Frontend base URL to redirect to after successful OIDC callback. Required when frontend and API are deployed separately (non-embed build, --no-web mode, or different web_server_port)"
     zh-CN: "OIDC 回调成功后跳转的前端入口地址。当前端与 API 分离部署时必须提供（非 embed 构建、--no-web 模式、或 web_server_port 与 api_server_port 不同）"
+
+user_management:
+  recover_help:
+    en: "Offline: recover or create an administrator; read a new password from protected stdin redirection"
+    zh-CN: "离线恢复或创建管理员；通过受保护的标准输入重定向读取新密码"
+  bind_help:
+    en: "Offline: bind an independently verified OIDC identity to an existing account"
+    zh-CN: "离线将独立核实的 OIDC 身份绑定到已有账号"
+  issuer_help:
+    en: "Verified issuer of the identity being bound"
+    zh-CN: "待绑定身份已经核实的签发者"
+  subject_help:
+    en: "Verified subject of the identity being bound"
+    zh-CN: "待绑定身份已经核实的主体标识"
+  offline_failed:
+    en: "Offline account operation failed: %{reason}"
+    zh-CN: "离线账号操作失败：%{reason}"
+  offline_completed:
+    en: "Offline account operation completed. No service was started."
+    zh-CN: "离线账号操作已完成，未启动服务。"
+  database_unavailable:
+    en: "Database unavailable"
+    zh-CN: "数据库不可用"
+  protected_stdin_required:
+    en: "Provide the new password through protected stdin redirection; terminal echo is not supported"
+    zh-CN: "请通过受保护的标准输入重定向提供新密码；不支持会回显密码的交互终端输入"
+  stdin_failed:
+    en: "Cannot read the new password from stdin"
+    zh-CN: "无法从标准输入读取新密码"
+  identity_arguments_required:
+    en: "Verified issuer and subject are required"
+    zh-CN: "必须提供已经核实的签发者与主体标识"
