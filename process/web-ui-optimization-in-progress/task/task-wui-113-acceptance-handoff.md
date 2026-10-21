@@ -3,7 +3,7 @@ id: WUI-113
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-008"]
-status: in_progress
+status: done
 owner: /root/iteration_exec3
 depends_on: ["WUI-112"]
 read_scope: ["process/web-ui-optimization-in-progress/require/README.md", "process/web-ui-optimization-in-progress/require/evidence/", "process/web-ui-optimization-in-progress/plan/verification/", "process/web-ui-optimization-in-progress/task/"]
@@ -56,11 +56,13 @@ updated_at: 2026-10-21
 
 ## 完成条件与失败处理
 
-- [ ] 交付证据指向实际提交和结果，所有承诺验收有结论，待处理项有影响及接收方。
-- [ ] 本归档任务仅审阅已有证据，不因修改文档重跑构建、测试或CI；缺证据退回112或相应所有者。
-- [ ] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
-- [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
+- [x] 交付证据指向实际提交和结果，所有承诺验收有结论，待处理项有影响及接收方。
+- [x] 本归档任务仅审阅已有证据，不因修改文档重跑构建、测试或CI；缺证据退回112或相应所有者。
+- [x] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
+- [x] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
 
 2026-10-21：112已获监工验收，开始需求到实际证据映射、限制与回退归档；纯文档阶段不重跑应用。
+
+2026-10-21：监工已验收需求/计划/任务/证据映射、失败历史、真实与fixture边界及回退说明；仅文档链接与diff检查，未重跑应用。WUI13项在限定范围内闭合，外部环境未验证保留。

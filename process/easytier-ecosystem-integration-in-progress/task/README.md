@@ -16,7 +16,7 @@ updated_at: 2026-10-21
 
 | backlog | ready | in_progress | blocked | in_review | done | cancelled | 总计 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 0 | 1 | 0 | 0 | 13 | 0 | 15 |
+| 0 | 0 | 1 | 0 | 0 | 14 | 0 | 15 |
 
 当前任务进度见下方实施快照与任务明细。
 
@@ -37,8 +37,8 @@ updated_at: 2026-10-21
 | [ECO-111 现有接口适配与请求结束](task-eco-111-api-adapter.md) | [PLAN-ECO-008](../plan/plan-eco-008-api-adapter.md) | done | /root/iteration_exec3 | ECO-104、ECO-105 | `eco-pages` |
 | [ECO-112 拓扑页面组合与能力注入](task-eco-112-page-composition.md) | [PLAN-ECO-009](../plan/plan-eco-009-host-integration.md) | done | /root/iteration_exec3 | ECO-106、ECO-107、ECO-108、ECO-109、ECO-110、ECO-111 | `eco-composition` |
 | [ECO-113 正式路由与宿主导航接线](task-eco-113-host-routing.md) | [PLAN-ECO-009](../plan/plan-eco-009-host-integration.md) | done | /root/iteration_exec3 | ECO-112 | `eco-host-integration` |
-| [ECO-114 真实接口联调与失败回派](task-eco-114-integration-verification.md) | [PLAN-ECO-010](../plan/plan-eco-010-integration-verification.md) | in_progress | /root/iteration_exec2 | ECO-113 | `eco-verification` |
-| [ECO-115 验收范围与交付回退记录](task-eco-115-acceptance-handoff.md) | [PLAN-ECO-011](../plan/plan-eco-011-acceptance.md) | backlog | null | ECO-114 | `eco-acceptance` |
+| [ECO-114 真实接口联调与失败回派](task-eco-114-integration-verification.md) | [PLAN-ECO-010](../plan/plan-eco-010-integration-verification.md) | done | /root/iteration_exec2 | ECO-113 | `eco-verification` |
+| [ECO-115 验收范围与交付回退记录](task-eco-115-acceptance-handoff.md) | [PLAN-ECO-011](../plan/plan-eco-011-acceptance.md) | in_progress | /root/iteration_exec3 | ECO-114 | `eco-acceptance` |
 
 ## 强制多 Agent 批次
 
@@ -116,8 +116,10 @@ D为本需求plan/design目录，所有未来产物与精确源码写入范围�
 
 
 
+
+
 ## 当前实施快照
 
-已验收 13/15；ECO-114（in_progress，/root/iteration_exec2）；其余 1 项 backlog。
+已验收 14/15；ECO-115（in_progress，/root/iteration_exec3）；其余 0 项 backlog。
 
 总控维护任务与共享锁；监工 `/root/iteration_monitor` 审查后才能完成或进入联调。实际验证见各任务交接，未运行场景不作通过结论。

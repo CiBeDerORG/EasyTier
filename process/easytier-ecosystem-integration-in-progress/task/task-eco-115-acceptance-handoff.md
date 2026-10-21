@@ -4,8 +4,8 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-011]
 task_type: acceptance
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec3
 depends_on: ["ECO-114"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "process/easytier-ecosystem-integration-in-progress/plan/design/verification/", "process/easytier-ecosystem-integration-in-progress/plan/design/integration.md"]
 write_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/acceptance.md"]
@@ -67,3 +67,5 @@ updated_at: 2026-10-21
 ## 当前记录
 
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
+
+2026-10-21：114已验收，开始逐ECA证据/缺口与回退归档；仅文档检查。

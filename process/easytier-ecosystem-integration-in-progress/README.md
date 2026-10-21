@@ -94,8 +94,10 @@ ECO-112监工预审发现：刷新overview时把带旧数据的成员失败状�
 ECO-113 正式宿主测试发现旧 frontend-lib/dist 未含 ECO-104 新文案，预览直接使用源码语言文件未暴露此差异。已交 exec3 以独占构建更新产物；完整 codegen 因系统缺少 protoc 且下载 DNS EAI_AGAIN 未成功。schema/既有生成源码未修改，类型检查与 Vite 构建另行记录，不声称完整代码生成通过。
 
 
+
+
 ## 当前实施快照
 
-已验收 13/15；ECO-114（in_progress，/root/iteration_exec2）；其余 1 项 backlog。
+已验收 14/15；ECO-115（in_progress，/root/iteration_exec3）；其余 0 项 backlog。
 
 总控维护任务与共享锁；监工 `/root/iteration_monitor` 审查后才能完成或进入联调。实际验证见各任务交接，未运行场景不作通过结论。

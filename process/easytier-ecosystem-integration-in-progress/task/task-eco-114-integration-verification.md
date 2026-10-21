@@ -4,7 +4,7 @@ feature: easytier-ecosystem-integration
 summary: ../README.md
 plans: [PLAN-ECO-010]
 task_type: integration
-status: in_progress
+status: done
 owner: /root/iteration_exec2
 depends_on: ["ECO-113"]
 read_scope: ["process/easytier-ecosystem-integration-in-progress/plan/design/contract.md", "process/easytier-ecosystem-integration-in-progress/plan/design/integration.md", "easytier-web/frontend/src/components/ecosystem/", "easytier-web/frontend/src/modules/ecosystemApi.ts", "easytier-web/frontend/tests/helpers/webTestBinary.mjs", "easytier-web/frontend/package.json"]
@@ -59,8 +59,8 @@ updated_at: 2026-10-21
 
 ## 完成与交接
 
-- [ ] 已承诺范围逐项记录通过/失败/未验证及证据，config-server兼容与无新增周期机制有对应记录。
-- [ ] 未支持/未验证/后置能力明确列出；ECA-17 deploy仍后置，不能宣布所有外部设备已接入。
+- [x] 已承诺范围逐项记录通过/失败/未验证及证据，config-server兼容与无新增周期机制有对应记录。
+- [x] 未支持/未验证/后置能力明确列出；ECA-17 deploy仍后置，不能宣布所有外部设备已接入。
 
 完成后交给 ECO-115；未执行或仍失败的承诺项不能放行。联调任务不并发修改业务模块。
 
@@ -71,3 +71,5 @@ updated_at: 2026-10-21
 2026-10-21：从对应计划拆出本任务，补充依据、独占范围、依赖和交接；状态为 backlog，owner 为 null，未实施、未验证。
 
 2026-10-21：监工准入，使用113最终独立前端产物与隔离真实backend/SQLite；与WUI冻结产物隔离，空闲观察至少两轮旧周期。
+
+2026-10-21：监工验收：完整11专项75/75（3真实+72fixture/工具），追加真实删除404恢复1/1定向；两模式22秒仅旧周期，真实普通/强改/跨用户拒绝通过。未支持API与真设备/VPN/codegen限制保留。

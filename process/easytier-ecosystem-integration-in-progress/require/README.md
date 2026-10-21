@@ -351,8 +351,10 @@ EasyADB 的设备授权/配对由相应宿主处理；纯设备功能不能靠�
 
 
 
+
+
 ## 当前实施快照
 
-已验收 13/15；ECO-114（in_progress，/root/iteration_exec2）；其余 1 项 backlog。
+已验收 14/15；ECO-115（in_progress，/root/iteration_exec3）；其余 0 项 backlog。
 
 总控维护任务与共享锁；监工 `/root/iteration_monitor` 审查后才能完成或进入联调。实际验证见各任务交接，未运行场景不作通过结论。
