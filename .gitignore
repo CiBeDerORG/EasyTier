@@ -50,3 +50,7 @@ easytier-gui/src-tauri/*.sys
 # contrib
 go.sum
 .test-env/
+
+# Local deployment configuration, workspaces, caches and application state
+/.env
+/data/
