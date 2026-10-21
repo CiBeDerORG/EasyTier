@@ -6,7 +6,7 @@
 
 | 主题 | 需求分析 | 实施计划 | 当前阶段 |
 | --- | --- | --- | --- |
-| Web 用户管理 | [需求与验收](../../docs/requirements/web-user-management.md) | [PLAN-WUM](../plan/web-user-management.md) | M5 已完成：真实联调、旧库升级与恢复验收通过；仅本地交付 |
+| Web 用户管理 | [需求与验收](../../docs/requirements/web-user-management.md) | [PLAN-WUM](../plan/web-user-management.md) | 已处理（11/11）：真实联调、旧库升级与恢复验收通过；功能分支已推送 |
 
 ## 状态概览
 
@@ -14,7 +14,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | 0 | 0 | 0 | 0 | 11 | 0 |
 
-11项任务均已完成，累计11个子agent按依赖执行。D-01按用户选择A实现并验证：旧账号保留登录、明确改密提示。测试类型、复现入口与未测范围见[运维验收记录](../../docs/operations/web-user-management.md)，不包含生产部署。
+11项任务均已处理（`done`），累计11个子agent按依赖执行。D-01按用户选择A实现并验证：旧账号保留登录、明确改密提示。测试类型、复现入口与未测范围见[运维验收记录](../../docs/operations/web-user-management.md)，不包含生产部署。
 
 ## 任务明细
 
@@ -34,7 +34,7 @@
 | [WUM-010 真实前后端联调](web-user-management/wum-010-full-stack-integration.md) | `done` | `/root/wum010` | WUM-006、WUM-009 |
 | [WUM-011 旧库升级与交付验收](web-user-management/wum-011-upgrade-acceptance.md) | `done` | `/root/wum011` | WUM-010 |
 
-## 并行安排与联调
+## 并行安排与联调（已执行）
 
 - 起始可并行：WUM-001 范围/契约与 WUM-002 权限查询修复。
 - 契约交付后可并行：WUM-003 存储、WUM-007 HTTP 客户端、WUM-008 独立组件。

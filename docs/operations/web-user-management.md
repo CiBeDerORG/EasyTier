@@ -2,6 +2,8 @@
 
 适用范围为[需求 UM-01–10](../requirements/web-user-management.md)与[PLAN-WUM 契约](../../process/plan/web-user-management.md)规定的本地控制台账号管理。实施与验收见[任务看板](../../process/task/README.md)。这里提供操作者步骤；本次开发没有执行生产部署、真实账号修改、VPN 或防火墙操作。
 
+本轮状态：**已处理**。WUM-001–011 的实现与隔离验收已完成，功能分支 `feat/web-user-management` 已正常推送。此状态不代表生产部署或下文明确未执行的验证已完成。
+
 ## 部署与身份边界
 
 - 新管理页面和 `/api/v1/admin/*` 必须与浏览器同源。生产使用 HTTPS，并配置 `ET_WEB_PUBLIC_ORIGIN=https://console.example.invalid` 为实际受信任外部 origin；示例域名不可直接用于生产。Cookie 为 HttpOnly、SameSite=Lax，HTTPS 配置启用 Secure。
