@@ -276,7 +276,7 @@ WUM-009 唯一持有 HTTP 状态和请求序号，忽略旧查询响应；组件
 
 ### 8.5 部署、初始化、恢复与兼容
 
-首期支持同源浏览器部署，生产经 HTTPS；跨源带 Cookie 管理不支持。开发仅 loopback HTTP。WUM-006 对管理写入要求 `Content-Type: application/json` 和 `X-Requested-With: EasyTier`；浏览器 Origin 存在时必须与请求受信任外部 origin 完全一致，拒绝 null/跨源；未提供 Origin 的非浏览器客户端仍须自定义头。CORS 不允许任意来源携带此头，拒绝跨源预检。代理必须保留可信 Host；不信任客户端可伪造 forwarded header。会话 HttpOnly、SameSite=Lax；HTTPS 部署 Secure=true（配置由006独占接入），loopback 测试可 false。既有认证写入保持旧客户端兼容，不强制新增头；使用 JSON 内容类型并在 Origin 存在时校验同源。旧 GET logout 保留兼容且不承载其他操作。UA-14 必须验证实际策略而非仅配置存在。
+首期支持同源浏览器部署，生产经 HTTPS；跨源带 Cookie 管理不支持。开发仅 loopback HTTP。WUM-006 对管理写入要求 `Content-Type: application/json` 和 `X-Requested-With: EasyTier`；浏览器 Origin 存在时必须与请求受信任外部 origin 完全一致，拒绝 null/跨源；未提供 Origin 的非浏览器客户端仍须自定义头。CORS 不允许任意来源携带此头，拒绝跨源预检。代理必须保留可信 Host；不信任客户端可伪造 forwarded header。会话 HttpOnly、SameSite=Lax；HTTPS 部署 Secure=true（配置由006独占接入），loopback 测试可 false。既有认证写入及身份/策略接口保持旧跨源客户端兼容，不强制新增头或全局收紧CORS；新管理路径含读取与OPTIONS独立严格同源，部署细节见8.7。旧 GET logout 保留兼容且不承载其他操作。UA-14 必须验证实际策略而非仅配置存在。
 
 初始化不新增可预测密码、不提升首个注册用户。**D-01 已解除：用户明确选择 A，旧账号保留登录兼容，不因历史默认密码自动停用，并明确提示立即修改默认密码。** 因此既有管理员关系、访问状态及凭据保留，不因用户名或已知固定哈希自动停用、强制改密、提升角色或改变会话权限。
 
@@ -293,3 +293,9 @@ WUM-005 提供显式离线 `--recover-admin <username>` 入口：复用 DB 路�
 - v1 实现注意：服务端生成凭据与离线恢复需要 MD5 摘要兼容现有客户端；当前 Web crate 无直接 MD5 依赖，由协调者指定清单/锁文件唯一写入者，不由003/005同时改依赖。
 
 - v1.1（2026-10-21）：根据协调者转交的可信用户决定 A 解除 D-01；新增本人 default_password_warning 字段和非阻断提示，新增 DB has_manage_permission 用于真实权限事务重查。其余 v1 行为不变。
+
+### 8.7 v1.2 部署接线兼容澄清（WUM-006）
+
+现有 `api_host`/前后端分端口部署已使用跨源Cookie调用。为不改变无关旧接口，既有auth与业务CORS保持原兼容行为；v1.1第8.5中既有auth强制同源的描述由本节替代。新管理路径（含GET、写入、OPTIONS）在全局permissive CORS外层独立严格同源；跨源管理不支持，需同源反代。管理写入继续强制JSON和自定义头。
+
+`ET_WEB_PUBLIC_ORIGIN` 配置受信外部origin：HTTPS生产显式配置，Cookie自动Secure；开发仅loopback HTTP。未配置时仅接受loopback Host的HTTP管理，非loopback管理返回明确拒绝，不改变既有其他业务。非法origin配置启动失败，不信任Forwarded。006验证配置/同源/跨源预检行为，011记录运维部署步骤。数据库完全不可写时无法落failure审计，操作仍失败，不把无审计错误冒充成功。
