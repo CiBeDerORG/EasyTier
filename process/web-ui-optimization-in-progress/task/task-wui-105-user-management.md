@@ -3,8 +3,8 @@ id: WUI-105
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-003"]
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec2
 depends_on: ["WUI-103"]
 read_scope: ["easytier-web/frontend/src/components/users/types.ts", "easytier-web/frontend/src/components/MainPage.vue", "easytier-web/frontend/src/modules/userManagement.ts", "process/web-ui-optimization-in-progress/plan/contract.md"]
 write_scope: ["easytier-web/frontend/src/components/users/UserManagement.vue", "easytier-web/frontend/tests/user-management-components.test.mjs", "easytier-web/frontend/tests/web-ui-users.test.mjs", "process/web-ui-optimization-in-progress/plan/accounts/users.md"]
@@ -65,3 +65,5 @@ updated_at: 2026-10-21
 - [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
+
+2026-10-21：103验收后exec2认领OBS-002局部表格优化与对应回归；不改共享locale/package。

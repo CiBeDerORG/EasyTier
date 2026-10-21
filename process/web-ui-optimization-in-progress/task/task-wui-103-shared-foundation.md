@@ -3,7 +3,7 @@ id: WUI-103
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-002"]
-status: in_progress
+status: done
 owner: /root/iteration_exec2
 depends_on: ["WUI-102"]
 read_scope: ["process/web-ui-optimization-in-progress/require/baseline.md", "process/web-ui-optimization-in-progress/require/evidence/", "easytier-web/frontend/src/main.ts"]
@@ -68,11 +68,13 @@ cn/en语言文件与ECO-104互斥，package.json与ECO-105互斥；公共theme/C
 
 ## 完成条件与失败处理
 
-- [ ] 组件/路由输入输出、公共样式和文案约定可供页面独立工作，契约变更明确消费者与采用提交。
-- [ ] 实际代码阶段完成相关构建和针对性验证；纯文档修改不运行测试，当前没有任何已通过结果。
-- [ ] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
-- [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
+- [x] 组件/路由输入输出、公共样式和文案约定可供页面独立工作，契约变更明确消费者与采用提交。
+- [x] 实际代码阶段完成相关构建和针对性验证；纯文档修改不运行测试，当前没有任何已通过结果。
+- [x] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
+- [x] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
 
 2026-10-21：102验收通过，exec2认领；独占公共CSS/theme/locales/package及支持目录，共享锁在交付前不交ECO。
+
+2026-10-21：监工审查通过，类型/生产构建通过，12/12 mock HTTP生产组件布局回归通过；初次Drawer定位失败及修正见交付记录。语言/package锁已交还ECO104/105。111语义类接线后由103原所有者更新CSS选择器并复测。

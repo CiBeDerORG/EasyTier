@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- |
 | [Web 用户管理](web-user-management-done/README.md) | `done`；交付基线 `feat/web-user-management@1e92296b` | [require](web-user-management-done/require/README.md) | [plan](web-user-management-done/plan/README.md) | [task](web-user-management-done/task/README.md) |
 | [网络拓扑与资源集成](easytier-ecosystem-integration-in-progress/README.md) | `in-progress`；ECO-101–103完成，ECO-104/105公共基础中 | [require](easytier-ecosystem-integration-in-progress/require/README.md) | [plan](easytier-ecosystem-integration-in-progress/plan/README.md) | [task](easytier-ecosystem-integration-in-progress/task/README.md) |
-| [现有 Web 交互优化与页面美化](web-ui-optimization-in-progress/README.md) | `in-progress`；WUI-101/102完成，WUI-103公共基础中 | [require](web-ui-optimization-in-progress/require/README.md) | [plan](web-ui-optimization-in-progress/plan/README.md) | [task](web-ui-optimization-in-progress/task/README.md) |
+| [现有 Web 交互优化与页面美化](web-ui-optimization-in-progress/README.md) | `in-progress`；WUI-101–103完成，WUI-105用户表优化中 | [require](web-ui-optimization-in-progress/require/README.md) | [plan](web-ui-optimization-in-progress/plan/README.md) | [task](web-ui-optimization-in-progress/task/README.md) |
 
 ## 2. 固定目录与命名
 
