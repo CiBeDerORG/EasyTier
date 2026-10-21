@@ -558,4 +558,52 @@ mod lifecycle_http_tests {
             .unwrap();
         assert!(!uses_historical_default(&user.db_user.password));
     }
+
+    #[tokio::test]
+    async fn auth_lifecycle_registration_without_admin_does_not_promote() {
+        let db = Db::memory_db().await;
+        let pool = db.inner();
+        sqlx::query("DELETE FROM users_groups WHERE group_id IN (SELECT id FROM groups WHERE name = 'admins')")
+            .execute(&pool).await.unwrap();
+        let admin_members: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users_groups ug JOIN groups g ON g.id = ug.group_id WHERE g.name = 'admins'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(admin_members, 0);
+        let backend = Backend::new(db.clone());
+        let credentials = Credentials {
+            username: "first-public-registration-test".into(),
+            password: format!(
+                "{:x}",
+                md5::compute("fictional-public-registration-password")
+            ),
+        };
+        backend
+            .register_new_user(&super::super::users::RegisterNewUser {
+                credentials: credentials.clone(),
+                captcha: "isolated-test".into(),
+            })
+            .await
+            .unwrap();
+        let user = axum_login::AuthnBackend::authenticate(&backend, credentials)
+            .await
+            .unwrap()
+            .expect("registered account can authenticate");
+        let record = accounts::get_user_record(db.orm_db(), user.id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.role, "user");
+        assert_eq!(record.access.source, "local");
+        assert!(record.access.web_login_enabled);
+        assert!(
+            !accounts::has_manage_permission(db.orm_db(), user.id())
+                .await
+                .unwrap()
+        );
+        let admin_members: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users_groups ug JOIN groups g ON g.id = ug.group_id WHERE g.name = 'admins'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            admin_members, 0,
+            "registration must not bootstrap an administrator"
+        );
+    }
 }

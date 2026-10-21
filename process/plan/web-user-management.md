@@ -1,6 +1,6 @@
 ---
 id: PLAN-WUM
-status: in_progress
+status: done
 requirement: docs/requirements/web-user-management.md
 task_board: process/task/README.md
 updated_at: 2026-10-21
@@ -10,7 +10,7 @@ updated_at: 2026-10-21
 
 需求依据：[Web 用户管理需求分析](../../docs/requirements/web-user-management.md)。执行入口：[任务看板](../task/README.md)与 [11 项任务文档](../task/web-user-management/README.md)。本文安排工作边界与依赖；任务状态、负责人和执行证据以各任务明细为准。
 
-本计划进入实施，WUM-001 的稳定契约见第8节；各任务状态由协调者维护。这里的契约就绪不表示功能已经实现。
+本计划已完成实施与隔离验收。稳定契约见第8节；实际结果、复现步骤及限制见[运维验收记录](../../docs/operations/web-user-management.md)和各任务明细。
 
 ## 1. 目标与范围
 
@@ -155,7 +155,7 @@ WUM-004 与 WUM-005 共同消费 WUM-003 已落地的 DB 接口和 WUM-001 契�
 
 后端检查使用 `easytier-web` 包和实际新增测试；按任务范围选择现有 Cargo 命令。前端在 `easytier-web/frontend/` 使用现有 `pnpm build` 验证类型和构建；已有 `test:browser`、`test:e2e` 脚本当前只指定 dashboard/central 测试文件，新增用户管理测试必须由 WUM-010 接入相应执行入口，不能仅新增文件便宣称获得覆盖。
 
-各任务记录真实运行的命令、环境、结果与未覆盖范围。只有完成其验收、依赖交接和必要验证后才能标记完成。本计划编写阶段仅做文档检查，不运行或声称已通过上述应用测试。
+各任务记录真实运行的命令、环境、结果与未覆盖范围。只有完成其验收、依赖交接和必要验证后才能标记完成。最初规划阶段仅做文档检查；实施阶段的实际测试结果见任务明细及运维验收记录。
 
 ## 6. 待定事项与变更处理
 
@@ -299,3 +299,9 @@ WUM-005 提供显式离线 `--recover-admin <username>` 入口：复用 DB 路�
 现有 `api_host`/前后端分端口部署已使用跨源Cookie调用。为不改变无关旧接口，既有auth与业务CORS保持原兼容行为；v1.1第8.5中既有auth强制同源的描述由本节替代。新管理路径（含GET、写入、OPTIONS）在全局permissive CORS外层独立严格同源；跨源管理不支持，需同源反代。管理写入继续强制JSON和自定义头。
 
 `ET_WEB_PUBLIC_ORIGIN` 配置受信外部origin：HTTPS生产显式配置，Cookie自动Secure；开发仅loopback HTTP。未配置时仅接受loopback Host的HTTP管理，非loopback管理返回明确拒绝，不改变既有其他业务。非法origin配置启动失败，不信任Forwarded。006验证配置/同源/跨源预检行为，011记录运维部署步骤。数据库完全不可写时无法落failure审计，操作仍失败，不把无审计错误冒充成功。
+
+## 9. 最终交付记录（2026-10-21）
+
+WUM-001至011按依赖完成，累计11个子agent；独占文件交接、缺陷回派和复验均已记录。统一入口32/32（客户端mock6、组件mock7、真实全栈9、production导航mock10）；OIDC补强1/1、真实webhook/设备认证1/1；升级显式验收3/3、无管理员注册不提权1/1。其他模块针对性验证与UA映射见[运维说明](../../docs/operations/web-user-management.md)。
+
+联调修复OIDC外部错误日志泄漏和production i18n空弹窗，并实际复验。用户选择A的旧默认凭据兼容/警告/改密行为已在旧库验证。交付为文档分支上的独立功能分支及本地提交；未部署生产、操作真实账户、修改VPN/防火墙、合并main或强制推送。未执行旧二进制、HTTPS代理部署、真实VPN数据面和全量网络测试，不将这些项目算作通过。

@@ -1,10 +1,10 @@
 ---
 id: WUM-011
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum011
 depends_on: ["WUM-010"]
-write_scope: ["docs/operations/web-user-management.md","easytier-web/src/user_management/upgrade_tests.rs","easytier-web/src/user_management/mod.rs (test module registration only)"]
+write_scope: ["docs/operations/web-user-management.md","easytier-web/src/user_management/upgrade_tests.rs","easytier-web/src/user_management/mod.rs (test module registration only)","easytier-web/src/restful/auth.rs (tests only, /root/wum004)"]
 requirements: ["UM-04","UM-05","UM-06","UM-07","UM-09","UM-10"]
 acceptance: ["UA-08","UA-12","UA-13","UA-14"]
 updated_at: "2026-10-21"
@@ -31,11 +31,11 @@ updated_at: "2026-10-21"
 
 ## 实施与验收
 
-- [ ] 用包含旧用户、组、设备/网络归属的测试库升级，验证 ID/凭据兼容、未知字段、账号访问与原资源保留。
-- [ ] 验证已有管理员、首次初始化、管理员遗失后的恢复；不使普通公开注册用户获得管理权限。
-- [ ] 明确备份/恢复及旧二进制不能强制新访问状态的回退限制；验证支持部署的 Cookie/身份行为。
-- [ ] 若新增升级测试，先由协调者移交必要模块注册范围，使其进入实际 runner；不得把未编译测试作为验收证据。
-- [ ] 汇总所有 UA 场景结果、适用部署和限制；说明尚未支持的范围，链接实际验证步骤。由协调者据证据更新任务及计划状态。
+- [x] 用包含旧用户、组、设备/网络归属的测试库升级，验证 ID/凭据兼容、未知字段、账号访问与原资源保留。
+- [x] 验证已有管理员、首次初始化、管理员遗失后的恢复；不使普通公开注册用户获得管理权限。
+- [x] 明确备份/恢复及旧二进制不能强制新访问状态的回退限制；验证支持部署的 Cookie/身份行为。
+- [x] 若新增升级测试，先由协调者移交必要模块注册范围，使其进入实际 runner；不得把未编译测试作为验收证据。
+- [x] 汇总所有 UA 场景结果、适用部署和限制；说明尚未支持的范围，链接实际验证步骤。由协调者据证据更新任务及计划状态。
 
 ## 交付清单
 
@@ -52,3 +52,9 @@ updated_at: "2026-10-21"
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
 
 - 2026-10-21：010通过后认领；由005串行移交mod.rs仅测试模块注册行。使用隔离旧库、虚构凭据、真实CLI进程验证升级/恢复/备份，禁止实际生产或VPN操作。首次初始化文档须明确旧迁移预置admin/user仍存在，显式恢复admin不会清理user，自选新管理员也不会替换它们。
+
+- 2026-10-21：`cargo test --locked -p easytier-web user_management_upgrade_`实际3/3通过（2组新增进程/HTTP验收+1项既有迁移回归），/tmp/wum011-upgrade.log。真实旧库为截至编号000010的8份迁移，编号不是数量。追加004独占auth.rs测试区验证无管理员时普通注册仍不提权，不扩大生产模块可见性。
+
+- 2026-10-21：最终显式入口`cargo test --locked -p easytier-web user_management_upgrade_ -- --include-ignored`实际3/3通过、0 ignored，日志/tmp/wum011-upgrade.log。两项进程测试需要已构建的本次Web二进制，普通Cargo/nextest归档CI默认忽略，不能把默认跳过算验收。
+- 2026-10-21：004补充`auth_lifecycle_registration_without_admin_does_not_promote`实际1/1通过（/tmp/wum004-registration-no-admin.log），验证零管理员成员时注册仍普通用户、无users.manage且可认证。
+- 2026-10-21：交付[升级与运维说明](../../../docs/operations/web-user-management.md)，UA-01至14证据及真实/mock/未测范围齐全，011完成。未运行旧二进制、HTTPS代理部署或真实VPN数据面；没有生产变更或剩余实施阻塞。
