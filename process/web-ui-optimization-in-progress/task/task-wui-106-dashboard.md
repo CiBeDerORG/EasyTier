@@ -3,7 +3,7 @@ id: WUI-106
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-004"]
-status: in_progress
+status: done
 owner: /root/iteration_exec2
 depends_on: ["WUI-103"]
 read_scope: ["easytier-web/frontend/src/modules/api.ts", "easytier-web/frontend/src/components/MainPage.vue", "process/web-ui-optimization-in-progress/plan/contract.md"]
@@ -58,11 +58,13 @@ updated_at: 2026-10-21
 
 ## 完成条件与失败处理
 
-- [ ] 原设备/网络链接、未知/加载/失败及部分请求失败语义可观察，手动刷新不重复提交。
-- [ ] 实际页面改动完成局部布局、语言主题、键盘及请求边界验证，结果交112统一复核。
-- [ ] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
-- [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
+- [x] 原设备/网络链接、未知/加载/失败及部分请求失败语义可观察，手动刷新不重复提交。
+- [x] 实际页面改动完成局部布局、语言主题、键盘及请求边界验证，结果交112统一复核。
+- [x] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
+- [x] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
 
 2026-10-21：按103前置认领Dashboard保持/针对回归，集中dashboard测试文件仍归112，不以旧fixture失败判断生产缺陷。
+
+2026-10-21：监工验收3/3独立mock生产组件回归，Dashboard保留。旧集中before hook0/2未进页面，浏览器/fixture问题回派112。
