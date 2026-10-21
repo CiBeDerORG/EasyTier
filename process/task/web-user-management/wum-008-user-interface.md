@@ -1,7 +1,7 @@
 ---
 id: WUM-008
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum008
 depends_on: ["WUM-001"]
 write_scope: ["easytier-web/frontend/src/components/users/","easytier-web/frontend-lib/src/locales/cn.yaml","easytier-web/frontend-lib/src/locales/en.yaml","easytier-web/frontend/tests/user-management-components.test.mjs"]
@@ -31,11 +31,11 @@ updated_at: "2026-10-21"
 
 ## 实施与验收
 
-- [ ] 覆盖分页搜索、加载/空/失败/过期、长用户名、迟到响应、重复提交；未知来源和时间不造假。
-- [ ] 危险动作准确显示目标与影响；重置适用性、最后管理员限制以服务端结果为准；不宣称停用等于设备断网。
-- [ ] 凭据仅在受控交付流程临时展示，默认遮蔽；不放进列表、toast 或持久缓存。
-- [ ] 验证中英文、键盘、对话框焦点、窄屏与相关交互失败场景；新组件参与类型检查并可通过现有工具独立验证。
-- [ ] 记录使用模拟数据的范围；组件测试通过不代表真实鉴权或完整业务已通过。
+- [x] 覆盖分页搜索、加载/空/失败/过期、长用户名、迟到响应、重复提交；未知来源和时间不造假。
+- [x] 危险动作准确显示目标与影响；重置适用性、最后管理员限制以服务端结果为准；不宣称停用等于设备断网。
+- [x] 凭据仅在受控交付流程临时展示，默认遮蔽；不放进列表、toast 或持久缓存。
+- [x] 验证中英文、键盘、对话框焦点、窄屏与相关交互失败场景；新组件参与类型检查并可通过现有工具独立验证。
+- [x] 记录使用模拟数据的范围；组件测试通过不代表真实鉴权或完整业务已通过。
 
 ## 交付清单
 
@@ -52,3 +52,6 @@ updated_at: "2026-10-21"
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
 
 - 2026-10-21：基于 WUM-001 v1 独立契约认领；D-01 未决，不实施自动停用旧预置账号。独占原 write_scope；协调者维护状态与提交。
+
+- 2026-10-21：交付 `components/users/UserManagement.vue`、本地等价types及 `user_management.*` 双语资源；契约props/events接入，敏感凭据默认遮蔽，仅内存展示。公开登录文案含 registration_disabled/password_change_required/password_policy/password_changed/session_expired/policy_failed/default_password_warning。
+- 验证：`pnpm --filter easytier-frontend build` 通过；`node --test easytier-web/frontend/tests/user-management-components.test.mjs` 7/7通过（系统Chromium154，真实组件+模拟props/events，含中英文/375px/键盘焦点/错误草稿/重复提交/各动作确认/审计分页/凭据清除）。首轮fixture与定位器失败已修正并复验。真实后端与迟到HTTP响应由009/010验证，不以组件mock代替授权。
