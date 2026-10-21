@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { v4 as uuidv4 } from 'uuid';
 import { Button, Drawer, InputNumber, InputText, InputSwitch, Message, MultiSelect, Select, SelectButton, useToast } from 'primevue';
 import { useI18n } from 'vue-i18n';
@@ -21,6 +21,8 @@ const loading = ref(false);
 const saving = ref(false);
 const dirty = ref(false);
 const loadError = ref('');
+let policyRequest = 0;
+onUnmounted(() => { policyRequest++; });
 
 const memberName = (member_id: string) => {
     const member = props.members?.find(m => m.member_id === member_id);
@@ -28,36 +30,46 @@ const memberName = (member_id: string) => {
 };
 
 const loadPolicy = async () => {
+    const request = ++policyRequest;
     loading.value = true;
     loadError.value = '';
     try {
         const info = await props.api.get_network_acl_policy(props.networkId);
+        if (request !== policyRequest) return;
         policy.value = info.policy;
         dirty.value = false;
-    } catch (e) {
-        console.error(e);
+    } catch {
+        if (request !== policyRequest) return;
         loadError.value = t('web.console.load_failed');
     } finally {
-        loading.value = false;
+        if (request === policyRequest) loading.value = false;
     }
 };
 
-watch(() => props.networkId, () => { policy.value = { default_action: 'allow', rules: [] }; loadPolicy(); }, { immediate: true });
+watch(() => props.networkId, () => {
+    policy.value = { default_action: 'allow', rules: [] };
+    dirty.value = false;
+    saving.value = false;
+    loadPolicy();
+}, { immediate: true });
 
 const enabledCount = computed(() => policy.value.rules.filter(r => r.enabled).length);
 
 const save = async () => {
+    if (saving.value || loading.value || loadError.value || !dirty.value) return;
+    const request = policyRequest;
     saving.value = true;
     try {
         const info = await props.api.update_network_acl_policy(props.networkId, policy.value);
+        if (request !== policyRequest) return;
         policy.value = info.policy;
         dirty.value = false;
         toast.add({ severity: 'success', summary: t('web.acl.saved'), life: 2000 });
-    } catch (e: any) {
-        console.error(e);
-        toast.add({ severity: 'error', summary: e?.response?.data?.message ?? t('web.acl.save_failed'), life: 5000 });
+    } catch {
+        if (request !== policyRequest) return;
+        toast.add({ severity: 'error', summary: t('web.acl.save_failed'), life: 5000 });
     } finally {
-        saving.value = false;
+        if (request === policyRequest) saving.value = false;
     }
 };
 
@@ -68,12 +80,13 @@ const markDirty = () => { dirty.value = true; };
 const dragIndex = ref<number | null>(null);
 const dragOverIndex = ref<number | null>(null);
 
-const onDragStart = (index: number) => { dragIndex.value = index; };
+const onDragStart = (index: number) => { if (!saving.value) dragIndex.value = index; };
 const onDragOver = (index: number, event: DragEvent) => {
     event.preventDefault();
     dragOverIndex.value = index;
 };
 const onDrop = (index: number) => {
+    if (saving.value) return;
     const from = dragIndex.value;
     if (from === null || from === index) return;
     const rules = policy.value.rules;
@@ -90,6 +103,7 @@ type PortEntry = { kind: 'single' | 'range'; start: number | null; end: number |
 
 const editorVisible = ref(false);
 const editingIndex = ref<number | null>(null);
+watch(() => props.networkId, () => { editorVisible.value = false; editingIndex.value = null; });
 const editor = ref(blankEditor());
 
 function blankEditor() {
@@ -134,12 +148,14 @@ const targetOptions = computed(() => {
 });
 
 const openCreateRule = () => {
+    if (saving.value || loading.value || loadError.value) return;
     editingIndex.value = null;
     editor.value = blankEditor();
     editorVisible.value = true;
 };
 
 const openEditRule = (index: number) => {
+    if (saving.value || loading.value || loadError.value) return;
     const rule = policy.value.rules[index];
     editingIndex.value = index;
     editor.value = {
@@ -208,6 +224,7 @@ const appendQuickPort = (proto: 'tcp' | 'udp', value: [number, number]) => {
 const editorError = ref('');
 
 const saveRule = () => {
+    if (saving.value || loading.value || loadError.value) return;
     const e = editor.value;
     if (!e.name.trim()) { editorError.value = t('web.acl.error_name'); return; }
     if (e.sourceValues.length === 0) { editorError.value = t('web.acl.error_source'); return; }
@@ -265,6 +282,7 @@ const entryToString = (entry: PortEntry): string | null => {
 };
 
 const removeRule = (index: number) => {
+    if (saving.value || loading.value || loadError.value) return;
     policy.value.rules.splice(index, 1);
     markDirty();
 };
@@ -299,25 +317,29 @@ const defaultActionOptions = [
 </script>
 
 <template>
-    <div class="flex flex-col gap-3">
+    <div class="flex flex-col gap-3" :aria-busy="loading || saving">
+        <Message v-if="loading" severity="info" :closable="false">{{ t('web.common.loading') }}</Message>
+        <Message v-else-if="loadError" severity="error" :closable="false">{{ loadError }}
+            <Button :label="t('web.console.retry')" text size="small" @click="loadPolicy" />
+        </Message>
+        <template v-else>
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center gap-3 flex-wrap">
                 <span class="text-sm font-medium">{{ t('web.acl.default_action') }}</span>
                 <SelectButton v-model="policy.default_action" :options="defaultActionOptions"
-                    optionLabel="label" optionValue="value" size="small" @update:model-value="markDirty" />
+                    optionLabel="label" optionValue="value" size="small" :disabled="saving" @update:model-value="markDirty" />
                 <span class="text-xs muted">{{ policy.default_action === 'deny'
                     ? t('web.acl.default_deny_hint') : t('web.acl.default_allow_hint') }}</span>
             </div>
             <div class="flex items-center gap-2">
                 <span class="table-count">{{ t('web.acl.rule_summary', { total: policy.rules.length, enabled: enabledCount }) }}</span>
                 <span v-if="dirty" class="text-xs" style="color: var(--p-orange-400)">{{ t('web.acl.unsaved') }}</span>
-                <Button icon="pi pi-plus" :label="t('web.acl.add_rule')" size="small" @click="openCreateRule" />
+                <Button icon="pi pi-plus" :label="t('web.acl.add_rule')" size="small" :disabled="saving" @click="openCreateRule" />
                 <Button icon="pi pi-check" :label="t('web.acl.save')" size="small" severity="primary"
-                    :loading="saving" :disabled="!dirty" @click="save" />
+                    :loading="saving" :disabled="!dirty || saving" @click="save" />
             </div>
         </div>
 
-        <Message v-if="loadError" severity="error">{{ loadError }}</Message>
 
         <div class="console-panel">
             <div v-if="policy.rules.length === 0" class="console-empty-state">
@@ -328,7 +350,7 @@ const defaultActionOptions = [
             <div v-else class="acl-rule-list">
                 <div v-for="(rule, index) in policy.rules" :key="rule.id" class="acl-rule-row"
                     :class="{ 'acl-rule-row--dragging': dragIndex === index, 'acl-rule-row--over': dragOverIndex === index && dragIndex !== index }"
-                    draggable="true" @dragstart="onDragStart(index)" @dragover="onDragOver(index, $event)"
+                    :draggable="!saving" @dragstart="onDragStart(index)" @dragover="onDragOver(index, $event)"
                     @drop="onDrop(index)" @dragend="dragIndex = null; dragOverIndex = null">
                     <div class="flex items-center gap-2 shrink-0" @click.stop>
                         <span class="pi pi-bars acl-rule-drag" :title="t('web.acl.drag_hint')"></span>
@@ -341,9 +363,9 @@ const defaultActionOptions = [
                             <span v-if="!rule.enabled" class="acl-badge muted">{{ t('web.acl.disabled') }}</span>
                             <span class="flex-1"></span>
                             <Button icon="pi pi-pencil" text rounded severity="secondary" size="small"
-                                :aria-label="t('web.common.edit')" @click.stop="openEditRule(index)" />
+                                :disabled="saving" :aria-label="t('web.common.edit')" @click.stop="openEditRule(index)" />
                             <Button icon="pi pi-trash" text rounded severity="danger" size="small"
-                                :aria-label="t('web.common.delete')" @click.stop="removeRule(index)" />
+                                :disabled="saving" :aria-label="t('web.common.delete')" @click.stop="removeRule(index)" />
                         </div>
                         <div class="flex items-center gap-2 flex-wrap text-xs mt-1">
                             <span class="muted">{{ t('web.acl.source') }}</span>
@@ -464,6 +486,7 @@ const defaultActionOptions = [
                 <Button :label="t('web.acl.save_rule')" severity="primary" @click="saveRule" />
             </template>
         </Drawer>
+        </template>
     </div>
 </template>
 

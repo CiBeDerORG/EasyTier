@@ -3,8 +3,8 @@ id: WUI-111
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-007"]
-status: backlog
-owner: null
+status: in_progress
+owner: /root/iteration_exec2
 depends_on: ["WUI-104", "WUI-105", "WUI-106", "WUI-107", "WUI-108", "WUI-109", "WUI-110"]
 read_scope: ["process/web-ui-optimization-in-progress/plan/contract.md", "easytier-web/frontend/src/components/Login.vue", "easytier-web/frontend/src/components/ChangePassword.vue", "easytier-web/frontend/src/components/users/", "easytier-web/frontend/src/components/Dashboard.vue", "easytier-web/frontend/src/components/DeviceList.vue", "easytier-web/frontend/src/components/DeviceDetails.vue", "easytier-web/frontend/src/components/DeviceManagement.vue", "easytier-web/frontend/src/components/NetworkList.vue", "easytier-web/frontend/src/components/NetworkDetail.vue", "easytier-web/frontend/src/components/AclPolicyTab.vue", "easytier-web/frontend/src/modules/api.ts"]
 write_scope: ["easytier-web/frontend/src/components/MainPage.vue", "easytier-web/frontend/src/main.ts", "easytier-web/frontend/tests/user-management-navigation.test.mjs", "process/web-ui-optimization-in-progress/plan/integration.md"]
@@ -69,3 +69,5 @@ MainPage/main.ts与ECO-113互斥。MainPage的loadUsers/selectUser/loadEvents/mu
 - [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
+
+2026-10-21：110验收后领取宿主MainPage/main.ts与构建独占锁，实施移动导航焦点与语义样式交接。

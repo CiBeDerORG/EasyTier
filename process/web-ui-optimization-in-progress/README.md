@@ -81,8 +81,18 @@ updated_at: 2026-10-21
 
 
 
+
+
+## 本轮运行发现（2026-10-21）
+
+- WUI-107：窄屏卡片偏好重复显示、别名重复提交已修复并验收；见任务交接。
+- WUI-108：跨宿主同实例UUID保留旧元数据，已由宿主deviceId生命周期修复并验收。
+- WUI-109：创建pending可关闭/重开改草稿，已修复并验收；不改变原CIDR语义。
+- WUI-110：真实组件HTTP fixture复现ACL读取503仍显示默认放行/无规则、保存pending可编辑规则；已修复并通过监工验收（专项6/6、既有15/15）。必须区分未知策略与成功读取，不能提交假默认覆盖。
+- WUI-112待处理：旧集中浏览器测试before hook缺默认Chromium，另静态fixture缺当前auth/me；不得修改生产契约迁就旧测试。
+
 ## 当前实施快照
 
-已验收 8/13；WUI-109（in_progress，/root/iteration_exec2）、WUI-110（in_progress，/root/iteration_exec1）；其余 3 项 backlog。
+已验收 10/13；WUI-111（in_progress，/root/iteration_exec2）；其余 2 项 backlog。
 
 总控维护任务与共享锁；监工 `/root/iteration_monitor` 审查后才能完成或进入联调。实际验证见各任务交接，未运行场景不作通过结论。

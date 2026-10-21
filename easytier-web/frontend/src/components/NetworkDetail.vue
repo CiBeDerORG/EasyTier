@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { v4 as uuidv4 } from 'uuid';
-import { Button, Column, ConfirmDialog, DataTable, Dialog, Drawer, InputSwitch, InputText, Message, ProgressSpinner, ScrollPanel, Select, SelectButton, Skeleton, Tab, TabList, TabPanel, TabPanels, Tabs, Tag, useConfirm, useToast } from 'primevue';
+import { Button, Column, ConfirmDialog, DataTable, Dialog, Drawer, InputSwitch, InputText, Message, Password, ProgressSpinner, ScrollPanel, Select, SelectButton, Skeleton, Tab, TabList, TabPanel, TabPanels, Tabs, Tag, useConfirm, useToast } from 'primevue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { Config, NetworkTypes, UrlListInput, Utils } from 'easytier-frontend-lib';
@@ -29,22 +29,32 @@ const temporaryPeers = ref<TemporaryPeer[]>([]);
 const loadError = ref<string | undefined>(undefined);
 
 const activeTab = ref('members');
+let disposed = false;
+let detailRequest = 0;
 
 const loadAll = async () => {
+    if (disposed) return;
+    const request = ++detailRequest;
+    const requestedNetworkId = networkId.value;
+    const isCurrent = () => !disposed && request === detailRequest && requestedNetworkId === networkId.value;
     try {
-        network.value = await api?.get_network(networkId.value);
+        const result = await api?.get_network(requestedNetworkId);
+        if (!isCurrent()) return;
+        network.value = result;
         loadError.value = undefined;
-    } catch (e: any) {
-        loadError.value = e?.response?.data?.message ?? String(e);
+    } catch {
+        if (!isCurrent()) return;
+        loadError.value = t('web.console.load_failed');
         return;
     }
     try {
-        const view = await api?.list_network_members(networkId.value);
+        const view = await api?.list_network_members(requestedNetworkId);
+        if (!isCurrent()) return;
         members.value = view?.members;
         temporaryPeers.value = view?.temporary_peers ?? [];
-    } catch (e) {
-        loadError.value = String(e);
-        console.error(e);
+    } catch {
+        if (!isCurrent()) return;
+        loadError.value = t('web.console.load_failed');
     }
     if (network.value?.secure_mode && credentials.value !== undefined) {
         loadCredentials();
@@ -70,10 +80,12 @@ onMounted(async () => {
     // Load both in parallel; the settings form must not read a Gateway
     // network before the gateway info is available.
     await Promise.all([loadAll(), loadGatewayInfo()]);
-    periodFunc.start();
+    if (!disposed) periodFunc.start();
 });
 
 onUnmounted(() => {
+    disposed = true;
+    detailRequest++;
     periodFunc.stop();
     window.clearInterval(nodeDetailTimer);
     configRequest++;
@@ -345,6 +357,7 @@ const loadSettingsForm = () => {
 };
 
 const saveSettings = async () => {
+    if (savingSettings.value || disposed) return;
     savingSettings.value = true;
     try {
         // PublicServer retains its discovery mode while it has a single URL.
@@ -364,10 +377,13 @@ const saveSettings = async () => {
             secure_mode: settingsForm.value.secure_mode,
         };
         await api?.update_network(networkId.value, settings, settingsForm.value.regenerate_secret ? uuidv4() : undefined);
+        if (disposed) return;
         settingsForm.value.regenerate_secret = false;
         await loadAll();
+        if (disposed) return;
         toast.add({ severity: 'success', summary: t('web.network_detail.settings'), detail: t('web.device_management.config_saved'), life: 2000 });
     } catch (e: any) {
+        if (disposed) return;
         toast.add({ severity: 'error', summary: t('web.network_detail.settings'), detail: e?.response?.data?.message ?? String(e), life: 5000 });
     } finally {
         savingSettings.value = false;
@@ -1128,7 +1144,7 @@ const switchTab = async (tab: string) => {
             <!-- settings -->
             <TabPanel value="settings">
               <div v-if="!settingsLoaded" class="loading-rows"><Skeleton v-for="i in 4" :key="i" height="2rem" /></div>
-              <div v-else class="settings-form">
+              <fieldset v-else class="settings-form border-0 p-0 m-0 min-w-0" :disabled="savingSettings">
                 <div class="flex flex-col gap-1">
                     <label for="settings-display-name">{{ t('web.network_list.display_name') }}</label>
                     <InputText id="settings-display-name" v-model="settingsForm.display_name" />
@@ -1156,7 +1172,7 @@ const switchTab = async (tab: string) => {
                 <div class="flex flex-col gap-1">
                     <label>{{ t('network_secret') }}</label>
                     <div class="flex items-center gap-2">
-                        <InputText :model-value="network.network_secret" :aria-label="t('network_secret')" readonly class="flex-1 min-w-0" />
+                        <Password :model-value="network.network_secret" :aria-label="t('network_secret')" :feedback="false" toggleMask readonly class="flex-1 min-w-0" input-class="w-full" />
                     </div>
                     <div class="flex items-center gap-2 mt-1">
                         <InputSwitch inputId="regenerate-secret" v-model="settingsForm.regenerate_secret" />
@@ -1187,7 +1203,7 @@ const switchTab = async (tab: string) => {
                             @click="deleteNetwork" />
                     </div>
                 </div>
-            </div>
+            </fieldset>
 
             </TabPanel>
 

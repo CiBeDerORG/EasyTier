@@ -3,7 +3,7 @@ id: WUI-110
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-006"]
-status: in_progress
+status: done
 owner: /root/iteration_exec1
 depends_on: ["WUI-103"]
 read_scope: ["easytier-web/frontend/src/modules/api.ts", "easytier-web/frontend/src/modules/virtual-subnet.ts", "easytier-web/frontend-lib/src/components/Config.vue", "process/web-ui-optimization-in-progress/plan/contract.md"]
@@ -60,11 +60,13 @@ updated_at: 2026-10-21
 
 ## 完成条件与失败处理
 
-- [ ] 对象切换、页签、保存/取消、脏数据与失败反馈不串对象；凭据默认遮蔽且不写日志/URL。
-- [ ] 原ACL、成员、凭据与配置任务可完成；实际行为/键盘/主题与请求检查有证据。
-- [ ] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
-- [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
+- [x] 对象切换、页签、保存/取消、脏数据与失败反馈不串对象；凭据默认遮蔽且不写日志/URL。
+- [x] 原ACL、成员、凭据与配置任务可完成；实际行为/键盘/主题与请求检查有证据。
+- [x] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
+- [x] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
 
 2026-10-21：103前置已验收，与109独占并行核查网络详情ACL，dist由exec2独占，集中回归文件留112。
+
+2026-10-21：监工已验收最终四文件；类型检查与生产构建通过，专项6/6含12布局、既有网络/成员/配置/凭据15/15通过。首次缺bundled Chromium启动失败，系统Chromium重跑成功；真实VPN/设备未验证。

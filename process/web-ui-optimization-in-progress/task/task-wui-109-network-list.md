@@ -3,7 +3,7 @@ id: WUI-109
 feature: web-ui-optimization
 summary: ../README.md
 plans: ["PLAN-WUI-006"]
-status: in_progress
+status: done
 owner: /root/iteration_exec2
 depends_on: ["WUI-103"]
 read_scope: ["easytier-web/frontend/src/modules/api.ts", "easytier-web/frontend/src/modules/virtual-subnet.ts", "easytier-web/frontend/src/components/NetworkDetail.vue", "process/web-ui-optimization-in-progress/plan/contract.md"]
@@ -58,11 +58,13 @@ updated_at: 2026-10-21
 
 ## 完成条件与失败处理
 
-- [ ] 列表、创建、取消及失败路径保持原结果；高级配置不可因美化被删除。
-- [ ] 实际实施覆盖主题语言、键盘、长值和原请求边界，集中网络链路由112复核。
-- [ ] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
-- [ ] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
+- [x] 列表、创建、取消及失败路径保持原结果；高级配置不可因美化被删除。
+- [x] 实际实施覆盖主题语言、键盘、长值和原请求边界，集中网络链路由112复核。
+- [x] 保留config-server连接、认证、配置下发及接入命令；不新增轮询、心跳、定时任务、订阅、后台扫描或自动重放。
+- [x] 记录最终文件、契约版本、输出证据与未覆盖范围；失败回派对应所有者，不扩大write_scope或捏造完成。
 
 2026-10-21：按小计划生成本任务。只做文档路径/编号/依赖与范围核对；本次没有构建、测试或CI。以上实现与运行验证均为未来执行条件。
 
 2026-10-21：认领网络列表/创建模式与草稿失败去重验证，保留既有接口和规范化，不修改集中dashboard测试。
+
+2026-10-21：监工验收创建pending防重/草稿保护通过，4/4fixture模式与路由专项、类型生产构建通过，原CIDR语义保留。

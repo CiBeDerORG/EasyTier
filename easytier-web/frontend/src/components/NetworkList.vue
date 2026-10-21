@@ -92,6 +92,7 @@ onUnmounted(() => {
 });
 
 const openCreate = () => {
+    if (creating.value) return;
     createForm.value = {
         display_name: '',
         virtual_cidr: '',
@@ -107,6 +108,7 @@ const openCreate = () => {
 };
 
 const createNetwork = async () => {
+    if (creating.value) return;
     creating.value = true;
     try {
         const virtual_cidr = normalizeVirtualSubnet(createForm.value.virtual_cidr) || null;
@@ -195,8 +197,8 @@ const openNetwork = (network: CentralNetworkSummary) => {
             </template>
         </section>
 
-        <Dialog v-model:visible="createVisible" modal class="console-dialog" :header="t('web.network_list.create')" :style="{ width: '32rem' }">
-            <div class="flex flex-col gap-3">
+        <Dialog v-model:visible="createVisible" modal :closable="!creating" :closeOnEscape="!creating" class="console-dialog" :header="t('web.network_list.create')" :style="{ width: '32rem' }">
+            <fieldset :disabled="creating" class="flex flex-col gap-3 border-0 p-0 m-0 min-w-0">
                 <div v-if="gatewayEnabled && !advancedMode" class="flex items-start gap-2 p-3 surface-100 rounded-md">
                     <i class="pi pi-check-circle text-green-500 mt-0.5"></i>
                     <div class="text-sm">
@@ -227,7 +229,7 @@ const openNetwork = (network: CentralNetworkSummary) => {
                         <label for="initial-nodes">{{ t('initial_nodes') }}</label>
                         <span class="pi pi-question-circle ml-2 self-center" v-tooltip="t('initial_nodes_help')"></span>
                     </div>
-                    <div class="items-center flex flex-col p-fluid gap-y-2">
+                    <div :inert="creating" class="items-center flex flex-col p-fluid gap-y-2">
                         <UrlListInput id="initial-nodes" v-model="initialNodes" :protos="protos"
                             defaultUrl="tcp://:11010" :add-label="t('add_initial_node')"
                             :placeholder="t('initial_node_placeholder')" />
@@ -239,9 +241,9 @@ const openNetwork = (network: CentralNetworkSummary) => {
                     </button>
                 </div>
                 <div class="text-sm text-500">{{ t('web.network_list.create_hint') }}</div>
-            </div>
+            </fieldset>
             <template #footer>
-                <Button :label="t('web.common.cancel')" icon="pi pi-times" text severity="secondary" @click="createVisible = false" />
+                <Button :label="t('web.common.cancel')" icon="pi pi-times" text severity="secondary" :disabled="creating" @click="createVisible = false" />
                 <Button :label="t('web.common.confirm')" icon="pi pi-check" :loading="creating" @click="createNetwork" />
             </template>
         </Dialog>
