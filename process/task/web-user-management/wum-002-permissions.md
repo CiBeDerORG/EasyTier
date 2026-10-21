@@ -1,8 +1,8 @@
 ---
 id: WUM-002
 feature: web-user-management
-status: ready
-owner: null
+status: in_progress
+owner: /root/wum002
 depends_on: []
 write_scope: ["easytier-web/src/restful/users.rs"]
 requirements: ["UM-01","UM-06"]
@@ -47,3 +47,5 @@ updated_at: "2026-10-21"
 ## 执行记录
 
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
+
+- 2026-10-21：由 `/root/wum002` 认领；独占原 write_scope，协调者维护任务状态和提交。基线为核实远端文档分支 `f48602e2674173be55871724f201da5982d62951`，功能分支 `feat/web-user-management`。
