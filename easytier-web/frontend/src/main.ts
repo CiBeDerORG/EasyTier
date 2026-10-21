@@ -13,6 +13,8 @@ import { I18nUtils } from 'easytier-frontend-lib'
 import { createRouter, createWebHashHistory } from 'vue-router'
 import MainPage from './components/MainPage.vue'
 import Login from './components/Login.vue'
+import UserManagement from './components/users/UserManagement.vue'
+import ChangePassword from './components/ChangePassword.vue'
 import DeviceList from './components/DeviceList.vue'
 import DeviceManagement from './components/DeviceManagement.vue'
 import Dashboard from './components/Dashboard.vue'
@@ -41,6 +43,8 @@ const routes = [
     },
     {
         path: '/h', component: MainPage, children: [
+            { path: 'users', name: 'users', component: UserManagement },
+            { path: 'password', name: 'changePassword', component: ChangePassword },
             {
                 path: '',
                 alias: 'dashboard',

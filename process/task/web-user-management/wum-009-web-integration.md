@@ -1,7 +1,7 @@
 ---
 id: WUM-009
 feature: web-user-management
-status: in_progress
+status: done
 owner: /root/wum009
 depends_on: ["WUM-007","WUM-008"]
 write_scope: ["easytier-web/frontend/src/main.ts","easytier-web/frontend/src/components/MainPage.vue","easytier-web/frontend/src/components/Login.vue","easytier-web/frontend/src/components/ChangePassword.vue","easytier-web/frontend/tests/user-management-navigation.test.mjs"]
@@ -31,10 +31,10 @@ updated_at: "2026-10-21"
 
 ## 实施与验收
 
-- [ ] 管理菜单按服务端能力显示，直接访问受限页面有明确反馈；前端控制不能替代服务器授权。
-- [ ] 注册关闭、受限改密、退出/权限撤销后的导航与草稿恢复一致；401、403、网络故障分别反馈。
-- [ ] 完成组件数据/事件与 HTTP 适配接线；全局状态不复制第二套账号真相。
-- [ ] 执行前端构建与导航/表单针对性检查；此阶段可用契约 mock，必须说明真实授权留给 WUM-010。
+- [x] 管理菜单按服务端能力显示，直接访问受限页面有明确反馈；前端控制不能替代服务器授权。
+- [x] 注册关闭、受限改密、退出/权限撤销后的导航与草稿恢复一致；401、403、网络故障分别反馈。
+- [x] 完成组件数据/事件与 HTTP 适配接线；全局状态不复制第二套账号真相。
+- [x] 执行前端构建与导航/表单针对性检查；此阶段可用契约 mock，必须说明真实授权留给 WUM-010。
 
 ## 交付清单
 
@@ -51,3 +51,6 @@ updated_at: "2026-10-21"
 - 2026-10-21：仅完成任务规划，尚未认领或执行；未运行本任务的实现测试。
 
 - 2026-10-21：007/008已验收后认领，使用v1.1、api.userManagement与UserManagement组件；用户选择A的默认密码提示需非阻断显示。
+
+- 2026-10-21：完成 `#/h/users` / `#/h/password`、能力导航、注册策略、受限改密与默认密码非阻断提示。MainPage单一持有me能力状态；403刷新、401退出、网络错误保留草稿，序号阻止迟到响应，导航/退出清除凭据。
+- 验证：`pnpm --filter easytier-frontend build`通过（覆盖007/008回派补丁）；`node --test easytier-web/frontend/tests/user-management-navigation.test.mjs` 9/9通过（系统Chromium154+契约mock）；`git diff --check`通过。首轮重复文案定位问题已修正复验。真实后端授权仍交010。

@@ -19,8 +19,9 @@ import { I18nUtils } from 'easytier-frontend-lib'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Button, Drawer, Menu, OverlayBadge, Popover, TieredMenu, useToast } from 'primevue';
 import { useRoute, useRouter } from 'vue-router';
-import { useDialog } from 'primevue/usedialog';
 import ChangePassword from './ChangePassword.vue';
+import UserManagement from './users/UserManagement.vue';
+import { toUserManagementError, type CurrentUser, type UserSummary, type UserEvent, type Page, type UserListFilter, type UserEventFilter, type CredentialDelivery } from '../modules/userManagement';
 import Icon from '../assets/easytier.png'
 import { useI18n } from 'vue-i18n'
 import ApiClient, { type BlockedDevice, type CentralNetworkSummary } from '../modules/api';
@@ -30,17 +31,14 @@ const { t } = useI18n()
 const router = useRouter();
 const toast = useToast();
 const route = useRoute();
-const api = new ApiClient(getApiBase(), () => router.push({ name: 'login' }));
-const dialog = useDialog();
+const api = new ApiClient(getApiBase(), expireSession);
+
 const userMenu = ref();
 const userMenuItems = computed(() => [
     {
         label: t('web.main.change_password'),
         icon: 'pi pi-key',
-        command: () => dialog.open(ChangePassword, {
-            props: { modal: true, header: t('web.main.change_password') },
-            data: { api },
-        }),
+        command: () => router.push({ name: 'changePassword' }),
     },
     {
         label: t('web.main.logout'),
@@ -49,12 +47,100 @@ const userMenuItems = computed(() => [
             try {
                 await api.logout();
             } catch (e) {
-                console.error('logout failed', e);
+                // Local state is cleared even if the server is unreachable.
             }
-            router.push({ name: 'login' });
+            expireSession();
         },
     },
 ]);
+
+// Identity is owned here; child views receive server state rather than infer roles.
+const currentUser = ref<CurrentUser | null>(null);
+const identityError = ref<string | null>(null);
+const canManage = computed(() => !!currentUser.value?.capabilities.includes('users.manage') && !currentUser.value.must_change_password);
+const users = ref<Page<UserSummary>>({ items: [], total: 0, page: 1, page_size: 20 });
+const events = ref<Page<UserEvent>>({ items: [], total: 0, page: 1, page_size: 20 });
+const selectedUser = ref<UserSummary | null>(null);
+const credential = ref<CredentialDelivery | null>(null);
+const managementError = ref<{ code: string; message: string } | null>(null);
+const loading = ref(false);
+const busy = ref(false);
+const stale = ref(false);
+let userQuery: UserListFilter = { page: 1, page_size: 20 };
+let listSequence = 0, detailSequence = 0, eventSequence = 0, identitySequence = 0, mutationSequence = 0;
+function disposeRequests() { listSequence++; detailSequence++; eventSequence++; identitySequence++; mutationSequence++; credential.value = null; }
+function expireSession() {
+    disposeRequests(); currentUser.value = null;
+    void router.replace({ name: 'login', query: { reason: 'expired' } });
+}
+async function refreshIdentity() {
+    const sequence = ++identitySequence;
+    try {
+        const identity = await api.userManagement.getMe();
+        if (sequence !== identitySequence) return false;
+        currentUser.value = identity; identityError.value = null;
+        if (identity.must_change_password) { credential.value = null; await router.replace({ name: 'changePassword' }); }
+        if (!canManage.value) { credential.value = null; listSequence++; detailSequence++; eventSequence++; }
+        return true;
+    } catch (error) {
+        if (sequence !== identitySequence) return false;
+        const safe = toUserManagementError(error);
+        identityError.value = safe.status === 403 ? 'forbidden' : safe.code;
+        if (safe.status === 401) expireSession();
+        return false;
+    }
+}
+async function managementFailure(error: unknown) {
+    const safe = toUserManagementError(error);
+    managementError.value = safe;
+    if (safe.status === 401) expireSession();
+    else if (safe.status === 403) await refreshIdentity();
+}
+async function loadUsers(filter: UserListFilter = userQuery) {
+    if (!canManage.value) return;
+    userQuery = { ...filter };
+    const sequence = ++listSequence;
+    loading.value = true; managementError.value = null;
+    try {
+        const result = await api.userManagement.listUsers(filter);
+        if (sequence !== listSequence || route.name !== 'users') return;
+        users.value = result; stale.value = false;
+    } catch (error) {
+        if (sequence === listSequence) { stale.value = users.value.items.length > 0; await managementFailure(error); }
+    } finally { if (sequence === listSequence) loading.value = false; }
+}
+async function selectUser(id: number) {
+    const sequence = ++detailSequence;
+    selectedUser.value = null;
+    events.value = { items: [], total: 0, page: 1, page_size: 20 };
+    try { const result = await api.userManagement.getUser(id); if (sequence === detailSequence && canManage.value && route.name === 'users') selectedUser.value = result; }
+    catch (error) { if (sequence === detailSequence) await managementFailure(error); }
+}
+async function loadEvents(filter: UserEventFilter) {
+    const sequence = ++eventSequence;
+    try { const result = await api.userManagement.listEvents(filter); if (sequence === eventSequence && canManage.value && route.name === 'users') events.value = result; }
+    catch (error) { if (sequence === eventSequence) await managementFailure(error); }
+}
+async function mutate(action: () => Promise<UserSummary | CredentialDelivery>, selfRevoke = false) {
+    if (busy.value || !canManage.value) return;
+    const sequence = ++mutationSequence;
+    busy.value = true; managementError.value = null; credential.value = null;
+    try {
+        const result = await action();
+        if (sequence !== mutationSequence || route.name !== 'users') return;
+        if (selfRevoke) { expireSession(); return; }
+        if ('temporary_password' in result) credential.value = result;
+        if (selectedUser.value) await selectUser(selectedUser.value.id);
+        await Promise.all([loadUsers(), refreshIdentity()]);
+        if (selectedUser.value) await loadEvents({ target_id: selectedUser.value.id, page: 1, page_size: 20 });
+    } catch (error) { if (sequence === mutationSequence) await managementFailure(error); }
+    finally { if (sequence === mutationSequence) busy.value = false; }
+}
+watch([() => route.name, canManage], ([name, allowed]) => {
+    credential.value = null;
+    if (name === 'users' && allowed) void loadUsers();
+    else { listSequence++; detailSequence++; eventSequence++; mutationSequence++; busy.value = false; loading.value = false; }
+});
 
 // Networks are first-class navigation targets: each network gets a direct
 // entry so managing one is a single click from anywhere.
@@ -79,6 +165,7 @@ const loadBlockedDevices = async () => {
 };
 let networkTimer: number | undefined;
 const loadNavigation = async () => {
+    if (!await refreshIdentity() || currentUser.value?.must_change_password) return;
     if (!enrollInfo.value) {
         try {
             enrollInfo.value = await api.get_console_info();
@@ -90,10 +177,10 @@ const loadNavigation = async () => {
     await Promise.all([loadNetworks(), loadBlockedDevices()]);
 };
 onMounted(() => {
-    loadNavigation();
+    void loadNavigation();
     networkTimer = window.setInterval(loadNavigation, 10_000);
 });
-onUnmounted(() => window.clearInterval(networkTimer));
+onUnmounted(() => { window.clearInterval(networkTimer); disposeRequests(); });
 
 // Device enrollment info: the config-server command devices run to join
 // this console. Also identifies whether central management is available.
@@ -162,6 +249,7 @@ type NavItem = {
 const workspaceNavigation = computed<NavItem[]>(() => [
     { key: 'dashboard', label: t('web.main.dashboard'), icon: 'pi pi-chart-pie', to: { name: 'dashboard' } },
     { key: 'deviceList', label: t('web.main.device_list'), icon: 'pi pi-server', to: { name: 'deviceList' } },
+    ...(canManage.value ? [{ key: 'users', label: t('user_management.title'), icon: 'pi pi-users', to: { name: 'users' } }] : []),
 ]);
 const networkNavigation = computed<NavItem[]>(() => [
     { key: 'networkList', label: t('web.main.network_list'), icon: 'pi pi-globe', to: { name: 'networkList' } },
@@ -200,7 +288,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
 <template>
     <div class="web-console">
         <a class="skip-link" href="#main-content" @click.prevent="mainContent?.focus()">{{ t('web.console.skip_content') }}</a>
-        <aside class="console-sidebar">
+        <aside v-if="!currentUser?.must_change_password" class="console-sidebar">
             <RouterLink :to="{ name: 'dashboard' }" class="console-brand">
                 <img :src="Icon" alt="" /><span>EasyTier<span class="brand-caption">{{ t('web.console.console') }}</span></span>
             </RouterLink>
@@ -233,7 +321,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                 <i class="pi pi-book" aria-hidden="true"></i>{{ t('web.console.documentation') }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i>
             </a>
         </aside>
-        <Drawer v-model:visible="forceShowSideBar" :header="t('web.console.navigation')" class="console-mobile-nav">
+        <Drawer v-if="!currentUser?.must_change_password" v-model:visible="forceShowSideBar" :header="t('web.console.navigation')" class="console-mobile-nav">
             <nav :aria-label="t('web.console.navigation')">
                 <div class="nav-caption">{{ t('web.console.workspace') }}</div>
                 <Menu :model="workspaceNavigation" :aria-label="t('web.console.navigation')" class="console-navigation">
@@ -269,7 +357,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <i class="pi pi-angle-right topbar-brand" aria-hidden="true"></i><span>{{ pageTitle }}</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <Button icon="pi pi-objects-column" :label="t('web.console.enroll_title')"
+                    <Button v-if="currentUser && !currentUser.must_change_password" icon="pi pi-objects-column" :label="t('web.console.enroll_title')"
                         severity="secondary" outlined size="small" class="enroll-button"
                         :aria-label="t('web.console.enroll_title')"
                         @click="toggleEnrollBell" />
@@ -325,9 +413,27 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                 </div>
             </header>
             <main ref="mainContent" id="main-content" class="console-content" tabindex="-1">
-                <RouterView v-slot="{ Component }">
+                <div v-if="identityError" role="alert">{{ t(`user_management.errors.${identityError}`) }} <Button :label="t('user_management.retry')" @click="loadNavigation" /></div>
+                <div v-if="currentUser?.default_password_warning" role="alert" class="mb-4">
+                    {{ t('user_management.default_password_warning') }} <Button :label="t('web.main.change_password')" @click="router.push({ name: 'changePassword' })" />
+                </div>
+                <p v-if="!currentUser && !identityError" role="status">{{ t('web.common.loading') }}</p>
+                <template v-if="currentUser">
+                <ChangePassword v-if="currentUser.must_change_password || route.name === 'changePassword'" :api="api" :required="currentUser.must_change_password" />
+                <template v-else-if="route.name === 'users'">
+                    <UserManagement v-if="canManage" :current-user="currentUser" :users="users" :events="events" :selected-user="selectedUser" :loading="loading" :busy="busy" :stale="stale" :error="managementError" :credential="credential"
+                        @query="loadUsers" @select="selectUser" @query-events="loadEvents" @retry="loadUsers()" @dismiss-credential="credential = null"
+                        @create="mutate(() => api.userManagement.createUser($event.username))"
+                        @set-access="mutate(() => api.userManagement.setAccess($event.id, $event.web_login_enabled))"
+                        @set-role="mutate(() => api.userManagement.setRole($event.id, $event.role))"
+                        @reset-password="mutate(() => api.userManagement.resetPassword($event))"
+                        @revoke-sessions="mutate(() => api.userManagement.revokeSessions($event), $event === currentUser.id)" />
+                    <p v-else role="alert">{{ t('user_management.errors.forbidden') }}</p>
+                </template>
+                <RouterView v-else v-slot="{ Component }">
                     <component :is="Component" :api="api" :central-enabled="centralEnabled" :key="route.name === 'networkDetail' ? String(route.params.networkId) : undefined" />
                 </RouterView>
+                </template>
             </main>
         </div>
     </div>
