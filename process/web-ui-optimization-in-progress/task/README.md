@@ -16,7 +16,7 @@ updated_at: 2026-10-21
 
 | backlog | ready | in_progress | blocked | in_review | done | cancelled |
 | --- | --- | --- | --- | --- | --- | --- |
-| 8 | 0 | 1 | 0 | 0 | 4 | 0 |
+| 7 | 0 | 1 | 0 | 0 | 5 | 0 |
 
 当前任务进度见下方实施快照与任务明细。
 
@@ -27,9 +27,9 @@ updated_at: 2026-10-21
 | [WUI-101 源码、路由与请求基线](task-wui-101-source-baseline.md) | [PLAN-WUI-001](../plan/plan-wui-001-baseline.md) | done | /root/iteration_exec3 | 无 | WUI-G0 |
 | [WUI-102 现有页面前态与问题取证](task-wui-102-page-evidence.md) | [PLAN-WUI-001](../plan/plan-wui-001-baseline.md) | done | /root/iteration_exec3 | WUI-101 | WUI-G1 |
 | [WUI-103 公共契约、主题与文案基础](task-wui-103-shared-foundation.md) | [PLAN-WUI-002](../plan/plan-wui-002-shared-foundation.md) | done | /root/iteration_exec2 | WUI-102 | WUI-G2 |
-| [WUI-104 登录注册与本人改密页面](task-wui-104-auth-pages.md) | [PLAN-WUI-003](../plan/plan-wui-003-accounts.md) | in_progress | /root/iteration_exec2 | WUI-103 | WUI-G3 |
+| [WUI-104 登录注册与本人改密页面](task-wui-104-auth-pages.md) | [PLAN-WUI-003](../plan/plan-wui-003-accounts.md) | done | /root/iteration_exec2 | WUI-103 | WUI-G3 |
 | [WUI-105 用户管理组件交互与视觉](task-wui-105-user-management.md) | [PLAN-WUI-003](../plan/plan-wui-003-accounts.md) | done | /root/iteration_exec2 | WUI-103 | WUI-G3 |
-| [WUI-106 工作台信息与操作反馈](task-wui-106-dashboard.md) | [PLAN-WUI-004](../plan/plan-wui-004-dashboard.md) | backlog | null | WUI-103 | WUI-G3 |
+| [WUI-106 工作台信息与操作反馈](task-wui-106-dashboard.md) | [PLAN-WUI-004](../plan/plan-wui-004-dashboard.md) | in_progress | /root/iteration_exec2 | WUI-103 | WUI-G3 |
 | [WUI-107 设备列表与设备资料展示](task-wui-107-device-list.md) | [PLAN-WUI-005](../plan/plan-wui-005-devices.md) | backlog | null | WUI-103 | WUI-G3 |
 | [WUI-108 实例配置宿主交互](task-wui-108-instance-host.md) | [PLAN-WUI-005](../plan/plan-wui-005-devices.md) | backlog | null | WUI-103 | WUI-G3 |
 | [WUI-109 网络列表与创建入口](task-wui-109-network-list.md) | [PLAN-WUI-006](../plan/plan-wui-006-networks.md) | backlog | null | WUI-103 | WUI-G3 |
@@ -91,8 +91,9 @@ WUI-111接线结束后才能WUI-112真实组合联调，失败回派原页面/�
 
 
 
+
 ## 当前实施快照
 
-已验收 4/13；WUI-104（in_progress，/root/iteration_exec2）；其余 8 项 backlog。
+已验收 5/13；WUI-106（in_progress，/root/iteration_exec2）；其余 7 项 backlog。
 
 总控维护任务与共享锁；监工 `/root/iteration_monitor` 审查后才能完成或进入联调。实际验证见各任务交接，未运行场景不作通过结论。
