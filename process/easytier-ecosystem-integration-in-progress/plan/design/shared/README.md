@@ -22,3 +22,11 @@
 - Browserslist提示缓存数据较旧；未升级依赖或锁文件。未执行完整生产构建、真实API、VPN或公网验证。
 
 拟用词JSON草案已删除，语言事实源仅cn/en.yaml；页面任务新增文案需求由104串行补充，不能复制另一份生产目录。
+
+## ECO-105 接线后测试复用
+
+在105监工验收后，`ecosystem-shared.test.mjs` 改为复用 `createEcosystemPreview/openEcosystemPreview`，删除本套重复的Vite、端口、缓存与页面生命周期实现。使用queryNotice/capabilityNotice两个独立preview，原六项验证保留；刷新后由测试模拟父层置loading，再验证不能重复发出事件。实际语言文件通过既有YAML插件的解析依赖读取，不复制语言事实源。
+
+迁移后执行 `node --test tests/ecosystem-shared.test.mjs`：**6/6通过**，退出0，约10.9秒。仍为组件fixture验证，不代表真实后端；随后交给106及后续消费者。
+
+监工指出迁移后的布局循环只覆盖QueryNotice，已补CapabilityNotice相同12组合；两组件共24次布局加载，六项测试结构与旧断言保留。恢复后实际复跑 **6/6通过**，退出0，约18.2秒；此结果取代前述迁移时覆盖不足的布局结论。
