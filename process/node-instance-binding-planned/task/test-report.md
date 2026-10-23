@@ -60,3 +60,12 @@ updated_at: 2026-10-23
 - 功能代码提交`838884dfd3aac227a1efa7c61c59ede19f347c11`，随后仅提交文档/证据；按本轮授权push原`feat/node-attributes-main`。远端最终SHA在实际push后核对并反馈，不新建分支或手动触发Actions/CI。
 - 7张中文截图及无凭据日志/JSON已归档。本轮未测外部OIDC、用户实机路由、公网转发、恶意RPC前缀注入、其他浏览器/完整无障碍；没有公网或Dot共享访问入口。
 - T01–T14完成本轮实际范围；原需求T09/T11/T14复审问题及T16部署状态已回填。详细结果见[verification-report](verification-report.md)、[release-record](release-record.md)。后续仍遵守调试模式，不将本轮授权用于每次改动自动测试。
+
+## 2026-10-23：实例候选名称使用 hostname
+
+- 用户现场确认：保存网络配置后，普通/网关候选的数据来源问题已定位；本轮要求修正候选名称，显示 host 名称。
+- 代码基线：`feat/node-attributes-main@4b7b63da0d18dd320fca933bf6705e24a5ec4012`。
+- 修改：`easytier-web/src/db/assets/instances.rs` 的候选查询按 `user_id + machine_id` 关联已登记节点；`display_name` 优先非空 `config.hostname`，为空时使用 `devices.hostname`，最后回退实例 ID。删除中央网络名称/`network_name` 作为候选名称的路径，保留中央成员的 IPv4 关联。
+- 兼容性：普通设备、网关设备和新生成的绑定快照沿用同一名称规则；响应字段仍为 `display_name`。名称不参与配置指纹或绑定状态比较；既有历史快照不批量改写。
+- 实际执行：源码阅读、最小补丁编辑、后端与前端消费链路人工交叉审阅。未运行测试、构建、类型检查、lint 或其他项目验证命令，原因是本需求仍处于调试模式；未手动触发 Actions/CI，未部署。
+- 待验证：实例 hostname 优先；空白 hostname 回退节点主机名；两者均空时回退 ID；中央网络显示名称不覆盖 host；普通/网关候选一致；名称变化不使既有绑定误报配置变更。此前验证结果不代表本轮修复已实测。

@@ -46,3 +46,9 @@ updated_at: 2026-10-23
 ## 本轮文档分工
 
 规划阶段由root、后端、前端与生命周期agent分别负责文档并交叉审阅。实施阶段按任务看板的唯一文件owner分工，root统一维护汇总、公共接线与交接状态。
+
+## 2026-10-23 后续修正：实例候选显示主机名
+
+- 用户确认保存实例配置后候选已出现；新增要求为候选卡片显示 host 名称，不能使用网络名称。
+- 基线：`feat/node-attributes-main@4b7b63da0d18dd320fca933bf6705e24a5ec4012`；修改 `easytier-web/src/db/assets/instances.rs`，名称依次取非空实例 `hostname`、同账号同节点的 `devices.hostname`、实例 ID。普通和网关候选共用该实现。
+- 状态：源码已修正并经人工交叉审阅；遵守调试模式，未运行测试、构建、类型检查、lint 或手动触发 CI，未部署。本节是后续修复记录，上述历史验证不覆盖此变更；详见[逐轮记录](task/test-report.md)。

@@ -23,10 +23,10 @@ pub(crate) struct RuntimeObservation {
 pub(crate) type RuntimeObservations = BTreeMap<String, RuntimeObservation>;
 
 const CATALOG_SQL: &str = "SELECT c.id, c.network_instance_id, c.network_config, c.source, c.disabled, c.create_time, \
-    m.allocated_ipv4, n.display_name AS central_display_name, g.id AS gateway_id, g.name AS gateway_name \
+    m.allocated_ipv4, d.hostname AS node_hostname, g.id AS gateway_id, g.name AS gateway_name \
     FROM user_running_network_configs c \
     LEFT JOIN network_members m ON m.user_id = c.user_id AND m.device_id = c.device_id AND m.network_id = c.network_instance_id \
-    LEFT JOIN networks n ON n.user_id = c.user_id AND n.id = c.network_instance_id \
+    LEFT JOIN devices d ON d.user_id = c.user_id AND d.machine_id = c.device_id \
     LEFT JOIN asset_gateway_groups g ON g.owner_user_id = c.user_id AND g.machine_id = c.device_id AND g.network_instance_id = c.network_instance_id \
     WHERE c.user_id = ? AND c.device_id = ?";
 
@@ -41,8 +41,9 @@ fn candidate(row: &SqliteRow, exclude_group_id: Option<&str>, runtime: &RuntimeO
     let config_text: String = row.try_get("network_config")?;
     // Never return the configuration or its parse error: it may contain credentials.
     let config = serde_json::from_str::<NetworkConfig>(&config_text);
-    let mut display_name = row.try_get::<Option<String>, _>("central_display_name")?
-        .filter(|name| !name.trim().is_empty()).unwrap_or_else(|| instance_id.clone());
+    // Instance labels identify the host; network names can be shared by many nodes.
+    let node_hostname: Option<String> = row.try_get("node_hostname")?;
+    let mut display_name = nonempty(node_hostname.as_deref()).unwrap_or(&instance_id).to_owned();
     let mut role = "unknown";
     let mut rules = Vec::new();
     let mut selected_ip: Option<String> = None;
@@ -51,10 +52,8 @@ fn candidate(row: &SqliteRow, exclude_group_id: Option<&str>, runtime: &RuntimeO
     let mut ip_policy = json!({"source":"unknown"});
 
     if let Ok(config) = config {
-        if display_name == instance_id {
-            display_name = nonempty(config.network_name.as_deref())
-                .or_else(|| nonempty(config.hostname.as_deref()))
-                .unwrap_or(&instance_id).to_owned();
+        if let Some(hostname) = nonempty(config.hostname.as_deref()) {
+            display_name = hostname.to_owned();
         }
         match parse_rules(&config.proxy_cidrs) {
             Ok(parsed) => {
