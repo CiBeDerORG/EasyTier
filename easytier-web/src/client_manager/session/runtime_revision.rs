@@ -889,11 +889,34 @@ async fn cleanup_patch_deleted_instances(
     RoundStatus::Ready(outcome)
 }
 
+async fn runtime_config_owner_is_active(
+    session_data: &std::sync::Weak<RwLock<SessionData>>,
+    user_id: i32,
+) -> bool {
+    let Some(data) = session_data.upgrade() else {
+        return false;
+    };
+    let storage = data.read().await.storage.upgrade();
+    let Some(storage) = storage else {
+        return false;
+    };
+    match storage.db.is_user_active(user_id).await {
+        Ok(active) => active,
+        Err(error) => {
+            tracing::warn!(user_id, %error, "cannot verify network runtime owner; skipping mutation");
+            false
+        }
+    }
+}
+
 async fn begin_managed_runtime_mutation(
     session_data: &std::sync::Weak<RwLock<SessionData>>,
     round: &ReconcileRound,
     mutation_fence: &mut RuntimeMutationFence,
 ) -> bool {
+    if !runtime_config_owner_is_active(session_data, round.user_id).await {
+        return false;
+    }
     let Some(data) = session_data.upgrade() else {
         return false;
     };
@@ -1157,6 +1180,11 @@ async fn run_missing_network_config(
     }
 
     let source = PersistedConfigSource::from_db(&config.source);
+    if source == PersistedConfigSource::User
+        && !runtime_config_owner_is_active(session_data, round.user_id).await
+    {
+        return ConfigActionResult::StopRound;
+    }
     if source == PersistedConfigSource::Web
         && !begin_managed_runtime_mutation(session_data, round, mutation_fence).await
     {

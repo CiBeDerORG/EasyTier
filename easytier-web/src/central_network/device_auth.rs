@@ -45,6 +45,11 @@ impl WebhookHandler for DeviceAuth {
             }
             None => return Ok(response),
         };
+        // A deleted local identity remains reserved so reconnecting clients
+        // cannot auto-provision a replacement owner for retained node data.
+        if !self.db.is_user_active(user_id).await? {
+            return Ok(response);
+        }
         let device = (user_id, machine_id);
         if self
             .db

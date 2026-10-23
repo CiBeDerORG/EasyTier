@@ -392,6 +392,21 @@ pub(super) async fn apply_success(
     user_id: i32,
     validation_change_epoch: u64,
 ) {
+    // A previously successful local or external validation must not revive a
+    // locally deleted identity while its response was in flight. Unknown
+    // external identities still follow the existing provisioning path.
+    match input.storage.db().is_user_active(user_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            apply_rejected(session_data, &input, validation_change_epoch).await;
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(user_id, %error, "could not confirm active user for webhook validation");
+            return;
+        }
+    }
+
     let WebhookHeartbeatValidation {
         config_revision,
         binding_version,

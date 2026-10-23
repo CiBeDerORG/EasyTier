@@ -6,6 +6,7 @@ mod network;
 pub(crate) mod oidc;
 mod rpc;
 mod users;
+mod user_admin;
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -327,6 +328,7 @@ impl RestfulServer {
                 .merge(NetworkApi::build_route_internal())
                 .merge(rpc::router_internal())
                 .with_state(self.client_mgr.clone())
+                .layer(Extension(self.central_service.clone()))
                 .layer(axum_mw::from_fn(move |req, next| {
                     let token = internal_token.clone();
                     internal_auth_middleware(token, req, next)
@@ -352,6 +354,7 @@ impl RestfulServer {
             // Asset handlers authenticate the session themselves so errors use
             // their JSON contract, including unauthenticated requests.
             .merge(assets::router())
+            .merge(user_admin::router())
             .merge(auth::router().layer(Extension(self.feature_flags.clone())))
             .merge(oidc::router())
             .with_state(self.client_mgr.clone())

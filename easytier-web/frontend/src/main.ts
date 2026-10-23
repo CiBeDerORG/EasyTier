@@ -20,6 +20,7 @@ import Dashboard from './components/Dashboard.vue'
 import NetworkTopology from './components/NetworkTopology.vue'
 import NetworkList from './components/NetworkList.vue'
 import NetworkDetail from './components/NetworkDetail.vue'
+import UserManagement from './components/UserManagement.vue'
 import DialogService from 'primevue/dialogservice';
 import ToastService from 'primevue/toastservice';
 
@@ -58,6 +59,11 @@ const routes = [
                 path: 'node-assets',
                 name: 'nodeAssets',
                 component: NodeAssetsPage,
+            },
+            {
+                path: 'users',
+                name: 'userManagement',
+                component: UserManagement,
             },
             {
                 path: 'deviceList',

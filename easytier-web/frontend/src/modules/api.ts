@@ -1,6 +1,7 @@
 import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { type Api, NetworkTypes, Utils } from 'easytier-frontend-lib';
 import { Md5 } from 'ts-md5';
+import type { DeleteManagedUserResult, ManagedUserList, UserAdminContext } from '../types/user-admin';
 import type {
     AddressPreviewInput, ApplyAddressInput, ApplyBindingInput, AssetAccount, AssetContextResponse,
     AssetDevice, AssetDeviceCount, AssetDeviceQuery, AssetDeviceUpdateInput, AssetListResponse,
@@ -262,6 +263,20 @@ export class ApiClient {
             }
             return Promise.reject(error);
         });
+    }
+
+    public async userAdminContext(): Promise<UserAdminContext> {
+        return this.client.get<unknown, UserAdminContext>('/admin/users/context', { timeout: 15_000 });
+    }
+
+    public async listManagedUsers(): Promise<ManagedUserList> {
+        return this.client.get<unknown, ManagedUserList>('/admin/users', { timeout: 15_000 });
+    }
+
+    public async deleteManagedUser(userId: number): Promise<DeleteManagedUserResult> {
+        // Runtime shutdown is bounded by the server. A transport timeout still
+        // leaves an uncertain result, so the page can retry this idempotent DELETE.
+        return this.client.delete<unknown, DeleteManagedUserResult>(`/admin/users/${userId}`, { timeout: 60_000 });
     }
 
     // Manual assets use the same cookie transport and 401 handling as the original Web API.

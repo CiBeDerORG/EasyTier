@@ -31,6 +31,15 @@ use crate::{
 const TEMPORARY_MEMBER_DEFAULT_TTL_SECONDS: u32 = 7 * 24 * 3600;
 const MAX_CREDENTIAL_TTL_SECONDS: u32 = 365 * 24 * 3600;
 
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub(crate) struct UserNetworkDisableReport {
+    /// All unique nodes considered, including nodes currently offline.
+    pub attempted_nodes: u64,
+    pub confirmed_nodes: u64,
+    pub pending_nodes: u64,
+    pub removed_gateway_instances: u64,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CentralNetworkServiceError {
     #[error("{0}")]
@@ -231,6 +240,100 @@ impl CentralNetworkService {
 
     pub(crate) async fn lock_mutations(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.mutation_lock.lock().await
+    }
+
+    /// Called with the service mutation guard held, after the account deletion
+    /// transaction commits. It never deletes network intent or asset records.
+    pub(crate) async fn disable_deleted_user_runtime(
+        &self,
+        user_id: UserIdInDb,
+    ) -> Result<UserNetworkDisableReport, CentralNetworkServiceError> {
+        if self.db.is_user_active(user_id).await? {
+            return Err(CentralNetworkServiceError::Invalid(
+                "account must be deleted before disabling all runtime networks".into(),
+            ));
+        }
+        let stored_nodes = sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT machine_id FROM devices WHERE user_id = ?
+            UNION SELECT device_id FROM user_running_network_configs WHERE user_id = ?
+            UNION SELECT device_id FROM network_members WHERE user_id = ?
+            "#,
+        )
+        .bind(user_id)
+        .bind(user_id)
+        .bind(user_id)
+        .fetch_all(&self.db.inner())
+        .await
+        .map_err(|error| CentralNetworkServiceError::Database(error.to_string()))?;
+        let mut nodes = stored_nodes
+            .into_iter()
+            .map(|node| {
+                Uuid::parse_str(&node)
+                    .map_err(|error| CentralNetworkServiceError::Database(error.to_string()))
+            })
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        nodes.extend(
+            self.client_manager
+                .list_sessions_by_user_id(user_id)
+                .await
+                .into_iter()
+                .map(|session| session.machine_id),
+        );
+        let attempted_nodes = nodes.len() as u64;
+        let outcomes = futures::stream::iter(nodes)
+            .map(|machine_id| {
+                self.client_manager
+                    .stop_networks_for_deleted_user(user_id, machine_id)
+            })
+            .buffer_unordered(4)
+            .collect::<Vec<_>>()
+            .await;
+        let confirmed_nodes = outcomes
+            .into_iter()
+            .filter(|confirmed| *confirmed)
+            .count() as u64;
+        let removed_gateway_instances = self.retire_deleted_user_gateways(user_id).await?;
+        Ok(UserNetworkDisableReport {
+            attempted_nodes,
+            confirmed_nodes,
+            pending_nodes: attempted_nodes - confirmed_nodes,
+            removed_gateway_instances,
+        })
+    }
+
+    async fn retire_deleted_user_gateways(
+        &self,
+        user_id: UserIdInDb,
+    ) -> Result<u64, CentralNetworkServiceError> {
+        let Some(instances) = &self.network_instances else {
+            return Ok(0);
+        };
+        let mut removed = 0;
+        let mut pending = 0;
+        for (owner_id, network_id) in instances.network_ids().await {
+            if owner_id != user_id {
+                continue;
+            }
+            if tokio::time::timeout(
+                Duration::from_secs(5),
+                instances.remove(owner_id, network_id),
+            )
+            .await
+            .is_ok()
+            {
+                removed += 1;
+            } else {
+                pending += 1;
+                tracing::warn!(user_id, %network_id, "deleted account Gateway shutdown remains unconfirmed");
+            }
+        }
+        if pending > 0 {
+            return Err(CentralNetworkServiceError::Conflict(
+                "account deleted, but one or more Gateway runtime shutdowns remain unconfirmed".into(),
+            ));
+        }
+        Ok(removed)
     }
 
     pub fn network_instances(
@@ -1063,6 +1166,13 @@ impl CentralNetworkService {
         &self,
         user_id: UserIdInDb,
     ) -> Result<(), CentralNetworkServiceError> {
+        // Retained central intent must not recreate a deleted account's
+        // disabled instances. Do not publish an empty Full here: that removes
+        // the member configuration records that deletion is required to keep.
+        if !self.db.is_user_active(user_id).await? {
+            self.retire_deleted_user_gateways(user_id).await?;
+            return Ok(());
+        }
         use crate::db::entity::networks;
         let networks = networks::Entity::find()
             .filter(networks::Column::UserId.eq(user_id))

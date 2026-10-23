@@ -11,6 +11,8 @@ pub struct Model {
     #[sea_orm(unique)]
     pub username: String,
     pub password: String,
+    #[serde(default)]
+    pub deleted_at: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

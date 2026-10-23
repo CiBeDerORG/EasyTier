@@ -38,6 +38,24 @@ pub(super) fn central_ownership_conflict() -> HttpHandleError {
     )
 }
 
+pub(super) async fn ensure_active_network_owner(
+    service: &CentralNetworkService,
+    user_id: UserIdInDb,
+) -> Result<(), HttpHandleError> {
+    if !service
+        .db
+        .is_user_active(user_id)
+        .await
+        .map_err(convert_db_error)?
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            other_error("User account is unavailable").into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn ensure_direct_mutation_allowed(
     service: &CentralNetworkService,
     user_id: UserIdInDb,
@@ -45,6 +63,7 @@ async fn ensure_direct_mutation_allowed(
     instance_id: uuid::Uuid,
     network_name: Option<&str>,
 ) -> Result<(), HttpHandleError> {
+    ensure_active_network_owner(service, user_id).await?;
     let central = service
         .db
         .central_owned_runtime_configs(user_id, machine_id)
@@ -811,9 +830,12 @@ impl NetworkApi {
 
     async fn handle_run_network_instance_internal(
         State(client_mgr): AppState,
+        Extension(network_service): Extension<Arc<CentralNetworkService>>,
         Path((user_id, machine_id)): Path<(UserIdInDb, uuid::Uuid)>,
         Json(payload): Json<RunNetworkJsonReq>,
     ) -> Result<Json<Void>, HttpHandleError> {
+        let _mutation = network_service.lock_mutations().await;
+        ensure_active_network_owner(&network_service, user_id).await?;
         let source = payload
             .source
             .and_then(config_source_from_rpc)
@@ -838,8 +860,11 @@ impl NetworkApi {
 
     async fn handle_remove_network_instance_internal(
         State(client_mgr): AppState,
+        Extension(network_service): Extension<Arc<CentralNetworkService>>,
         Path((user_id, machine_id, inst_id)): Path<(UserIdInDb, uuid::Uuid, uuid::Uuid)>,
     ) -> Result<(), HttpHandleError> {
+        let _mutation = network_service.lock_mutations().await;
+        ensure_active_network_owner(&network_service, user_id).await?;
         client_mgr
             .invalidate_applied_config_revision(user_id, machine_id)
             .await;
@@ -855,9 +880,12 @@ impl NetworkApi {
 
     async fn handle_reconcile_managed_network_configs_internal(
         State(client_mgr): AppState,
+        Extension(network_service): Extension<Arc<CentralNetworkService>>,
         Path((user_id, machine_id)): Path<(UserIdInDb, uuid::Uuid)>,
         Json(payload): Json<ReconcileManagedNetworkConfigsJsonReq>,
     ) -> Result<StatusCode, HttpHandleError> {
+        let _mutation = network_service.lock_mutations().await;
+        ensure_active_network_owner(&network_service, user_id).await?;
         let desired = payload
             .managed_network_configs
             .into_iter()
@@ -881,9 +909,12 @@ impl NetworkApi {
 
     async fn handle_patch_managed_network_configs_internal(
         State(client_mgr): AppState,
+        Extension(network_service): Extension<Arc<CentralNetworkService>>,
         Path((user_id, machine_id)): Path<(UserIdInDb, uuid::Uuid)>,
         Json(payload): Json<PatchManagedNetworkConfigsJsonReq>,
     ) -> Result<StatusCode, HttpHandleError> {
+        let _mutation = network_service.lock_mutations().await;
+        ensure_active_network_owner(&network_service, user_id).await?;
         let upserts = payload
             .upserts
             .into_iter()
@@ -1662,6 +1693,10 @@ mod tests {
         drifted["network_name"] = serde_json::json!("runtime-only-change");
         let response = NetworkApi::build_route_internal()
             .with_state(manager.clone())
+            .layer(Extension(Arc::new(CentralNetworkService::new(
+                db.clone(),
+                manager.clone(),
+            ))))
             .oneshot(
                 axum::http::Request::post(format!(
                     "/api/internal/users/{user_id}/machines/{machine_id}/networks"

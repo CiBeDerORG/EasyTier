@@ -304,7 +304,7 @@ mod route {
     use serde::Deserialize;
 
     use crate::restful::other_error;
-    use crate::restful::users::AuthSession;
+    use crate::restful::users::{AuthSession, DeletedUserAccount};
 
     use super::OidcConfig;
 
@@ -667,6 +667,13 @@ mod route {
             .await
         {
             Ok(u) => u,
+            Err(e) if e.is::<DeletedUserAccount>() => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(other_error("This user account has been deleted")),
+                )
+                    .into_response();
+            }
             Err(e) => {
                 tracing::error!("Failed to find or create OIDC user '{}': {:?}", username, e);
                 return (

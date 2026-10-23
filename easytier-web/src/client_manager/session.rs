@@ -804,7 +804,7 @@ impl SessionRpcService {
         &self,
         req: HeartbeatRequest,
     ) -> rpc_types::error::Result<HeartbeatResponse> {
-        let (storage, feature_flags, webhook_config) = {
+        let (storage, feature_flags, webhook_config, session_user_id) = {
             let data = self.data.read().await;
             let Ok(storage) = Storage::try_from(data.storage.clone()) else {
                 tracing::error!("Failed to get storage");
@@ -814,6 +814,7 @@ impl SessionRpcService {
                 storage,
                 data.feature_flags.clone(),
                 data.webhook_config.clone(),
+                data.storage_token.as_ref().map(|token| token.user_id),
             )
         };
 
@@ -821,6 +822,20 @@ impl SessionRpcService {
             "Machine id is not set correctly, expect uuid but got: {:?}",
             req.machine_id
         ))?;
+
+        // Existing sessions must stop authorizing work after their local owner
+        // is deleted, even between normal webhook validation rounds. Leave the
+        // RPC transport available for the deletion flow's scoped stop request.
+        if let Some(user_id) = session_user_id {
+            if !storage
+                .db()
+                .is_user_active(user_id)
+                .await
+                .with_context(|| "Failed to check session account status")?
+            {
+                return Err(anyhow::anyhow!("User account has been deleted").into());
+            }
+        }
 
         if webhook_config.is_enabled() {
             return self
@@ -849,6 +864,16 @@ impl SessionRpcService {
                 return Err(anyhow::anyhow!("User not found by token").into());
             }
         };
+        if session_user_id != Some(user_id) {
+            if !storage
+                .db()
+                .is_user_active(user_id)
+                .await
+                .with_context(|| "Failed to check account status")?
+            {
+                return Err(anyhow::anyhow!("User account has been deleted").into());
+            }
+        }
 
         let (storage_token, notifier, runtime_req, session_epoch, validation_notify) = {
             let mut data = self.data.write().await;
@@ -1052,13 +1077,19 @@ impl Session {
         })
     }
 
-    pub async fn stop(&self) {
+    /// Stop background validation/start work before an account's instances are
+    /// stopped over RPC. The caller closes the transport after that attempt.
+    pub(crate) fn pause_background_tasks_for_user_deletion(&self) {
         if let Some(task) = &self.webhook_validation_task {
             task.abort();
         }
         if let Some(task) = &self.config_reconcile_task {
             task.abort();
         }
+    }
+
+    pub async fn stop(&self) {
+        self.pause_background_tasks_for_user_deletion();
         self.rpc_mgr.stop().await;
     }
 

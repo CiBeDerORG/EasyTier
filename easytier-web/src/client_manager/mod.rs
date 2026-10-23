@@ -321,6 +321,79 @@ impl ClientManager {
         true
     }
 
+    /// Stop only the remote runtime, keeping every persisted configuration.
+    /// The caller has already committed account deletion and disabled configs.
+    pub(crate) async fn stop_networks_for_deleted_user(
+        &self,
+        user_id: UserIdInDb,
+        machine_id: uuid::Uuid,
+    ) -> bool {
+        let Some(session) = self.get_session_by_machine_id(user_id, &machine_id) else {
+            // An offline node's persisted intent is disabled, but its physical
+            // runtime cannot be confirmed from this management connection.
+            return false;
+        };
+        let Some(token) = session.get_token().await else {
+            return false;
+        };
+        // The route and Session map are separate snapshots. A reused transport
+        // URL must never let this operation stop another account's runtime.
+        if token.user_id != user_id || token.machine_id != machine_id {
+            return false;
+        }
+        session.pause_background_tasks_for_user_deletion();
+        self.invalidate_applied_config_revision(user_id, machine_id)
+            .await;
+        let rpc = session.scoped_rpc_client();
+        let stopped = tokio::time::timeout(Duration::from_secs(8), async {
+            use easytier::proto::api::manage::{
+                DeleteNetworkInstanceRequest, ListNetworkInstanceRequest,
+            };
+            let running = rpc
+                .list_network_instance(
+                    BaseController::default(),
+                    ListNetworkInstanceRequest::default(),
+                )
+                .await?;
+            if !running.inst_ids.is_empty() {
+                rpc.delete_network_instance(
+                    BaseController::default(),
+                    DeleteNetworkInstanceRequest {
+                        inst_ids: running.inst_ids,
+                    },
+                )
+                .await?;
+            }
+            let remaining = rpc
+                .list_network_instance(
+                    BaseController::default(),
+                    ListNetworkInstanceRequest::default(),
+                )
+                .await?;
+            Ok::<bool, anyhow::Error>(remaining.inst_ids.is_empty())
+        })
+        .await;
+        // Remove only the captured Session. Resolving the machine route again
+        // could close a replacement while retaining the old RPC's stop result.
+        let removed = self
+            .client_sessions
+            .remove_if(&token.client_url, |_, current| Arc::ptr_eq(current, &session))
+            .is_some();
+        let closed = tokio::time::timeout(Duration::from_secs(2), session.stop())
+            .await
+            .is_ok();
+        // The epoch survives disconnects, so a replacement that already went
+        // offline still prevents the old Session from confirming this node.
+        let superseded = session.is_superseded().await;
+        let confirmed = matches!(stopped, Ok(Ok(true))) && removed && closed && !superseded;
+        if !confirmed {
+            tracing::warn!(user_id, %machine_id, removed, closed, superseded, "deleted account configuration disabled; remote stop remains unconfirmed");
+        }
+        // Closing the management channel alone is not evidence that a remote
+        // network stopped. Only the successful list/delete/list above is.
+        confirmed
+    }
+
     pub async fn list_machine_by_user_id(&self, user_id: UserIdInDb) -> Vec<url::Url> {
         self.storage.list_user_clients(user_id)
     }

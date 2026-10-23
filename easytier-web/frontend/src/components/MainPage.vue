@@ -25,12 +25,40 @@ import Icon from '../assets/easytier.png'
 import { useI18n } from 'vue-i18n'
 import ApiClient, { type BlockedDevice, type CentralNetworkSummary } from '../modules/api';
 import { getApiBase } from '../modules/api-host';
+import type { UserAdminContext } from '../types/user-admin';
 
 const { t } = useI18n()
 const router = useRouter();
 const toast = useToast();
 const route = useRoute();
 const api = new ApiClient(getApiBase(), () => router.push({ name: 'login' }));
+const userAdminContext = ref<UserAdminContext | null>(null);
+const canManageUsers = computed(() => userAdminContext.value?.available === true
+    && userAdminContext.value.can_manage_users === true);
+let userAdminRequest = 0;
+let navigationDisposed = false;
+
+// This permission lookup is independent of the existing navigation timer.
+const applyUserAdminContext = (context: UserAdminContext | null) => {
+    ++userAdminRequest;
+    if (!navigationDisposed) userAdminContext.value = context;
+};
+const loadUserAdminAccess = async () => {
+    const request = ++userAdminRequest;
+    try {
+        const context = await api.userAdminContext();
+        if (!navigationDisposed && request === userAdminRequest) userAdminContext.value = context;
+    } catch (cause) {
+        if (navigationDisposed || request !== userAdminRequest) return;
+        const status = (cause as { response?: { status?: number } })?.response?.status;
+        if (status === 401 || status === 403) userAdminContext.value = null;
+    }
+};
+watch(() => route.name, name => {
+    // Recover an initially failed lookup on a user navigation, never on a timer.
+    // The users page checks and emits its own context when entered directly.
+    if (name !== 'userManagement' && userAdminContext.value === null) void loadUserAdminAccess();
+});
 const dialog = useDialog();
 const userMenu = ref();
 const userMenuItems = computed(() => [
@@ -91,9 +119,15 @@ const loadNavigation = async () => {
 };
 onMounted(() => {
     loadNavigation();
+    // The users page performs and reports its own permission check on entry.
+    if (route.name !== 'userManagement') void loadUserAdminAccess();
     networkTimer = window.setInterval(loadNavigation, 10_000);
 });
-onUnmounted(() => window.clearInterval(networkTimer));
+onUnmounted(() => {
+    window.clearInterval(networkTimer);
+    navigationDisposed = true;
+    ++userAdminRequest;
+});
 
 // Device enrollment info: the config-server command devices run to join
 // this console. Also identifies whether central management is available.
@@ -164,6 +198,7 @@ const workspaceNavigation = computed<NavItem[]>(() => [
     { key: 'networkTopology', label: t('web.main.network_topology'), icon: 'pi pi-sitemap', to: { name: 'networkTopology' } },
     { key: 'deviceList', label: t('web.main.device_list'), icon: 'pi pi-server', to: { name: 'deviceList' } },
     ...(centralEnabled.value ? [{ key: 'nodeAssets', label: t('assets.page.title'), icon: 'pi pi-list', to: { name: 'nodeAssets' }, child: true }] : []),
+    ...(canManageUsers.value ? [{ key: 'userManagement', label: t('user_admin.title'), icon: 'pi pi-users', to: { name: 'userManagement' } }] : []),
 ]);
 const networkNavigation = computed<NavItem[]>(() => [
     { key: 'networkList', label: t('web.main.network_list'), icon: 'pi pi-globe', to: { name: 'networkList' } },
@@ -184,6 +219,7 @@ const activeKey = computed(() => {
     return '';
 });
 const pageTitle = computed(() => {
+    if (route.name === 'userManagement') return t('user_admin.title');
     if (route.name === 'networkDetail') {
         const network = networks.value.find(item => `network:${item.network_id}` === activeKey.value);
         if (network) return network.display_name || network.network_name;
@@ -328,7 +364,8 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
             </header>
             <main ref="mainContent" id="main-content" class="console-content" tabindex="-1">
                 <RouterView v-slot="{ Component }">
-                    <component :is="Component" :api="api" :central-enabled="centralEnabled" :key="route.name === 'networkDetail' ? String(route.params.networkId) : undefined" />
+                    <component :is="Component" :api="api" :central-enabled="centralEnabled" :key="route.name === 'networkDetail' ? String(route.params.networkId) : undefined"
+                        @user-admin-context="applyUserAdminContext" />
                 </RouterView>
             </main>
         </div>

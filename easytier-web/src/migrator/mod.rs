@@ -12,6 +12,7 @@ mod m20261001_000010_member_ip_allocation;
 mod m20261022_000011_node_attributes;
 mod m20261023_000012_node_assets;
 mod m20261023_000013_asset_instance_bindings;
+mod m20261023_000014_user_soft_delete;
 
 pub struct Migrator;
 
@@ -30,6 +31,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261022_000011_node_attributes::Migration),
             Box::new(m20261023_000012_node_assets::Migration),
             Box::new(m20261023_000013_asset_instance_bindings::Migration),
+            Box::new(m20261023_000014_user_soft_delete::Migration),
         ]
     }
 }

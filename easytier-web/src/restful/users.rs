@@ -63,6 +63,10 @@ pub struct ChangePassword {
     pub new_password: String,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("User account has been deleted")]
+pub(crate) struct DeletedUserAccount;
+
 #[derive(Debug, Clone)]
 pub struct Backend {
     db: db::Db,
@@ -99,6 +103,9 @@ impl Backend {
             .one(self.db.orm_db())
             .await?
         {
+            if db_user.deleted_at.is_some() {
+                return Err(DeletedUserAccount.into());
+            }
             return Ok(User {
                 tokens: vec![db_user.username.clone()],
                 db_user,
@@ -124,6 +131,7 @@ impl Backend {
         use entity::users;
 
         let mut user = users::Entity::find_by_id(id)
+            .filter(users::Column::DeletedAt.is_null())
             .one(self.db.orm_db())
             .await?
             .ok_or(anyhow::anyhow!("User not found"))?
@@ -158,6 +166,7 @@ impl AuthnBackend for Backend {
     ) -> Result<Option<Self::User>, Self::Error> {
         let user = entity::users::Entity::find()
             .filter(entity::users::Column::Username.eq(creds.username))
+            .filter(entity::users::Column::DeletedAt.is_null())
             .one(self.db.orm_db())
             .await?;
         task::spawn_blocking(|| {
@@ -176,6 +185,7 @@ impl AuthnBackend for Backend {
     async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
         let mut user = entity::users::Entity::find()
             .filter(entity::users::Column::Id.eq(*user_id))
+            .filter(entity::users::Column::DeletedAt.is_null())
             .one(self.db.orm_db())
             .await?;
 
@@ -211,9 +221,11 @@ impl AuthzBackend for Backend {
 
     async fn get_group_permissions(
         &self,
-        _user: &Self::User,
+        user: &Self::User,
     ) -> Result<HashSet<Self::Permission>, Self::Error> {
         let permissions = entity::users::Entity::find()
+            .filter(entity::users::Column::Id.eq(user.db_user.id))
+            .filter(entity::users::Column::DeletedAt.is_null())
             .column_as(entity::permissions::Column::Name, "name")
             .join(
                 JoinType::LeftJoin,
