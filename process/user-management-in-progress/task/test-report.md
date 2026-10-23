@@ -55,4 +55,6 @@
 - 用户要求检查并修改上一轮 Actions 发现的问题，沿用 `feat/node-attributes-main`。
 - 将 `ClientManager::stop_networks_for_deleted_user` 的 RPC timeout 异步块改为 `async move`，使只有 `Send` 的 RPC client 由 future 持有，解决跨 await 借用导致的 handler future 约束问题。
 - 工作流增加分支/提交号运行标题，由本次提交触发修复后的既有 Web 回归；普通源码与报告提交仍不自动触发。
-- 当前为修复准备阶段，尚无本轮执行结果；结果、提交号及运行链接以[本轮修复与复测报告](../../test/2026-10-23-user-delete-send-fix.md)为准。
+- 修复提交 `0ab3ed5c78c8194207695e07015b4b28a4cfa57e` 的 [Actions #39899719202](https://github.com/CiBeDerORG/EasyTier/actions/runs/39899719202) 已消除编译错误；实际后端结果为 338 通过、1 失败、2 ignored，前端 57 个单元测试、10 组映射断言、13 个浏览器回归及类型/构建通过。
+- 唯一失败用例 `managed_runtime_mutation_preserves_base_only_for_patch_scope` 使用空内存数据库和硬编码用户 ID 7，不满足新增的账号有效性检查。现补齐真实测试账号并使用数据库返回 ID，保留生产保护和全部原有断言。
+- 两处修复将一起重新运行完整 Web 回归，当前不能宣称全部通过。实际提交、运行及日志以[本轮修复与复测报告](../../test/2026-10-23-user-delete-send-fix.md)为准。

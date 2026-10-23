@@ -1899,6 +1899,7 @@ mod tests {
         };
         let storage =
             crate::client_manager::storage::Storage::new(crate::db::Db::memory_db().await);
+        let user_id = storage.db().auto_create_user(&req.user_token).await.unwrap().id;
         let client_url = url::Url::parse("http://127.0.0.1").unwrap();
         let mut data = SessionData::new(
             storage.weak_ref(),
@@ -1913,7 +1914,7 @@ mod tests {
             token: req.user_token.clone(),
             client_url,
             machine_id,
-            user_id: 7,
+            user_id,
         };
         storage.update_session_client(storage_token.clone(), 1, true, 0);
         data.storage_token = Some(storage_token);
@@ -1934,7 +1935,7 @@ mod tests {
         let mut round = ReconcileRound {
             req,
             machine_id,
-            user_id: 7,
+            user_id,
             running_inst_ids: HashSet::new(),
             local_configs: Vec::new(),
             delete_instance_ids: HashSet::new(),
