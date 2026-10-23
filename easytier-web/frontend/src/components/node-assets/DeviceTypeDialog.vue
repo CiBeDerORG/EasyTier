@@ -7,7 +7,7 @@ import type { DeviceType } from '../../types/node-assets';
 import { formatAssetError, getAssetError, useAssetMutation } from '../../composables/useAssetMutation';
 
 const props = defineProps<{ visible: boolean; api: ApiClient; ownerUserId: number; ownerLabel?: string }>();
-const emit = defineEmits<{ close: []; changed: [] }>();
+const emit = defineEmits<{ close: []; changed: []; 'context-error': [cause: unknown] }>();
 const { t } = useI18n();
 const types = ref<DeviceType[]>([]);
 const loading = ref(false);
@@ -31,6 +31,9 @@ const currentEditor = (context: number, version: number) => currentContext(conte
     && editorOpen.value && editorVersion === version;
 const errorText = (error: unknown, fallback = 'assets.types.request_failed') =>
     formatAssetError(error, t(fallback), key => t(key));
+const reportContextError = (cause: unknown) => {
+    if ([401, 403, 404].includes(getAssetError(cause).status ?? 0)) emit('context-error', cause);
+};
 
 function clearEditor() {
     editorVersion += 1;
@@ -71,7 +74,10 @@ async function loadTypes() {
         const response = await props.api.assetsTypes(owner);
         if (currentContext(context) && request === listVersion) types.value = response.items;
     } catch (error: unknown) {
-        if (currentContext(context) && request === listVersion) loadError.value = errorText(error);
+        if (currentContext(context) && request === listVersion) {
+            loadError.value = errorText(error);
+            reportContextError(error);
+        }
     } finally {
         if (currentContext(context) && request === listVersion) loading.value = false;
     }
@@ -107,6 +113,7 @@ async function save() {
         const detail = getAssetError(error);
         fieldError.value = detail.field_errors.name || '';
         actionError.value = errorText(error, 'assets.types.save_failed');
+        reportContextError(error);
     } finally {
         if (currentEditor(context, editor)) saving.value = false;
     }
@@ -132,7 +139,10 @@ async function confirmDelete() {
         emit('changed');
         void loadTypes();
     } catch (error: unknown) {
-        if (currentContext(context)) actionError.value = errorText(error);
+        if (currentContext(context)) {
+            actionError.value = errorText(error);
+            reportContextError(error);
+        }
     } finally {
         if (currentContext(context)) deleting.value = false;
     }

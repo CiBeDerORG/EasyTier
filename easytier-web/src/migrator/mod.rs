@@ -11,6 +11,7 @@ mod m20260920_000009_central_network_intent;
 mod m20261001_000010_member_ip_allocation;
 mod m20261022_000011_node_attributes;
 mod m20261023_000012_node_assets;
+mod m20261023_000013_asset_instance_bindings;
 
 pub struct Migrator;
 
@@ -28,6 +29,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261001_000010_member_ip_allocation::Migration),
             Box::new(m20261022_000011_node_attributes::Migration),
             Box::new(m20261023_000012_node_assets::Migration),
+            Box::new(m20261023_000013_asset_instance_bindings::Migration),
         ]
     }
 }

@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::{QueryBuilder, Row, Sqlite, SqliteConnection};
 
-use super::{AssetsStore, common::{AssetError, AssetResult, address_warning, device_json, ensure_device, ensure_group, ensure_node, ensure_type, group_subnets, now}, idempotency::Operation, validation};
+use super::{AssetsStore, binding_ops, common::{AssetError, AssetResult, address_warning, device_json, ensure_device, ensure_group, ensure_node, ensure_type, group_subnets, now}, idempotency::Operation, validation};
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct DeviceListQuery {
@@ -24,7 +24,7 @@ fn filter(query: &mut QueryBuilder<'_, Sqlite>, owner: i32, node: &str, options:
     }
 }
 
-async fn validate_relations(connection: &mut SqliteConnection, owner: i32, node: &str, excluded_id: &str, payload: &Value) -> AssetResult<()> {
+pub(super) async fn validate_relations(connection: &mut SqliteConnection, owner: i32, node: &str, excluded_id: &str, payload: &Value) -> AssetResult<()> {
     if let Some(id) = payload["gateway_group_id"].as_str() { ensure_group(connection, owner, node, id).await?; }
     if let Some(id) = payload["device_type_id"].as_str() { ensure_type(connection, owner, id).await?; }
     if let Some(lan) = payload["lan_ip"].as_str() {
@@ -90,7 +90,7 @@ impl AssetsStore {
             }
             let mut items = Vec::new();
             for row in matches.into_iter().skip(((page - 1) * page_size) as usize).take(page_size as usize) {
-                items.push(device_json(&mut connection, &row).await?);
+                items.push(device_json(&mut connection, &row, &self.runtime_observations).await?);
             }
             return Ok(json!({"items":items,"total":total,"page":page,"page_size":page_size}));
         }
@@ -119,7 +119,7 @@ impl AssetsStore {
             .push(" OFFSET ").push_bind((page - 1) * page_size);
         let rows = query.build().fetch_all(&mut *connection).await?;
         let mut items = Vec::with_capacity(rows.len());
-        for row in rows { items.push(device_json(&mut connection, &row).await?); }
+        for row in rows { items.push(device_json(&mut connection, &row, &self.runtime_observations).await?); }
         Ok(json!({"items":items,"total":total,"page":page,"page_size":page_size}))
     }
 
@@ -127,11 +127,11 @@ impl AssetsStore {
         let mut connection = self.pool.acquire().await?;
         let row = sqlx::query("SELECT * FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(id).bind(owner).bind(node).fetch_optional(&mut *connection).await?.ok_or_else(AssetError::not_found)?;
-        device_json(&mut connection, &row).await
+        device_json(&mut connection, &row, &self.runtime_observations).await
     }
 
     pub(crate) async fn create_device(&self, actor: i32, owner: i32, node: &str, body: Value) -> AssetResult<Value> {
-        let payload = validation::device_payload(&body, true)?;
+        let payload = validation::device_create_payload(&body)?;
         let operation = Operation::new(actor, owner, "create_device", json!({"machine_id":node}), &body, &payload)?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         if let Some(response) = operation.replay(&mut transaction).await? {
@@ -139,33 +139,57 @@ impl AssetsStore {
             return Ok(response);
         }
         ensure_node(&mut transaction, owner, node).await?;
-        validate_relations(&mut transaction, owner, node, "", &payload).await?;
+        let prepared = binding_ops::prepare_address(&mut transaction, owner, node,
+            &json!({"resource_kind":"device","id":null}), &payload["address_spec"], &self.runtime_observations, false).await?;
+        binding_ops::assert_version(&payload, &prepared.preview)?;
+        let relations = json!({"gateway_group_id":prepared.group_id,"device_type_id":payload["device_type_id"],
+            "lan_ip":prepared.addresses["lan_ip"],"is_gateway_self":prepared.is_self});
+        validate_relations(&mut transaction, owner, node, "", &relations).await?;
         let id = uuid::Uuid::new_v4().to_string();
         let timestamp = now();
-        sqlx::query("INSERT INTO asset_devices(id,owner_user_id,machine_id,gateway_group_id,device_type_id,name,model,overlay_ip,lan_ip,is_gateway_self,remarks,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
-            .bind(&id).bind(owner).bind(node).bind(payload["gateway_group_id"].as_str()).bind(payload["device_type_id"].as_str())
-            .bind(payload["name"].as_str()).bind(payload["model"].as_str()).bind(payload["overlay_ip"].as_str())
-            .bind(payload["lan_ip"].as_str()).bind(payload["is_gateway_self"].as_bool().unwrap_or(false))
-            .bind(payload["remarks"].as_str()).bind(&timestamp).bind(&timestamp).execute(&mut *transaction).await?;
+        sqlx::query("INSERT INTO asset_devices(id,owner_user_id,machine_id,gateway_group_id,device_type_id,name,model,overlay_ip,lan_ip,is_gateway_self,remarks,created_at,updated_at,address_mode,rule_key,host_offset) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+            .bind(&id).bind(owner).bind(node).bind(prepared.group_id.as_deref()).bind(payload["device_type_id"].as_str())
+            .bind(payload["name"].as_str()).bind(payload["model"].as_str()).bind(prepared.addresses["overlay_ip"].as_str())
+            .bind(prepared.addresses["lan_ip"].as_str()).bind(prepared.is_self)
+            .bind(payload["remarks"].as_str()).bind(&timestamp).bind(&timestamp).bind(prepared.spec["mode"].as_str())
+            .bind(prepared.spec["rule_key"].as_str()).bind(prepared.spec["host_offset"].as_i64()).execute(&mut *transaction).await?;
+        binding_ops::save_snapshot(&mut transaction, owner, node, "device", &id, &prepared.snapshot).await?;
         let row = sqlx::query("SELECT * FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(&id).bind(owner).bind(node).fetch_one(&mut *transaction).await?;
-        let response = device_json(&mut transaction, &row).await?;
+        let response = device_json(&mut transaction, &row, &self.runtime_observations).await?;
         operation.finish(&mut transaction, "device", &id, &response).await?;
         transaction.commit().await?;
         Ok(response)
     }
 
     pub(crate) async fn update_device(&self, owner: i32, node: &str, id: &str, body: Value) -> AssetResult<Value> {
-        let payload = validation::device_payload(&body, false)?;
+        validation::keys(&body, &["name", "model", "remarks", "device_type_id", "overlay_ip", "lan_ip", "gateway_group_id", "is_gateway_self"])?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
-        let old = sqlx::query("SELECT gateway_group_id FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
+        let old = sqlx::query("SELECT * FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(id).bind(owner).bind(node).fetch_optional(&mut *transaction).await?.ok_or_else(AssetError::not_found)?;
         let original_group: Option<String> = old.try_get("gateway_group_id")?;
-        if original_group.as_deref() != payload["gateway_group_id"].as_str() {
+        if body.get("gateway_group_id").is_some() && original_group != validation::optional_id(&body, "gateway_group_id")? {
             let mut error = AssetError::conflict("asset_ownership_fixed", "A device's network node and gateway group cannot be changed after creation.");
             error.field_errors.insert("gateway_group_id".into(), "The gateway group is fixed after creation.".into());
             return Err(error);
         }
+        let original_self: bool = old.try_get("is_gateway_self")?;
+        let mode: String = old.try_get("address_mode")?;
+        let legacy = mode == "legacy_manual" && binding_ops::stored_snapshot(&old).is_ok_and(|snapshot| snapshot.is_none());
+        if !legacy {
+            if body.get("overlay_ip").is_some() || body.get("lan_ip").is_some() {
+                return Err(AssetError::field("address_spec", "Use the address action to review and change derived addresses."));
+            }
+            if body.get("is_gateway_self").is_some_and(|value| value.as_bool() != Some(original_self)) {
+                return Err(AssetError::conflict("asset_ownership_fixed", "The self-device role cannot be changed after binding."));
+            }
+        }
+        let mut merged = json!({"name":old.try_get::<String,_>("name")?,"model":old.try_get::<Option<String>,_>("model")?,
+            "remarks":old.try_get::<Option<String>,_>("remarks")?,"device_type_id":old.try_get::<Option<String>,_>("device_type_id")?,
+            "gateway_group_id":original_group,"is_gateway_self":original_self,"overlay_ip":old.try_get::<String,_>("overlay_ip")?,
+            "lan_ip":old.try_get::<Option<String>,_>("lan_ip")?});
+        for (key, value) in body.as_object().into_iter().flatten() { merged[key] = value.clone(); }
+        let payload = validation::device_payload(&merged, false)?;
         validate_relations(&mut transaction, owner, node, id, &payload).await?;
         sqlx::query("UPDATE asset_devices SET device_type_id = ?, name = ?, model = ?, overlay_ip = ?, lan_ip = ?, is_gateway_self = ?, remarks = ?, updated_at = ? WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(payload["device_type_id"].as_str()).bind(payload["name"].as_str()).bind(payload["model"].as_str())
@@ -173,7 +197,7 @@ impl AssetsStore {
             .bind(payload["remarks"].as_str()).bind(now()).bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
         let row = sqlx::query("SELECT * FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(id).bind(owner).bind(node).fetch_one(&mut *transaction).await?;
-        let response = device_json(&mut transaction, &row).await?;
+        let response = device_json(&mut transaction, &row, &self.runtime_observations).await?;
         transaction.commit().await?;
         Ok(response)
     }

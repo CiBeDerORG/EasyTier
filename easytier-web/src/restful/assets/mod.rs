@@ -1,11 +1,12 @@
 //! Session-authenticated management of manually registered node assets.
 //! Existing machine registration and network instance routes remain separate.
+mod runtime;
 
 use std::sync::Arc;
 
 use axum::{
     Extension, Json, Router,
-    extract::{Path, Query, rejection::{JsonRejection, QueryRejection}},
+    extract::{Path, Query, State, rejection::{JsonRejection, QueryRejection}},
     http::StatusCode,
     routing::{delete, get, patch, post, put},
 };
@@ -60,6 +61,21 @@ struct DevicesQuery {
     type_id: Option<String>,
     keyword: Option<String>,
     locate_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InstancesQuery {
+    owner_user_id: i32,
+    machine_id: String,
+    role: String,
+    subject_kind: Option<String>,
+    subject_id: Option<String>,
+}
+
+async fn observed_store(manager: &AppStateInner, service: &CentralNetworkService, owner: i32, node: &str) -> AssetsStore {
+    let observations = runtime::observe(manager, &service.db, owner, node).await;
+    AssetsStore::new(service.db.clone()).with_runtime_observations(observations)
 }
 
 fn asset_error(error: AssetError) -> HttpError {
@@ -346,18 +362,20 @@ async fn delete_node(
 
 async fn list_groups(
     auth: AuthSession,
+    State(manager): State<AppStateInner>,
     Extension(service): Service,
     Extension(config): Config,
     query: ScopeInput,
 ) -> HttpResult<Json<Value>> {
     let (_, owner, node) = scoped_context(&auth, &config, &service, query).await?;
-    let store = AssetsStore::new(service.db.clone());
+    let store = observed_store(&manager, &service, owner, &node).await;
     let result = store.list_groups(owner, &node).await.map_err(asset_error)?;
     Ok(Json(result))
 }
 
 async fn create_group(
     auth: AuthSession,
+    State(manager): State<AppStateInner>,
     Extension(service): Service,
     Extension(config): Config,
     query: ScopeInput,
@@ -365,8 +383,8 @@ async fn create_group(
 ) -> HttpResult<Json<Value>> {
     let (actor_id, owner, node) = scoped_context(&auth, &config, &service, query).await?;
     let body = body_value(body)?;
+    let store = observed_store(&manager, &service, owner, &node).await;
     let _mutation = service.lock_mutations().await;
-    let store = AssetsStore::new(service.db.clone());
     let result = store.create_group(actor_id, owner, &node, body).await.map_err(asset_error)?;
     Ok(Json(result))
 }
@@ -403,19 +421,21 @@ async fn delete_group(
 
 async fn get_device(
     auth: AuthSession,
+    State(manager): State<AppStateInner>,
     Extension(service): Service,
     Extension(config): Config,
     Path(id): Path<String>,
     query: ScopeInput,
 ) -> HttpResult<Json<Value>> {
     let (_, owner, node) = scoped_context(&auth, &config, &service, query).await?;
-    let store = AssetsStore::new(service.db.clone());
+    let store = observed_store(&manager, &service, owner, &node).await;
     let result = store.get_device(owner, &node, &id).await.map_err(asset_error)?;
     Ok(Json(result))
 }
 
 async fn create_device(
     auth: AuthSession,
+    State(manager): State<AppStateInner>,
     Extension(service): Service,
     Extension(config): Config,
     query: ScopeInput,
@@ -423,8 +443,8 @@ async fn create_device(
 ) -> HttpResult<Json<Value>> {
     let (actor_id, owner, node) = scoped_context(&auth, &config, &service, query).await?;
     let body = body_value(body)?;
+    let store = observed_store(&manager, &service, owner, &node).await;
     let _mutation = service.lock_mutations().await;
-    let store = AssetsStore::new(service.db.clone());
     let result = store.create_device(actor_id, owner, &node, body).await.map_err(asset_error)?;
     Ok(Json(result))
 }
@@ -548,6 +568,7 @@ async fn preview_device_address(
 
 async fn list_devices(
     auth: AuthSession,
+    State(manager): State<AppStateInner>,
     Extension(service): Service,
     Extension(config): Config,
     query: Result<Query<DevicesQuery>, QueryRejection>,
@@ -564,7 +585,7 @@ async fn list_devices(
         keyword: query.keyword,
         locate_id: query.locate_id,
     };
-    let store = AssetsStore::new(service.db.clone());
+    let store = observed_store(&manager, &service, owner, &node).await;
     let result = store.list_devices(owner, &node, filter).await.map_err(asset_error)?;
     Ok(Json(result))
 }
@@ -654,25 +675,122 @@ async fn delete_type(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn list_network_instances(
+    auth: AuthSession,
+    State(manager): State<AppStateInner>,
+    Extension(service): Service,
+    Extension(config): Config,
+    query: Result<Query<InstancesQuery>, QueryRejection>,
+) -> HttpResult<Json<Value>> {
+    let Query(query) = query.map_err(query_error)?;
+    authorize(&auth, &config, &service, query.owner_user_id).await?;
+    let node = machine_id(&query.machine_id)?;
+    let store = observed_store(&manager, &service, query.owner_user_id, &node).await;
+    Ok(Json(store.list_instance_candidates(query.owner_user_id, &node, &query.role,
+        query.subject_kind.as_deref(), query.subject_id.as_deref()).await.map_err(asset_error)?))
+}
+
+async fn preview_instance_address(
+    auth: AuthSession,
+    State(manager): State<AppStateInner>,
+    Extension(service): Service,
+    Extension(config): Config,
+    query: ScopeInput,
+    body: Body,
+) -> HttpResult<Json<Value>> {
+    let (_, owner, node) = scoped_context(&auth, &config, &service, query).await?;
+    let body = body_value(body)?;
+    let store = observed_store(&manager, &service, owner, &node).await;
+    Ok(Json(store.preview_instance_address(owner, &node, body).await.map_err(asset_error)?))
+}
+
+async fn preview_binding(
+    auth: AuthSession,
+    State(manager): State<AppStateInner>,
+    Extension(service): Service,
+    Extension(config): Config,
+    query: ScopeInput,
+    body: Body,
+) -> HttpResult<Json<Value>> {
+    let (_, owner, node) = scoped_context(&auth, &config, &service, query).await?;
+    let body = body_value(body)?;
+    let store = observed_store(&manager, &service, owner, &node).await;
+    Ok(Json(store.preview_binding(owner, &node, body).await.map_err(asset_error)?))
+}
+
+async fn apply_gateway_binding(
+    auth: AuthSession,
+    State(manager): State<AppStateInner>,
+    Extension(service): Service,
+    Extension(config): Config,
+    Path(id): Path<String>,
+    query: ScopeInput,
+    body: Body,
+) -> HttpResult<Json<Value>> {
+    let (actor, owner, node) = scoped_context(&auth, &config, &service, query).await?;
+    let body = body_value(body)?;
+    let store = observed_store(&manager, &service, owner, &node).await;
+    let _mutation = service.lock_mutations().await;
+    Ok(Json(store.apply_binding(actor, owner, &node, "gateway", &id, body).await.map_err(asset_error)?))
+}
+
+async fn apply_device_binding(
+    auth: AuthSession,
+    State(manager): State<AppStateInner>,
+    Extension(service): Service,
+    Extension(config): Config,
+    Path(id): Path<String>,
+    query: ScopeInput,
+    body: Body,
+) -> HttpResult<Json<Value>> {
+    let (actor, owner, node) = scoped_context(&auth, &config, &service, query).await?;
+    let body = body_value(body)?;
+    let store = observed_store(&manager, &service, owner, &node).await;
+    let _mutation = service.lock_mutations().await;
+    Ok(Json(store.apply_binding(actor, owner, &node, "device", &id, body).await.map_err(asset_error)?))
+}
+
+async fn apply_device_address(
+    auth: AuthSession,
+    State(manager): State<AppStateInner>,
+    Extension(service): Service,
+    Extension(config): Config,
+    Path(id): Path<String>,
+    query: ScopeInput,
+    body: Body,
+) -> HttpResult<Json<Value>> {
+    let (actor, owner, node) = scoped_context(&auth, &config, &service, query).await?;
+    let body = body_value(body)?;
+    let store = observed_store(&manager, &service, owner, &node).await;
+    let _mutation = service.lock_mutations().await;
+    Ok(Json(store.apply_address(actor, owner, &node, &id, body).await.map_err(asset_error)?))
+}
+
 pub(crate) fn router() -> Router<AppStateInner> {
     Router::new()
         .route("/api/v1/assets/context", get(context))
         .route("/api/v1/assets/accounts", get(accounts))
         .route("/api/v1/assets/nodes", get(nodes))
         .route("/api/v1/assets/device-counts", get(device_counts))
+        .route("/api/v1/assets/network-instances", get(list_network_instances))
         .route("/api/v1/assets/nodes/{machine_id}/metadata", patch(update_node))
         .route("/api/v1/assets/nodes/{machine_id}", delete(delete_node))
         .route("/api/v1/assets/gateway-groups", get(list_groups).post(create_group))
         .route("/api/v1/assets/gateway-groups/{id}", put(update_group).delete(delete_group))
+        .route("/api/v1/assets/gateway-groups/{id}/binding", put(apply_gateway_binding))
         .route("/api/v1/assets/device-types/initialize", post(initialize_types))
         .route("/api/v1/assets/device-types", get(list_types).post(create_type))
         .route("/api/v1/assets/device-types/{id}", put(update_type).delete(delete_type))
         .route("/api/v1/assets/devices", get(list_devices).post(create_device))
         .route("/api/v1/assets/devices/{id}", get(get_device).put(update_device).delete(delete_device))
+        .route("/api/v1/assets/devices/{id}/binding", put(apply_device_binding))
+        .route("/api/v1/assets/devices/{id}/address", put(apply_device_address))
         .route("/api/v1/assets/devices/{id}/services", get(list_services).post(create_service))
         .route("/api/v1/assets/services/{id}", put(update_service).delete(delete_service))
         .route("/api/v1/assets/validation/gateway-subnets", post(preview_subnets))
         .route("/api/v1/assets/validation/device-address", post(preview_device_address))
+        .route("/api/v1/assets/validation/instance-address", post(preview_instance_address))
+        .route("/api/v1/assets/validation/binding", post(preview_binding))
 }
 
 #[cfg(test)]

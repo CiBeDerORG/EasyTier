@@ -14,7 +14,7 @@ const props = defineProps<{
     device: AssetDevice;
     service?: AssetService | null;
 }>();
-const emit = defineEmits<{ close: []; saved: [service: AssetService] }>();
+const emit = defineEmits<{ close: []; saved: [service: AssetService]; 'context-error': [error: unknown] }>();
 const { t } = useI18n();
 const attempt = useAssetMutation<AssetServiceInput, AssetService>();
 const editing = computed(() => !!props.service);
@@ -118,6 +118,7 @@ async function save() {
         emit('saved', result);
     } catch (error: unknown) {
         if (current !== revision || !props.visible) return;
+        emit('context-error', error);
         fieldErrors.value = getAssetError(error).field_errors;
         saveError.value = formatAssetError(error, t('assets.services.saveFailed'), key => t(key));
     } finally {

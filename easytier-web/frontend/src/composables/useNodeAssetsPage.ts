@@ -1,6 +1,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ApiClient from '../modules/api';
+import { getAssetError } from './useAssetMutation';
 import type { AssetAccount, AssetContextResponse, AssetDevice, AssetDeviceFilters, AssetNode, AssetScope, DeviceType, GatewayGroup } from '../types/node-assets';
 
 const blankFilters = (): AssetDeviceFilters => ({ group_id: null, type_id: null, keyword: '' });
@@ -45,6 +46,7 @@ export function useNodeAssetsPage(api: ApiClient) {
     let refreshRequest = 0;
     let retryTarget: RetryTarget | null = null;
     let processedRoute = '';
+    let contextRecovery: Promise<void> | null = null;
     const routeKey = () => JSON.stringify([route.query.owner ?? null, route.query.node ?? null]);
     const storageKey = () => `easytier.assets.last-node.${context.value?.actor.id}`;
 
@@ -71,6 +73,73 @@ export function useNodeAssetsPage(api: ApiClient) {
         nodeId.value = null; ownerId.value = null; invalidNode.value = false;
         loading.value = false; listError.value = false; hasLoadedDevices.value = false;
         clearError();
+    }
+
+    async function replaceContextRoute(owner: number | null) {
+        const query = owner === null ? {} : { owner: String(owner) };
+        processedRoute = JSON.stringify([owner === null ? null : String(owner), null]);
+        if (routeKey() !== processedRoute) await router.replace({ name: 'nodeAssets', query });
+    }
+
+    /** Only confirmed loss of access clears data. A resource 404 may concern a
+     * device/type/instance rather than the node, so verify the node first. */
+    async function handleContextFailure(cause: unknown): Promise<boolean> {
+        const detail = getAssetError(cause);
+        if (![401, 403, 404].includes(detail.status ?? 0)) return false;
+        if (contextRecovery) { await contextRecovery; return true; }
+        const generation = contextVersion.value;
+        const owner = ownerId.value;
+        const node = nodeId.value;
+        const isScopeMissing = (code: string) => code === 'asset_owner_not_found' || code === 'asset_node_not_found';
+        if (detail.status === 404 && !isScopeMissing(detail.code)) {
+            if (owner === null || !node) return false;
+            try {
+                const result = await api.assetsNodes(owner);
+                if (disposed || generation !== contextVersion.value) return true;
+                if (result.items.some(item => item.machine_id === node)) return false;
+            } catch (probeCause) {
+                if (disposed || generation !== contextVersion.value) return true;
+                const probe = getAssetError(probeCause);
+                if (probe.status !== 401 && probe.status !== 403 && !isScopeMissing(probe.code)) return false;
+            }
+        }
+        if (disposed || generation !== contextVersion.value) return true;
+        clearRemembered();
+        const recoveryGeneration = ++contextVersion.value;
+        resetPageState();
+        context.value = null; accounts.value = []; invalidNode.value = true; booting.value = true;
+        contextRecovery = (async () => {
+            try {
+                // Clear the invalid deep link before retrying authentication.
+                await replaceContextRoute(null);
+                const fresh = await api.assetsContext();
+                if (disposed || recoveryGeneration !== contextVersion.value) return;
+                const allowed = fresh.available
+                    ? fresh.can_manage_others ? (await api.assetsAccounts()).items : [fresh.actor]
+                    : [];
+                if (disposed || recoveryGeneration !== contextVersion.value) return;
+                context.value = fresh; accounts.value = allowed;
+                if (!fresh.available) return;
+                const allowedOwner = allowed.some(account => account.id === owner) ? owner
+                    : fresh.can_manage_others ? null : fresh.actor.id;
+                ownerId.value = allowedOwner;
+                await replaceContextRoute(allowedOwner);
+                if (disposed || recoveryGeneration !== contextVersion.value || allowedOwner === null) return;
+                const [nodeResult, typeResult] = await Promise.all([
+                    api.assetsNodes(allowedOwner), api.assetsTypes(allowedOwner),
+                ]);
+                if (disposed || recoveryGeneration !== contextVersion.value) return;
+                nodes.value = nodeResult.items; types.value = typeResult.items;
+            } catch (recoveryCause) {
+                if (!disposed && recoveryGeneration === contextVersion.value) {
+                    reportError(recoveryCause, { kind: 'initialize' });
+                }
+            } finally {
+                if (!disposed && recoveryGeneration === contextVersion.value) booting.value = false;
+            }
+        })();
+        try { await contextRecovery; } finally { contextRecovery = null; }
+        return true;
     }
 
     async function loadDevices(targetPage = page.value, locateId?: string) {
@@ -105,6 +174,8 @@ export function useNodeAssetsPage(api: ApiClient) {
             }
         } catch (cause) {
             if (!disposed && generation === contextVersion.value && request === listRequest) {
+                if (await handleContextFailure(cause)) return;
+                if (disposed || generation !== contextVersion.value || request !== listRequest) return;
                 // Keep the last successful snapshot; a failed query is not an empty result.
                 listError.value = true;
                 reportError(cause, { kind: 'devices', page: targetPage, locateId });
@@ -139,12 +210,14 @@ export function useNodeAssetsPage(api: ApiClient) {
             if (targetOwner === null) return;
             if (!Number.isSafeInteger(targetOwner) || !accounts.value.some(account => account.id === targetOwner)) {
                 invalidNode.value = true;
-                if (memory) clearRemembered();
-                if (activeContext.can_manage_others) return;
+                clearRemembered();
+                if (activeContext.can_manage_others) { await replaceContextRoute(null); return; }
                 // A stale or unauthorized deep link must still allow selecting
                 // one of the signed-in user's own nodes.
                 targetOwner = activeContext.actor.id;
                 targetNode = null;
+                await replaceContextRoute(targetOwner);
+                if (disposed || generation !== contextVersion.value) return;
             }
             ownerId.value = targetOwner;
             const [nodeResult, typeResult] = await Promise.all([
@@ -156,7 +229,8 @@ export function useNodeAssetsPage(api: ApiClient) {
             if (!targetNode) return;
             if (!nodes.value.some(node => node.machine_id === targetNode)) {
                 invalidNode.value = true;
-                if (memory) clearRemembered();
+                clearRemembered();
+                await replaceContextRoute(targetOwner);
                 return;
             }
             nodeId.value = targetNode;
@@ -171,7 +245,8 @@ export function useNodeAssetsPage(api: ApiClient) {
             if (routeKey() !== processedRoute) await router.replace({ name: 'nodeAssets', query });
             if (!disposed && generation === contextVersion.value) await loadDevices(1);
         } catch (cause) {
-            if (!disposed && generation === contextVersion.value) reportError(cause, { kind: 'route', useMemory });
+            if (!disposed && generation === contextVersion.value && !await handleContextFailure(cause)
+                && !disposed && generation === contextVersion.value) reportError(cause, { kind: 'route', useMemory });
         } finally {
             if (!disposed && generation === contextVersion.value) booting.value = false;
         }
@@ -221,9 +296,16 @@ export function useNodeAssetsPage(api: ApiClient) {
         const request = ++nodesRequest;
         try {
             const result = await api.assetsNodes(owner);
-            if (!disposed && generation === contextVersion.value && request === nodesRequest) nodes.value = result.items;
+            if (!disposed && generation === contextVersion.value && request === nodesRequest) {
+                if (nodeId.value && !result.items.some(node => node.machine_id === nodeId.value)) {
+                    await handleContextFailure({ status: 404, code: 'asset_node_not_found' });
+                    return;
+                }
+                nodes.value = result.items;
+            }
         } catch (cause) {
-            if (!disposed && generation === contextVersion.value && request === nodesRequest) throw cause;
+            if (!disposed && generation === contextVersion.value && request === nodesRequest
+                && !await handleContextFailure(cause) && generation === contextVersion.value) throw cause;
         }
     }
     async function refreshCatalogs() {
@@ -241,6 +323,8 @@ export function useNodeAssetsPage(api: ApiClient) {
             await loadDevices();
         } catch (cause) {
             if (!disposed && generation === contextVersion.value && request === catalogRequest) {
+                if (await handleContextFailure(cause)) return;
+                if (disposed || generation !== contextVersion.value || request !== catalogRequest) return;
                 reportError(cause, { kind: 'catalogs' });
             }
         }
@@ -290,5 +374,5 @@ export function useNodeAssetsPage(api: ApiClient) {
     return { context, accounts, ownerId, nodeId, ownerName, nodes, selectedNode, groups, types, rows,
         total, page, pageSize, expandedIds, draft, applied, contextVersion, booting, loading, error, listError, hasLoadedDevices,
         invalidNode, scope, initialize, selectOwner, selectNode, query, loadDevices, refreshCatalogs,
-        refreshNodes, refreshPage, retry, afterDeviceSaved, afterDeviceDeleted, expand };
+        refreshNodes, refreshPage, retry, afterDeviceSaved, afterDeviceDeleted, expand, handleContextFailure };
 }

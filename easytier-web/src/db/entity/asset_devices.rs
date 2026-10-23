@@ -26,6 +26,20 @@ pub struct Model {
     pub is_gateway_self: bool,
     #[sea_orm(column_type = "Text", nullable)]
     pub remarks: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub network_instance_id: Option<String>,
+    pub config_record_id: Option<i32>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub config_create_time: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub config_fingerprint: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub binding_snapshot_json: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    pub address_mode: String,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub rule_key: Option<String>,
+    pub host_offset: Option<i64>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

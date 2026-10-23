@@ -2,11 +2,13 @@ import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestCo
 import { type Api, NetworkTypes, Utils } from 'easytier-frontend-lib';
 import { Md5 } from 'ts-md5';
 import type {
-    AssetAccount, AssetContextResponse, AssetDevice, AssetDeviceCount, AssetDeviceInput,
-    AssetDeviceQuery, AssetListResponse, AssetNode, AssetNodeUpdate, AssetPreview,
-    AssetScope, AssetService, AssetServiceInput, CreateAssetRequest, DeviceAddressPreviewInput,
-    DeviceType, DeviceTypeInput, GatewayGroup, GatewayGroupInput, GatewaySubnetsPreviewInput,
-    PagedDevices,
+    AddressPreviewInput, ApplyAddressInput, ApplyBindingInput, AssetAccount, AssetContextResponse,
+    AssetDevice, AssetDeviceCount, AssetDeviceQuery, AssetDeviceUpdateInput, AssetListResponse,
+    AssetNode, AssetNodeUpdate, AssetPreview, AssetScope, AssetService, AssetServiceInput,
+    BindingPreviewInput, CandidateQuery, CreateAssetRequest, DeviceAddressPreviewInput,
+    DeviceCreateInput, DeviceType, DeviceTypeInput, GatewayCreateInput, GatewayGroup,
+    GatewayGroupUpdateInput, GatewaySubnetsPreviewInput, InstanceCandidate, InstancePreview,
+    PagedDevices, Subject,
 } from '../types/node-assets';
 
 export interface ValidateConfigResponse {
@@ -300,11 +302,11 @@ export class ApiClient {
         return this.client.get<unknown, AssetListResponse<GatewayGroup>>('/assets/gateway-groups', { params: scope });
     }
 
-    public async assetsCreateGroup(scope: AssetScope, input: CreateAssetRequest<GatewayGroupInput>): Promise<GatewayGroup> {
+    public async assetsCreateGroup(scope: AssetScope, input: GatewayCreateInput): Promise<GatewayGroup> {
         return this.client.post<unknown, GatewayGroup>('/assets/gateway-groups', input, { params: scope });
     }
 
-    public async assetsUpdateGroup(scope: AssetScope, id: string, input: GatewayGroupInput): Promise<GatewayGroup> {
+    public async assetsUpdateGroup(scope: AssetScope, id: string, input: GatewayGroupUpdateInput): Promise<GatewayGroup> {
         return this.client.put<unknown, GatewayGroup>(`/assets/gateway-groups/${encodeURIComponent(id)}`, input, { params: scope });
     }
 
@@ -351,11 +353,11 @@ export class ApiClient {
         return this.client.get<unknown, AssetDevice>(`/assets/devices/${encodeURIComponent(id)}`, { params: scope });
     }
 
-    public async assetsCreateDevice(scope: AssetScope, input: CreateAssetRequest<AssetDeviceInput>): Promise<AssetDevice> {
+    public async assetsCreateDevice(scope: AssetScope, input: DeviceCreateInput): Promise<AssetDevice> {
         return this.client.post<unknown, AssetDevice>('/assets/devices', input, { params: scope });
     }
 
-    public async assetsUpdateDevice(scope: AssetScope, id: string, input: AssetDeviceInput): Promise<AssetDevice> {
+    public async assetsUpdateDevice(scope: AssetScope, id: string, input: AssetDeviceUpdateInput): Promise<AssetDevice> {
         return this.client.put<unknown, AssetDevice>(`/assets/devices/${encodeURIComponent(id)}`, input, { params: scope });
     }
 
@@ -389,6 +391,44 @@ export class ApiClient {
 
     public async assetsPreviewDeviceAddress(scope: AssetScope, input: DeviceAddressPreviewInput): Promise<AssetPreview> {
         return this.client.post<unknown, AssetPreview>('/assets/validation/device-address', input, { params: scope });
+    }
+
+    public async listAssetNetworkInstances(scope: AssetScope, query: CandidateQuery): Promise<AssetListResponse<InstanceCandidate>> {
+        return this.client.get<unknown, AssetListResponse<InstanceCandidate>>('/assets/network-instances', {
+            params: { ...query, ...scope },
+        });
+    }
+
+    public async previewAssetAddress(scope: AssetScope, input: AddressPreviewInput): Promise<InstancePreview> {
+        return this.client.post<unknown, InstancePreview>('/assets/validation/instance-address', input, { params: scope });
+    }
+
+    public async previewAssetBinding(scope: AssetScope, input: BindingPreviewInput): Promise<InstancePreview> {
+        return this.client.post<unknown, InstancePreview>('/assets/validation/binding', input, { params: scope });
+    }
+
+    public applyAssetBinding(
+        scope: AssetScope, subject: { resource_kind: 'gateway'; id: string }, input: ApplyBindingInput,
+    ): Promise<GatewayGroup>;
+    public applyAssetBinding(
+        scope: AssetScope, subject: { resource_kind: 'device'; id: string }, input: ApplyBindingInput,
+    ): Promise<AssetDevice>;
+    public applyAssetBinding(
+        scope: AssetScope, subject: Subject & { id: string }, input: ApplyBindingInput,
+    ): Promise<GatewayGroup | AssetDevice>;
+    public async applyAssetBinding(
+        scope: AssetScope, subject: Subject & { id: string }, input: ApplyBindingInput,
+    ): Promise<GatewayGroup | AssetDevice> {
+        const collection = subject.resource_kind === 'gateway' ? 'gateway-groups' : 'devices';
+        return this.client.put<unknown, GatewayGroup | AssetDevice>(
+            `/assets/${collection}/${encodeURIComponent(subject.id)}/binding`, input, { params: scope },
+        );
+    }
+
+    public async updateAssetAddress(scope: AssetScope, id: string, input: ApplyAddressInput): Promise<AssetDevice> {
+        return this.client.put<unknown, AssetDevice>(
+            `/assets/devices/${encodeURIComponent(id)}/address`, input, { params: scope },
+        );
     }
 
     // 注册

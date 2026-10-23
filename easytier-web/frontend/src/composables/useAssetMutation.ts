@@ -1,10 +1,10 @@
 import axios from 'axios';
 import { ref, shallowRef } from 'vue';
 import { v4 as uuidV4 } from 'uuid';
-import type { AssetError, CreateAssetRequest } from '../types/node-assets';
+import type { AssetError, AssetMutationRequest } from '../types/node-assets';
 
 type AssetErrorTranslator = (key: string) => string;
-type SendCreate<Payload extends object, Result> = (request: CreateAssetRequest<Payload>) => Promise<Result>;
+type SendMutation<Payload extends object, Result> = (request: AssetMutationRequest<Payload>) => Promise<Result>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -90,8 +90,10 @@ interface Attempt {
 }
 
 /**
- * One create form owns one attempt. Keep fields disabled while uncertain and
+ * One create, binding, or address form owns one attempt. Keep fields disabled while uncertain and
  * call run again with the same payload, or retry with the same typed sender.
+ * A retry retains preview_version too; never fetch a replacement preview in the sender.
+ * Include account, node, subject, and operation in contextKey when applicable.
  * reset() is for closing/starting a form or changing its account/node context;
  * it prevents late responses from updating this helper's new state.
  */
@@ -112,7 +114,7 @@ export function useAssetMutation<DefaultPayload extends object = object, Default
 
     const run = async <Payload extends DefaultPayload, Result = DefaultResult>(
         payload: Payload,
-        send: SendCreate<Payload, Result>,
+        send: SendMutation<Payload, Result>,
         contextKey = '',
     ): Promise<Result> => {
         if (pending.value) {
@@ -158,7 +160,7 @@ export function useAssetMutation<DefaultPayload extends object = object, Default
     };
 
     const retry = async <Payload extends DefaultPayload = DefaultPayload, Result = DefaultResult>(
-        send: SendCreate<Payload, Result>,
+        send: SendMutation<Payload, Result>,
         contextKey = '',
     ): Promise<Result> => {
         if (!attempt || !uncertain.value) {

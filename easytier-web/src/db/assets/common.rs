@@ -130,25 +130,36 @@ pub(super) async fn group_warnings(connection: &mut SqliteConnection, owner: i32
     Ok(warnings)
 }
 
-pub(super) async fn group_json(connection: &mut SqliteConnection, row: &SqliteRow) -> AssetResult<Value> {
+pub(super) async fn group_json(connection: &mut SqliteConnection, row: &SqliteRow, runtime: &super::instances::RuntimeObservations) -> AssetResult<Value> {
     let id: String = row.try_get("id")?;
     let owner: i32 = row.try_get("owner_user_id")?;
     let node: String = row.try_get("machine_id")?;
     let subnets = group_subnets(connection, owner, &node, &id).await?;
     let warnings = group_warnings(connection, owner, &node, &id, &subnets).await?;
+    let binding = super::binding_ops::binding_info(connection, row, "gateway", runtime).await?;
     Ok(json!({"id":id, "owner_user_id":owner, "machine_id":node,
         "name":row.try_get::<String,_>("name")?, "remarks":row.try_get::<Option<String>,_>("remarks")?,
-        "subnets":subnets, "warnings":warnings,
+        "subnets":subnets, "warnings":warnings,"overlay_ip":binding["snapshot"]["ipv4"],"binding":binding,
         "created_at":row.try_get::<String,_>("created_at")?, "updated_at":row.try_get::<String,_>("updated_at")?}))
 }
 
-pub(super) async fn device_json(connection: &mut SqliteConnection, row: &SqliteRow) -> AssetResult<Value> {
+pub(super) async fn device_json(connection: &mut SqliteConnection, row: &SqliteRow, runtime: &super::instances::RuntimeObservations) -> AssetResult<Value> {
     let id: String = row.try_get("id")?;
     let owner: i32 = row.try_get("owner_user_id")?;
     let node: String = row.try_get("machine_id")?;
     let name: String = row.try_get("name")?;
     let group: Option<String> = row.try_get("gateway_group_id")?;
     let lan: Option<String> = row.try_get("lan_ip")?;
+    let mode: String = row.try_get("address_mode")?;
+    let instance: Option<String> = row.try_get("network_instance_id")?;
+    let rule: Option<String> = row.try_get("rule_key")?;
+    let host: Option<i64> = row.try_get("host_offset")?;
+    let binding = super::binding_ops::binding_info(connection, row, "device", runtime).await?;
+    let address_spec = match mode.as_str() {
+        "direct_instance" => json!({"mode":mode,"instance_id":instance,"lan_ip":lan}),
+        "gateway_rule" | "gateway_self" => json!({"mode":mode,"gateway_group_id":group,"rule_key":rule,"host_offset":host}),
+        _ => Value::Null,
+    };
     let mut warnings = Vec::new();
     if let (Some(group_id), Some(lan_ip)) = (group.as_ref(), lan.as_ref()) {
         let subnets = group_subnets(connection, owner, &node, group_id).await?;
@@ -161,6 +172,7 @@ pub(super) async fn device_json(connection: &mut SqliteConnection, row: &SqliteR
         "model":row.try_get::<Option<String>,_>("model")?,"overlay_ip":row.try_get::<String,_>("overlay_ip")?,
         "lan_ip":lan,"is_gateway_self":row.try_get::<bool,_>("is_gateway_self")?,
         "remarks":row.try_get::<Option<String>,_>("remarks")?,"warnings":warnings,
+        "address_mode":mode,"rule_key":rule,"host_offset":host,"network_instance_id":instance,"binding":binding,"address_spec":address_spec,
         "created_at":row.try_get::<String,_>("created_at")?,"updated_at":row.try_get::<String,_>("updated_at")?}))
 }
 

@@ -42,6 +42,36 @@ pub(super) fn optional_id(body: &Value, field: &str) -> AssetResult<Option<Strin
     }).transpose()
 }
 
+pub(super) fn required_id(body: &Value, field: &str) -> AssetResult<String> {
+    optional_id(body, field)?.ok_or_else(|| AssetError::field(field, "Choose a valid identifier."))
+}
+
+pub(super) fn address_spec(body: &Value) -> AssetResult<Value> {
+    let mode = required_string(body, "mode", 32)?;
+    match mode.as_str() {
+        "direct_instance" => {
+            keys(body, &["mode", "instance_id", "lan_ip"])?;
+            let lan = optional_string(body, "lan_ip", 128)?.map(|text| text.parse::<Ipv4Addr>()
+                .map(|address| address.to_string()).map_err(|_| AssetError::field("lan_ip", "The new address flow accepts a plain IPv4 address."))).transpose()?;
+            Ok(json!({"mode":mode,"instance_id":required_id(body,"instance_id")?,"lan_ip":lan}))
+        }
+        "gateway_rule" | "gateway_self" => {
+            keys(body, &["mode", "gateway_group_id", "rule_key", "host_offset"])?;
+            let rule = optional_string(body, "rule_key", 256)?;
+            let host = match body.get("host_offset") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(value.as_u64().filter(|number| *number <= u32::MAX as u64)
+                    .ok_or_else(|| AssetError::field("host_offset", "Enter an integer IPv4 host offset."))?),
+            };
+            if (mode == "gateway_rule" && rule.is_none()) || rule.is_some() != host.is_some() {
+                return Err(AssetError::field("rule_key", "Select a gateway subnet rule and enter its host offset together."));
+            }
+            Ok(json!({"mode":mode,"gateway_group_id":required_id(body,"gateway_group_id")?,"rule_key":rule,"host_offset":host}))
+        }
+        _ => Err(AssetError::field("mode", "Choose an instance address or a gateway address rule.")),
+    }
+}
+
 pub(super) fn canonical_ip(input: &str, field: &str) -> AssetResult<String> {
     let address = input.parse::<IpAddr>().map_err(|_| AssetError::field(field, "Enter a plain IPv4 or IPv6 address without a port, URL, or subnet prefix."))?;
     Ok(match address {
@@ -102,11 +132,25 @@ pub(super) fn matches_subnets(address: &str, subnets: &[String]) -> bool {
 }
 
 pub(super) fn group_payload(body: &Value, creating: bool) -> AssetResult<Value> {
-    let mut allowed = vec!["name", "remarks", "subnets"];
-    if creating { allowed.push("request_id"); }
-    keys(body, &allowed)?;
-    Ok(json!({"name":required_string(body,"name",128)?,
-        "remarks":optional_string(body,"remarks",2000)?,"subnets":subnets(body)?}))
+    if creating {
+        keys(body, &["request_id", "name", "remarks", "binding", "preview_version"])?;
+        keys(&body["binding"], &["instance_id"])?;
+        Ok(json!({"name":required_string(body,"name",128)?,"remarks":optional_string(body,"remarks",2000)?,
+            "binding":{"instance_id":required_id(&body["binding"],"instance_id")?},
+            "preview_version":required_string(body,"preview_version",256)?}))
+    } else {
+        keys(body, &["name", "remarks", "subnets"])?;
+        let mut value = json!({"name":required_string(body,"name",128)?,"remarks":optional_string(body,"remarks",2000)?});
+        if body.get("subnets").is_some() { value["subnets"] = json!(subnets(body)?); }
+        Ok(value)
+    }
+}
+
+pub(super) fn device_create_payload(body: &Value) -> AssetResult<Value> {
+    keys(body, &["request_id", "name", "model", "remarks", "device_type_id", "address_spec", "preview_version"])?;
+    Ok(json!({"name":required_string(body,"name",128)?,"model":optional_string(body,"model",128)?,
+        "remarks":optional_string(body,"remarks",2000)?,"device_type_id":optional_id(body,"device_type_id")?,
+        "address_spec":address_spec(&body["address_spec"])?,"preview_version":required_string(body,"preview_version",256)?}))
 }
 
 pub(super) fn type_payload(body: &Value, creating: bool) -> AssetResult<Value> {

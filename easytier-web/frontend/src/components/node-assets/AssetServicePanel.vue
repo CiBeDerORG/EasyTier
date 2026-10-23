@@ -14,7 +14,7 @@ const props = withDefaults(defineProps<{
     device: AssetDevice;
     addRequest?: number;
 }>(), { addRequest: 0 });
-const emit = defineEmits<{ changed: []; 'add-request-consumed': [] }>();
+const emit = defineEmits<{ changed: []; 'add-request-consumed': []; 'context-error': [error: unknown] }>();
 const { t } = useI18n();
 const rows = ref<AssetService[]>([]);
 const loading = ref(false);
@@ -54,11 +54,12 @@ async function loadServices() {
     } catch (error: unknown) {
         if (currentContext !== contextEpoch || currentLoad !== loadEpoch) return;
         const status = getAssetError(error).status;
-        if (status === 403 || status === 404) {
+        if (status === 401 || status === 403 || status === 404) {
             rows.value = [];
             unavailable.value = true;
             editorVisible.value = false;
             deleteTarget.value = null;
+            emit('context-error', error);
         }
         loadError.value = formatAssetError(error, t('assets.services.loadFailed'), key => t(key));
     } finally {
@@ -132,6 +133,7 @@ async function confirmDelete() {
         await loadServices();
     } catch (error: unknown) {
         if (currentContext !== contextEpoch) return;
+        emit('context-error', error);
         if (getAssetError(error).status === 404) {
             deleteTarget.value = null;
             feedback.value = t('assets.services.alreadyRemoved');
@@ -211,7 +213,8 @@ function safeAccessUrl(value: string | null): string | null {
             </table>
         </div>
         <AssetServiceDialog v-if="editorVisible" :visible="true" :api="api" :scope="scope" :device="device"
-            :service="editingService" @close="editorVisible = false" @saved="saved" />
+            :service="editingService" @close="editorVisible = false" @saved="saved"
+            @context-error="emit('context-error', $event)" />
         <Dialog :visible="!!deleteTarget" modal :header="t('assets.services.deleteTitle')"
             :style="{ width: '28rem', maxWidth: 'calc(100vw - 2rem)' }" :closable="!deleting"
             :closeOnEscape="!deleting" :dismissableMask="false"

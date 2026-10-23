@@ -9,20 +9,22 @@ import { chromium } from 'playwright';
  * Real-server browser verification. This script neither builds nor starts servers,
  * seeds a database, mocks HTTP responses, or uses the existing deployment's login.
  * Run against a disposable database that already has an administrator, another
- * account, and registered (including offline) nodes:
+ * account, and registered (including offline) nodes with saved ordinary and gateway network instances:
  *
  * NODE_ASSETS_E2E_FIXTURE_FILE=/absolute/path/fixture.json \
  *   node --test tests/node-assets-e2e.test.mjs
  *
  * Fixture: { baseURL, admin: { username, password }, owner: { id, username, password },
  *   node: { machine_id, label }, offlineNode: { machine_id, label }, screenshotsDir? }
- * All values may instead be provided through the NODE_ASSETS_E2E_* variables below.
+ * The fixture must declare isolated: true. Individual values can be overridden
+ * through the NODE_ASSETS_E2E_* variables below.
  * The fixture is read only when its explicit path is supplied; never print it.
  */
 async function configuration() {
     const env = process.env;
     const fixture = env.NODE_ASSETS_E2E_FIXTURE_FILE
         ? JSON.parse(await readFile(env.NODE_ASSETS_E2E_FIXTURE_FILE, 'utf8')) : {};
+    assert.equal(fixture.isolated, true, 'Only an explicitly isolated test fixture may be used.');
     const config = {
         baseURL: env.NODE_ASSETS_E2E_BASE_URL || fixture.baseURL,
         admin: {
@@ -42,6 +44,8 @@ async function configuration() {
             machine_id: env.NODE_ASSETS_E2E_OFFLINE_NODE_ID || fixture.offlineNode?.machine_id,
             label: env.NODE_ASSETS_E2E_OFFLINE_NODE_LABEL || fixture.offlineNode?.label,
         },
+        instances: fixture.instances,
+        legacy: fixture.legacy,
         screenshotsDir: resolve(env.NODE_ASSETS_E2E_SCREENSHOTS_DIR
             || fixture.screenshotsDir || '.node-assets-e2e-artifacts'),
     };
@@ -52,7 +56,7 @@ async function configuration() {
     assert.ok(config.offlineNode.machine_id, 'Provide an offline registered node for offline management coverage.');
     assert.ok(config.owner.password, 'Provide the temporary owner password to independently confirm the node is offline.');
     const url = new URL(config.baseURL);
-    assert.ok(['http:', 'https:'].includes(url.protocol), 'The test server URL must use HTTP or HTTPS.');
+    assert.equal(url.hostname, '127.0.0.1', 'This mutating suite is limited to the isolated local test server.');
     assert.ok(!url.username && !url.password, 'Use the explicit administrator fields, not credentials embedded in the URL.');
     return config;
 }
@@ -120,6 +124,17 @@ async function login(page, config, account = config.admin) {
     await page.locator('.console-page').waitFor();
 }
 
+const escaped = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const namedId = record => new RegExp(`^${escaped(record.name)} · ${record.id.slice(0, 8)}(?: · |$)`);
+async function chooseInstance(page, dialog, config, role, node = config.node, instanceId) {
+    const url = new URL(`${assetPath}/network-instances`, config.baseURL);
+    for (const [key, value] of Object.entries({ ...scopeParams(config, node), role })) url.searchParams.set(key, value);
+    const candidates = await jsonResponse(await page.context().request.get(url.href));
+    const candidate = candidates.items.find(item => item.selectable && (!instanceId || item.instance_id === instanceId));
+    assert.ok(candidate, `A selectable ${role} persisted instance is required on the isolated node.`);
+    await dialog.getByRole('radio').filter({ hasText: candidate.instance_id.slice(0, 8) }).click();
+    return candidate;
+}
 async function createDevice(page, config, input, tracked, node = config.node) {
     await page.getByRole('button', { name: 'Add device', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Add device', exact: true });
@@ -127,17 +142,32 @@ async function createDevice(page, config, input, tracked, node = config.node) {
         'New devices must default to direct ownership even when a group filter is selected.');
     await dialog.locator('#asset-device-name').fill(input.name);
     await dialog.locator('#asset-device-model').fill(input.model || 'Pixel 测试型号');
-    if (input.type) await selectOption(page, dialog.locator('#asset-device-type'), input.type.name);
-    if (input.group) await selectOption(page, dialog.locator('#asset-device-group'), input.group.name);
-    await dialog.locator('#asset-device-overlay').fill(input.overlay_ip || '100.100.0.10');
-    if (input.lan_ip) await dialog.locator('#asset-device-lan').fill(input.lan_ip);
+    if (input.type) await selectOption(page, dialog.locator('#asset-device-type'), namedId(input.type));
+    let candidate;
+    if (input.group) {
+        await selectOption(page, dialog.locator('#asset-device-group'), namedId(input.group));
+        const rule = input.group.binding.snapshot.rules.find(rule => input.mapped ? !!rule.mapped_cidr : true);
+        assert.ok(rule, 'The selected gateway must have the requested rule.');
+        await selectOption(page, dialog.locator('#asset-address-rule'), rule.mapped_cidr ? `${rule.real_cidr} → ${rule.mapped_cidr}` : rule.real_cidr);
+        await dialog.locator('#asset-address-host').fill(String(input.hostOffset ?? 20));
+    } else {
+        candidate = await chooseInstance(page, dialog, config, 'ordinary', node, input.instance_id);
+        if (input.lan_ip) await dialog.locator('#asset-direct-lan').fill(input.lan_ip);
+    }
     if (input.remarks) await dialog.locator('#asset-device-remarks').fill(input.remarks);
+    const preview = await actionResponse(page, 'POST', '/validation/instance-address',
+        () => dialog.getByRole('button', { name: 'Preview changes', exact: true }).click());
+    assert.equal(preview.can_save, true);
     const created = await actionResponse(page, 'POST', '/devices',
-        () => dialog.getByRole('button', { name: 'Save', exact: true }).click());
+        () => dialog.getByRole('button', { name: 'Confirm and save', exact: true }).click());
     tracked.devices.push({ id: created.id, node });
     assert.equal(created.owner_user_id, config.owner.id, 'Administrator-created records belong to the selected owner.');
     assert.equal(created.machine_id, node.machine_id);
     assert.equal(created.gateway_group_id, input.group?.id ?? null);
+    assert.equal(created.address_mode, input.group ? 'gateway_rule' : 'direct_instance');
+    assert.equal(created.overlay_ip, preview.addresses.overlay_ip);
+    assert.equal(created.lan_ip, preview.addresses.lan_ip);
+    if (candidate) assert.equal(created.overlay_ip, candidate.ipv4);
     await dialog.waitFor({ state: 'hidden' });
     await ensureExpanded(page, created);
     return created;
@@ -162,7 +192,7 @@ async function createService(page, device, input) {
     return service;
 }
 
-test('real backend: node asset management, offline nodes, and Chinese responsive screenshots', { timeout: 240000 }, async t => {
+test('real backend: node asset management, offline nodes, and Chinese responsive screenshots', { timeout: 360000 }, async t => {
     const config = await configuration();
     await mkdir(config.screenshotsDir, { recursive: true });
     const suffix = randomUUID().slice(0, 8);
@@ -218,24 +248,49 @@ test('real backend: node asset management, offline nodes, and Chinese responsive
             assert.ok(page.url().includes(`node=${config.node.machine_id}`));
         });
 
-        await step('Gateway group supports manual IPv4/IPv6 subnet rows and editing', async () => {
+        await step('Gateway manager requires a persisted gateway instance and preserves metadata editing', async () => {
             await page.getByRole('button', { name: 'Manage gateway groups', exact: true }).click();
             const dialog = page.getByRole('dialog', { name: 'Manage gateway groups', exact: true });
             await dialog.getByRole('button', { name: 'Add gateway group', exact: true }).click();
-            await dialog.locator('#asset-group-name').fill(names.group);
-            await dialog.getByRole('textbox', { name: 'LAN subnet 1', exact: true }).fill('192.168.50.0/24');
-            await dialog.getByRole('button', { name: 'Add subnet', exact: true }).click();
-            await dialog.getByRole('textbox', { name: 'LAN subnet 2', exact: true }).fill('fd50::/64');
+            await dialog.locator('#gateway-editor-name').fill(names.group);
+            const candidate = await chooseInstance(page, dialog, config, 'gateway', config.node, config.instances?.node?.mapped?.instance_id);
+            const preview = await actionResponse(page, 'POST', '/validation/binding',
+                () => dialog.getByRole('button', { name: 'Preview changes', exact: true }).click());
+            assert.equal(preview.can_save, true);
             group = await actionResponse(page, 'POST', '/gateway-groups',
-                () => dialog.getByRole('button', { name: 'Save', exact: true }).click());
+                () => dialog.getByRole('button', { name: 'Confirm and save', exact: true }).click());
             tracked.groups.push(group.id);
-            assert.deepEqual(group.subnets, ['192.168.50.0/24', 'fd50::/64']);
+            assert.deepEqual(group.subnets.slice().sort(), [...new Set(candidate.rules.map(rule => rule.real_cidr))].sort());
+            assert.equal(group.overlay_ip, candidate.ipv4);
+            assert.equal(group.binding.state, 'current');
             await dialog.getByRole('button', { name: `Edit gateway group ${names.group}`, exact: true }).click();
-            await dialog.locator('#asset-group-remarks').fill('显式测试资料；网段由用户填写。');
+            await dialog.locator('#gateway-editor-remarks').fill('显式测试资料；网段来自已绑定实例。');
+            assert.equal(await dialog.getByRole('textbox', { name: 'LAN subnet 1', exact: true }).count(), 0,
+                'A bound gateway must not expose a manual subnet override.');
             group = await actionResponse(page, 'PUT', `/gateway-groups/${group.id}`,
                 () => dialog.getByRole('button', { name: 'Save', exact: true }).click());
-            assert.equal(group.remarks, '显式测试资料；网段由用户填写。');
+            assert.equal(group.remarks, '显式测试资料；网段来自已绑定实例。');
             await dialog.locator('.p-dialog-footer').getByRole('button', { name: 'Close', exact: true }).click();
+        });
+
+        await step('Add-device Gateway role creates a gateway and highlights it without counting it as an entity device', async () => {
+            const before = (await api(context, config, '/devices')).total;
+            await page.getByRole('button', { name: 'Add device', exact: true }).click();
+            const dialog = page.getByRole('dialog', { name: 'Add device', exact: true });
+            await dialog.getByRole('button', { name: 'Gateway', exact: true }).click();
+            await dialog.locator('#gateway-editor-name').fill(`普通代理网关-${suffix}`);
+            await chooseInstance(page, dialog, config, 'gateway', config.node, config.instances.node.proxy.instance_id);
+            const preview = await actionResponse(page, 'POST', '/validation/binding',
+                () => dialog.getByRole('button', { name: 'Preview changes', exact: true }).click());
+            assert.equal(preview.can_save, true);
+            const result = await actionResponse(page, 'POST', '/gateway-groups',
+                () => dialog.getByRole('button', { name: 'Confirm and save', exact: true }).click());
+            tracked.groups.push(result.id);
+            const manager = page.getByRole('dialog', { name: 'Manage gateway groups', exact: true });
+            await manager.locator('.group-item.highlighted').filter({ hasText: result.id.slice(0, 8) }).waitFor();
+            assert.equal((await api(context, config, '/devices')).total, before);
+            assert.equal(result.binding.snapshot.rules[0].mapped_cidr, null);
+            await manager.locator('.p-dialog-footer').getByRole('button', { name: 'Close', exact: true }).click();
         });
 
         await step('Custom device type can be created and renamed', async () => {
@@ -255,8 +310,8 @@ test('real backend: node asset management, offline nodes, and Chinese responsive
         });
 
         await step('Search is explicit; creating outside current filters resets them and expands the new direct device', async () => {
-            await selectOption(page, page.locator('#asset-group'), group.name);
-            await selectOption(page, page.locator('#asset-type'), type.name);
+            await selectOption(page, page.locator('#asset-group'), namedId(group));
+            await selectOption(page, page.locator('#asset-type'), namedId(type));
             await page.locator('#asset-keyword').fill(`cannot-match-${suffix}`);
             await actionResponse(page, 'GET', '/devices',
                 () => page.getByRole('button', { name: 'Search', exact: true }).click());
@@ -289,10 +344,13 @@ test('real backend: node asset management, offline nodes, and Chinese responsive
             await ensureExpanded(page, directDevice);
         });
 
-        await step('Grouped device accepts a subnet mismatch with visible warning; multiple service lists stay expanded', async () => {
+        await step('Grouped device derives mapped addresses from its rule; multiple service lists stay expanded', async () => {
             groupedDevice = await createDevice(page, config, { name: names.grouped, group, type,
-                model: 'NAS 测试型号', overlay_ip: 'fd80::20', lan_ip: '192.168.99.20' }, tracked);
-            await deviceRow(page, groupedDevice).getByText('Outside registered subnets', { exact: true }).waitFor();
+                model: 'NAS 测试型号', hostOffset: 20, mapped: true }, tracked);
+            assert.equal(groupedDevice.overlay_ip, '10.60.0.20');
+            assert.equal(groupedDevice.lan_ip, '192.168.60.20');
+            assert.equal(groupedDevice.binding.instance_id, group.binding.instance_id);
+            assert.equal(groupedDevice.warnings.length, 0);
             await ensureExpanded(page, directDevice);
             await servicesPanel(page, groupedDevice.name).waitFor();
             await servicesPanel(page, directDevice.name).waitFor();
@@ -385,6 +443,35 @@ test('real backend: node asset management, offline nodes, and Chinese responsive
                 const desktopWidth = await visual.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth }));
                 if (desktopWidth.document > desktopWidth.viewport + 1) report.layoutIssues.push(
                     `Desktop document overflows horizontally (${desktopWidth.document}px / ${desktopWidth.viewport}px); tables must scroll internally.`);
+                const screenshot = async filename => {
+                    const path = resolve(config.screenshotsDir, filename);
+                    await visual.screenshot({ path, fullPage: false, animations: 'disabled' });
+                    report.screenshots.push(path);
+                };
+                await visual.getByRole('button', { name: '管理网关组', exact: true }).click();
+                let manager = visual.getByRole('dialog', { name: '管理网关组', exact: true });
+                await manager.locator('.group-item').first().waitFor();
+                await screenshot('node-binding-gateway-manager-cn.png');
+                await manager.getByRole('button', { name: '新增网关组', exact: true }).click();
+                await manager.getByRole('radio').first().waitFor();
+                await screenshot('node-binding-add-gateway-cn.png');
+                await manager.locator('.p-dialog-footer').getByRole('button', { name: '关闭', exact: true }).click();
+                await visual.getByRole('button', { name: '管理设备类型', exact: true }).click();
+                manager = visual.getByRole('dialog', { name: '管理设备类型', exact: true });
+                await manager.getByText(type.name, { exact: true }).waitFor();
+                await screenshot('node-binding-type-manager-cn.png');
+                await manager.locator('.p-dialog-footer').getByRole('button', { name: '关闭', exact: true }).click();
+                await visual.getByRole('button', { name: '新增设备', exact: true }).click();
+                const newDevice = visual.getByRole('dialog', { name: '新增设备', exact: true });
+                await newDevice.locator('#asset-device-name').fill('手机演示：填写最后一段地址');
+                await selectOption(visual, newDevice.locator('#asset-device-group'), namedId(group));
+                const rule = group.binding.snapshot.rules[0];
+                await selectOption(visual, newDevice.locator('#asset-address-rule'), `${rule.real_cidr} → ${rule.mapped_cidr}`);
+                await newDevice.locator('#asset-address-host').fill('31');
+                await actionResponse(visual, 'POST', '/validation/instance-address',
+                    () => newDevice.getByRole('button', { name: '预览并核对', exact: true }).click());
+                await screenshot('node-binding-derived-device-address-cn.png');
+                await newDevice.getByRole('button', { name: '取消', exact: true }).click();
                 await visual.setViewportSize({ width: 390, height: 844 });
                 await visual.evaluate(() => window.scrollTo(0, 0));
                 const mobile = resolve(config.screenshotsDir, 'node-assets-mobile-390-cn.png');
@@ -393,6 +480,9 @@ test('real backend: node asset management, offline nodes, and Chinese responsive
                 const width = await visual.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth }));
                 if (width.document > width.viewport + 1) report.layoutIssues.push(
                     `Mobile document overflows horizontally (${width.document}px / ${width.viewport}px); tables must scroll internally.`);
+                const actionBox = await deviceRow(visual, directDevice).locator('.device-action-column').boundingBox();
+                assert.ok(actionBox && actionBox.x >= 0 && actionBox.x + actionBox.width <= 391,
+                    'R01: the action column must remain inside the 390px viewport without horizontal table scrolling.');
                 await deviceRow(visual, directDevice).getByRole('button', { name: `为 ${directDevice.name} 新增服务`, exact: true }).click();
                 const form = visual.getByRole('dialog', { name: '新增服务', exact: true });
                 await form.waitFor();
@@ -402,7 +492,7 @@ test('real backend: node asset management, offline nodes, and Chinese responsive
             } finally { await chinese.close(); }
         });
 
-        await step('An offline registered node accepts manual device and service management', async () => {
+        await step('An offline registered node accepts persisted-instance device and service management', async () => {
             const nodes = (await api(context, config, '/nodes')).items;
             const offline = nodes.find(item => item.machine_id === config.offlineNode.machine_id);
             assert.ok(offline, 'Offline fixture must be a registered node.');
@@ -417,7 +507,7 @@ test('real backend: node asset management, offline nodes, and Chinese responsive
             } finally { await ownerContext.close(); }
             await page.goto(detailsPath(config, config.offlineNode));
             await page.locator('.assets-list-card').waitFor();
-            const device = await createDevice(page, config, { name: names.offline, overlay_ip: '100.100.0.30' }, tracked, config.offlineNode);
+            const device = await createDevice(page, config, { name: names.offline }, tracked, config.offlineNode);
             await createService(page, device, { name: `离线服务-${suffix}`, port: 9090 });
             const saved = await api(context, config, `/devices/${device.id}/services`, config.offlineNode);
             assert.equal(saved.items.length, 1);

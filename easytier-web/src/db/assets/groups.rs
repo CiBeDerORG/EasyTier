@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use super::{AssetsStore, common::{AssetError, AssetResult, ensure_group, ensure_node, group_json, group_warnings, now}, idempotency::Operation, validation};
+use super::{AssetsStore, binding_ops, common::{AssetError, AssetResult, ensure_group, ensure_node, group_json, group_warnings, now}, idempotency::Operation, validation};
 
 impl AssetsStore {
     pub(crate) async fn list_groups(&self, owner: i32, node: &str) -> AssetResult<Value> {
@@ -9,7 +9,7 @@ impl AssetsStore {
         let rows = sqlx::query("SELECT * FROM asset_gateway_groups WHERE owner_user_id = ? AND machine_id = ? ORDER BY created_at DESC,id DESC")
             .bind(owner).bind(node).fetch_all(&mut *connection).await?;
         let mut items = Vec::with_capacity(rows.len());
-        for row in rows { items.push(group_json(&mut connection, &row).await?); }
+        for row in rows { items.push(group_json(&mut connection, &row, &self.runtime_observations).await?); }
         Ok(json!({"items":items}))
     }
 
@@ -22,18 +22,19 @@ impl AssetsStore {
             return Ok(response);
         }
         ensure_node(&mut transaction, owner, node).await?;
+        let preview = binding_ops::prepare_binding(&mut transaction, owner, node,
+            &json!({"resource_kind":"gateway","id":null}),
+            &json!({"operation":"attach","instance_id":payload["binding"]["instance_id"]}), &self.runtime_observations).await?;
+        binding_ops::assert_version(&payload, &preview)?;
         let id = uuid::Uuid::new_v4().to_string();
         let timestamp = now();
         sqlx::query("INSERT INTO asset_gateway_groups(id,owner_user_id,machine_id,name,remarks,created_at,updated_at) VALUES(?,?,?,?,?,?,?)")
             .bind(&id).bind(owner).bind(node).bind(payload["name"].as_str()).bind(payload["remarks"].as_str())
             .bind(&timestamp).bind(&timestamp).execute(&mut *transaction).await?;
-        for subnet in payload["subnets"].as_array().into_iter().flatten() {
-            sqlx::query("INSERT INTO asset_gateway_subnets(group_id,owner_user_id,machine_id,cidr) VALUES(?,?,?,?)")
-                .bind(&id).bind(owner).bind(node).bind(subnet.as_str()).execute(&mut *transaction).await?;
-        }
+        binding_ops::save_snapshot(&mut transaction, owner, node, "gateway", &id, &preview["snapshot"]).await?;
         let row = sqlx::query("SELECT * FROM asset_gateway_groups WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(&id).bind(owner).bind(node).fetch_one(&mut *transaction).await?;
-        let response = group_json(&mut transaction, &row).await?;
+        let response = group_json(&mut transaction, &row, &self.runtime_observations).await?;
         operation.finish(&mut transaction, "group", &id, &response).await?;
         transaction.commit().await?;
         Ok(response)
@@ -42,19 +43,25 @@ impl AssetsStore {
     pub(crate) async fn update_group(&self, owner: i32, node: &str, id: &str, body: Value) -> AssetResult<Value> {
         let payload = validation::group_payload(&body, false)?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
-        ensure_group(&mut transaction, owner, node, id).await?;
+        let old = binding_ops::subject_row(&mut transaction, owner, node, "gateway", id).await?;
+        let legacy = binding_ops::stored_snapshot(&old).is_ok_and(|snapshot| snapshot.is_none());
+        if !legacy && payload.get("subnets").is_some() {
+            return Err(AssetError::field("subnets", "Bound gateway subnets come from its instance. Use the binding review action."));
+        }
         sqlx::query("UPDATE asset_gateway_groups SET name = ?, remarks = ?, updated_at = ? WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(payload["name"].as_str()).bind(payload["remarks"].as_str()).bind(now()).bind(id).bind(owner).bind(node)
             .execute(&mut *transaction).await?;
-        sqlx::query("DELETE FROM asset_gateway_subnets WHERE group_id = ? AND owner_user_id = ? AND machine_id = ?")
-            .bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
-        for subnet in payload["subnets"].as_array().into_iter().flatten() {
-            sqlx::query("INSERT INTO asset_gateway_subnets(group_id,owner_user_id,machine_id,cidr) VALUES(?,?,?,?)")
-                .bind(id).bind(owner).bind(node).bind(subnet.as_str()).execute(&mut *transaction).await?;
+        if let Some(subnets) = payload["subnets"].as_array() {
+            sqlx::query("DELETE FROM asset_gateway_subnets WHERE group_id = ? AND owner_user_id = ? AND machine_id = ?")
+                .bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
+            for subnet in subnets {
+                sqlx::query("INSERT INTO asset_gateway_subnets(group_id,owner_user_id,machine_id,cidr) VALUES(?,?,?,?)")
+                    .bind(id).bind(owner).bind(node).bind(subnet.as_str()).execute(&mut *transaction).await?;
+            }
         }
         let row = sqlx::query("SELECT * FROM asset_gateway_groups WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(id).bind(owner).bind(node).fetch_one(&mut *transaction).await?;
-        let response = group_json(&mut transaction, &row).await?;
+        let response = group_json(&mut transaction, &row, &self.runtime_observations).await?;
         transaction.commit().await?;
         Ok(response)
     }
