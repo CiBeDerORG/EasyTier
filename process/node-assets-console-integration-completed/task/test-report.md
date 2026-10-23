@@ -51,4 +51,19 @@
 - 最终合并产物的菜单/设备定位浏览器 2/2、部署管理浏览器 2/2 通过，已目视菜单及手机布局。部署浏览器使用模拟 API，未触发真实安装。
 - 合并验证日志：`/tmp/easytier-node-assets-release-merge-frontend.log`、`/tmp/easytier-node-assets-release-merge-upgrade.log`、`/tmp/easytier-node-assets-release-merge-services.log`；浏览器证据：`/workspace/scratch/easytier-node-assets-release/`。
 - 未重复完整应用回归；本轮新增远端代码经上述定向验证，远端发布流程还将执行 Web/原生构建、容器启动测试和镜像发布核验。
-- 提交、远端构建及发布结果：执行中，尚未报告成功；完成后补充准确提交、Actions 地址、digest 和拉取结果。
+- 已推送源码提交 `f951e054c2b3ab3f27aa2ada2f72e2a584f14c9b`，`git ls-remote` 核对一致；包含本轮修正提交 `5225b6e8` 和远端最新功能。
+- 镜像运行：[Actions 40025544463](https://github.com/CiBeDerORG/EasyTier/actions/runs/40025544463)，触发于 21:16:26 UTC；起始因同分支前序运行尚未结束而排队，21:18 UTC 开始执行。Web、原生程序、打包与容器启动测试、GHCR 发布四个 job 全部成功；发布与 registry 核验步骤于 21:51:00 UTC 完成。
+- 独立使用空 Docker 配置匿名拉取分支标签和固定提交标签成功，确认两者镜像 ID 相同；平台、镜像版本、前后端源码提交、默认启动入口及 Web 资源路径均符合预期。
+- 使用无网络临时容器确认仪表盘、配置生成器、网络地图、节点空间、服务导航、服务管理，以及合入的部署管理与自动化中心页面产物存在。
+
+发布结果：
+
+- 分支标签：`ghcr.io/cibederorg/easytier:feat-node-attributes-tech-console`。
+- 固定提交标签：`ghcr.io/cibederorg/easytier:sha-f951e054c2b3ab3f27aa2ada2f72e2a584f14c9b`。
+- Digest：`sha256:c034c14436d8b1fa9d3a093b3ccd646c7777be6c64a41c14ad7275b644ca46b1`。
+- 平台：`linux/amd64`；前后端与镜像源码提交均为 `f951e054c2b3ab3f27aa2ada2f72e2a584f14c9b`。
+- 构建、发布与匿名拉取：通过。未部署线上服务。
+
+证据：`/workspace/scratch/easytier-node-assets-release/public-final-summary.json`、同目录 `anonymous-pull.log`、`sha-pull.log`、`verified-release.json`。公开 Actions 页面用于确认执行结果，registry 拉取用于确认实际 digest；未使用上一版镜像代替本轮验证。
+
+最后回填结果只修改文档，按仓库规则不重复运行应用测试或镜像构建。镜像继续对应上述源码提交。
