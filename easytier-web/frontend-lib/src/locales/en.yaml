@@ -473,7 +473,7 @@ web:
     alias: Alias
     site_location: Location
     device_model: Device model
-    attributes_hint: Edit the alias, installation location and device model. Save an empty field to clear it.
+    attributes_hint: Edit the alias, installation location, device model and geographic location. Save an empty field to clear it.
     attributes_partial_saved: Some changes were saved. Unsaved changes remain in the form; retry to save them. Cancel will not undo saved changes.
     site_location_hint: "For example, home cabinet or office. Up to 256 characters."
     device_model_hint: "For example, NanoPi R4S. Up to 128 characters."
@@ -489,7 +489,41 @@ web:
     ip_location_non_public: Non-public IP; location unavailable
     ip_location_not_found: No location found for this IP
     ip_location_unavailable: IP location lookup unavailable
-    
+
+  node_location:
+    title: Geographic location
+    hint: Used to position the node on maps. Address fields may be set without coordinates. Coordinates use WGS84. Changes take effect when you save the node attributes.
+    country: Country
+    region: State / province / region
+    city: City
+    district: District / county
+    longitude: Longitude (WGS84)
+    latitude: Latitude (WGS84)
+    coordinates: Coordinates (latitude, longitude)
+    longitude_hint: From -180 to 180, with up to 6 decimal places.
+    latitude_hint: From -90 to 90, with up to 6 decimal places.
+    coordinate_pair: Enter both longitude and latitude, or leave both empty.
+    longitude_invalid: Longitude must be a valid number between -180 and 180.
+    latitude_invalid: Latitude must be a valid number between -90 and 90.
+    clear: Clear location
+    choose_map: Choose on map
+    hide_map: Hide map
+    resolve_address: Look up address
+    looking_up: Looking up the address for the selected coordinates…
+    lookup_complete: Address filled in. You can correct it before saving.
+    lookup_busy: Address lookup is busy. Your input is kept. Try again later or enter the address manually and save.
+    lookup_disabled: Automatic address lookup is disabled. You can enter the address manually and save.
+    lookup_no_result: No address was found at these coordinates. Existing text is kept; please review and enter the address manually.
+    lookup_failed: Address lookup is unavailable. Your input is kept. Enter the address manually and save, or try again later.
+    address_data: "Address data:"
+    map_hint: Click the map to select coordinates and look up the address. Drag or zoom to explore.
+    map_label: Node geographic location picker
+    center_point: Show entered coordinates
+    loading_map: Loading map…
+    map_failed: The map could not load. You can continue entering the location manually or retry.
+    tiles_failed: Some map tiles could not load. Your selected coordinates and address are kept; manual entry remains available.
+    retry_map: Reload map
+
   device_management:
     edit_network: Edit Network
     export_config: Export Config

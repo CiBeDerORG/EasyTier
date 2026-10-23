@@ -2,6 +2,7 @@ mod auth;
 mod assets;
 pub(crate) mod captcha;
 mod central_network;
+mod geocoding;
 mod network;
 pub(crate) mod oidc;
 mod rpc;
@@ -344,6 +345,7 @@ impl RestfulServer {
             .merge(central_routes)
             .merge(NetworkApi::build_route())
             .merge(rpc::router())
+            .merge(geocoding::router())
             .route_layer(login_required!(Backend))
             // Asset handlers authenticate the session themselves so errors use
             // their JSON contract, including unauthenticated requests.

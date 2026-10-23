@@ -5,7 +5,11 @@ use sea_orm::{
 use sqlx::types::chrono;
 use uuid::Uuid;
 
-use super::{Db, UserIdInDb, central_intent, entity, sqlx_db_error};
+use super::{
+    Db, UserIdInDb, central_intent, entity,
+    node_geo::{self, NodeGeoLocation},
+    sqlx_db_error,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceHeartbeatRecord {
@@ -84,6 +88,26 @@ impl Db {
         site_location: Option<&str>,
         device_model: Option<&str>,
     ) -> Result<bool, DbErr> {
+        self.set_device_attributes_with_geo((user_id, machine_id), site_location, device_model, None)
+            .await
+            .map(|(updated, _)| updated)
+    }
+
+    /// The outer option distinguishes an old client from an explicit clear.
+    /// Return the location read in this same transaction, including when kept.
+    pub(crate) async fn set_device_attributes_with_geo(
+        &self,
+        (user_id, machine_id): (UserIdInDb, Uuid),
+        site_location: Option<&str>,
+        device_model: Option<&str>,
+        geo_location: Option<Option<&NodeGeoLocation>>,
+    ) -> Result<(bool, Option<NodeGeoLocation>), DbErr> {
+        let machine = machine_id.to_string();
+        let mut transaction = self
+            .db
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(sqlx_db_error)?;
         let result = sqlx::query(
             "UPDATE devices SET site_location = ?, device_model = ? \
              WHERE user_id = ? AND machine_id = ?",
@@ -91,11 +115,24 @@ impl Db {
         .bind(site_location)
         .bind(device_model)
         .bind(user_id)
-        .bind(machine_id.to_string())
-        .execute(&self.db)
+        .bind(&machine)
+        .execute(&mut *transaction)
         .await
         .map_err(sqlx_db_error)?;
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            transaction.commit().await.map_err(sqlx_db_error)?;
+            return Ok((false, None));
+        }
+        if let Some(location) = geo_location {
+            node_geo::write_location(&mut transaction, user_id, &machine, location)
+                .await
+                .map_err(sqlx_db_error)?;
+        }
+        let location = node_geo::read_location(&mut transaction, user_id, &machine)
+            .await
+            .map_err(sqlx_db_error)?;
+        transaction.commit().await.map_err(sqlx_db_error)?;
+        Ok((true, location))
     }
 
     /// Update the complete snapshot without registering a missing node or

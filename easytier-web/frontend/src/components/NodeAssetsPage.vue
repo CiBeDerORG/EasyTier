@@ -2,8 +2,10 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { Button, Checkbox, Dialog, InputText, Message, Select, Skeleton } from 'primevue';
 import { useI18n } from 'vue-i18n';
+import type { Utils } from 'easytier-frontend-lib';
 import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import ApiClient from '../modules/api';
+import { nodeLocationCoordinates, nodeLocationErrors, nodeLocationLabel, normalizeNodeLocation } from '../modules/node-location';
 import type { AssetDevice, AssetNode, AssetSavedResource } from '../types/node-assets';
 import { useNodeAssetsPage } from '../composables/useNodeAssetsPage';
 import GatewayGroupDialog from './node-assets/GatewayGroupDialog.vue';
@@ -11,6 +13,7 @@ import DeviceTypeDialog from './node-assets/DeviceTypeDialog.vue';
 import AssetDeviceTable from './node-assets/AssetDeviceTable.vue';
 import AssetDeviceDialog from './node-assets/AssetDeviceDialog.vue';
 import AssetServicePanel from './node-assets/AssetServicePanel.vue';
+import NodeLocationEditor from './NodeLocationEditor.vue';
 
 const props = defineProps<{ api: ApiClient }>();
 const { t } = useI18n();
@@ -27,6 +30,8 @@ const editingDevice = ref<AssetDevice | null>(null);
 const deleteDevice = ref<AssetDevice | null>(null), deleteNode = ref<AssetNode | null>(null);
 const deleting = ref(false), actionError = ref(''), nodeSaving = ref(false);
 const nodeLocation = ref(''), nodeModel = ref(''), nodePublic = ref(false);
+const nodeGeoLocation = ref<Utils.NodeGeoLocation | null>(null);
+const nodeGeoLookupPending = ref(false);
 const nodeFieldError = (value: string, limit: number) => {
     if (/[\u0000-\u001f\u007f-\u009f]/u.test(value)) return t('web.device.attributes_invalid_control');
     if (Array.from(value.trim()).length > limit) return t('web.device.attributes_too_long', { limit });
@@ -34,9 +39,10 @@ const nodeFieldError = (value: string, limit: number) => {
 };
 const nodeLocationError = computed(() => nodeFieldError(nodeLocation.value, 256));
 const nodeModelError = computed(() => nodeFieldError(nodeModel.value, 128));
+const nodeGeoInvalid = computed(() => Object.keys(nodeLocationErrors(nodeGeoLocation.value, (key, values) => values ? t(key, values) : t(key))).length > 0);
 const serviceRequests = ref<Record<string, number>>({});
 let nodeDialogVersion = 0, deleteDialogVersion = 0;
-watch(showNode, () => { ++nodeDialogVersion; nodeSaving.value = false; actionError.value = ''; }, { flush: 'sync' });
+watch(showNode, () => { ++nodeDialogVersion; nodeSaving.value = false; nodeGeoLookupPending.value = false; actionError.value = ''; }, { flush: 'sync' });
 watch([deleteDevice, deleteNode], () => { ++deleteDialogVersion; deleting.value = false; actionError.value = ''; }, { flush: 'sync' });
 const errorMessage = (cause: unknown) => (cause as { response?: { data?: { message?: string } }; message?: string })?.response?.data?.message
     || (cause as { message?: string })?.message || t('assets.page.operation_failed');
@@ -106,17 +112,19 @@ function editNode() {
     const node = selectedNode.value;
     if (!node) return;
     nodeLocation.value = node.site_location ?? ''; nodeModel.value = node.device_model ?? '';
+    nodeGeoLocation.value = normalizeNodeLocation(node.geo_location);
     nodePublic.value = node.is_public_server; actionError.value = ''; showNode.value = true;
 }
 async function saveNode() {
-    if (!scope.value || nodeSaving.value || nodeLocationError.value || nodeModelError.value) return;
+    if (!scope.value || nodeSaving.value || nodeLocationError.value || nodeModelError.value || nodeGeoInvalid.value || nodeGeoLookupPending.value) return;
     const version = contextVersion.value, dialogVersion = nodeDialogVersion;
     const current = { ...scope.value };
     const active = () => version === contextVersion.value && dialogVersion === nodeDialogVersion;
     nodeSaving.value = true; actionError.value = '';
     try {
         await props.api.assetsUpdateNode(current, { is_public_server: nodePublic.value,
-            site_location: nodeLocation.value.trim() || null, device_model: nodeModel.value.trim() || null });
+            site_location: nodeLocation.value.trim() || null, device_model: nodeModel.value.trim() || null,
+            geo_location: normalizeNodeLocation(nodeGeoLocation.value) });
         if (!active()) return;
         await refreshNodes();
         if (active()) showNode.value = false;
@@ -179,6 +187,8 @@ async function confirmDelete() {
                     <div><strong>{{ selectedNode.alias || selectedNode.hostname }}</strong>
                         <span v-if="selectedNode.is_public_server" class="assets-public-tag"><i class="pi pi-cloud" aria-hidden="true"></i> {{ t('assets.page.public_node') }}</span>
                         <p class="muted">{{ selectedNode.site_location || t('assets.page.no_location') }} · {{ selectedNode.device_model || t('assets.page.no_model') }}</p>
+                        <p v-if="nodeLocationLabel(selectedNode.geo_location)"><span class="muted">{{ t('web.node_location.title') }}：</span>{{ nodeLocationLabel(selectedNode.geo_location) }}</p>
+                        <p v-if="nodeLocationCoordinates(selectedNode.geo_location)"><span class="muted">{{ t('web.node_location.coordinates') }}：</span>{{ nodeLocationCoordinates(selectedNode.geo_location) }}</p>
                         <code>{{ selectedNode.machine_id }}</code>
                     </div>
                     <div class="assets-actions">
@@ -224,7 +234,7 @@ async function confirmDelete() {
             <AssetDeviceDialog v-if="showDevice" :visible="true" :api="api" :scope="scope" :groups="groups" :types="types" :device="editingDevice" :initial-mode="deviceInitialMode"
                 @close="showDevice = false; editingDevice = null" @saved="savedDevice" @context-error="handleContextFailure" />
         </template>
-        <Dialog v-model:visible="showNode" modal :header="t('assets.page.edit_node')" :style="{ width: '30rem', maxWidth: 'calc(100vw - 2rem)' }">
+        <Dialog v-model:visible="showNode" modal :header="t('assets.page.edit_node')" :style="{ width: '44rem', maxWidth: 'calc(100vw - 2rem)' }">
             <form id="asset-node-metadata" class="assets-node-form" @submit.prevent="saveNode">
                 <p class="muted">{{ selectedNode?.alias || selectedNode?.hostname }} · {{ ownerName }}</p>
                 <div class="assets-field"><label for="asset-node-location">{{ t('assets.page.location') }}</label>
@@ -233,11 +243,12 @@ async function confirmDelete() {
                 <div class="assets-field"><label for="asset-node-model">{{ t('assets.page.model') }}</label>
                     <InputText id="asset-node-model" v-model="nodeModel" :disabled="nodeSaving" :invalid="!!nodeModelError" :aria-invalid="!!nodeModelError" aria-describedby="asset-node-model-error" />
                     <small v-if="nodeModelError" id="asset-node-model-error" class="assets-field-error" role="alert">{{ nodeModelError }}</small></div>
+                <NodeLocationEditor v-if="showNode" v-model="nodeGeoLocation" :api="api" id-prefix="asset-node-geo" :disabled="nodeSaving" @lookup-pending="nodeGeoLookupPending = $event" />
                 <div class="assets-actions"><Checkbox inputId="asset-public-node" v-model="nodePublic" binary :disabled="nodeSaving" /><label for="asset-public-node">{{ t('assets.page.public_node') }}</label></div>
                 <p class="muted">{{ t('assets.page.public_hint') }}</p>
                 <Message v-if="actionError" severity="error" :closable="false">{{ actionError }}</Message>
             </form>
-            <template #footer><Button :label="t('assets.page.cancel')" severity="secondary" text @click="showNode = false" /><Button type="submit" form="asset-node-metadata" :label="t('assets.page.save')" :loading="nodeSaving" :disabled="!!nodeLocationError || !!nodeModelError" /></template>
+            <template #footer><Button :label="t('assets.page.cancel')" severity="secondary" text @click="showNode = false" /><Button type="submit" form="asset-node-metadata" :label="t('assets.page.save')" :loading="nodeSaving" :disabled="nodeSaving || !!nodeLocationError || !!nodeModelError || nodeGeoInvalid || nodeGeoLookupPending" /></template>
         </Dialog>
         <Dialog :visible="!!deleteDevice || !!deleteNode" modal :header="t('assets.page.confirm_delete')" :style="{ width: '29rem', maxWidth: 'calc(100vw - 2rem)' }"
             @update:visible="value => { if (!value) { deleteDevice = null; deleteNode = null; } }">

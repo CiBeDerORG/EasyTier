@@ -19,7 +19,7 @@ use uuid::Uuid;
 use super::{AppStateInner, ConsoleInfoConfig, users::AuthSession};
 use crate::{
     central_network::service::{CentralNetworkService, CentralNetworkServiceError},
-    db::{Db, assets::{AssetError, AssetsStore, DeviceListQuery}},
+    db::{Db, assets::{AssetError, AssetsStore, DeviceListQuery}, node_geo},
 };
 
 type Service = Extension<Arc<CentralNetworkService>>;
@@ -245,9 +245,12 @@ async fn accounts(
 
 const NODE_COLUMNS: &str = "SELECT d.user_id AS owner_user_id, d.machine_id, d.hostname, d.alias, \
     d.site_location, d.device_model, d.connection_ip, d.ip_country, d.ip_region, d.ip_city, \
+    g.owner_user_id AS geo_owner_user_id, g.country AS geo_country, g.region AS geo_region, \
+    g.city AS geo_city, g.district AS geo_district, g.latitude AS geo_latitude, g.longitude AS geo_longitude, \
     COALESCE(m.is_public_server, 0) AS is_public_server, \
     (SELECT COUNT(*) FROM asset_devices a WHERE a.owner_user_id = d.user_id AND a.machine_id = d.machine_id) AS device_count \
-    FROM devices d LEFT JOIN node_asset_metadata m ON m.owner_user_id = d.user_id AND m.machine_id = d.machine_id";
+    FROM devices d LEFT JOIN node_asset_metadata m ON m.owner_user_id = d.user_id AND m.machine_id = d.machine_id \
+    LEFT JOIN node_geo_locations g ON g.owner_user_id = d.user_id AND g.machine_id = d.machine_id";
 
 fn node_json(row: SqliteRow) -> HttpResult<Value> {
     Ok(json!({
@@ -256,6 +259,7 @@ fn node_json(row: SqliteRow) -> HttpResult<Value> {
         "hostname": row.try_get::<String, _>("hostname").map_err(database_error)?,
         "alias": row.try_get::<String, _>("alias").map_err(database_error)?,
         "site_location": row.try_get::<Option<String>, _>("site_location").map_err(database_error)?,
+        "geo_location": node_geo::row_location(&row).map_err(database_error)?,
         "device_model": row.try_get::<Option<String>, _>("device_model").map_err(database_error)?,
         "connection_ip": row.try_get::<Option<String>, _>("connection_ip").map_err(database_error)?,
         "ip_country": row.try_get::<Option<String>, _>("ip_country").map_err(database_error)?,
@@ -337,7 +341,7 @@ async fn update_node(
     let body = body_value(body)?;
     let object = body.as_object().ok_or_else(|| asset_error(AssetError::field("body", "Expected an object.")))?;
     for key in object.keys() {
-        if !["is_public_server", "site_location", "device_model"].contains(&key.as_str()) {
+        if !["is_public_server", "site_location", "device_model", "geo_location"].contains(&key.as_str()) {
             return Err(asset_error(AssetError::field(key, "This field is not editable.")));
         }
     }
@@ -345,6 +349,8 @@ async fn update_node(
         .ok_or_else(|| asset_error(AssetError::field("is_public_server", "Select a valid node role.")))?;
     let location = manual_attribute(&body, "site_location", 256)?;
     let model = manual_attribute(&body, "device_model", 128)?;
+    let geo_location = body.get("geo_location").map(node_geo::parse_geo_location).transpose()
+        .map_err(|error| asset_error(AssetError::field(&error.field, &error.message)))?;
     let _mutation = service.lock_mutations().await;
     let pool = service.db.inner();
     let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await.map_err(database_error)?;
@@ -362,6 +368,10 @@ async fn update_node(
     )
     .bind(query.owner_user_id).bind(&node).bind(is_public)
     .execute(&mut *transaction).await.map_err(database_error)?;
+    if let Some(location) = geo_location {
+        node_geo::write_location(&mut transaction, query.owner_user_id, &node, location.as_ref())
+            .await.map_err(database_error)?;
+    }
     let sql = format!("{NODE_COLUMNS} WHERE d.user_id = ? AND d.machine_id = ?");
     let row = sqlx::query(&sql).bind(query.owner_user_id).bind(&node)
         .fetch_one(&mut *transaction).await.map_err(database_error)?;

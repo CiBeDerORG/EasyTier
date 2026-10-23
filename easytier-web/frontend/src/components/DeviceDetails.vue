@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Utils } from 'easytier-frontend-lib';
 import { useI18n } from 'vue-i18n'
+import { nodeLocationCoordinates, nodeLocationLabel } from '../modules/node-location';
 
 const { t } = useI18n()
 
@@ -78,6 +79,14 @@ withDefaults(defineProps<{
     <div v-if="device.device_model" class="detail-item device-model">
       <div class="detail-label">{{ t('web.device.device_model') }}</div>
       <div class="detail-value">{{ device.device_model }}</div>
+    </div>
+    <div v-if="nodeLocationLabel(device.geo_location)" class="detail-item geo-location">
+      <div class="detail-label">{{ t('web.node_location.title') }}</div>
+      <div class="detail-value">{{ nodeLocationLabel(device.geo_location) }}</div>
+    </div>
+    <div v-if="nodeLocationCoordinates(device.geo_location)" class="detail-item geo-coordinates">
+      <div class="detail-label">{{ t('web.node_location.coordinates') }}</div>
+      <div class="detail-value">{{ nodeLocationCoordinates(device.geo_location) }}</div>
     </div>
     <div v-if="(device.networks?.length ?? 0) > 0" class="detail-item central-networks">
       <div class="detail-label">{{ t('web.device.central_networks') }}</div>

@@ -1,3 +1,5 @@
+import type { Utils } from 'easytier-frontend-lib';
+
 /** Manual node assets. These IDs are not EasyTier network instance IDs. */
 export interface AssetScope {
     owner_user_id: number;
@@ -20,6 +22,7 @@ export interface AssetNode extends AssetScope {
     alias: string;
     site_location: string | null;
     device_model: string | null;
+    geo_location?: Utils.NodeGeoLocation | null;
     connection_ip: string | null;
     ip_country: string | null;
     ip_region: string | null;
@@ -32,6 +35,7 @@ export interface AssetNodeUpdate {
     is_public_server: boolean;
     site_location: string | null;
     device_model: string | null;
+    geo_location?: Utils.NodeGeoLocation | null;
 }
 
 export interface AssetDeviceCount {

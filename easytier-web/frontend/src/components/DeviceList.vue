@@ -8,6 +8,7 @@ import DeviceDetails from './DeviceDetails.vue';
 import DeviceAttributesDialog from './DeviceAttributesDialog.vue';
 import { useI18n } from 'vue-i18n'
 import ApiClient from '../modules/api';
+import { nodeLocationCoordinates, nodeLocationLabel } from '../modules/node-location';
 import type { AssetContextResponse } from '../types/node-assets';
 
 const { t } = useI18n()
@@ -345,9 +346,11 @@ const locationText = (device: Utils.DeviceInfo) => {
                             </div>
                         </div>
                         <DeviceDetails :device="device" :card-view="true" />
-                        <dl v-if="device.site_location || device.device_model" class="device-attributes-summary">
+                        <dl v-if="device.site_location || device.device_model || device.geo_location" class="device-attributes-summary">
                             <div v-if="device.site_location"><dt>{{ t('web.device.site_location') }}</dt><dd :title="device.site_location">{{ device.site_location }}</dd></div>
                             <div v-if="device.device_model"><dt>{{ t('web.device.device_model') }}</dt><dd :title="device.device_model">{{ device.device_model }}</dd></div>
+                            <div v-if="nodeLocationLabel(device.geo_location)"><dt>{{ t('web.node_location.title') }}</dt><dd :title="nodeLocationLabel(device.geo_location)">{{ nodeLocationLabel(device.geo_location) }}</dd></div>
+                            <div v-if="nodeLocationCoordinates(device.geo_location)"><dt>{{ t('web.node_location.coordinates') }}</dt><dd :title="nodeLocationCoordinates(device.geo_location)">{{ nodeLocationCoordinates(device.geo_location) }}</dd></div>
                         </dl>
                     </article>
                 </div>

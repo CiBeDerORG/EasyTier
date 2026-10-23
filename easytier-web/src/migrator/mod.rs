@@ -14,6 +14,7 @@ mod m20261023_000012_node_assets;
 mod m20261023_000013_asset_instance_bindings;
 mod m20261023_000014_user_soft_delete;
 mod m20261023_000015_service_publications;
+mod m20261023_000016_node_geo_locations;
 
 pub struct Migrator;
 
@@ -34,6 +35,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261023_000013_asset_instance_bindings::Migration),
             Box::new(m20261023_000014_user_soft_delete::Migration),
             Box::new(m20261023_000015_service_publications::Migration),
+            Box::new(m20261023_000016_node_geo_locations::Migration),
         ]
     }
 }

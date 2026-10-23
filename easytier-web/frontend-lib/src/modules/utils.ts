@@ -88,9 +88,21 @@ export interface DeviceNetwork {
     network_name: string;
 }
 
+/** User-maintained physical location, independent of connection IP geolocation. */
+export interface NodeGeoLocation {
+    country: string | null;
+    region: string | null;
+    city: string | null;
+    district: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    coordinate_system: 'WGS84';
+}
+
 export interface DeviceAttributes {
     site_location: string | null;
     device_model: string | null;
+    geo_location?: NodeGeoLocation | null;
 }
 
 export interface DeviceInfo {
@@ -108,6 +120,7 @@ export interface DeviceInfo {
     last_seen?: string;
     site_location?: string | null;
     device_model?: string | null;
+    geo_location?: NodeGeoLocation | null;
     connection_ip?: string | null;
     ip_country?: string | null;
     ip_region?: string | null;
@@ -133,6 +146,7 @@ export function buildDeviceInfo(device: any): DeviceInfo {
         last_seen: device.last_seen,
         site_location: device.site_location,
         device_model: device.device_model,
+        geo_location: device.geo_location ?? null,
         connection_ip: device.connection_ip,
         ip_country: device.ip_country,
         ip_region: device.ip_region,

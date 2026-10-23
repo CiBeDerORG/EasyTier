@@ -20,6 +20,17 @@ export interface OidcConfigResponse {
     enabled: boolean;
 }
 
+export interface NodeGeocodingConfig {
+    tile_url: string;
+    attribution_text: string;
+    attribution_url: string;
+    max_zoom: number;
+    reverse_enabled: boolean;
+}
+
+export type NodeReverseGeocodingResult = Pick<Utils.NodeGeoLocation, 'country' | 'region' | 'city' | 'district'>;
+export type NodeGeocodingLanguage = 'local' | 'en' | 'de' | 'fr';
+
 // 定义接口返回的数据结构
 export interface LoginResponse {
     success: boolean;
@@ -524,8 +535,18 @@ export class ApiClient {
         await this.client.put(`/machines/${machine_id}/alias`, { alias });
     }
 
-    public async update_machine_attributes(machine_id: string, attributes: { site_location: string; device_model: string }): Promise<Utils.DeviceAttributes> {
+    public async update_machine_attributes(machine_id: string, attributes: { site_location: string; device_model: string; geo_location?: Utils.NodeGeoLocation | null }): Promise<Utils.DeviceAttributes> {
         return await this.client.put<any, Utils.DeviceAttributes>(`/machines/${machine_id}/attributes`, attributes);
+    }
+
+    public async nodeGeocodingConfig(): Promise<NodeGeocodingConfig> {
+        return this.client.get<unknown, NodeGeocodingConfig>('/geocoding/config', { timeout: 10_000 });
+    }
+
+    public async reverseNodeLocation(latitude: number, longitude: number, language: NodeGeocodingLanguage): Promise<NodeReverseGeocodingResult> {
+        return this.client.get<unknown, NodeReverseGeocodingResult>('/geocoding/reverse', {
+            params: { latitude, longitude, language }, timeout: 15_000,
+        });
     }
 
     public async list_blocked_devices(): Promise<BlockedDevice[]> {

@@ -4,6 +4,8 @@ import { Button, Dialog, InputText } from 'primevue';
 import { Utils } from 'easytier-frontend-lib';
 import { useI18n } from 'vue-i18n';
 import ApiClient from '../modules/api';
+import { nodeLocationErrors, normalizeNodeLocation } from '../modules/node-location';
+import NodeLocationEditor from './NodeLocationEditor.vue';
 
 const props = defineProps<{ device: Utils.DeviceInfo; api?: ApiClient }>();
 const emit = defineEmits<{
@@ -19,10 +21,13 @@ const savedAlias = ref(props.device.alias ?? '');
 const savedAttributes = ref<Utils.DeviceAttributes>({
     site_location: props.device.site_location ?? null,
     device_model: props.device.device_model ?? null,
+    geo_location: normalizeNodeLocation(props.device.geo_location),
 });
 const someChangesSaved = ref(false);
 const siteLocation = ref(props.device.site_location ?? '');
 const deviceModel = ref(props.device.device_model ?? '');
+const geoLocation = ref<Utils.NodeGeoLocation | null>(normalizeNodeLocation(props.device.geo_location));
+const geoLookupPending = ref(false);
 const saving = ref(false);
 const saveError = ref('');
 let disposed = false;
@@ -38,10 +43,12 @@ const aliasLength = computed(() => Array.from(alias.value.trim()).length);
 const aliasError = computed(() => aliasLength.value > 64 ? t('web.device.attributes_too_long', { limit: 64 }) : '');
 const aliasChanged = computed(() => alias.value.trim() !== savedAlias.value);
 const attributesChanged = computed(() => siteLocation.value.trim() !== (savedAttributes.value.site_location ?? '')
-    || deviceModel.value.trim() !== (savedAttributes.value.device_model ?? ''));
+    || deviceModel.value.trim() !== (savedAttributes.value.device_model ?? '')
+    || JSON.stringify(normalizeNodeLocation(geoLocation.value)) !== JSON.stringify(normalizeNodeLocation(savedAttributes.value.geo_location)));
 const hasChanges = computed(() => aliasChanged.value || attributesChanged.value);
 const locationError = computed(() => fieldError(siteLocation.value, 256));
 const modelError = computed(() => fieldError(deviceModel.value, 128));
+const geoInvalid = computed(() => Object.keys(nodeLocationErrors(geoLocation.value, (key, values) => values ? t(key, values) : t(key))).length > 0);
 const ipLocationText = computed(() => {
     const parts = [props.device.ip_country, props.device.ip_region, props.device.ip_city].filter(Boolean);
     if (parts.length) return parts.join(' · ');
@@ -61,7 +68,7 @@ const observedAt = computed(() => {
 
 const close = () => { if (!saving.value) emit('close'); };
 const save = async () => {
-    if (saving.value || !props.api || !hasChanges.value || aliasError.value || locationError.value || modelError.value) return;
+    if (saving.value || !props.api || !hasChanges.value || aliasError.value || locationError.value || modelError.value || geoInvalid.value || geoLookupPending.value) return;
     const machineId = props.device.machine_id;
     saving.value = true;
     saveError.value = '';
@@ -78,11 +85,13 @@ const save = async () => {
             const attributes = await props.api.update_machine_attributes(machineId, {
                 site_location: siteLocation.value.trim(),
                 device_model: deviceModel.value.trim(),
+                geo_location: normalizeNodeLocation(geoLocation.value),
             });
             if (disposed || props.device.machine_id !== machineId) return;
-            savedAttributes.value = attributes;
+            // Older/cleared attribute responses may omit geo_location.
+            savedAttributes.value = { ...attributes, geo_location: normalizeNodeLocation(attributes.geo_location) };
             someChangesSaved.value = true;
-            emit('updated', machineId, attributes);
+            emit('updated', machineId, savedAttributes.value);
         }
         emit('saved', machineId);
     } catch (error: any) {
@@ -98,7 +107,7 @@ const save = async () => {
 
 <template>
     <Dialog :visible="true" modal :header="t('web.device.edit_attributes')"
-        :style="{ width: '30rem', maxWidth: 'calc(100vw - 2rem)' }"
+        :style="{ width: '44rem', maxWidth: 'calc(100vw - 2rem)' }"
         :closable="!saving" :closeOnEscape="!saving" :dismissableMask="false"
         @update:visible="value => { if (!value) close(); }">
         <form id="device-attributes-form" class="attributes-form" @submit.prevent="save">
@@ -129,6 +138,7 @@ const save = async () => {
                     {{ modelError || t('web.device.device_model_hint') }}
                 </small>
             </div>
+            <NodeLocationEditor v-model="geoLocation" :api="api" id-prefix="device-node-geo" :disabled="saving" @lookup-pending="geoLookupPending = $event" />
             <dl class="automatic-attributes">
                 <div><dt>{{ t('web.device.connection_ip') }}</dt><dd>{{ device.connection_ip || t('web.device.attributes_not_recorded') }}</dd></div>
                 <div><dt>{{ t('web.device.ip_location') }}</dt><dd>{{ ipLocationText }}</dd></div>
@@ -140,7 +150,7 @@ const save = async () => {
         <template #footer>
             <Button :label="t('web.common.cancel')" severity="secondary" :disabled="saving" @click="close" />
             <Button :label="t('web.common.save')" icon="pi pi-check" type="submit" form="device-attributes-form"
-                :loading="saving" :disabled="saving || !api || !hasChanges || !!aliasError || !!locationError || !!modelError" />
+                :loading="saving" :disabled="saving || !api || !hasChanges || !!aliasError || !!locationError || !!modelError || geoInvalid || geoLookupPending" />
         </template>
     </Dialog>
 </template>

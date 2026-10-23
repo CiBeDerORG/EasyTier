@@ -1,6 +1,7 @@
 // sea-orm-cli generate entity -u sqlite:./et.db -o easytier-web/src/db/entity/ --with-serde both --with-copy-enums
 mod central_intent;
 mod devices;
+pub(crate) mod node_geo;
 pub(crate) mod assets;
 pub(crate) mod user_admin;
 #[allow(unused_imports)]

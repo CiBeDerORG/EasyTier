@@ -20,7 +20,10 @@ use sea_orm::DbErr;
 
 use crate::central_network::service::{CentralNetworkService, DeviceNetworkSummary};
 use crate::client_manager::session::Location;
-use crate::db::UserIdInDb;
+use crate::db::{
+    UserIdInDb,
+    node_geo::{self, NodeGeoLocation},
+};
 
 use super::users::AuthSession;
 use super::{
@@ -169,12 +172,16 @@ struct UpdateDeviceAliasJsonReq {
 struct UpdateDeviceAttributesJsonReq {
     site_location: String,
     device_model: String,
+    #[serde(default, deserialize_with = "node_geo::deserialize_geo_patch")]
+    geo_location: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Serialize)]
 struct DeviceAttributesJsonResp {
     site_location: Option<String>,
     device_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    geo_location: Option<NodeGeoLocation>,
 }
 
 fn normalize_device_attribute(
@@ -264,6 +271,8 @@ struct ListMachineItem {
     ip_observed_at: Option<String>,
     site_location: Option<String>,
     device_model: Option<String>,
+    #[serde(default)]
+    geo_location: Option<NodeGeoLocation>,
     #[serde(default)]
     networks: Vec<DeviceNetworkSummary>,
     #[serde(default)]
@@ -528,7 +537,7 @@ impl NetworkApi {
             };
             (status, Json(other_error(error.body_text())))
         })?;
-        let attributes = DeviceAttributesJsonResp {
+        let mut attributes = DeviceAttributesJsonResp {
             site_location: normalize_device_attribute(
                 &request.site_location,
                 "site_location",
@@ -539,13 +548,27 @@ impl NetworkApi {
                 "device_model",
                 DEVICE_MODEL_MAX_CHARS,
             )?,
+            geo_location: None,
         };
-        let updated = network_service
+        let geo_location = request
+            .geo_location
+            .as_ref()
+            .map(node_geo::parse_geo_location)
+            .transpose()
+            .map_err(|error| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(other_error(format!("{}: {}", error.field, error.message))),
+                )
+            })?;
+        let _mutation = network_service.lock_mutations().await;
+        let (updated, location) = network_service
             .db
-            .set_device_attributes(
+            .set_device_attributes_with_geo(
                 (user_id, machine_id),
                 attributes.site_location.as_deref(),
                 attributes.device_model.as_deref(),
+                geo_location.as_ref().map(Option::as_ref),
             )
             .await
             .map_err(convert_db_error)?;
@@ -555,6 +578,7 @@ impl NetworkApi {
                 other_error(format!("device not found: {machine_id}")).into(),
             ));
         }
+        attributes.geo_location = location;
         Ok(Json(attributes))
     }
 
@@ -613,6 +637,7 @@ impl NetworkApi {
                     ip_observed_at: None,
                     site_location: None,
                     device_model: None,
+                    geo_location: None,
                     alias: None,
                     networks: Vec::new(),
                 });
@@ -628,6 +653,11 @@ impl NetworkApi {
             .list_device_networks(user_id)
             .await
             .map_err(super::central_network::convert_error)?;
+        let mut geo_locations = network_service
+            .db
+            .list_node_geo_locations(user_id)
+            .await
+            .map_err(convert_db_error)?;
 
         let mut machines = Vec::with_capacity(devices.len());
         for device in devices {
@@ -686,6 +716,7 @@ impl NetworkApi {
                 ip_observed_at: device.ip_observed_at.map(|time| time.to_rfc3339()),
                 site_location: device.site_location,
                 device_model: device.device_model,
+                geo_location: geo_locations.remove(&device.machine_id),
                 networks: device_networks
                     .remove(&device.machine_id)
                     .unwrap_or_default(),
