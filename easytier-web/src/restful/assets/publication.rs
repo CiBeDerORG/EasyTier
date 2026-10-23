@@ -117,6 +117,42 @@ async fn running_instances(
     Ok(observed)
 }
 
+fn unavailable_reason(
+    instance_id: Uuid,
+    stored: Option<&SavedInstance>,
+    metadata: Option<&NetworkMeta>,
+    central_owned: bool,
+) -> Option<(&'static str, &'static str)> {
+    let config = stored.and_then(|stored| stored.config.as_ref());
+    if central_owned {
+        Some(("centrally_managed", "This network is centrally managed. Change its network intent instead."))
+    } else if stored.is_none() {
+        Some(("config_not_saved", "Save this running network configuration in the Web console before publishing a service."))
+    } else if stored.is_some_and(|stored| !matches!(stored.source.as_str(), "user" | "web")) {
+        Some(("saved_config_not_web", "This saved configuration cannot be managed by the Web console."))
+    } else if config.is_none() {
+        Some(("saved_config_invalid", "The saved network configuration is invalid. Correct and save it before publishing."))
+    } else if config.and_then(|config| config.instance_id.as_deref())
+        .and_then(|value| Uuid::parse_str(value).ok()) != Some(instance_id)
+    {
+        Some(("instance_id_mismatch", "The saved configuration does not identify this network instance. Correct and save it before publishing."))
+    } else if stored.is_some_and(|stored| stored.disabled) {
+        Some(("saved_config_stopped", "This network is saved as stopped. Start and save it before publishing a service."))
+    } else if metadata.is_none() {
+        Some(("runtime_metadata_missing", "The running network's configuration ownership could not be confirmed."))
+    } else if metadata.is_some_and(|meta| meta.source != ConfigSource::Web as i32 && meta.source != ConfigSource::User as i32) {
+        Some(("runtime_config_not_web", "This running network cannot be managed by the Web console."))
+    } else if metadata.is_some_and(|meta| ConfigFilePermission::from(meta.config_permission)
+        .has_flag(ConfigFilePermission::READ_ONLY))
+    {
+        Some(("runtime_config_read_only", "The running network configuration is read-only."))
+    } else {
+        // A writable User network is adopted only when the service transaction
+        // commits. Listing candidates and cancelling the dialog remain read-only.
+        None
+    }
+}
+
 async fn candidates(
     manager: &AppStateInner,
     service: &CentralNetworkService,
@@ -159,31 +195,7 @@ async fn candidates(
         let central_owned = central.iter().any(|central| central.instance_id == instance.id
             || central.network_name == network_name
             || config.and_then(|config| config.network_name.as_deref()) == Some(central.network_name.as_str()));
-        let unavailable = if central_owned {
-            Some(("centrally_managed", "This network is centrally managed. Change its network intent instead."))
-        } else if stored.is_none() {
-            Some(("config_not_saved", "Save this running network configuration in the Web console before publishing a service."))
-        } else if stored.is_some_and(|stored| stored.source != "web") {
-            Some(("saved_config_not_web", "This saved configuration is not owned by the Web console."))
-        } else if config.is_none() {
-            Some(("saved_config_invalid", "The saved network configuration is invalid. Correct and save it before publishing."))
-        } else if config.and_then(|config| config.instance_id.as_deref())
-            .and_then(|value| Uuid::parse_str(value).ok()) != Some(instance.id)
-        {
-            Some(("instance_id_mismatch", "The saved configuration does not identify this network instance. Correct and save it before publishing."))
-        } else if stored.is_some_and(|stored| stored.disabled) {
-            Some(("saved_config_stopped", "This network is saved as stopped. Start and save it before publishing a service."))
-        } else if metadata.is_none() {
-            Some(("runtime_metadata_missing", "The running network's configuration ownership could not be confirmed."))
-        } else if metadata.is_some_and(|meta| meta.source != ConfigSource::Web as i32) {
-            Some(("runtime_config_not_web", "This running network is not owned by the Web console."))
-        } else if metadata.is_some_and(|meta| ConfigFilePermission::from(meta.config_permission)
-            .has_flag(ConfigFilePermission::READ_ONLY))
-        {
-            Some(("runtime_config_read_only", "The running network configuration is read-only."))
-        } else {
-            None
-        };
+        let unavailable = unavailable_reason(instance.id, stored, metadata, central_owned);
         items.push(json!({
             "instance_id":id,
             "display_name":display_name,
@@ -242,3 +254,7 @@ pub(super) async fn notify_targets(manager: &AppStateInner, owner: i32, machines
         manager.invalidate_applied_config_revision(owner, machine).await;
     }
 }
+
+#[cfg(test)]
+#[path = "publication_tests.rs"]
+mod tests;

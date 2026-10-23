@@ -7,6 +7,9 @@ use sqlx::{Row, SqliteConnection, sqlite::SqliteRow};
 
 use super::{AssetsStore, common::{AssetError, AssetResult, now}, validation};
 
+#[path = "publication_adoption.rs"]
+mod adoption;
+
 /// Constructed only from a scoped, current runtime observation by the HTTP layer.
 #[derive(Clone, Debug)]
 pub(crate) struct PublicationRuntimeProof {
@@ -201,9 +204,12 @@ async fn save_config(connection: &mut SqliteConnection, owner: i32, machine: &st
     mutable_config(connection, owner, machine, instance, config).await?;
     let mut value = config.value.clone();
     value["port_forwards"] = json!(rules);
-    sqlx::query("UPDATE user_running_network_configs SET network_config = ?, update_time = ? WHERE id = ? AND user_id = ? AND device_id = ? AND network_instance_id = ? AND create_time = ? AND source = 'web'")
+    let updated = sqlx::query("UPDATE user_running_network_configs SET network_config = ?, update_time = ? WHERE id = ? AND user_id = ? AND device_id = ? AND network_instance_id = ? AND create_time = ? AND source = 'web'")
         .bind(value.to_string()).bind(chrono::Local::now().fixed_offset()).bind(config.id)
         .bind(owner).bind(machine).bind(instance).bind(&config.created).execute(&mut *connection).await?;
+    if updated.rows_affected() != 1 {
+        return Err(publication_conflict("publication_config_changed", "instance_id", "The network configuration changed. Refresh and retry."));
+    }
     sqlx::query("DELETE FROM managed_config_revisions WHERE user_id = ? AND device_id = ?")
         .bind(owner).bind(machine).execute(&mut *connection).await?;
     Ok(())
@@ -290,19 +296,19 @@ pub(super) async fn sync_service(connection: &mut SqliteConnection, owner: i32, 
     // cannot create, retarget or restore an externally removed public mapping.
     let requires_runtime = requested.is_some() || !owned_intact;
     if requires_runtime && !proof.is_some_and(|proof| proof.owner_user_id == owner && proof.machine_id == machine && proof.instance_id == instance) {
-        return Err(publication_conflict("publication_runtime_required", "instance_id", "Choose a running, writable Web network on the selected public server and retry."));
+        return Err(publication_conflict("publication_runtime_required", "instance_id", "Choose a running, writable User or Web network on the selected public server and retry."));
     }
     let server_name: Option<String> = sqlx::query_scalar(
         "SELECT COALESCE(NULLIF(d.alias,''),NULLIF(d.hostname,''),d.machine_id) FROM devices d JOIN node_asset_metadata m \
          ON d.user_id = m.owner_user_id AND d.machine_id = m.machine_id WHERE d.user_id = ? AND d.machine_id = ? AND m.is_public_server = 1",
     ).bind(owner).bind(machine).fetch_optional(&mut *connection).await?;
     let server_name = server_name.ok_or_else(|| publication_conflict("publication_server_unavailable", "machine_id", "Choose a public server owned by this account."))?;
-    let config = load_config(connection, owner, machine, instance).await?
-        .ok_or_else(|| publication_conflict("publication_network_unavailable", "instance_id", "This running network needs a saved Web configuration before it can host a service."))?;
-    mutable_config(connection, owner, machine, instance, &config).await?;
+    let mut config = load_config(connection, owner, machine, instance).await?
+        .ok_or_else(|| publication_conflict("publication_network_unavailable", "instance_id", "This running network needs a saved configuration before it can host a service."))?;
     if requires_runtime && config.disabled {
         return Err(publication_conflict("publication_network_disabled", "instance_id", "This network is disabled. Start it before binding a service."));
     }
+    adoption::ensure_web_config(connection, owner, machine, instance, &mut config, proof).await?;
     if let Some(old) = &old { remove_owned(connection, owner, old).await?; }
     available_listeners(connection, owner, machine, service, &rules).await?;
     // Removing the old mapping may have changed this very configuration.

@@ -17,6 +17,15 @@ for program in easytier-core easytier-cli easytier-web; do
     install -m 755 "target/$TARGET/release/$program" "native-artifacts/bin/$program"
 done
 
+# Run publication ownership/transaction regressions on this same native target
+# before recording a reusable bundle or publishing any image. pipefail keeps
+# a failing test from being hidden by tee. Reuse release dependency artifacts.
+cargo test --locked --release --target "$TARGET" \
+    --package easytier-web --bin easytier-web \
+    --features "easytier/$FEATURES" \
+    publication -- --nocapture --test-threads=2 \
+    2>&1 | tee "$REPORT_DIR/publication-tests.log"
+
 cargo build --locked --release --target "$TARGET" \
     --package easytier-web --bin easytier-web \
     --features "web-static,easytier/$FEATURES" \
