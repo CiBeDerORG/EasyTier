@@ -39,3 +39,13 @@
 - 用户指令：“先push”。授权范围为将当前用户管理代码及需求、计划、任务记录提交并推送至`origin/feat/node-attributes-main`。
 - 本轮不运行测试、构建、类型检查、lint或部署；运行环境及实际用户数据不变。此前未验证状态继续保留。
 - 提交号及远端推送结果以Git记录和本轮交付消息为准。
+
+## 2026-10-23 GitHub Actions 补测
+
+- 用户明确授权本分支 GitHub Actions 测试，本轮授权仅用于本次验证。
+- 业务代码基线：`4e2ed4dd87461353a5ebea2786edf6793f2b48ea`；实际测试提交：`9dc37dd0cebc32696c41cddc0b4fd75f3a435db3`，仅增加专用 Web 回归工作流。
+- 运行：[EasyTier Web Regression #39895399496](https://github.com/CiBeDerORG/EasyTier/actions/runs/39895399496)，整体 **failure**，2026-10-23 11:30:38–11:35:27（Asia/Shanghai）。
+- 后端：`cargo test --locked -p easytier-web --no-fail-fast` 在编译阶段失败。`easytier-web/src/restful/user_admin.rs:145:51` 的 `delete(delete_user)` 不满足 Axum `Handler<_, _>` 约束，错误 `E0277`、退出码 101；后端用例未执行，不能沿用历史通过数量。
+- 前端：57 个单元测试、10 组网络配置映射断言和 13 个节点属性浏览器回归全部通过，Vue 类型检查及生产构建通过。
+- 新增工作流只在当前分支的工作流文件变化或手动调用时触发；普通源码与报告提交不触发，未部署或操作实际用户数据。
+- 本轮未修改业务代码。新增用户管理专项业务场景仍待验证，详见[本轮完整测试报告](../../test/2026-10-23-node-attributes-main-github-actions.md)。
