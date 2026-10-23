@@ -212,6 +212,7 @@ const workspaceNavigation = computed<NavItem[]>(() => [
     ...(centralEnabled.value ? [{ key: 'serviceManagement', label: t('web.console.service_management'), icon: 'pi pi-sliders-h', to: { name: 'serviceManagement' } }] : []),
     ...(canManageUsers.value ? [{ key: 'userManagement', label: t('user_admin.title'), icon: 'pi pi-users', to: { name: 'userManagement' } }] : []),
     { key: 'deployAgents', label: ui('deployAgents'), icon: 'pi pi-box', to: { name: 'deployAgents' } },
+    { key: 'automationCenter', label: ui('automationCenter'), icon: 'pi pi-mobile', to: { name: 'automationCenter' } },
 ]);
 const networkNavigation = computed<NavItem[]>(() => [
     { key: 'networkList', label: t('web.main.network_list'), icon: 'pi pi-globe', to: { name: 'networkList' } },
@@ -329,7 +330,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <i class="pi pi-angle-right topbar-brand" aria-hidden="true"></i><span class="console-current-page">{{ pageTitle }}</span>
                 </div>
                 <div class="console-topbar-actions">
-                    <Button v-if="manualManagementPage" :label="ui('manualRefresh')" icon="pi pi-refresh"
+                    <Button v-if="manualManagementPage" :label="ui('manualRefresh')" :aria-label="ui('manualRefresh')" class="manual-navigation-refresh" icon="pi pi-refresh"
                         text severity="secondary" size="small" :title="ui('manualRefreshHint')" @click="loadNavigation()" />
                     <div v-else class="console-auto-refresh flex items-center gap-2" :title="t('web.console.auto_refresh_hint')">
                         <InputSwitch inputId="console-auto-refresh" v-model="autoRefreshEnabled"

@@ -2,6 +2,10 @@
 import { computed, onMounted, ref } from 'vue';
 import { Button, Dialog, InputText, Message, Tag, Textarea } from 'primevue';
 import { v4 as uuid } from 'uuid';
+import { useI18n } from 'vue-i18n';
+import { deployMessages } from '../modules/deploy-messages';
+
+const { t, locale } = useI18n({ useScope: 'local', messages: deployMessages });
 import { deployRequest, type DeployAgent, type DeployApplication, type DeployTask, type InstallRequest } from '../modules/deploy-api';
 
 const agents = ref<DeployAgent[]>([]);
@@ -28,14 +32,13 @@ const groups = computed(() => {
     }
     return [...result.entries()];
 });
-const date = (value?: string) => value ? new Date(value).toLocaleString() : '尚未查询';
-const stateLabels: Record<string, string> = { accepted: '已接受', running: '执行中（上次查询）', succeeded: '已完成', failed: '失败', interrupted: '执行中断', outcome_unknown: '结果待核实' };
-const state = (value: string) => stateLabels[value] ?? value;
+const date = (value?: string) => value ? new Date(value).toLocaleString(locale.value === 'cn' ? 'zh-CN' : 'en-US') : t('notQueried');
+const state = (value: string) => ['accepted', 'running', 'succeeded', 'failed', 'interrupted', 'outcome_unknown'].includes(value) ? t(value) : value;
 
 async function perform(work: () => Promise<void>) {
     if (busy.value) return;
     busy.value = true; error.value = ''; notice.value = '';
-    try { await work(); } catch (e) { error.value = e instanceof Error ? e.message : '操作失败'; }
+    try { await work(); } catch (e) { error.value = e instanceof Error ? e.message : t('failedAction'); }
     finally { busy.value = false; }
 }
 async function loadSaved() {
@@ -53,7 +56,7 @@ async function add() {
     await perform(async () => {
         const result = await deployRequest<{ id: string }>('', 'POST', form.value);
         form.value = { alias: '', endpoint: 'https://', ca_pem: '', token: '' }; adding.value = false;
-        selectedId.value = result.id; await loadSaved(); notice.value = '已保存设备。点击“连接并验证”后再查询或安装。';
+        selectedId.value = result.id; await loadSaved(); notice.value = t('savedNotice');
     });
 }
 async function refresh(action: 'probe' | 'discover' | 'catalog') {
@@ -84,7 +87,7 @@ async function submitPending() {
         try {
             await deployRequest(`/${selectedId.value}/tasks`, 'POST', request);
             pending.value = undefined; values.value = {}; enabled.value = {};
-            notice.value = '任务已提交。点击“查询状态”或“读取日志”查看结果。';
+            notice.value = t('submittedNotice');
         } finally { await loadSaved(); }
     });
 }
@@ -98,94 +101,146 @@ async function taskAction(task: DeployTask, action: 'refresh' | 'fetch-logs' | '
         if (action === 'fetch-logs') viewingLog.value = tasks.value.find(item => item.task_id === task.task_id);
     });
 }
-function clearPending() { pending.value = undefined; notice.value = '已清除本页草稿。原任务仍保留在任务记录中，请先核实其结果。'; }
+function clearPending() { pending.value = undefined; notice.value = t('clearedNotice'); }
 function singleLinePaste(event: ClipboardEvent) {
     // Native single-line inputs silently strip newlines on paste. Reject the
     // unrepresentable input before the browser can change a chosen credential.
     if (/[\r\n\0]/.test(event.clipboardData?.getData('text') ?? '')) {
         event.preventDefault();
-        error.value = '应用配置使用单行文件格式，不能无损保存换行、回车或 NUL；粘贴内容未被修改或写入。';
+        error.value = t('pasteError');
     }
 }
 </script>
 
 <template>
-    <section class="deploy-page" aria-labelledby="deploy-title">
-        <header class="deploy-header">
-            <div><h1 id="deploy-title">应用与服务</h1><p>查询和安装由你发起。这里显示上次查询结果。</p></div>
-            <div class="actions"><Button label="读取已保存数据" icon="pi pi-refresh" severity="secondary" :disabled="busy" @click="perform(loadSaved)" />
-                <Button label="添加设备" icon="pi pi-plus" :disabled="busy" @click="adding = true" /></div>
+    <section class="console-page deploy-page" aria-labelledby="deploy-title">
+        <header class="page-heading deploy-header">
+            <div class="heading-identity"><span class="entity-icon page-icon"><i class="pi pi-box" aria-hidden="true"></i></span><div><h1 id="deploy-title">{{ t('title') }}</h1><p class="page-description">{{ t('description') }}</p></div></div>
+            <div class="actions"><Button :label="t('readSaved')" icon="pi pi-refresh" severity="secondary" :disabled="busy" @click="perform(loadSaved)" />
+                <Button :label="t('addDevice')" icon="pi pi-plus" :disabled="busy" @click="adding = true" /></div>
         </header>
         <Message v-if="error" severity="error" :closable="false" role="alert">{{ error }}</Message>
         <Message v-if="notice" severity="info" :closable="false" role="status">{{ notice }}</Message>
-        <p v-if="busy" role="status">正在处理本次操作…</p>
+        <p v-if="busy" role="status">{{ t('working') }}</p>
+        <p class="page-footnote"><i class="pi pi-bolt" aria-hidden="true"></i>{{ t('manual') }}</p>
         <div class="deploy-layout">
-            <nav class="device-selector" aria-label="部署设备">
-                <p v-if="!agents.length">添加 Agent 地址后，点击连接并验证。</p>
+            <nav class="console-panel device-selector" :aria-label="t('devices')">
+                <div class="selector-heading"><h2>{{ t('devices') }}</h2><span class="mono-value">{{ agents.length }}</span></div><p v-if="!agents.length" class="muted">{{ t('addHint') }}</p>
                 <button v-for="agent in agents" :key="agent.id" type="button" :class="{ active: selectedId === agent.id }" :disabled="busy || !!pending" :aria-pressed="selectedId === agent.id" @click="choose(agent.id)">
-                    <strong>{{ agent.alias }}</strong><small>{{ agent.endpoint }}</small><small>{{ agent.agent_id ? '已绑定' : '待验证' }}</small>
+                    <strong>{{ agent.alias }}</strong><small>{{ agent.endpoint }}</small><Tag :value="agent.agent_id ? t('bound') : t('unverified')" severity="secondary" />
                 </button>
             </nav>
-            <div v-if="selected" class="device-content">
-                <section class="deploy-panel">
-                    <div class="panel-heading"><h2>{{ selected.alias }}</h2><Button label="连接并验证" icon="pi pi-link" :disabled="busy" @click="refresh('probe')" /></div>
-                    <p>{{ selected.endpoint }}</p>
-                    <p v-if="selected.identity">{{ selected.identity.hostname }} · {{ selected.identity.platform }} / {{ selected.identity.arch }} · 软件目录 {{ selected.identity.software_root }}</p>
-                    <p class="muted">上次设备查询：{{ date(selected.identity?.observed_at) }}</p>
-                    <Message v-if="selected.last_error" severity="warn" :closable="false">上次请求失败：{{ selected.last_error }}。历史结果仍保留。</Message>
+            <section v-if="!selected" class="console-panel console-empty-state">
+                <i class="pi pi-server" aria-hidden="true"></i><h2>{{ t('emptyTitle') }}</h2>
+                <p>{{ t('emptyHint') }}</p><Button :label="t('addDevice')" icon="pi pi-plus" :disabled="busy" @click="adding = true" />
+            </section>
+            <div v-else class="device-content">
+                <section class="console-panel deploy-panel">
+                    <div class="panel-heading"><h2>{{ selected.alias }}</h2><Button :label="t('probe')" icon="pi pi-link" :disabled="busy" @click="refresh('probe')" /></div>
+                    <p class="mono-value">{{ selected.endpoint }}</p>
+                    <p v-if="selected.identity">{{ selected.identity.hostname }} · {{ selected.identity.platform }} / {{ selected.identity.arch }} · {{ t('softwareRoot') }} {{ selected.identity.software_root }}</p>
+                    <p class="muted">{{ t('lastDevice') }}{{ date(selected.identity?.observed_at) }}</p>
+                    <Message v-if="selected.last_error" severity="warn" :closable="false">{{ t('lastError', { error: selected.last_error }) }}</Message>
                 </section>
-                <section class="deploy-panel">
-                    <div class="panel-heading"><h2>发现的服务</h2><Button label="发现服务" icon="pi pi-search" :disabled="busy || !selected.agent_id" @click="refresh('discover')" /></div>
-                    <p class="muted">上次发现：{{ date(selected.services?.observed_at) }}</p>
-                    <div v-if="selected.services" class="providers"><span v-for="(provider, name) in selected.services.providers" :key="name">{{ name }}：{{ provider.status === 'ok' ? '查询成功' : provider.status === 'unavailable' ? '不可用' : '查询失败' }} <small>{{ provider.message }}</small></span></div>
-                    <p v-if="!selected.services">点击发现服务，查询容器与系统服务。</p>
-                    <p v-else-if="!services.length">本次成功查询的来源没有返回服务。不可用或失败的来源见上方说明。</p>
+                <section class="console-panel deploy-panel">
+                    <div class="panel-heading"><h2>{{ t('services') }}</h2><Button :label="t('discover')" icon="pi pi-search" :disabled="busy || !selected.agent_id" @click="refresh('discover')" /></div>
+                    <p class="muted">{{ t('lastDiscovery') }}{{ date(selected.services?.observed_at) }}</p>
+                    <div v-if="selected.services" class="providers"><span v-for="(provider, name) in selected.services.providers" :key="name">{{ name }}：{{ provider.status === 'ok' ? t('providerOk') : provider.status === 'unavailable' ? t('unavailable') : t('providerError') }} <small>{{ provider.message }}</small></span></div>
+                    <p v-if="!selected.services">{{ t('discoverHint') }}</p>
+                    <p v-else-if="!services.length">{{ t('noServices') }}</p>
                     <div v-for="[group, entries] in groups" :key="group" class="service-group">
-                        <h3>{{ group }}</h3><div class="table-scroll"><table><thead><tr><th>服务</th><th>查询到的状态</th><th>镜像</th><th>查询时间</th></tr></thead>
-                            <tbody><tr v-for="entry in entries" :key="entry.id"><td>{{ entry.name }}</td><td>{{ entry.state }} <Tag v-if="entry.stale" value="历史结果" severity="warn" /></td><td>{{ entry.image || '—' }}</td><td>{{ date(entry.observed_at) }}</td></tr></tbody></table></div>
+                        <h3>{{ group }}</h3><div class="table-scroll"><table><thead><tr><th>{{ t('service') }}</th><th>{{ t('observedState') }}</th><th>{{ t('image') }}</th><th>{{ t('observedAt') }}</th></tr></thead>
+                            <tbody><tr v-for="entry in entries" :key="entry.id"><td>{{ entry.name }}</td><td>{{ entry.state }} <Tag v-if="entry.stale" :value="t('stale')" severity="warn" /></td><td>{{ entry.image || '—' }}</td><td>{{ date(entry.observed_at) }}</td></tr></tbody></table></div>
                     </div>
                 </section>
-                <section class="deploy-panel">
-                    <div class="panel-heading"><h2>安装应用</h2><Button label="读取应用目录" icon="pi pi-box" :disabled="busy || !selected.agent_id || !!pending" @click="refresh('catalog')" /></div>
-                    <p>读取设备上的 deploy 应用目录后选择应用。容器应用需要设备具备 Docker 与 Compose v2。</p>
+                <section class="console-panel deploy-panel">
+                    <div class="panel-heading"><h2>{{ t('installApps') }}</h2><Button :label="t('readCatalog')" icon="pi pi-box" :disabled="busy || !selected.agent_id || !!pending" @click="refresh('catalog')" /></div>
+                    <p>{{ t('catalogHint') }}</p>
                     <div class="app-list"><button v-for="application in selected.catalog?.applications" :key="application.id" type="button" :disabled="!application.supported || busy || !!pending" :title="application.reason" :class="{ active: app?.id === application.id }" @click="configure(application)">{{ application.name }}<small v-if="!application.supported">{{ application.reason }}</small></button></div>
                     <form v-if="app" class="app-form" @submit.prevent="install('install')">
                         <h3>{{ app.name }}</h3>
-                        <label for="deploy-variant">安装方式</label><select id="deploy-variant" v-model="variant" :disabled="busy || !!pending"><option v-for="option in app.variants.filter(v => selected?.identity?.platform === 'openwrt' ? v === 'openwrt' : v !== 'openwrt')" :key="option" :value="option">{{ option }}</option></select>
-                        <p class="muted">只提交勾选的配置项。未勾选项保留设备现有值；首次安装使用 deploy 默认值。勾选后留空表示明确提交空值。</p>
+                        <label for="deploy-variant">{{ t('variant') }}</label><select id="deploy-variant" v-model="variant" :disabled="busy || !!pending"><option v-for="option in app.variants.filter(v => selected?.identity?.platform === 'openwrt' ? v === 'openwrt' : v !== 'openwrt')" :key="option" :value="option">{{ option }}</option></select>
+                        <p class="muted">{{ t('configHint') }}</p>
                         <div class="fields"><div v-for="field in app.configuration" :key="field.key" class="field">
-                            <label :for="`enabled-${field.key}`"><input :id="`enabled-${field.key}`" v-model="enabled[field.key]" type="checkbox" :disabled="busy || !!pending" /> {{ field.key }} {{ field.secret ? '（敏感配置）' : '' }}</label>
-                            <InputText :id="`value-${field.key}`" v-model="values[field.key]" :aria-label="field.key" :type="field.secret ? 'password' : 'text'" :placeholder="field.secret ? '留空按应用原有规则处理' : field.default" :disabled="!enabled[field.key] || busy || !!pending" autocomplete="off" @paste="singleLinePaste" />
+                            <label :for="`enabled-${field.key}`"><input :id="`enabled-${field.key}`" v-model="enabled[field.key]" type="checkbox" :disabled="busy || !!pending" /> {{ field.key }} {{ field.secret ? t('sensitive') : '' }}</label>
+                            <InputText :id="`value-${field.key}`" v-model="values[field.key]" :aria-label="field.key" :type="field.secret ? 'password' : 'text'" :placeholder="field.secret ? t('secretHint') : field.default" :disabled="!enabled[field.key] || busy || !!pending" autocomplete="off" @paste="singleLinePaste" />
                         </div></div>
-                        <div class="actions"><Button type="submit" label="安装" :disabled="busy || !!pending" /><Button label="更新" severity="secondary" :disabled="busy || !!pending" @click="install('update')" /></div>
+                        <div class="actions"><Button type="submit" :label="t('install')" :disabled="busy || !!pending" /><Button :label="t('update')" severity="secondary" :disabled="busy || !!pending" @click="install('update')" /></div>
                     </form>
-                    <Message v-if="pending" severity="warn" :closable="false">提交结果尚待核实。原任务编号 {{ pending.task_id }}。可以查询原任务，或使用同一编号重新发送。</Message>
-                    <div v-if="pending" class="actions"><Button label="重新发送原请求" :disabled="busy" @click="submitPending" /><Button label="清除本页草稿" severity="secondary" :disabled="busy" @click="clearPending" /></div>
+                    <Message v-if="pending" severity="warn" :closable="false">{{ t('pendingHint', { id: pending.task_id }) }}</Message>
+                    <div v-if="pending" class="actions"><Button :label="t('resend')" :disabled="busy" @click="submitPending" /><Button :label="t('clearDraft')" severity="secondary" :disabled="busy" @click="clearPending" /></div>
                 </section>
-                <section class="deploy-panel">
-                    <h2>任务记录</h2><p v-if="!tasks.length">尚无安装任务。</p>
+                <section class="console-panel deploy-panel">
+                    <h2>{{ t('tasks') }}</h2><p v-if="!tasks.length">{{ t('noTasks') }}</p>
                     <article v-for="task in tasks" :key="task.task_id" class="task">
-                        <div><strong>{{ task.application_id }} · {{ task.action }}</strong><Tag :value="state(task.status)" severity="secondary" /><p>{{ task.message }}</p><small>编号 {{ task.task_id }} · 上次查询 {{ date(task.queried_at) }}</small></div>
-                        <div class="actions"><Button label="查询状态" severity="secondary" :disabled="busy" @click="taskAction(task, 'refresh')" /><Button label="读取日志" severity="secondary" :disabled="busy" @click="taskAction(task, 'fetch-logs')" /><Button v-if="task.status === 'outcome_unknown'" label="按原编号重发" severity="secondary" :disabled="busy" @click="taskAction(task, 'resubmit')" /></div>
+                        <div><strong>{{ task.application_id }} · {{ ['install', 'update'].includes(task.action) ? t(task.action) : task.action }}</strong><Tag :value="state(task.status)" severity="secondary" /><p>{{ task.message }}</p><small>{{ t('taskId') }} {{ task.task_id }} · {{ t('lastQuery') }} {{ date(task.queried_at) }}</small></div>
+                        <div class="actions"><Button :label="t('queryStatus')" severity="secondary" :disabled="busy" @click="taskAction(task, 'refresh')" /><Button :label="t('readLogs')" severity="secondary" :disabled="busy" @click="taskAction(task, 'fetch-logs')" /><Button v-if="task.status === 'outcome_unknown'" :label="t('resubmit')" severity="secondary" :disabled="busy" @click="taskAction(task, 'resubmit')" /></div>
                     </article>
                 </section>
             </div>
         </div>
-        <Dialog v-model:visible="adding" modal header="添加部署设备" :style="{ width: '36rem', maxWidth: '95vw' }">
-            <form class="add-form" @submit.prevent="add"><label for="agent-alias">设备名称</label><InputText id="agent-alias" v-model="form.alias" required />
-                <label for="agent-endpoint">服务端能够访问的 Agent HTTPS 地址</label><InputText id="agent-endpoint" v-model="form.endpoint" required placeholder="https://192.168.1.20:7014" />
-                <label for="agent-token">设备访问凭证</label><Textarea id="agent-token" v-model="form.token" required rows="2" class="secret-input" autocomplete="off" spellcheck="false" />
-                <label for="agent-ca">信任证书 PEM</label><Textarea id="agent-ca" v-model="form.ca_pem" rows="5" placeholder="粘贴 Agent 的 agent.crt；使用系统信任的证书时可留空" />
-                <p>凭证保存在服务端。保存后点击连接并验证，才会访问设备。</p><Button type="submit" label="保存设备" :loading="busy" />
+        <Dialog v-model:visible="adding" modal :header="t('addTitle')" :style="{ width: '36rem', maxWidth: '95vw' }">
+            <form class="add-form" @submit.prevent="add"><label for="agent-alias">{{ t('alias') }}</label><InputText id="agent-alias" v-model="form.alias" required />
+                <label for="agent-endpoint">{{ t('endpoint') }}</label><InputText id="agent-endpoint" v-model="form.endpoint" required placeholder="https://192.168.1.20:7014" />
+                <label for="agent-token">{{ t('credential') }}</label><Textarea id="agent-token" v-model="form.token" required rows="2" class="secret-input" autocomplete="off" spellcheck="false" />
+                <label for="agent-ca">{{ t('trust') }}</label><Textarea id="agent-ca" v-model="form.ca_pem" rows="5" :placeholder="t('trustHint')" />
+                <p>{{ t('saveHint') }}</p><Button type="submit" :label="t('save')" :loading="busy" />
             </form>
         </Dialog>
-        <Dialog :visible="!!viewingLog" modal header="任务日志（已读取内容）" :style="{ width: '65rem', maxWidth: '95vw' }" @update:visible="viewingLog = undefined">
-            <pre class="task-log">{{ viewingLog?.logs || '尚无日志输出。' }}</pre><Button label="读取后续日志" :disabled="busy" @click="viewingLog && taskAction(viewingLog, 'fetch-logs')" />
+        <Dialog :visible="!!viewingLog" modal :header="t('logsTitle')" :style="{ width: '65rem', maxWidth: '95vw' }" @update:visible="viewingLog = undefined">
+            <pre class="task-log">{{ viewingLog?.logs || t('noLogs') }}</pre><Button :label="t('nextLogs')" :disabled="busy" @click="viewingLog && taskAction(viewingLog, 'fetch-logs')" />
         </Dialog>
     </section>
 </template>
 
 <style scoped>
-.secret-input{-webkit-text-security:disc}
-.deploy-page{max-width:1500px;margin:0 auto;padding:1.5rem;display:grid;gap:1rem}.deploy-header,.panel-heading{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}.deploy-header h1{margin:0;font-size:1.7rem}.deploy-header p,.muted{color:var(--p-text-muted-color)}.actions{display:flex;gap:.6rem;flex-wrap:wrap}.deploy-layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:1.3rem}.device-selector,.device-content{display:grid;align-content:start;gap:1rem}.device-selector button,.app-list button{background:var(--p-content-background);border:1px solid var(--p-content-border-color);border-radius:.65rem;text-align:left;padding:.9rem;color:inherit;cursor:pointer}.device-selector button{display:grid;gap:.5rem;overflow-wrap:anywhere}.device-selector button.active,.app-list button.active{border-color:var(--p-primary-color);box-shadow:inset 3px 0 var(--p-primary-color)}button:disabled{opacity:.55;cursor:default}.deploy-panel{border:1px solid var(--p-content-border-color);background:var(--p-content-background);border-radius:.8rem;padding:1.25rem;min-width:0}.deploy-panel h2{margin:0;font-size:1.2rem}.deploy-panel h3{font-size:1rem}.providers{display:grid;gap:.4rem;font-size:.9rem}.providers small{color:var(--p-text-muted-color)}.table-scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:.9rem;text-align:left}th,td{padding:.7rem;border-bottom:1px solid var(--p-content-border-color);overflow-wrap:anywhere}.app-list{display:flex;flex-wrap:wrap;gap:.6rem}.app-list small{display:block}.app-form,.add-form{display:grid;gap:.8rem}.app-form{margin-top:1rem}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.field{display:grid;gap:.4rem;font-size:.85rem}.field label{overflow-wrap:anywhere}.field .p-inputtext{width:100%}.task{padding:1rem 0;border-bottom:1px solid var(--p-content-border-color);display:grid;gap:.8rem}.task .p-tag{margin-left:.7rem}.task small{overflow-wrap:anywhere}.task-log{white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto;font-size:.85rem}select{padding:.6rem;color:inherit;background:var(--p-content-background);border:1px solid var(--p-content-border-color);border-radius:.4rem}@media(max-width:800px){.deploy-page{padding:.75rem}.deploy-layout{grid-template-columns:1fr}.device-selector{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}.fields{grid-template-columns:1fr}}
+.secret-input { -webkit-text-security: disc; }
+.deploy-header { flex-wrap: wrap; }
+.heading-identity { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.page-icon { width: 48px; height: 48px; font-size: 20px; border-radius: 13px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.deploy-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; align-items: start; }
+.device-selector, .device-content { display: grid; align-content: start; gap: 12px; min-width: 0; }
+.device-content { gap: 24px; }
+.device-selector { padding: 14px; }
+.selector-heading, .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.selector-heading { padding: 4px 2px 10px; font-size: 13px; color: var(--console-muted); }
+.panel-heading { flex-wrap: wrap; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--console-border); }
+.device-selector button, .app-list button { background: var(--console-panel-raised); border: 1px solid var(--console-border); border-radius: 9px; text-align: left; padding: 12px; color: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.device-selector button { display: grid; justify-items: start; gap: 8px; min-width: 0; }
+.device-selector button small { color: var(--console-muted); }
+.device-selector button.active, .app-list button.active { background: var(--console-accent-soft); border-color: var(--p-primary-color); box-shadow: inset 2px 0 var(--p-primary-color); }
+button:disabled { opacity: .55; cursor: default; }
+.deploy-panel { padding: 20px; overflow-wrap: anywhere; }
+.deploy-panel h2 { font-weight: 600; font-size: 14px; }
+.deploy-panel h3 { font-weight: 550; font-size: 13px; }
+.deploy-panel p { font-size: 13px; margin: 10px 0; }
+.providers { display: grid; gap: 8px; font-size: 12px; margin: 12px 0; }
+.providers small { color: var(--console-muted); }
+.service-group { margin-top: 16px; }
+.service-group h3 { margin-bottom: 8px; }
+.table-scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; }
+th, td { padding: 12px; border-bottom: 1px solid var(--console-border); overflow-wrap: anywhere; }
+th { background: var(--console-ground); color: var(--console-muted); font-weight: 500; font-size: 12px; }
+tr:nth-child(even) td { background: var(--console-stripe); }
+.app-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.app-list small { display: block; color: var(--console-muted); }
+.app-form, .add-form { display: grid; gap: 12px; }
+.app-form { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--console-border); }
+.add-form { font-size: 13px; }
+.add-form p { color: var(--console-muted); }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.field { display: grid; gap: 8px; font-size: 13px; }
+.field input[type=checkbox] { accent-color: var(--p-primary-color); }
+.field label { overflow-wrap: anywhere; }
+.field .p-inputtext { width: 100%; }
+.task { padding: 16px 0; border-bottom: 1px solid var(--console-border); display: grid; gap: 12px; font-size: 13px; }
+.task:last-child { border-bottom: 0; padding-bottom: 0; }
+.task .p-tag { margin-left: 8px; }
+.task small { overflow-wrap: anywhere; color: var(--console-muted); }
+.task-log { padding: 16px; border: 1px solid var(--console-border); border-radius: 9px; background: var(--console-ground); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; font-size: 12px; margin-bottom: 16px; }
+select { padding: 10px; color: inherit; background: var(--console-panel); border: 1px solid var(--console-border); border-radius: 8px; }
+@media (max-width: 1000px) { .deploy-layout { grid-template-columns: 1fr; } .device-selector { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); } .selector-heading { grid-column: 1 / -1; } }
+@media (max-width: 600px) { .fields { grid-template-columns: 1fr; } .deploy-panel { padding: 16px; } .heading-identity { align-items: flex-start; } }
 </style>
