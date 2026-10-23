@@ -4,4 +4,6 @@
 
 数据对接和菜单调整已完成，保留现有 3D 视图和资产权限。经用户授权，本轮前端构建通过，23 项逻辑测试、32 个不同的浏览器用例及 370 项后端测试通过；2 项既有大连接压力测试按原配置忽略。已复核桌面/手机截图和异步加载 100 台设备的镜头适配。
 
-用户已授权推送并更新镜像，正在通过现有 GitHub Actions 发布 `linux/amd64` 镜像 `ghcr.io/cibederorg/easytier:feat-node-attributes-tech-console`。发布完成后回填提交、运行地址与镜像 digest。入口：[需求](require/README.md)、[计划](plan/README.md)、[执行记录](task/test-report.md)。
+已合入远端部署管理与自动化中心更新，推送源码提交 `f951e054c2b3ab3f27aa2ada2f72e2a584f14c9b`，并完成 `linux/amd64` 镜像发布：`ghcr.io/cibederorg/easytier:feat-node-attributes-tech-console`。[Actions 40025544463](https://github.com/CiBeDerORG/EasyTier/actions/runs/40025544463) 成功，独立匿名拉取确认分支标签和固定提交标签一致。
+
+镜像 digest：`sha256:c034c14436d8b1fa9d3a093b3ccd646c7777be6c64a41c14ad7275b644ca46b1`。发布记录回填仅修改文档，不改变镜像源码版本。入口：[需求](require/README.md)、[计划](plan/README.md)、[执行记录](task/test-report.md)。
