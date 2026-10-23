@@ -174,6 +174,52 @@ fn gateway_payload(instance: Uuid, preview: &Value) -> Value {
 }
 
 #[tokio::test]
+async fn service_catalog_and_navigation_enforce_account_and_webhook_permissions() {
+    let fixture = Fixture::new().await;
+    let owner = fixture.account("navigation-owner").await;
+    let other = fixture.account("navigation-other").await;
+    let admin = fixture.account("navigation-admin").await;
+    fixture.make_admin(admin.id).await;
+    let node = Uuid::new_v4();
+    fixture.register_node(owner.id, node).await;
+    let device_id = Uuid::new_v4().to_string();
+    let service_id = Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO asset_devices(id,owner_user_id,machine_id,name,overlay_ip,created_at,updated_at) VALUES(?,?,?,'NAS','10.0.0.2','2026-10-23','2026-10-23')")
+        .bind(&device_id).bind(owner.id).bind(node.to_string()).execute(&fixture.db.inner()).await.unwrap();
+    sqlx::query("INSERT INTO asset_services(id,owner_user_id,machine_id,device_id,name,port,access_url,created_at,updated_at) VALUES(?,?,?,?,'Files',443,'https://nas.example.test/','2026-10-23','2026-10-23')")
+        .bind(&service_id).bind(owner.id).bind(node.to_string()).bind(&device_id).execute(&fixture.db.inner()).await.unwrap();
+    let catalog = format!("/api/v1/assets/services?owner_user_id={}", owner.id);
+    let navigation = format!("/api/v1/assets/services/{service_id}/navigation?owner_user_id={}&machine_id={node}", owner.id);
+    for (actor, webhook, expected) in [
+        (None, false, StatusCode::UNAUTHORIZED),
+        (Some(other.clone()), false, StatusCode::FORBIDDEN),
+        (Some(owner.clone()), true, StatusCode::FORBIDDEN),
+    ] {
+        let (status, _) = fixture.request(actor.clone(), webhook, Method::GET, &catalog, None).await;
+        assert_eq!(status, expected);
+        let (status, _) = fixture.request(actor, webhook, Method::PATCH, &navigation, Some(json!({"show_in_navigation":true}))).await;
+        assert_eq!(status, expected);
+    }
+    let (status, result) = fixture.request(Some(owner.clone()), false, Method::GET, &catalog, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result["items"].as_array().unwrap().len(), 1);
+    assert_eq!(result["items"][0]["device_name"], "NAS");
+    assert_eq!(result["items"][0]["show_in_navigation"], false);
+
+    let (status, result) = fixture.request(Some(admin.clone()), false, Method::PATCH, &navigation, Some(json!({"show_in_navigation":true}))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result["show_in_navigation"], true);
+    assert_eq!(result["owner_user_id"], owner.id);
+    sqlx::query("DELETE FROM users_groups WHERE user_id = ?")
+        .bind(admin.id).execute(&fixture.db.inner()).await.unwrap();
+    let (status, _) = fixture.request(Some(admin), false, Method::PATCH, &navigation, Some(json!({"show_in_navigation":false}))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, result) = fixture.request(Some(owner), false, Method::GET, &catalog, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result["items"][0]["show_in_navigation"], true);
+}
+
+#[tokio::test]
 async fn anonymous_asset_requests_return_json_authentication_error() {
     let fixture = Fixture::new().await;
     let (status, body) = fixture

@@ -7,6 +7,8 @@ import type { AssetDevice, AssetIcon, AssetProtocol, AssetScope, AssetService, A
 import { formatAssetError, getAssetError, useAssetMutation } from '../../composables/useAssetMutation';
 import { ASSET_SERVICE_ICON_OPTIONS, assetServiceIconClass } from '../../constants/asset-service-icons';
 import ServicePublicationDialog from './ServicePublicationDialog.vue';
+import { serviceMessages } from '../../modules/service-messages';
+import { safeServiceUrl } from '../../modules/service-utils';
 
 const props = defineProps<{
     visible: boolean;
@@ -16,13 +18,14 @@ const props = defineProps<{
     service?: AssetService | null;
 }>();
 const emit = defineEmits<{ close: []; saved: [service: AssetService]; 'context-error': [error: unknown] }>();
-const { t } = useI18n();
+const { t, locale } = useI18n();
+const navigationCopy = computed(() => locale.value === 'cn' || locale.value.startsWith('zh') ? serviceMessages.cn : serviceMessages.en);
 const attempt = useAssetMutation<AssetServiceInput, AssetService>();
 const editing = computed(() => !!props.service);
 const contextKey = computed(() => `${props.scope.owner_user_id}:${props.scope.machine_id}:${props.device.id}`);
 const form = reactive({
     name: '', protocols: ['tcp'] as AssetProtocol[], port: null as number | null,
-    remarks: '', access_url: '', icon: null as AssetIcon | null,
+    remarks: '', access_url: '', icon: null as AssetIcon | null, show_in_navigation: false,
 });
 const savingEdit = ref(false);
 const saveError = ref('');
@@ -94,6 +97,7 @@ const resetDraft = () => {
     form.remarks = record?.remarks ?? '';
     form.access_url = record?.access_url ?? '';
     form.icon = record?.icon ?? null;
+    form.show_in_navigation = record?.show_in_navigation ?? false;
     const configured = record?.publication;
     publication.value = configured ? {
         machine_id: configured.machine_id, instance_id: configured.instance_id,
@@ -106,6 +110,7 @@ const resetDraft = () => {
 };
 
 watch([() => props.device.overlay_ip, () => props.device.lan_ip], adoptDeviceAddresses, { flush: 'sync' });
+watch(() => form.access_url, value => { if (!value.trim()) form.show_in_navigation = false; });
 watch(() => [props.visible, contextKey.value, props.service?.id] as const, () => {
     adoptDeviceAddresses();
     if (props.visible) {
@@ -165,20 +170,17 @@ function validate(): AssetServiceInput | null {
     if (Array.from(remarks).length > 2000) errors.remarks = t('assets.services.remarksTooLong');
     if (publicationEnabled.value && !publication.value) errors.publication = t('assets.publication.configurationRequired');
     if (accessUrl) {
-        try {
-            const url = new URL(accessUrl);
-            if (!/^https?:\/\//i.test(accessUrl) || !['http:', 'https:'].includes(url.protocol) || !url.hostname) {
-                errors.access_url = t('assets.services.urlInvalid');
-            }
-        } catch {
-            errors.access_url = t('assets.services.urlInvalid');
-        }
+        if (!safeServiceUrl(accessUrl)) errors.access_url = t('assets.services.urlInvalid');
         if (Array.from(accessUrl).length > 2048) errors.access_url = t('assets.services.urlTooLong');
+    }
+    if (form.show_in_navigation && !safeServiceUrl(accessUrl)) {
+        errors.show_in_navigation = navigationCopy.value.navigationUrlRequired;
     }
     fieldErrors.value = errors;
     if (Object.keys(errors).length) return null;
     return {
         name,
+        show_in_navigation: form.show_in_navigation,
         protocols: (['tcp', 'udp'] as const).filter(protocol => form.protocols.includes(protocol)),
         port: form.port!,
         remarks: remarks || null,
@@ -322,6 +324,16 @@ function close() {
                 <small :id="fieldId('url-help')" :class="{ 'field-error': fieldErrors.access_url }">
                     {{ fieldErrors.access_url || t('assets.services.urlHint') }}
                 </small>
+            </div>
+            <div class="service-field">
+                <label class="protocol-option" :for="fieldId('navigation')">
+                    <Checkbox :inputId="fieldId('navigation')" v-model="form.show_in_navigation" binary
+                        :disabled="fieldsDisabled || (!form.show_in_navigation && !safeServiceUrl(form.access_url))"
+                        :aria-describedby="fieldId('navigation-help')" />
+                    {{ navigationCopy.show }}
+                </label>
+                <small :id="fieldId('navigation-help')">{{ safeServiceUrl(form.access_url) ? navigationCopy.navigationUrlHint : navigationCopy.navigationUrlRequired }}</small>
+                <small v-if="fieldErrors.show_in_navigation" class="field-error">{{ fieldErrors.show_in_navigation }}</small>
             </div>
             <div class="service-field">
                 <label :for="fieldId('icon')">{{ t('assets.services.icon') }}</label>

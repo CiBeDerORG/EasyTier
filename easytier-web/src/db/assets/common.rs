@@ -187,7 +187,7 @@ pub(super) async fn service_json(connection: &mut SqliteConnection, row: &Sqlite
         "machine_id":row.try_get::<String,_>("machine_id")?,"device_id":row.try_get::<String,_>("device_id")?,
         "name":row.try_get::<String,_>("name")?,"protocols":protocols,"port":row.try_get::<i32,_>("port")?,
         "overlay_ip":row.try_get::<String,_>("overlay_ip")?,"lan_ip":row.try_get::<Option<String>,_>("lan_ip")?,
-        "publication":publication,
+        "publication":publication,"show_in_navigation":row.try_get::<bool,_>("show_in_navigation")?,
         "remarks":row.try_get::<Option<String>,_>("remarks")?,"access_url":row.try_get::<Option<String>,_>("access_url")?,
         "icon":row.try_get::<Option<String>,_>("icon")?,"created_at":row.try_get::<String,_>("created_at")?,
         "updated_at":row.try_get::<String,_>("updated_at")?}))

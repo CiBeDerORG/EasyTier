@@ -127,7 +127,7 @@ async fn node_database_upgrades_without_losing_attributes_assets_or_coordinates(
     ).await.unwrap();
     Migrator::up(&db, None).await.unwrap();
     let row = db.query_one(Statement::from_string(db.get_database_backend(),
-        "SELECT d.device_model, g.latitude, g.longitude, m.is_public_server, a.overlay_ip, s.port FROM devices d JOIN node_geo_locations g ON g.machine_id = d.machine_id JOIN node_asset_metadata m ON m.machine_id = d.machine_id JOIN asset_devices a ON a.machine_id = d.machine_id JOIN asset_services s ON s.device_id = a.id".to_owned(),
+        "SELECT d.device_model, g.latitude, g.longitude, m.is_public_server, a.overlay_ip, s.port, s.show_in_navigation FROM devices d JOIN node_geo_locations g ON g.machine_id = d.machine_id JOIN node_asset_metadata m ON m.machine_id = d.machine_id JOIN asset_devices a ON a.machine_id = d.machine_id JOIN asset_services s ON s.device_id = a.id".to_owned(),
     )).await.unwrap().unwrap();
     assert_eq!(
         row.try_get::<String>("", "device_model").unwrap(),
@@ -138,5 +138,6 @@ async fn node_database_upgrades_without_losing_attributes_assets_or_coordinates(
     assert_eq!(row.try_get::<i32>("", "is_public_server").unwrap(), 1);
     assert_eq!(row.try_get::<String>("", "overlay_ip").unwrap(), "10.0.0.2");
     assert_eq!(row.try_get::<i32>("", "port").unwrap(), 443);
+    assert!(!row.try_get::<bool>("", "show_in_navigation").unwrap());
     assert_schema_complete_and_idempotent(&db).await;
 }

@@ -2,32 +2,33 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Button } from 'primevue';
-import type { ServiceEntry } from '../../modules/network-space';
+import type { AssetServiceCatalogEntry } from '../../types/node-assets';
 import { serviceMessages } from '../../modules/service-messages';
-import { safeServiceUrl, serviceIcons } from '../../modules/service-utils';
+import { safeServiceUrl } from '../../modules/service-utils';
+import { assetServiceIconClass } from '../../constants/asset-service-icons';
 
-const props = defineProps<{ service: ServiceEntry; networkName?: string }>();
-defineEmits<{ actions: [service: ServiceEntry, event: MouseEvent] }>();
+const props = defineProps<{ service: AssetServiceCatalogEntry }>();
+defineEmits<{ actions: [service: AssetServiceCatalogEntry, event: MouseEvent] }>();
 const { t } = useI18n({ useScope: 'local', messages: serviceMessages });
-const href = computed(() => safeServiceUrl(props.service.url));
+const href = computed(() => safeServiceUrl(props.service.access_url || ''));
 </script>
 
 <template>
     <article class="service-card" :data-service-id="service.id">
         <a class="service-card-link" :href="href || undefined" :aria-disabled="!href"
-            :target="service.open_in_new_tab ? '_blank' : undefined" rel="noopener noreferrer"
+            target="_blank" rel="noopener noreferrer"
             :aria-label="`${t('open')}: ${service.name}`" @click="!href && $event.preventDefault()">
-            <span :class="['service-card-icon', `service-icon-${service.icon}`]"><i :class="['pi', serviceIcons[service.icon] || 'pi-globe']" aria-hidden="true"></i></span>
+            <span :class="['service-card-icon', `service-icon-${service.icon}`]"><i :class="assetServiceIconClass(service.icon)" aria-hidden="true"></i></span>
             <span class="service-card-copy">
                 <strong>{{ service.name }}</strong>
-                <span v-if="service.description" class="service-card-description">{{ service.description }}</span>
-                <span v-else class="service-card-description">{{ networkName || service.group || t('ungrouped') }}</span>
-                <span class="service-card-meta"><span class="service-card-status" :title="t('uncheckedHint')"><i class="pi pi-circle-fill" aria-hidden="true"></i>{{ t('unchecked') }}</span><span v-if="networkName" class="service-card-network" :title="networkName"><i class="pi pi-share-alt" aria-hidden="true"></i>{{ networkName }}</span></span>
+                <span v-if="service.remarks" class="service-card-description">{{ service.remarks }}</span>
+                <span v-else class="service-card-description">{{ service.device_name }}</span>
+                <span class="service-card-meta"><span class="service-card-status" :title="t('uncheckedHint')"><i class="pi pi-circle-fill" aria-hidden="true"></i>{{ t('unchecked') }}</span><span class="service-card-network" :title="`${service.node_name} · ${service.device_name}`"><i class="pi pi-share-alt" aria-hidden="true"></i>{{ service.node_name }} · {{ service.device_name }}</span></span>
             </span>
             <span class="service-card-open"><i class="pi pi-arrow-up-right" aria-hidden="true"></i></span>
         </a>
         <div class="service-card-footer">
-            <span class="service-card-address" :title="service.url">{{ service.url }}</span>
+            <span class="service-card-address" :title="service.access_url || undefined">{{ service.access_url || '—' }}</span>
             <Button icon="pi pi-ellipsis-h" text rounded size="small" severity="secondary"
                 :aria-label="`${t('actions')}: ${service.name}`" aria-haspopup="menu"
                 @click="$emit('actions', service, $event)" />

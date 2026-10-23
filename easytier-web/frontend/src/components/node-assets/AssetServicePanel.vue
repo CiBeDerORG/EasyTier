@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { Button, Dialog } from 'primevue';
+import { Button, Dialog, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import type ApiClient from '../../modules/api';
 import type { AssetDevice, AssetScope, AssetService } from '../../types/node-assets';
@@ -8,6 +8,8 @@ import { formatAssetError, getAssetError } from '../../composables/useAssetMutat
 import { assetServiceIconClass } from '../../constants/asset-service-icons';
 import { publicationFeedback } from '../../modules/publication-sync';
 import AssetServiceDialog from './AssetServiceDialog.vue';
+import { serviceMessages } from '../../modules/service-messages';
+import { safeServiceUrl } from '../../modules/service-utils';
 
 const props = withDefaults(defineProps<{
     api: ApiClient;
@@ -17,6 +19,7 @@ const props = withDefaults(defineProps<{
 }>(), { addRequest: 0 });
 const emit = defineEmits<{ changed: []; 'add-request-consumed': []; 'context-error': [error: unknown] }>();
 const { t, locale } = useI18n();
+const navigationCopy = computed(() => locale.value === 'cn' || locale.value.startsWith('zh') ? serviceMessages.cn : serviceMessages.en);
 const rows = ref<AssetService[]>([]);
 const loading = ref(false);
 const loadError = ref('');
@@ -159,13 +162,7 @@ async function confirmDelete() {
 }
 
 function safeAccessUrl(value: string | null): string | null {
-    if (!value || !/^https?:\/\//i.test(value.trim())) return null;
-    try {
-        const url = new URL(value);
-        return ['http:', 'https:'].includes(url.protocol) && url.hostname ? url.href : null;
-    } catch {
-        return null;
-    }
+    return safeServiceUrl(value || '');
 }
 </script>
 
@@ -197,6 +194,7 @@ function safeAccessUrl(value: string | null): string | null {
                     <th scope="col">{{ t('assets.services.port') }}</th>
                     <th scope="col">{{ t('assets.publication.column') }}</th>
                     <th scope="col">{{ t('assets.services.accessUrl') }}</th>
+                    <th scope="col">{{ navigationCopy.navigation }}</th>
                     <th scope="col">{{ t('assets.services.remarks') }}</th>
                     <th scope="col">{{ t('assets.services.actions') }}</th>
                 </tr></thead>
@@ -223,6 +221,8 @@ function safeAccessUrl(value: string | null): string | null {
                             </a>
                             <span v-else class="service-muted">—</span>
                         </td>
+                        <td><Tag :value="service.show_in_navigation ? navigationCopy.enabled : navigationCopy.hidden"
+                            :severity="service.show_in_navigation ? 'success' : 'secondary'" /></td>
                         <td class="service-remarks">{{ service.remarks || '—' }}</td>
                         <td><div class="service-row-actions">
                             <Button :label="t('assets.services.edit')" icon="pi pi-pencil" text size="small"

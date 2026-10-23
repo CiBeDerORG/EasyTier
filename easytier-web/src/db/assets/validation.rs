@@ -177,8 +177,29 @@ pub(super) fn device_payload(body: &Value, creating: bool) -> AssetResult<Value>
         "remarks":optional_string(body,"remarks",2000)?}))
 }
 
+pub(super) fn service_access_url(link: &str) -> AssetResult<()> {
+    if link.chars().count() > 2048 || link.chars().any(char::is_control) {
+        return Err(AssetError::field("access_url", "Use at most 2048 characters without control characters."));
+    }
+    let lower = link.to_ascii_lowercase();
+    if !lower.starts_with("http://") && !lower.starts_with("https://") {
+        return Err(AssetError::field("access_url", "Enter a complete HTTP or HTTPS URL."));
+    }
+    let parsed = url::Url::parse(link).map_err(|_| AssetError::field("access_url", "Enter a complete HTTP or HTTPS URL."))?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() || !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(AssetError::field("access_url", "Only HTTP/HTTPS URLs without embedded credentials are supported."));
+    }
+    Ok(())
+}
+
+pub(super) fn service_navigation_payload(body: &Value) -> AssetResult<bool> {
+    keys(body, &["show_in_navigation"])?;
+    body.get("show_in_navigation").and_then(Value::as_bool)
+        .ok_or_else(|| AssetError::field("show_in_navigation", "Expected true or false."))
+}
+
 pub(super) fn service_payload(body: &Value, creating: bool) -> AssetResult<Value> {
-    let mut allowed = vec!["name", "protocols", "port", "remarks", "access_url", "icon", "publication"];
+    let mut allowed = vec!["name", "protocols", "port", "remarks", "access_url", "icon", "publication", "show_in_navigation"];
     if creating { allowed.push("request_id"); }
     keys(body, &allowed)?;
     let input_protocols = body.get("protocols").and_then(Value::as_array)
@@ -196,14 +217,7 @@ pub(super) fn service_payload(body: &Value, creating: bool) -> AssetResult<Value
         .ok_or_else(|| AssetError::field("port", "Enter an integer port between 1 and 65535."))?;
     let access_url = optional_string(body,"access_url",2048)?;
     if let Some(link) = &access_url {
-        let lower = link.to_ascii_lowercase();
-        if !lower.starts_with("http://") && !lower.starts_with("https://") {
-            return Err(AssetError::field("access_url", "Enter a complete HTTP or HTTPS URL."));
-        }
-        let parsed = url::Url::parse(link).map_err(|_| AssetError::field("access_url", "Enter a complete HTTP or HTTPS URL."))?;
-        if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() || !parsed.username().is_empty() || parsed.password().is_some() {
-            return Err(AssetError::field("access_url", "Only HTTP/HTTPS URLs without embedded credentials are supported."));
-        }
+        service_access_url(link)?;
     }
     let icon = optional_string(body,"icon",32)?;
     if let Some(icon) = &icon {
@@ -217,6 +231,15 @@ pub(super) fn service_payload(body: &Value, creating: bool) -> AssetResult<Value
     // Absence also means that older edit clients retain the existing binding.
     if let Some(publication) = body.get("publication") {
         payload["publication"] = super::publications::input(publication)?;
+    }
+    // Omission preserves pre-navigation idempotency payloads. Older editors
+    // retain navigation while keeping a URL, and turn it off if clearing one.
+    if let Some(value) = body.get("show_in_navigation") {
+        let enabled = value.as_bool().ok_or_else(|| AssetError::field("show_in_navigation", "Expected true or false."))?;
+        if enabled && payload["access_url"].is_null() {
+            return Err(AssetError::field("access_url", "Add an HTTP or HTTPS URL before enabling navigation."));
+        }
+        payload["show_in_navigation"] = json!(enabled);
     }
     Ok(payload)
 }

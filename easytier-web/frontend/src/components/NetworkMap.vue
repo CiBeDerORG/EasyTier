@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { Button, Dialog, Drawer, Message, Skeleton, useToast } from 'primevue';
-import { Polling } from 'easytier-frontend-lib';
-import { v4 as uuidv4 } from 'uuid';
+import { Button, Message, Skeleton, useToast } from 'primevue';
+import { Polling, Utils } from 'easytier-frontend-lib';
 import type ApiClient from '../modules/api';
-import type { CentralNetworkMember, CentralNetworkSummary } from '../modules/api';
-import type { MapLanDevice, MapNodeConfig, MapSceneLink, MapSceneNode, NetworkMapConfig, ServiceEntry } from '../modules/network-space';
-import { buildMapTopology, type MapCounter, type MapRuntimeSample, type MapTopologyLink, type MapTopologyRoute } from '../modules/map-topology';
+import type { MapLanDevice, MapNodeConfig, MapSceneLink, MapSceneNode } from '../modules/network-space';
+import type { MapCounter, MapTopologyLink, MapTopologyRoute } from '../modules/map-topology';
+import { buildRegisteredMapTopology, type RegisteredMapRuntimeSample } from '../modules/registered-map-topology';
+import { buildNodeSpaceDevices } from '../modules/node-map-assets';
 import { mapMessages } from '../modules/map-messages';
+import type { AssetContextResponse, AssetDevice, AssetNode, AssetServiceCatalogEntry, DeviceType, GatewayGroup } from '../types/node-assets';
+import DeviceAttributesDialog from './DeviceAttributesDialog.vue';
 
 const NetworkGlobe = defineAsyncComponent(() => import('./map/NetworkGlobe.vue'));
 const NodeSpace = defineAsyncComponent(() => import('./map/NodeSpace.vue'));
@@ -19,17 +21,20 @@ const route = useRoute();
 const router = useRouter();
 const toast = useToast();
 const autoRefreshEnabled = Polling.useAutoRefresh();
-const networks = ref<CentralNetworkSummary[]>([]);
-const networkId = ref('');
-const members = ref<CentralNetworkMember[]>([]);
-const configuration = ref<NetworkMapConfig>({ revision: 0, nodes: [], devices: [] });
-const configurationReady = ref(false);
-const services = ref<ServiceEntry[]>([]);
-const loadingNetworks = ref(false);
+const machines = ref<Utils.DeviceInfo[]>([]);
+const context = ref<AssetContextResponse | null>(null);
+const assetNodes = ref<AssetNode[]>([]);
+const assetDevices = ref<AssetDevice[]>([]);
+const groups = ref<GatewayGroup[]>([]);
+const types = ref<DeviceType[]>([]);
+const services = ref<AssetServiceCatalogEntry[]>([]);
 const loading = ref(false);
+const loaded = ref(false);
+const assetsLoading = ref(false);
 const collecting = ref(false);
 const loadError = ref('');
 const configurationError = ref(false);
+const assetError = ref(false);
 const serviceError = ref(false);
 const runtimeError = ref(false);
 const membersStale = ref(false);
@@ -38,6 +43,7 @@ const selectedDeviceId = ref<string | null>(null);
 const selectedLinkId = ref<string | null>(null);
 const selectedRouteId = ref<string | null>(null);
 const mode = ref<'globe' | 'space'>('globe');
+const spaceLayout = ref<'topology' | 'home'>('topology');
 const search = ref('');
 const onlyUnlocated = ref(false);
 const rendererError = ref(false);
@@ -45,43 +51,61 @@ const links = ref<MapTopologyLink[]>([]);
 const paths = ref<MapTopologyRoute[]>([]);
 const unknownPeers = ref(0);
 const lastUpdate = ref<number | null>(null);
-let samples = new Map<string, MapRuntimeSample>();
+const virtualIps = ref<Record<string, string>>({});
+const assetGatewayIds = ref<Set<string>>(new Set());
+const runtimeGatewayIds = ref<Set<string>>(new Set());
+const gatewayIds = computed(() => new Set([...assetGatewayIds.value, ...runtimeGatewayIds.value]));
+const attributesTarget = ref<Utils.DeviceInfo | null>(null);
+const attributesNode = ref<AssetNode | null>(null);
+let samples = new Map<string, RegisteredMapRuntimeSample>();
 let counters = new Map<string, MapCounter>();
 let generation = 0;
-let networkListGeneration = 0;
+let assetGeneration = 0;
+let metadataGeneration = 0;
 let mounted = true;
 let polling: number | undefined;
 let pollInFlight = false;
 let runtimeGeneration: number | null = null;
 const queryString = (value: unknown) => typeof value === 'string' ? value : '';
 const errorText = (error: unknown, fallback: string) => (error as { response?: { data?: { message?: string } } })?.response?.data?.message || fallback;
-
-const configFor = (deviceId: string): MapNodeConfig => configuration.value.nodes.find(node => node.device_id === deviceId) ?? {
-    device_id: deviceId, latitude: null, longitude: null, label: '', role: 'node', layout: 'topology',
-};
+const sampleKey = (machineId: string, instanceId: string) => `${machineId}:${instanceId}`;
+const members = computed(() => machines.value.map(machine => ({ ...machine, device_id: machine.machine_id,
+    online: machine.online === true, runtime_virtual_ipv4: virtualIps.value[machine.machine_id] || '' })));
+const selectedMember = computed(() => members.value.find(member => member.device_id === selectedId.value));
 const nameOf = (deviceId: string) => {
     const member = members.value.find(item => item.device_id === deviceId);
-    return configFor(deviceId).label || member?.alias || member?.hostname_override || member?.hostname || deviceId;
+    return member?.alias || member?.hostname || deviceId;
 };
-const hasPosition = (node: MapNodeConfig) => node.latitude != null && node.longitude != null && Number.isFinite(node.latitude) && Number.isFinite(node.longitude);
-const selectedMember = computed(() => members.value.find(member => member.device_id === selectedId.value));
+const configFor = (deviceId: string): MapNodeConfig => {
+    const member = members.value.find(item => item.device_id === deviceId);
+    return { device_id: deviceId, latitude: member?.geo_location?.latitude ?? null,
+        longitude: member?.geo_location?.longitude ?? null, label: nameOf(deviceId),
+        role: gatewayIds.value.has(deviceId) ? 'gateway' : 'node', layout: spaceLayout.value };
+};
+const hasPosition = (node: MapNodeConfig) => node.latitude != null && node.longitude != null
+    && Number.isFinite(node.latitude) && Math.abs(node.latitude) <= 90
+    && Number.isFinite(node.longitude) && Math.abs(node.longitude) <= 180;
 const selectedConfig = computed(() => selectedId.value ? configFor(selectedId.value) : null);
 const isGateway = computed(() => selectedConfig.value?.role === 'gateway');
-const localDevices = computed(() => configuration.value.devices.filter(device => device.gateway_device_id === selectedId.value));
+const configurationReady = computed(() => !!context.value?.available && assetNodes.value.some(node => node.machine_id === selectedId.value));
+const canViewSpace = computed(() => !!selectedId.value && !!context.value?.available);
+const spaceDevices = computed(() => buildNodeSpaceDevices(selectedId.value || '', assetDevices.value, groups.value, types.value));
+const localDevices = computed(() => spaceDevices.value.filter(device => !!device.asset_device_id));
 const selectedDevice = computed(() => localDevices.value.find(device => device.id === selectedDeviceId.value));
-const associatedServices = computed(() => services.value.filter(service => service.device_id === selectedId.value && (!selectedDeviceId.value || service.lan_device_id === selectedDeviceId.value)));
+const associatedServices = computed(() => services.value.filter(service => service.machine_id === selectedId.value
+    && (!selectedDeviceId.value || service.device_id === selectedDeviceId.value)));
 const selectedLink = computed(() => links.value.find(link => link.id === selectedLinkId.value));
 const selectedPath = computed(() => paths.value.find(path => path.id === selectedRouteId.value));
 const nodeLinks = computed(() => links.value.filter(link => link.source === selectedId.value || link.target === selectedId.value));
 const nodePaths = computed(() => paths.value.filter(path => path.source === selectedId.value));
 const unlocatedCount = computed(() => members.value.filter(member => !hasPosition(configFor(member.device_id))).length);
 const filteredMembers = computed(() => members.value.filter(member => {
-    const words = `${nameOf(member.device_id)} ${member.runtime_virtual_ipv4 || member.virtual_ipv4 || ''}`.toLocaleLowerCase();
+    const words = `${nameOf(member.device_id)} ${member.runtime_virtual_ipv4} ${member.device_model || ''}`.toLocaleLowerCase();
     return (!onlyUnlocated.value || !hasPosition(configFor(member.device_id))) && words.includes(search.value.trim().toLocaleLowerCase());
 }));
 const sceneNodes = computed<MapSceneNode[]>(() => members.value.flatMap(member => {
     const node = configFor(member.device_id);
-    return hasPosition(node) ? [{ id: member.device_id, name: nameOf(member.device_id), latitude: node.latitude!, longitude: node.longitude!, online: member.online && member.running !== false, role: node.role }] : [];
+    return hasPosition(node) ? [{ id: member.device_id, name: nameOf(member.device_id), latitude: node.latitude!, longitude: node.longitude!, online: member.online, role: node.role }] : [];
 }));
 const sceneLinks = computed<MapSceneLink[]>(() => {
     const located = new Set(sceneNodes.value.map(node => node.id));
@@ -93,8 +117,11 @@ const sceneLinks = computed<MapSceneLink[]>(() => {
 });
 
 function syncQuery() {
-    const query = { ...route.query, network: networkId.value || undefined, node: selectedId.value || undefined, device: selectedDeviceId.value || undefined };
-    if (queryString(route.query.network) !== networkId.value || queryString(route.query.node) !== (selectedId.value || '') || queryString(route.query.device) !== (selectedDeviceId.value || '')) void router.replace({ query });
+    const query: LocationQueryRaw = { ...route.query, node: selectedId.value || undefined, device: selectedDeviceId.value || undefined };
+    // Older map links may contain a central-network filter. It does not scope registered nodes.
+    delete query.network;
+    delete query.owner;
+    if (JSON.stringify(query) !== JSON.stringify(route.query)) void router.replace({ query });
 }
 function selectNode(id: string, updateQuery = true) {
     if (!members.value.some(member => member.device_id === id)) return;
@@ -112,329 +139,236 @@ function selectDevice(id: string) {
     selectedDeviceId.value = selectedDeviceId.value === id ? null : id;
     syncQuery();
 }
-function selectLink(id: string) {
-    selectedLinkId.value = id;
-    selectedRouteId.value = null;
-}
+function selectLink(id: string) { selectedLinkId.value = id; selectedRouteId.value = null; }
 function expireTelemetry(force = false) {
     const now = Date.now();
     links.value = links.value.map(link => force || now - link.sampledAt >= 45_000 ? { ...link, stale: true, rx_bps: 0, tx_bps: 0 } : link);
-    paths.value = paths.value.map(path => ({ ...path, stale: path.stale || force || path.path.some(id => {
-        const sample = samples.get(id);
-        return !sample || sample.failed || now - sample.sampledAt >= 45_000;
-    }) }));
+    if (force) paths.value = paths.value.map(path => ({ ...path, stale: true }));
+    else {
+        const previouslyStale = new Set(paths.value.filter(path => path.stale).map(path => path.id));
+        paths.value = buildRegisteredMapTopology(members.value, [...samples.values()], counters, now).routes
+            .map(path => ({ ...path, stale: path.stale || previouslyStale.has(path.id) }));
+    }
 }
+function canRefreshAutomatically() { return mounted && autoRefreshEnabled.value && !document.hidden && props.centralEnabled; }
 function visibilityChanged() {
     expireTelemetry(true);
     counters.clear();
-    if (canRefreshAutomatically()) void collectRuntime(generation, canRefreshAutomatically);
-}
-function canRefreshAutomatically() {
-    return mounted && autoRefreshEnabled.value && !document.hidden && props.centralEnabled;
+    if (canRefreshAutomatically()) void poll();
 }
 
-async function loadNetworks() {
-    const current = ++networkListGeneration;
-    if (!props.centralEnabled) return;
-    loadingNetworks.value = true;
-    loadError.value = '';
+async function loadMetadata() {
+    const current = ++metadataGeneration;
     try {
-        const result = await props.api.list_networks();
-        if (!mounted || current !== networkListGeneration || !props.centralEnabled) return;
-        networks.value = result;
-        const requested = queryString(route.query.network) || networkId.value;
-        const next = result.find(network => network.network_id === requested)?.network_id || result[0]?.network_id || '';
-        if (networkId.value !== next) networkId.value = next;
-        else if (next) await loadNetwork();
-    } catch (error) {
-        if (current === networkListGeneration) loadError.value = errorText(error, t('loadFailed'));
-    } finally {
-        if (current === networkListGeneration) loadingNetworks.value = false;
+        const nextContext = await props.api.assetsContext();
+        if (!mounted || current !== metadataGeneration) return;
+        context.value = nextContext;
+        if (!nextContext.available) { assetNodes.value = []; services.value = []; types.value = []; return; }
+        const results = await Promise.allSettled([
+            props.api.assetsNodes(nextContext.actor.id), props.api.assetsTypes(nextContext.actor.id), props.api.assetsServiceCatalog(nextContext.actor.id),
+        ]);
+        if (!mounted || current !== metadataGeneration) return;
+        const [nodesResult, typesResult, servicesResult] = results;
+        configurationError.value = nodesResult.status === 'rejected';
+        assetNodes.value = nodesResult.status === 'fulfilled' ? nodesResult.value.items : [];
+        types.value = typesResult.status === 'fulfilled' ? typesResult.value.items : [];
+        serviceError.value = servicesResult.status === 'rejected';
+        services.value = servicesResult.status === 'fulfilled' ? servicesResult.value.items : [];
+    } catch {
+        if (mounted && current === metadataGeneration) {
+            context.value = null; assetNodes.value = []; services.value = []; types.value = [];
+            configurationError.value = true; serviceError.value = true;
+        }
     }
 }
-
-async function loadNetwork() {
-    const id = networkId.value;
-    const current = ++generation;
-    if (!id || !props.centralEnabled) return;
-    loading.value = true;
-    loadError.value = '';
-    configurationError.value = false;
-    serviceError.value = false;
-    const results = await Promise.allSettled([
-        props.api.list_network_members(id), props.api.get_network_map(id), props.api.list_services(id),
-    ]);
-    if (!mounted || current !== generation) return;
-    const [memberResult, configResult, serviceResult] = results;
-    if (memberResult.status === 'fulfilled') { members.value = memberResult.value.members; membersStale.value = false; }
-    else { loadError.value = errorText(memberResult.reason, t('membersFailed')); membersStale.value = true; }
-    if (configResult.status === 'fulfilled') {
-        configuration.value = configResult.value;
-        configurationReady.value = true;
-    } else {
-        configurationError.value = true;
-        configurationReady.value = false;
-    }
-    if (serviceResult.status === 'fulfilled') services.value = serviceResult.value;
-    else serviceError.value = true;
+async function loadSelectedAssets() {
+    const current = ++assetGeneration;
+    const nodeId = selectedId.value;
+    const owner = context.value?.available ? context.value.actor.id : undefined;
+    assetDevices.value = []; groups.value = []; assetError.value = false;
+    if (!nodeId || owner === undefined) { assetsLoading.value = false; return; }
+    assetsLoading.value = true;
+    const active = () => mounted && current === assetGeneration && selectedId.value === nodeId && context.value?.actor.id === owner;
+    const scope = { owner_user_id: owner, machine_id: nodeId };
+    try {
+        const [groupResult, firstPage] = await Promise.all([props.api.assetsGroups(scope), props.api.assetsDevices(scope, { page: 1, page_size: 100 })]);
+        if (!active()) return;
+        const devices = [...firstPage.items];
+        // Respect server pagination; nodes with more than one page remain complete.
+        const pages = Math.ceil(firstPage.total / firstPage.page_size);
+        for (let page = 2; page <= pages; page++) {
+            if (!active()) return;
+            const result = await props.api.assetsDevices(scope, { page, page_size: firstPage.page_size });
+            if (!active()) return;
+            devices.push(...result.items);
+        }
+        groups.value = groupResult.items;
+        assetDevices.value = [...new Map(devices.map(device => [device.id, device])).values()];
+        const nextGateways = new Set(assetGatewayIds.value);
+        if (groups.value.length) nextGateways.add(nodeId);
+        else nextGateways.delete(nodeId);
+        assetGatewayIds.value = nextGateways;
+        const requested = queryString(route.query.device);
+        selectedDeviceId.value = devices.some(device => device.id === requested) ? requested : null;
+        syncQuery();
+    } catch {
+        if (active()) { assetError.value = true; selectedDeviceId.value = null; }
+    } finally { if (active()) assetsLoading.value = false; }
+}
+function acceptMachines(result: unknown[]) {
+    machines.value = result.map(Utils.buildDeviceInfo);
+    membersStale.value = false;
     const requested = queryString(route.query.node) || selectedId.value;
-    const next = members.value.find(member => member.device_id === requested)?.device_id || members.value.find(member => member.online)?.device_id || members.value[0]?.device_id;
-    if (next) selectNode(next, false);
-    else selectedId.value = null;
-    const requestedDevice = queryString(route.query.device);
-    if (requestedDevice && localDevices.value.some(device => device.id === requestedDevice)) selectedDeviceId.value = requestedDevice;
-    else if (!localDevices.value.some(device => device.id === selectedDeviceId.value)) selectedDeviceId.value = null;
+    const next = members.value.find(member => member.device_id === requested)?.device_id
+        || members.value.find(member => member.online)?.device_id || members.value[0]?.device_id || null;
+    if (next !== selectedId.value) {
+        selectedDeviceId.value = null; selectedLinkId.value = null; selectedRouteId.value = null; mode.value = 'globe';
+        selectedId.value = next;
+    }
+    if (!next) syncQuery();
+}
+async function refresh() {
+    if (!props.centralEnabled || loading.value) return;
+    const current = ++generation;
+    loading.value = true; loadError.value = '';
+    const [nodesResult] = await Promise.allSettled([props.api.list_machines(), loadMetadata()]);
+    if (!mounted || current !== generation) return;
+    if (nodesResult.status === 'fulfilled') { acceptMachines(nodesResult.value); loaded.value = true; }
+    else { loadError.value = errorText(nodesResult.reason, t('loadFailed')); membersStale.value = true; expireTelemetry(true); }
     loading.value = false;
-    syncQuery();
-    if (memberResult.status === 'fulfilled') void collectRuntime(current);
+    await loadSelectedAssets();
+    if (nodesResult.status === 'fulfilled' && mounted && current === generation) void collectRuntime(current);
 }
 
 async function collectRuntime(current = generation, canContinue = () => true) {
-    if (!canContinue() || !networkId.value || !props.centralEnabled || loading.value || runtimeGeneration === current || document.hidden) return;
-    runtimeGeneration = current;
-    collecting.value = true;
+    if (!canContinue() || loading.value || runtimeGeneration === current || document.hidden) return;
+    runtimeGeneration = current; collecting.value = true;
     try {
-        const id = networkId.value;
-        const queue = members.value.filter(member => member.online && member.running !== false);
-        const next = new Map<string, MapRuntimeSample>();
-        let failed = false;
-        let cursor = 0;
+        const queue = members.value.filter(member => member.online).flatMap(member =>
+            [...new Set(member.running_network_instances || [])].map(instanceId => ({ member, instanceId })));
+        const next = new Map<string, RegisteredMapRuntimeSample>();
+        const addresses: Record<string, Set<string>> = {};
+        const gateways = new Set<string>();
+        let failed = false; let cursor = 0;
+        const active = () => mounted && current === generation && canContinue();
         const worker = async () => {
-            while (cursor < queue.length && current === generation && mounted && canContinue()) {
-                const member = queue[cursor++];
+            while (cursor < queue.length && active()) {
+                const { member, instanceId } = queue[cursor++];
                 const results = await Promise.allSettled([
-                    props.api.get_node_info(member.device_id, id),
-                    props.api.get_node_routes(member.device_id, id),
-                    props.api.get_node_peers(member.device_id, id),
+                    props.api.get_node_info(member.device_id, instanceId), props.api.get_node_routes(member.device_id, instanceId), props.api.get_node_peers(member.device_id, instanceId),
                 ]);
-                if (current !== generation || !mounted || !canContinue()) return;
+                if (!active()) return;
                 const [info, routes, peers] = results;
-                const previous = samples.get(member.device_id);
+                const key = sampleKey(member.device_id, instanceId);
+                const previous = samples.get(key);
                 const partial = results.some(result => result.status === 'rejected');
                 failed ||= partial;
-                next.set(member.device_id, {
-                    deviceId: member.device_id,
+                if (info.status === 'fulfilled') {
+                    if (info.value.ipv4_addr) (addresses[member.device_id] ??= new Set()).add(info.value.ipv4_addr);
+                    if (info.value.proxy_cidrs?.length) gateways.add(member.device_id);
+                }
+                next.set(key, { deviceId: member.device_id, instanceId,
                     peerId: info.status === 'fulfilled' ? info.value.peer_id : previous?.peerId,
                     routes: routes.status === 'fulfilled' ? routes.value : previous?.routes ?? [],
                     peers: peers.status === 'fulfilled' ? peers.value : previous?.peers ?? [],
-                    sampledAt: partial ? previous?.sampledAt ?? Date.now() : Date.now(),
-                    failed: partial,
-                });
+                    sampledAt: partial ? previous?.sampledAt ?? Date.now() : Date.now(), failed: partial });
             }
         };
         await Promise.all(Array.from({ length: Math.min(3, queue.length) }, worker));
-        if (!mounted || current !== generation || !canContinue()) return;
-        for (const member of members.value.filter(member => !member.online || member.running === false)) {
-            const previous = samples.get(member.device_id);
-            if (previous) next.set(member.device_id, { ...previous, failed: true });
+        if (!active()) return;
+        const knownNodes = new Set(members.value.map(member => member.device_id));
+        for (const [key, previous] of samples) {
+            if (knownNodes.has(previous.deviceId) && !next.has(key)) next.set(key, { ...previous, failed: true });
         }
         samples = next;
-        const topology = buildMapTopology(members.value, [...samples.values()], counters);
-        links.value = topology.links;
-        paths.value = topology.routes;
-        counters = topology.counters;
-        unknownPeers.value = topology.unresolvedPeers;
+        const topology = buildRegisteredMapTopology(members.value, [...samples.values()], counters);
+        links.value = topology.links; paths.value = topology.routes; counters = topology.counters;
+        unknownPeers.value = topology.unresolvedPeers; runtimeGatewayIds.value = gateways;
+        virtualIps.value = Object.fromEntries(Object.entries(addresses).map(([id, values]) => [id, [...values].join(' · ')]));
         runtimeError.value = failed || membersStale.value;
-        lastUpdate.value = queue.length && !failed ? Date.now() : lastUpdate.value;
+        if (queue.length && !failed) lastUpdate.value = Date.now();
         if (document.hidden) expireTelemetry(true);
     } catch {
         if (mounted && current === generation && canContinue()) { runtimeError.value = true; expireTelemetry(true); }
     } finally {
-        if (runtimeGeneration === current) {
-            runtimeGeneration = null;
-            if (current === generation) collecting.value = false;
-        }
+        if (runtimeGeneration === current) { runtimeGeneration = null; if (current === generation) collecting.value = false; }
     }
 }
-
-watch(networkId, () => {
-    generation++;
-    members.value = [];
-    configuration.value = { revision: 0, nodes: [], devices: [] };
-    configurationReady.value = false;
-    services.value = [];
-    links.value = [];
-    paths.value = [];
-    samples.clear();
-    counters.clear();
-    lastUpdate.value = null;
-    selectedId.value = null;
-    selectedDeviceId.value = null;
-    selectedLinkId.value = null;
-    selectedRouteId.value = null;
-    mode.value = 'globe';
-    rendererError.value = false;
-    runtimeError.value = false;
-    membersStale.value = false;
-    nodeEditor.value = false;
-    deviceEditor.value = false;
-    removeCandidate.value = null;
-    unknownPeers.value = 0;
-    void loadNetwork();
-});
+async function poll() {
+    if (!canRefreshAutomatically() || loading.value || pollInFlight || runtimeGeneration === generation) return;
+    const current = generation;
+    pollInFlight = true;
+    try {
+        const result = await props.api.list_machines();
+        if (!canRefreshAutomatically() || current !== generation) return;
+        acceptMachines(result);
+        await collectRuntime(current, canRefreshAutomatically);
+    } catch {
+        if (canRefreshAutomatically() && current === generation) { runtimeError.value = true; membersStale.value = true; expireTelemetry(true); }
+    } finally { pollInFlight = false; }
+}
+watch(selectedId, () => { if (!loading.value) void loadSelectedAssets(); }, { flush: 'sync' });
 watch(() => props.centralEnabled, enabled => {
-    if (enabled) void loadNetworks();
-    else { generation++; networkListGeneration++; }
+    if (enabled) void refresh();
+    else {
+        generation++; metadataGeneration++; assetGeneration++;
+        machines.value = []; assetNodes.value = []; services.value = []; assetDevices.value = []; groups.value = [];
+        context.value = null; samples.clear(); counters.clear(); links.value = []; paths.value = [];
+        assetGatewayIds.value = new Set(); runtimeGatewayIds.value = new Set();
+        selectedId.value = null; selectedDeviceId.value = null; loading.value = false; collecting.value = false;
+    }
 }, { immediate: true });
-watch(() => [route.query.network, route.query.node, route.query.device], () => {
-    const requestedNetwork = queryString(route.query.network);
-    if (requestedNetwork && requestedNetwork !== networkId.value && networks.value.some(network => network.network_id === requestedNetwork)) {
-        networkId.value = requestedNetwork;
-        return;
-    }
-    const requestedNode = queryString(route.query.node);
-    if (requestedNode && requestedNode !== selectedId.value) selectNode(requestedNode, false);
-    const requestedDevice = queryString(route.query.device);
-    selectedDeviceId.value = localDevices.value.some(device => device.id === requestedDevice) ? requestedDevice : null;
+watch(() => [route.query.node, route.query.device], () => {
+    const node = queryString(route.query.node);
+    if (node && node !== selectedId.value) { selectNode(node, false); return; }
+    const device = queryString(route.query.device);
+    if (!assetsLoading.value) selectedDeviceId.value = localDevices.value.some(item => item.id === device) ? device : null;
 });
+watch(autoRefreshEnabled, enabled => { if (!enabled) { expireTelemetry(true); counters.clear(); } else if (canRefreshAutomatically()) void poll(); });
 onMounted(() => {
+    try { spaceLayout.value = localStorage.getItem('easytier.map.space-view') === 'home' ? 'home' : 'topology'; } catch { /* View preferences are optional. */ }
     document.addEventListener('visibilitychange', visibilityChanged);
-    polling = window.setInterval(async () => {
-        expireTelemetry();
-        if (!canRefreshAutomatically() || !networkId.value || loading.value || runtimeGeneration === generation || pollInFlight) return;
-        pollInFlight = true;
-        const current = generation;
-        try {
-            const result = await props.api.list_network_members(networkId.value);
-            if (current !== generation || !canRefreshAutomatically()) return;
-            members.value = result.members;
-            membersStale.value = false;
-            if (selectedId.value && !result.members.some(member => member.device_id === selectedId.value)) {
-                selectedId.value = null;
-                selectedDeviceId.value = null;
-                selectedLinkId.value = null;
-                selectedRouteId.value = null;
-                mode.value = 'globe';
-                syncQuery();
-            }
-        } catch { if (current === generation && canRefreshAutomatically()) { runtimeError.value = true; membersStale.value = true; } }
-        finally { pollInFlight = false; }
-        if (current === generation && canRefreshAutomatically()) await collectRuntime(current, canRefreshAutomatically);
-    }, 15_000);
+    polling = window.setInterval(() => { expireTelemetry(); void poll(); }, 15_000);
 });
-onBeforeUnmount(() => { mounted = false; generation++; networkListGeneration++; window.clearInterval(polling); document.removeEventListener('visibilitychange', visibilityChanged); });
+watch(spaceLayout, value => { try { localStorage.setItem('easytier.map.space-view', value); } catch { /* Optional preference. */ } });
+onBeforeUnmount(() => { mounted = false; generation++; assetGeneration++; metadataGeneration++; window.clearInterval(polling); document.removeEventListener('visibilitychange', visibilityChanged); });
 
-const nodeEditor = ref(false);
-const deviceEditor = ref(false);
-const saving = ref(false);
-const formError = ref('');
-const conflict = ref(false);
-const serviceConflict = ref(false);
-const nodeDraft = ref<MapNodeConfig>({ device_id: '', latitude: null, longitude: null, label: '', role: 'node', layout: 'topology' });
-const latitudeDraft = ref<string | number>('');
-const longitudeDraft = ref<string | number>('');
-const deviceDraft = ref<MapLanDevice>({ id: '', gateway_device_id: '', name: '', address: '', kind: 'server', room: 'study' });
-const removeCandidate = ref<MapLanDevice | null>(null);
-const deviceKinds: MapLanDevice['kind'][] = ['server', 'desktop', 'camera', 'router', 'other'];
-const rooms: MapLanDevice['room'][] = ['living', 'study', 'bedroom', 'entry'];
 function editNode(id = selectedId.value) {
-    if (!id || !configurationReady.value) return;
-    selectNode(id);
-    nodeDraft.value = { ...configFor(id) };
-    latitudeDraft.value = nodeDraft.value.latitude?.toString() ?? '';
-    longitudeDraft.value = nodeDraft.value.longitude?.toString() ?? '';
-    formError.value = '';
-    conflict.value = false;
-    serviceConflict.value = false;
-    nodeEditor.value = true;
+    const machine = machines.value.find(node => node.machine_id === id);
+    const node = assetNodes.value.find(node => node.machine_id === id);
+    if (!machine || !node) return;
+    selectNode(machine.machine_id);
+    attributesTarget.value = { ...machine }; attributesNode.value = { ...node };
 }
+function attributesUpdated(machineId: string, changes: Partial<Utils.DeviceInfo> & { is_public_server?: boolean }) {
+    // Fence reads that started before this confirmed write.
+    generation++; metadataGeneration++;
+    const machine = machines.value.find(node => node.machine_id === machineId);
+    if (machine) Object.assign(machine, changes);
+    const node = assetNodes.value.find(node => node.machine_id === machineId);
+    if (node) Object.assign(node, changes);
+    collecting.value = false; loading.value = false;
+}
+function attributesSaved() { attributesTarget.value = null; attributesNode.value = null; void refresh(); }
 function editDevice(device?: MapLanDevice) {
-    if (!selectedId.value || !isGateway.value || !configurationReady.value) return;
-    deviceDraft.value = device ? { ...device } : { id: uuidv4(), gateway_device_id: selectedId.value, name: '', address: '', kind: 'server', room: 'study' };
-    formError.value = '';
-    conflict.value = false;
-    serviceConflict.value = false;
-    deviceEditor.value = true;
+    if (!selectedId.value || !context.value?.available) return;
+    void router.push({ name: 'nodeAssets', query: { owner: String(context.value.actor.id), node: selectedId.value,
+        ...(device?.asset_device_id ? { device: device.asset_device_id } : {}) } });
 }
-const cloneConfiguration = (): NetworkMapConfig => ({ revision: configuration.value.revision, nodes: configuration.value.nodes.map(node => ({ ...node })), devices: configuration.value.devices.map(device => ({ ...device })) });
-async function persist(next: NetworkMapConfig) {
-    if (saving.value) return false;
-    if (!configurationReady.value) { formError.value = t('configurationFailed'); return false; }
-    const id = networkId.value;
-    saving.value = true;
-    formError.value = '';
-    conflict.value = false;
-    serviceConflict.value = false;
+function openService(service: AssetServiceCatalogEntry) {
     try {
-        const result = await props.api.save_network_map(id, next);
-        if (id !== networkId.value || !mounted) return false;
-        configuration.value = result;
-        toast.add({ severity: 'success', summary: t('saved'), detail: t('savedHint'), life: 2500 });
-        return true;
-    } catch (error) {
-        if (id !== networkId.value || !mounted) return false;
-        const response = (error as { response?: { status?: number; data?: { code?: string; message?: string } } })?.response;
-        const message = errorText(error, t('saveFailed'));
-        conflict.value = response?.status === 409 && (response.data?.code === 'map_revision_conflict' || message.includes('map has changed'));
-        serviceConflict.value = response?.status === 409 && (response.data?.code === 'map_device_in_use' || message.includes('associated services'));
-        formError.value = conflict.value ? t('conflict') : message;
-        return false;
-    } finally { saving.value = false; }
-}
-async function saveNode() {
-    const lat = String(latitudeDraft.value ?? '').trim();
-    const lon = String(longitudeDraft.value ?? '').trim();
-    if (!!lat !== !!lon) { formError.value = t('coordinatePair'); return; }
-    const latitude = lat ? Number(lat) : null;
-    const longitude = lon ? Number(lon) : null;
-    if ((latitude != null && (!Number.isFinite(latitude) || Math.abs(latitude) > 90)) || (longitude != null && (!Number.isFinite(longitude) || Math.abs(longitude) > 180))) { formError.value = t('coordinateRange'); return; }
-    if (nodeDraft.value.role === 'node' && configuration.value.devices.some(device => device.gateway_device_id === nodeDraft.value.device_id)) { formError.value = t('gatewayChildren'); return; }
-    const next = cloneConfiguration();
-    const updated = { ...nodeDraft.value, label: nodeDraft.value.label.trim(), latitude, longitude };
-    next.nodes = [...next.nodes.filter(node => node.device_id !== updated.device_id), updated];
-    if (await persist(next)) nodeEditor.value = false;
-}
-async function saveDevice() {
-    if (!deviceDraft.value.name.trim() || !deviceDraft.value.address.trim()) { formError.value = t('nameRequired'); return; }
-    const next = cloneConfiguration();
-    const updated = { ...deviceDraft.value, name: deviceDraft.value.name.trim(), address: deviceDraft.value.address.trim() };
-    next.devices = [...next.devices.filter(device => device.id !== updated.id), updated];
-    if (await persist(next)) {
-        deviceEditor.value = false;
-        selectedDeviceId.value = updated.id;
-        syncQuery();
-    }
-}
-async function removeDevice() {
-    if (!removeCandidate.value) return;
-    const next = cloneConfiguration();
-    const id = removeCandidate.value.id;
-    next.devices = next.devices.filter(device => device.id !== id);
-    if (await persist(next)) {
-        removeCandidate.value = null;
-        if (selectedDeviceId.value === id) selectedDeviceId.value = null;
-        syncQuery();
-    }
-}
-async function reloadConfiguration() {
-    nodeEditor.value = false;
-    deviceEditor.value = false;
-    removeCandidate.value = null;
-    await loadNetwork();
-}
-function manageAssociatedServices() {
-    const deviceId = removeCandidate.value?.id || deviceDraft.value.id;
-    const linked = services.value.find(service => service.lan_device_id === deviceId);
-    nodeEditor.value = false;
-    deviceEditor.value = false;
-    removeCandidate.value = null;
-    void router.push({ name: 'serviceManagement', query: linked ? { edit: linked.id } : { network: networkId.value } });
-}
-function openService(service: ServiceEntry) {
-    try {
-        const url = new URL(service.url);
+        const url = new URL(service.access_url || '');
         if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('invalid');
-        if (service.open_in_new_tab) window.open(url.href, '_blank', 'noopener,noreferrer');
-        else window.location.assign(url.href);
+        window.open(url.href, '_blank', 'noopener,noreferrer');
     } catch { toast.add({ severity: 'error', summary: t('invalidService'), life: 4000 }); }
 }
-const serviceIcons: Record<string, string> = { home: 'pi-home', photos: 'pi-images', media: 'pi-play-circle', chart: 'pi-chart-line', server: 'pi-server', globe: 'pi-globe', code: 'pi-code' };
+const serviceIcons: Record<string, string> = { home: 'pi-home', server: 'pi-server', globe: 'pi-globe', database: 'pi-database', mobile: 'pi-mobile', desktop: 'pi-desktop', cloud: 'pi-cloud', cog: 'pi-cog', play: 'pi-play', link: 'pi-link', shield: 'pi-shield', wifi: 'pi-wifi' };
 const deviceIcons: Record<string, string> = { server: 'pi-server', desktop: 'pi-desktop', camera: 'pi-video', router: 'pi-wifi', other: 'pi-box' };
-const serviceIcon = (icon: string) => serviceIcons[icon] || 'pi-globe';
+const serviceIcon = (icon: string | null) => serviceIcons[icon || 'globe'] || 'pi-globe';
 const deviceIcon = (kind: string) => deviceIcons[kind] || 'pi-box';
 const formatRate = (value: number) => value >= 1_000_000 ? `${(value / 1_000_000).toFixed(1)} MB/s` : value >= 1000 ? `${(value / 1000).toFixed(1)} kB/s` : `${Math.round(value)} B/s`;
 const formatLatency = (value: number | null) => value == null ? '—' : `${value.toFixed(1)} ms`;
-const serviceQuery = computed(() => ({ network: networkId.value, node: selectedId.value || undefined, device: selectedDeviceId.value || undefined }));
+const serviceQuery = computed(() => ({ node: selectedId.value || undefined, device: selectedDeviceId.value || undefined }));
 </script>
 
 <template>
@@ -442,25 +376,20 @@ const serviceQuery = computed(() => ({ network: networkId.value, node: selectedI
         <header class="page-heading map-heading">
             <div class="map-heading-identity"><span class="map-heading-mark"><i class="pi pi-globe" aria-hidden="true"></i></span><div><h1>{{ t('title') }}</h1><p class="page-description">{{ t('subtitle') }}</p></div></div>
             <div class="map-header-actions">
-                <label class="sr-only" for="map-network">{{ t('network') }}</label>
-                <select v-if="centralEnabled" id="map-network" v-model="networkId" :disabled="loadingNetworks || saving" class="map-native-select">
-                    <option v-if="!networks.length" value="">{{ t('chooseNetwork') }}</option>
-                    <option v-for="network in networks" :key="network.network_id" :value="network.network_id">{{ network.display_name || network.network_name }}</option>
-                </select>
-                <Button v-if="centralEnabled" icon="pi pi-refresh" :aria-label="t('refresh')" :label="t('refresh')" severity="secondary" outlined :loading="loading || loadingNetworks" :disabled="saving" @click="loadNetworks" />
+                <Button v-if="centralEnabled" icon="pi pi-refresh" :aria-label="t('refresh')" :label="t('refresh')" severity="secondary" outlined :loading="loading" :disabled="!!attributesTarget" @click="refresh" />
             </div>
         </header>
         <Message v-if="!centralEnabled" severity="info" :closable="false">{{ t('centralOnly') }}</Message>
         <template v-else>
-            <Message v-if="loadError" severity="error" :closable="false"><div class="map-error-row">{{ loadError }}<Button :label="t('retry')" text size="small" @click="loadNetworks" /></div></Message>
+            <Message v-if="loadError" severity="error" :closable="false"><div class="map-error-row">{{ loadError }}<Button :label="t('retry')" text size="small" @click="refresh" /></div></Message>
             <Message v-if="configurationError" severity="warn" :closable="false">{{ t('configurationFailed') }}</Message>
             <Message v-if="runtimeError" severity="warn" :closable="false">{{ t('runtimePartial') }}</Message>
-            <div v-if="loadingNetworks && !networks.length" class="map-loading"><Skeleton width="100%" height="28rem" /></div>
-            <section v-else-if="!networks.length && !loadError" class="console-empty-state console-panel">
-                <i class="pi pi-globe" aria-hidden="true"></i><h2>{{ t('noNetworks') }}</h2>
-                <RouterLink :to="{ name: 'networkList' }" class="entity-link">{{ t('createNetwork') }}<i class="pi pi-arrow-right" aria-hidden="true"></i></RouterLink>
+            <div v-if="loading && !loaded" class="map-loading"><Skeleton width="100%" height="28rem" /></div>
+            <section v-else-if="loaded && !members.length && !loadError" class="console-empty-state console-panel">
+                <i class="pi pi-globe" aria-hidden="true"></i><h2>{{ t('noMembers') }}</h2>
+                <RouterLink :to="{ name: 'deviceList' }" class="entity-link">{{ t('addNodes') }}<i class="pi pi-arrow-right" aria-hidden="true"></i></RouterLink>
             </section>
-            <template v-else-if="networkId">
+            <template v-else-if="members.length">
                 <div class="map-network-summary" :aria-label="t('networkOverview')">
                     <span><i class="pi pi-map-marker" aria-hidden="true"></i>{{ t('locatedNodes') }}<strong>{{ sceneNodes.length }}<small>/ {{ members.length }}</small></strong></span>
                     <span><i class="pi pi-share-alt" aria-hidden="true"></i>{{ t('visibleConnections') }}<strong>{{ sceneLinks.length }}</strong></span>
@@ -471,16 +400,16 @@ const serviceQuery = computed(() => ({ network: networkId.value, node: selectedI
                         <div class="map-scene-toolbar">
                             <div class="map-view-tabs" role="group" :aria-label="t('layout')">
                                 <button :class="{ active: mode === 'globe' }" :aria-pressed="mode === 'globe'" @click="mode = 'globe'"><i class="pi pi-globe" aria-hidden="true"></i>{{ t('globe') }}</button>
-                                <button :class="{ active: mode === 'space' }" :aria-pressed="mode === 'space'" :disabled="!isGateway" @click="mode = 'space'"><i class="pi pi-box" aria-hidden="true"></i>{{ t('space') }}</button>
+                                <button :class="{ active: mode === 'space' }" :aria-pressed="mode === 'space'" :disabled="!canViewSpace" @click="mode = 'space'"><i class="pi pi-box" aria-hidden="true"></i>{{ t('space') }}</button>
                             </div>
                             <span class="map-live-label"><i :class="['pi', collecting ? 'pi-spin pi-spinner' : 'pi-circle-fill']" aria-hidden="true"></i>{{ collecting ? t('collecting') : t('nodeCount', { count: members.length }) }}</span>
                         </div>
                         <NetworkGlobe v-show="mode === 'globe'" class="map-scene" :nodes="sceneNodes" :links="sceneLinks" :selected-node-id="selectedId" :selected-link-id="selectedLinkId" :locale="locale" @select-node="selectNode" @select-link="selectLink" @unavailable="rendererError = true" />
-                        <NodeSpace v-if="mode === 'space' && selectedId" class="map-scene" :devices="localDevices" :gateway-name="nameOf(selectedId)" :selected-device-id="selectedDeviceId" :layout="selectedConfig?.layout || 'topology'" :locale="locale" @select-device="selectDevice" />
+                        <NodeSpace v-if="mode === 'space' && selectedId" class="map-scene" :devices="spaceDevices" :gateway-name="nameOf(selectedId)" :selected-device-id="selectedDeviceId" :layout="selectedConfig?.layout || 'topology'" :locale="locale" @select-device="selectDevice" />
                         <div v-if="mode === 'space'" class="map-space-caption"><strong>{{ selectedId ? nameOf(selectedId) : '' }}</strong><span>{{ selectedConfig?.layout === 'home' ? t('template') : t('configuredRelation') }}</span></div>
                         <div v-if="loading" class="map-scene-notice" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i>{{ t('loading') }}</div>
                         <div v-else-if="rendererError && mode === 'globe'" class="map-scene-notice" role="status">{{ t('rendererFailed') }}</div>
-                        <div v-else-if="!sceneNodes.length && mode === 'globe'" class="map-scene-notice"><i class="pi pi-map-marker" aria-hidden="true"></i><strong>{{ members.length ? t('noLocated') : t('noMembers') }}</strong><p>{{ members.length ? t('locationHint') : '' }}</p><Button v-if="selectedId" :label="t('setPosition')" icon="pi pi-map-marker" size="small" :disabled="!configurationReady" @click="editNode()" /><RouterLink v-else :to="{ name: 'networkDetail', params: { networkId } }">{{ t('addNodes') }}</RouterLink></div>
+                        <div v-else-if="!sceneNodes.length && mode === 'globe'" class="map-scene-notice"><i class="pi pi-map-marker" aria-hidden="true"></i><strong>{{ members.length ? t('noLocated') : t('noMembers') }}</strong><p>{{ members.length ? t('locationHint') : '' }}</p><Button v-if="selectedId" :label="t('setPosition')" icon="pi pi-map-marker" size="small" :disabled="!configurationReady" @click="editNode()" /><RouterLink v-else :to="{ name: 'deviceList' }">{{ t('addNodes') }}</RouterLink></div>
                         <div class="map-canvas-footer">
                             <div class="map-legend"><span><i class="legend-direct"></i>{{ t('direct') }}</span><span><i class="legend-relay"></i>{{ t('relay') }}</span><span><i class="legend-stale"></i>{{ t('stale') }}</span></div>
                         </div>
@@ -488,31 +417,34 @@ const serviceQuery = computed(() => ({ network: networkId.value, node: selectedI
 
                     <aside class="map-inspector" :aria-label="t('selectNode')">
                         <template v-if="selectedMember && selectedConfig">
-                            <header class="map-inspector-heading"><span class="map-node-avatar"><i :class="['pi', isGateway ? 'pi-wifi' : 'pi-server']" aria-hidden="true"></i></span><div class="map-node-identity"><span class="map-eyebrow">{{ isGateway ? t('gateway') : t('node') }}</span><h2>{{ nameOf(selectedMember.device_id) }}</h2></div><span class="map-presence" :class="{ online: selectedMember.online && selectedMember.running !== false }"><i class="pi pi-circle-fill" aria-hidden="true"></i>{{ selectedMember.online && selectedMember.running !== false ? t('online') : t('offline') }}</span></header>
+                            <header class="map-inspector-heading"><span class="map-node-avatar"><i :class="['pi', isGateway ? 'pi-wifi' : 'pi-server']" aria-hidden="true"></i></span><div class="map-node-identity"><span class="map-eyebrow">{{ isGateway ? t('gateway') : t('node') }}</span><h2>{{ nameOf(selectedMember.device_id) }}</h2></div><span class="map-presence" :class="{ online: selectedMember.online }"><i class="pi pi-circle-fill" aria-hidden="true"></i>{{ selectedMember.online ? t('online') : t('offline') }}</span></header>
                             <div class="map-coordinate-line"><i class="pi pi-map-marker" aria-hidden="true"></i><span v-if="hasPosition(selectedConfig)">{{ selectedConfig.latitude?.toFixed(4) }}°, {{ selectedConfig.longitude?.toFixed(4) }}°</span><span v-else>{{ t('unset') }}</span><button :disabled="!configurationReady" :title="t('editNode')" :aria-label="t('editNode')" @click="editNode()"><i class="pi pi-pencil" aria-hidden="true"></i></button></div>
-                            <dl class="map-node-facts"><div><dt>{{ t('virtualIp') }}</dt><dd>{{ selectedMember.runtime_virtual_ipv4 || selectedMember.virtual_ipv4 || selectedMember.allocated_ipv4 || '—' }}</dd></div></dl>
-                            <template v-if="isGateway">
-                                <div v-if="mode === 'globe'" class="map-space-preview"><NodeSpace :devices="localDevices" :gateway-name="nameOf(selectedMember.device_id)" :selected-device-id="selectedDeviceId" :layout="selectedConfig.layout" :locale="locale" @select-device="selectDevice" /></div>
+                            <dl class="map-node-facts"><div><dt>{{ t('virtualIp') }}</dt><dd>{{ selectedMember.runtime_virtual_ipv4 || '—' }}</dd></div></dl>
+                            <template v-if="canViewSpace">
+                                <div v-if="mode === 'globe'" class="map-space-preview"><NodeSpace :devices="spaceDevices" :gateway-name="nameOf(selectedMember.device_id)" :selected-device-id="selectedDeviceId" :layout="selectedConfig.layout" :locale="locale" @select-device="selectDevice" /></div>
                                 <Button v-if="mode === 'globe'" :label="t('viewSpace')" icon="pi pi-arrow-up-right" severity="secondary" outlined fluid @click="mode = 'space'" />
                                 <Button v-else :label="t('back')" icon="pi pi-arrow-left" severity="secondary" outlined fluid @click="mode = 'globe'" />
                             </template>
-                            <section v-if="isGateway" class="map-detail-section">
+                            <section v-if="canViewSpace" class="map-detail-section">
                                 <header><h3><i class="pi pi-sitemap" aria-hidden="true"></i>{{ t('devices') }}</h3><button :disabled="!configurationReady" :aria-label="t('addDevice')" :title="t('addDevice')" @click="editDevice()"><i class="pi pi-plus" aria-hidden="true"></i></button></header>
                                 <p class="map-section-note">{{ t('configuredRelation') }}</p>
-                                <p v-if="!localDevices.length" class="map-empty-note">{{ t('noDevices') }}</p>
+                                <Message v-if="assetError" severity="warn" :closable="false">{{ t('assetsFailed') }}<Button :label="t('retry')" text size="small" @click="loadSelectedAssets" /></Message>
+                                <p v-if="assetsLoading" class="map-empty-note" role="status">{{ t('loadingDevices') }}</p>
+                                <label class="map-space-layout">{{ t('layout') }}<select v-model="spaceLayout" class="map-native-select"><option value="topology">{{ t('topology') }}</option><option value="home">{{ t('home') }}</option></select></label>
+                                <p v-if="!assetsLoading && !assetError && !localDevices.length" class="map-empty-note">{{ t('noDevices') }}</p>
                                 <div v-for="device in localDevices" :key="device.id" class="map-device-row" :class="{ selected: device.id === selectedDeviceId }">
-                                    <button class="map-device-select" :aria-pressed="device.id === selectedDeviceId" @click="selectDevice(device.id)"><i :class="['pi', deviceIcon(device.kind)]" aria-hidden="true"></i><span><strong>{{ device.name }}</strong><small>{{ t(`room_${device.room}`) }} · {{ device.address }}</small></span></button>
+                                    <button class="map-device-select" :aria-pressed="device.id === selectedDeviceId" @click="selectDevice(device.id)"><i :class="['pi', deviceIcon(device.kind)]" aria-hidden="true"></i><span><strong>{{ device.name }}</strong><small>{{ device.group_name || t('directDevice') }} · {{ device.address }}</small></span></button>
                                     <button class="map-icon-button" :aria-label="`${t('edit')} ${device.name}`" :disabled="!configurationReady" @click="editDevice(device)"><i class="pi pi-pencil" aria-hidden="true"></i></button>
-                                    <button class="map-icon-button" :aria-label="`${t('remove')} ${device.name}`" :disabled="!configurationReady" @click="formError = ''; conflict = false; serviceConflict = false; removeCandidate = device"><i class="pi pi-trash" aria-hidden="true"></i></button>
+
                                 </div>
                                 <button v-if="selectedDevice" class="map-text-link" @click="selectedDeviceId = null; syncQuery()">{{ t('backToGateway') }}</button>
                             </section>
                             <section class="map-detail-section">
-                                <header><h3><i class="pi pi-th-large" aria-hidden="true"></i>{{ selectedDevice ? `${selectedDevice.name} · ${t('services')}` : t('services') }}</h3><RouterLink :to="{ name: 'serviceNavigation' }" :aria-label="t('allServices')"><i class="pi pi-arrow-up-right" aria-hidden="true"></i></RouterLink></header>
+                                <header><h3><i class="pi pi-th-large" aria-hidden="true"></i>{{ selectedDevice ? `${selectedDevice.name} · ${t('services')}` : t('services') }}</h3><RouterLink :to="{ name: 'serviceManagement', query: serviceQuery }" :aria-label="t('allServices')"><i class="pi pi-arrow-up-right" aria-hidden="true"></i></RouterLink></header>
                                 <Message v-if="serviceError" severity="warn" :closable="false">{{ t('servicesFailed') }}</Message>
                                 <p v-else-if="!associatedServices.length" class="map-empty-note">{{ t('noServices') }}</p>
-                                <div class="map-service-grid"><button v-for="service in associatedServices" :key="service.id" class="map-service-card" @click="openService(service)"><i :class="['pi', serviceIcon(service.icon), 'map-service-icon']" aria-hidden="true"></i><i class="pi pi-arrow-up-right map-service-arrow" aria-hidden="true"></i><strong>{{ service.name }}</strong><small>{{ t('unknown') }}</small></button></div>
-                                <RouterLink :to="{ name: 'serviceManagement', query: serviceQuery }" class="map-text-link"><i class="pi pi-plus" aria-hidden="true"></i>{{ t('addService') }}</RouterLink>
+                                <div class="map-service-grid"><button v-for="service in associatedServices" :key="service.id" class="map-service-card" :disabled="!service.access_url" @click="openService(service)"><i :class="['pi', serviceIcon(service.icon), 'map-service-icon']" aria-hidden="true"></i><i class="pi pi-arrow-up-right map-service-arrow" aria-hidden="true"></i><strong>{{ service.name }}</strong><small>{{ service.device_name }}</small></button></div>
+                                <RouterLink :to="{ name: 'serviceManagement', query: serviceQuery }" class="map-text-link"><i class="pi pi-plus" aria-hidden="true"></i>{{ t('manageServices') }}</RouterLink>
                             </section>
                             <section class="map-detail-section">
                                 <header><h3><i class="pi pi-share-alt" aria-hidden="true"></i>{{ t('links') }}</h3><span class="map-section-count">{{ nodeLinks.length }}</span></header>
@@ -520,7 +452,7 @@ const serviceQuery = computed(() => ({ network: networkId.value, node: selectedI
                                 <button v-for="link in nodeLinks" :key="link.id" class="map-link-row" :class="{ selected: selectedLinkId === link.id }" @click="selectLink(link.id)"><span><i class="pi pi-share-alt" aria-hidden="true"></i>{{ nameOf(link.source === selectedId ? link.target : link.source) }}</span><small>{{ link.stale ? t('stale') : formatLatency(link.latency_ms) }}</small></button>
                                 <template v-if="nodePaths.length"><h4 class="map-route-heading">{{ t('routes') }}</h4><button v-for="path in nodePaths" :key="path.id" class="map-link-row" :class="{ selected: selectedRouteId === path.id }" @click="selectedRouteId = path.id; selectedLinkId = null"><span><i class="pi pi-directions" aria-hidden="true"></i>{{ nameOf(path.target) }}</span><small>{{ path.stale ? t('stale') : formatLatency(path.latency_ms) }}</small></button></template>
                             </section>
-                            <footer class="map-inspector-actions"><Button :label="t('editNode')" icon="pi pi-sliders-h" severity="secondary" outlined :disabled="!configurationReady" @click="editNode()" /><RouterLink :to="{ name: 'deviceManagement', params: { deviceId: selectedMember.device_id, instanceId: networkId } }" class="map-text-link">{{ t('details') }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i></RouterLink></footer>
+                            <footer class="map-inspector-actions"><Button :label="t('editNode')" icon="pi pi-sliders-h" severity="secondary" outlined :disabled="!configurationReady" @click="editNode()" /><RouterLink :to="{ name: 'deviceManagement', params: { deviceId: selectedMember.device_id, instanceId: selectedMember.running_network_instances?.[0] } }" class="map-text-link">{{ t('details') }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i></RouterLink></footer>
                         </template>
                         <div v-else class="map-inspector-empty"><i class="pi pi-map-marker" aria-hidden="true"></i><h2>{{ t('selectNode') }}</h2><p>{{ t('selectHint') }}</p></div>
                     </aside>
@@ -534,45 +466,21 @@ const serviceQuery = computed(() => ({ network: networkId.value, node: selectedI
 
                 <section class="map-node-list console-panel" :aria-label="t('allNodes')">
                     <header class="map-node-list-toolbar"><div class="map-node-filters"><button :class="{ active: !onlyUnlocated }" :aria-pressed="!onlyUnlocated" @click="onlyUnlocated = false">{{ t('allNodes') }} <span>{{ members.length }}</span></button><button :class="{ active: onlyUnlocated }" :aria-pressed="onlyUnlocated" @click="onlyUnlocated = true">{{ t('unlocated') }} <span>{{ unlocatedCount }}</span></button></div><label class="map-search"><i class="pi pi-search" aria-hidden="true"></i><input v-model="search" type="search" :aria-label="t('search')" :placeholder="t('search')" /></label></header>
-                    <div class="map-node-list-items"><button v-for="member in filteredMembers" :key="member.device_id" class="map-node-list-item" :class="{ selected: selectedId === member.device_id }" :aria-pressed="selectedId === member.device_id" @click="selectNode(member.device_id)"><i :class="['pi', configFor(member.device_id).role === 'gateway' ? 'pi-wifi' : 'pi-server']" aria-hidden="true"></i><span><strong>{{ nameOf(member.device_id) }}</strong><small>{{ hasPosition(configFor(member.device_id)) ? (member.runtime_virtual_ipv4 || member.virtual_ipv4 || t('node')) : t('unlocated') }}</small></span><span class="map-node-state" :class="{ online: member.online && member.running !== false }" :aria-label="member.online && member.running !== false ? t('online') : t('offline')"></span></button><p v-if="!filteredMembers.length" class="map-empty-note">{{ loading ? t('loading') : t('noMatches') }}</p></div>
+                    <div class="map-node-list-items"><button v-for="member in filteredMembers" :key="member.device_id" class="map-node-list-item" :class="{ selected: selectedId === member.device_id }" :aria-pressed="selectedId === member.device_id" @click="selectNode(member.device_id)"><i :class="['pi', configFor(member.device_id).role === 'gateway' ? 'pi-wifi' : 'pi-server']" aria-hidden="true"></i><span><strong>{{ nameOf(member.device_id) }}</strong><small>{{ hasPosition(configFor(member.device_id)) ? (member.runtime_virtual_ipv4 || t('node')) : t('unlocated') }}</small></span><span class="map-node-state" :class="{ online: member.online }" :aria-label="member.online ? t('online') : t('offline')"></span></button><p v-if="!filteredMembers.length" class="map-empty-note">{{ loading ? t('loading') : t('noMatches') }}</p></div>
                 </section>
                 <footer class="map-page-footnote"><span>{{ t('staticNote') }}</span><span v-if="unknownPeers">{{ t('unknownPeers', { count: unknownPeers }) }}</span><span>{{ lastUpdate ? t('updated', { time: new Date(lastUpdate).toLocaleTimeString(locale === 'cn' ? 'zh-CN' : 'en', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) }) : t('noTelemetry') }}</span></footer>
             </template>
         </template>
 
-        <Drawer v-model:visible="nodeEditor" position="right" :header="t('editNode')" class="map-edit-drawer" :style="{ width: 'min(440px, 100vw)' }" :dismissable="!saving" :show-close-icon="!saving">
-            <form class="map-form" @submit.prevent="saveNode">
-                <Message v-if="formError" severity="error" :closable="false">{{ formError }}<Button v-if="conflict" :label="t('reload')" text size="small" @click="reloadConfiguration" /><Button v-if="serviceConflict" :label="t('manageServices')" text size="small" @click="manageAssociatedServices" /></Message>
-                <label>{{ t('name') }}<input v-model="nodeDraft.label" maxlength="100" :placeholder="nameOf(nodeDraft.device_id)" /></label>
-                <div class="map-form-pair"><label>{{ t('latitude') }}<input v-model="latitudeDraft" inputmode="decimal" type="number" min="-90" max="90" step="any" placeholder="31.2304" /></label><label>{{ t('longitude') }}<input v-model="longitudeDraft" inputmode="decimal" type="number" min="-180" max="180" step="any" placeholder="121.4737" /></label></div>
-                <button type="button" class="map-text-link" @click="latitudeDraft = ''; longitudeDraft = ''">{{ t('clearPosition') }}</button>
-                <label>{{ t('role') }}<select v-model="nodeDraft.role" :aria-label="t('role')"><option value="node">{{ t('node') }}</option><option value="gateway">{{ t('gateway') }}</option></select></label><p class="map-form-help">{{ t('roleHint') }}</p>
-                <label v-if="nodeDraft.role === 'gateway'">{{ t('layout') }}<select v-model="nodeDraft.layout" :aria-label="t('layout')"><option value="topology">{{ t('topology') }}</option><option value="home">{{ t('home') }}</option></select></label>
-                <p v-if="nodeDraft.role === 'gateway' && nodeDraft.layout === 'home'" class="map-form-help">{{ t('spatialHint') }}</p>
-                <div class="map-form-actions"><Button type="button" :label="t('cancel')" severity="secondary" outlined :disabled="saving" @click="nodeEditor = false" /><Button type="submit" :label="t('save')" :loading="saving" :disabled="conflict" /></div>
-            </form>
-        </Drawer>
-        <Drawer v-model:visible="deviceEditor" position="right" :header="t('deviceEditor')" class="map-edit-drawer" :style="{ width: 'min(440px, 100vw)' }" :dismissable="!saving" :show-close-icon="!saving">
-            <form class="map-form" @submit.prevent="saveDevice">
-                <Message v-if="formError" severity="error" :closable="false">{{ formError }}<Button v-if="conflict" :label="t('reload')" text size="small" @click="reloadConfiguration" /><Button v-if="serviceConflict" :label="t('manageServices')" text size="small" @click="manageAssociatedServices" /></Message>
-                <p class="map-form-help">{{ t('parentGateway') }} · {{ nameOf(deviceDraft.gateway_device_id) }}</p>
-                <label>{{ t('name') }}<input v-model="deviceDraft.name" maxlength="100" required /></label>
-                <label>{{ t('address') }}<input v-model="deviceDraft.address" maxlength="255" required placeholder="192.168.31.20" /></label>
-                <label>{{ t('kind') }}<select v-model="deviceDraft.kind" :aria-label="t('kind')"><option v-for="kind in deviceKinds" :key="kind" :value="kind">{{ t(`kind_${kind}`) }}</option></select></label>
-                <label>{{ t('room') }}<select v-model="deviceDraft.room" :aria-label="t('room')"><option v-for="room in rooms" :key="room" :value="room">{{ t(`room_${room}`) }}</option></select></label>
-                <p class="map-form-help">{{ t('configuredRelation') }}</p>
-                <div class="map-form-actions"><Button type="button" :label="t('cancel')" severity="secondary" outlined :disabled="saving" @click="deviceEditor = false" /><Button type="submit" :label="t('save')" :loading="saving" :disabled="conflict" /></div>
-            </form>
-        </Drawer>
-        <Dialog :visible="!!removeCandidate" modal :header="t('removeDevice')" :style="{ width: 'min(430px, calc(100vw - 24px))' }" :closable="!saving" @update:visible="value => { if (!value) removeCandidate = null }">
-            <p>{{ removeCandidate?.name }}</p><p class="map-form-help">{{ t('removeHint') }}</p><Message v-if="formError" severity="error" :closable="false">{{ formError }}<Button v-if="conflict" :label="t('reload')" text size="small" @click="reloadConfiguration" /><Button v-if="serviceConflict" :label="t('manageServices')" text size="small" @click="manageAssociatedServices" /></Message>
-            <template #footer><Button :label="t('cancel')" severity="secondary" outlined :disabled="saving" @click="removeCandidate = null" /><Button :label="t('remove')" severity="danger" :loading="saving" :disabled="conflict" @click="removeDevice" /></template>
-        </Dialog>
+        <DeviceAttributesDialog v-if="attributesTarget && attributesNode" :device="attributesTarget" :node="attributesNode" :api="api"
+            @updated="attributesUpdated" @saved="attributesSaved" @close="attributesTarget = null; attributesNode = null" />
     </div>
 </template>
 
 <style scoped>
 .network-map-page { gap: 18px; }
+.map-space-layout { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0; color: var(--console-muted); font-size: 12px; }
+.map-space-layout .map-native-select { min-width: 0; max-width: 180px; }
 .map-heading { padding: 24px 24px 0; }
 .map-workbench,.map-path-details,.map-node-list,.map-loading,.network-map-page > .console-empty-state,.network-map-page > .p-message { margin-inline: 24px; }
 .map-page-footnote { margin: 0 24px 24px; }

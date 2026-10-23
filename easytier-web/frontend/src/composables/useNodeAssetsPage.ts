@@ -35,6 +35,7 @@ export function useNodeAssetsPage(api: ApiClient) {
     const listError = ref(false);
     const hasLoadedDevices = ref(false);
     const invalidNode = ref(false);
+    const invalidDevice = ref(false);
     const scope = computed<AssetScope | null>(() => ownerId.value !== null && nodeId.value
         ? { owner_user_id: ownerId.value, machine_id: nodeId.value } : null);
     const selectedNode = computed(() => nodes.value.find(node => node.machine_id === nodeId.value) ?? null);
@@ -47,7 +48,7 @@ export function useNodeAssetsPage(api: ApiClient) {
     let retryTarget: RetryTarget | null = null;
     let processedRoute = '';
     let contextRecovery: Promise<void> | null = null;
-    const routeKey = () => JSON.stringify([route.query.owner ?? null, route.query.node ?? null]);
+    const routeKey = () => JSON.stringify([route.query.owner ?? null, route.query.node ?? null, route.query.device ?? null]);
     const storageKey = () => `easytier.assets.last-node.${context.value?.actor.id}`;
 
     const remember = (value: AssetScope) => {
@@ -70,14 +71,14 @@ export function useNodeAssetsPage(api: ApiClient) {
         rows.value = []; groups.value = []; types.value = []; nodes.value = [];
         expandedIds.value = []; total.value = 0; page.value = 1;
         Object.assign(draft, blankFilters()); applied.value = blankFilters();
-        nodeId.value = null; ownerId.value = null; invalidNode.value = false;
+        nodeId.value = null; ownerId.value = null; invalidNode.value = false; invalidDevice.value = false;
         loading.value = false; listError.value = false; hasLoadedDevices.value = false;
         clearError();
     }
 
     async function replaceContextRoute(owner: number | null) {
         const query = owner === null ? {} : { owner: String(owner) };
-        processedRoute = JSON.stringify([owner === null ? null : String(owner), null]);
+        processedRoute = JSON.stringify([owner === null ? null : String(owner), null, null]);
         if (routeKey() !== processedRoute) await router.replace({ name: 'nodeAssets', query });
     }
 
@@ -149,6 +150,7 @@ export function useNodeAssetsPage(api: ApiClient) {
         const request = ++listRequest;
         loading.value = true;
         listError.value = false;
+        if (locateId) { invalidDevice.value = false; expandedIds.value = []; }
         clearError();
         try {
             const result = await api.assetsDevices(current, {
@@ -165,17 +167,27 @@ export function useNodeAssetsPage(api: ApiClient) {
             pageSize.value = result.page_size;
             hasLoadedDevices.value = true;
             expandedIds.value = expandedIds.value.filter(id => result.items.some(device => device.id === id));
+            if (locateId && !result.items.some(device => device.id === locateId)) invalidDevice.value = true;
             if (locateId && result.items.some(device => device.id === locateId)) {
                 if (!expandedIds.value.includes(locateId)) expandedIds.value.push(locateId);
                 await nextTick();
                 if (!disposed && generation === contextVersion.value && request === listRequest) {
-                    document.querySelector(`[data-asset-device-id="${locateId}"]`)?.scrollIntoView({ block: 'nearest' });
+                    document.querySelector(`[data-asset-device-id="${CSS.escape(locateId)}"]`)?.scrollIntoView({ block: 'nearest' });
                 }
             }
         } catch (cause) {
             if (!disposed && generation === contextVersion.value && request === listRequest) {
                 if (await handleContextFailure(cause)) return;
                 if (disposed || generation !== contextVersion.value || request !== listRequest) return;
+                if (locateId && getAssetError(cause).status === 404) {
+                    // The owner/node are still accessible, but this deep-link
+                    // target is gone. Never retain another device's expansion.
+                    invalidDevice.value = true;
+                    rows.value = []; expandedIds.value = []; total.value = 0;
+                    hasLoadedDevices.value = false;
+                    await loadDevices(1);
+                    return;
+                }
                 // Keep the last successful snapshot; a failed query is not an empty result.
                 listError.value = true;
                 reportError(cause, { kind: 'devices', page: targetPage, locateId });
@@ -192,13 +204,16 @@ export function useNodeAssetsPage(api: ApiClient) {
         const generation = ++contextVersion.value;
         resetPageState();
         booting.value = true;
-        const explicit = route.query.owner !== undefined || route.query.node !== undefined;
+        const explicit = route.query.owner !== undefined || route.query.node !== undefined || route.query.device !== undefined;
         const memory = useMemory && !explicit ? remembered() : null;
         const rawOwner = route.query.owner ?? memory?.owner_user_id;
         let targetOwner = rawOwner === undefined || rawOwner === null
             ? (activeContext.can_manage_others ? null : activeContext.actor.id) : Number(rawOwner);
         let targetNode = typeof route.query.node === 'string' ? route.query.node
             : typeof memory?.machine_id === 'string' ? memory.machine_id : null;
+        const targetDevice = typeof route.query.device === 'string' ? route.query.device.trim() || undefined : undefined;
+        invalidDevice.value = route.query.device !== undefined && !targetDevice;
+        if (targetDevice && !targetNode) invalidNode.value = true;
         try {
             if (memory && (typeof memory.owner_user_id !== 'number' || !Number.isSafeInteger(memory.owner_user_id)
                 || !accounts.value.some(account => account.id === memory.owner_user_id))) {
@@ -239,11 +254,15 @@ export function useNodeAssetsPage(api: ApiClient) {
             if (disposed || generation !== contextVersion.value) return;
             groups.value = groupResult.items;
             remember(current);
-            // Keep only the node's necessary owner/identity in the deep link.
-            const query = { owner: String(targetOwner), node: targetNode };
-            processedRoute = JSON.stringify([query.owner, query.node]);
+            // Keep the selected device so map/service links can open the exact
+            // server-side page and expand its services, including on reload.
+            const query = { owner: String(targetOwner), node: targetNode, ...(targetDevice ? { device: targetDevice } : {}) };
+            processedRoute = JSON.stringify([query.owner, query.node, targetDevice ?? null]);
             if (routeKey() !== processedRoute) await router.replace({ name: 'nodeAssets', query });
-            if (!disposed && generation === contextVersion.value) await loadDevices(1);
+            if (!disposed && generation === contextVersion.value) {
+                booting.value = false;
+                await loadDevices(1, targetDevice);
+            }
         } catch (cause) {
             if (!disposed && generation === contextVersion.value && !await handleContextFailure(cause)
                 && !disposed && generation === contextVersion.value) reportError(cause, { kind: 'route', useMemory });
@@ -365,7 +384,7 @@ export function useNodeAssetsPage(api: ApiClient) {
     }
     watch(() => route.fullPath, () => {
         if (context.value?.available && routeKey() !== processedRoute) {
-            const useMemory = route.query.owner === undefined && route.query.node === undefined;
+            const useMemory = route.query.owner === undefined && route.query.node === undefined && route.query.device === undefined;
             void applyRoute(useMemory);
         }
     });
@@ -373,6 +392,6 @@ export function useNodeAssetsPage(api: ApiClient) {
     onBeforeUnmount(() => { disposed = true; ++contextVersion.value; ++listRequest; ++catalogRequest; ++nodesRequest; ++refreshRequest; });
     return { context, accounts, ownerId, nodeId, ownerName, nodes, selectedNode, groups, types, rows,
         total, page, pageSize, expandedIds, draft, applied, contextVersion, booting, loading, error, listError, hasLoadedDevices,
-        invalidNode, scope, initialize, selectOwner, selectNode, query, loadDevices, refreshCatalogs,
+        invalidNode, invalidDevice, scope, initialize, selectOwner, selectNode, query, loadDevices, refreshCatalogs,
         refreshNodes, refreshPage, retry, afterDeviceSaved, afterDeviceDeleted, expand, handleContextFailure };
 }

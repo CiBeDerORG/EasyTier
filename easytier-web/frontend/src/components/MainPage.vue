@@ -206,7 +206,7 @@ const workspaceNavigation = computed<NavItem[]>(() => [
     { key: 'dashboard', label: t('web.main.dashboard'), icon: 'pi pi-chart-pie', to: { name: 'dashboard' } },
     ...(centralEnabled.value ? [{ key: 'networkMap', label: t('web.console.network_map'), icon: 'pi pi-globe', to: { name: 'networkMap' } }] : []),
     { key: 'deviceList', label: t('web.main.device_list'), icon: 'pi pi-server', to: { name: 'deviceList' } },
-    ...(centralEnabled.value ? [{ key: 'nodeAssets', label: t('assets.page.title'), icon: 'pi pi-list', to: { name: 'nodeAssets' }, child: true }] : []),
+    ...(centralEnabled.value ? [{ key: 'nodeAssets', label: t('assets.page.title'), icon: 'pi pi-desktop', to: { name: 'nodeAssets' } }] : []),
     ...(centralEnabled.value ? [{ key: 'serviceManagement', label: t('web.console.service_management'), icon: 'pi pi-sliders-h', to: { name: 'serviceManagement' } }] : []),
     ...(canManageUsers.value ? [{ key: 'userManagement', label: t('user_admin.title'), icon: 'pi pi-users', to: { name: 'userManagement' } }] : []),
 ]);

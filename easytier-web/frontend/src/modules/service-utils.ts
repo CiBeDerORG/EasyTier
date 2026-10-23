@@ -7,6 +7,7 @@ export const serviceIcons = {
 
 /** Only web addresses can be launched from a navigation card. */
 export function safeServiceUrl(value: string): string | null {
+    if (!/^https?:\/\//i.test(value.trim()) || /[\u0000-\u001f\u007f]/.test(value)) return null;
     try {
         const url = new URL(value.trim());
         if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) return null;

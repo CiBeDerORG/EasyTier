@@ -831,12 +831,112 @@ test('external Console keeps the device dashboard without central requests or na
     assert.equal(await page.locator('.p-message-warn').count(), 0);
 });
 
+test('asset device deep links locate the correct page, replace same-node selection, and recover from a deleted target', async t => {
+    const { page } = await open(t, '/h/deviceList');
+    const devices = Array.from({ length: 25 }, (_, index) => ({
+        id: id(1000 + index), owner_user_id: 1, machine_id: id(1), name: `Asset ${index + 1}`,
+        gateway_group_id: null, device_type_id: null, model: null, overlay_ip: `10.126.126.${index + 1}`,
+        lan_ip: null, is_gateway_self: false, remarks: null, address_mode: 'legacy_manual',
+        rule_key: null, host_offset: null, network_instance_id: null, address_spec: null, warnings: [],
+        binding: { state: 'legacy_unbound', reason: null, instance_id: null, snapshot: null, can_refresh: false, can_edit_address: false },
+        created_at: '2026-10-23T12:00:00Z', updated_at: '2026-10-23T12:00:00Z',
+    }));
+    const requests = [];
+    let releaseOld;
+    let startOld;
+    const oldStarted = new Promise(resolve => { startOld = resolve; });
+    const oldGate = new Promise(resolve => { releaseOld = resolve; });
+    t.after(() => releaseOld());
+    await page.route('**/api/v1/assets/**', async route => {
+        const url = new URL(route.request().url());
+        const path = url.pathname.replace('/api/v1', '');
+        if (['/assets/device-types', '/assets/device-types/initialize', '/assets/gateway-groups'].includes(path)) {
+            return route.fulfill({ json: { items: [] } });
+        }
+        if (/^\/assets\/devices\/[^/]+\/services$/.test(path)) return route.fulfill({ json: { items: [] } });
+        if (path !== '/assets/devices') return route.fallback();
+        const query = Object.fromEntries(url.searchParams);
+        requests.push(query);
+        assert.equal(query.owner_user_id, '1');
+        assert.equal(query.machine_id, id(1));
+        const index = devices.findIndex(device => device.id === query.locate_id);
+        if (query.locate_id && index < 0) {
+            return route.fulfill({ status: 404, json: { code: 'asset_not_found', message: 'Asset was deleted' } });
+        }
+        const pageSize = Number(query.page_size || 20);
+        const resultPage = query.locate_id ? Math.floor(index / pageSize) + 1 : Number(query.page || 1);
+        const result = { items: devices.slice((resultPage - 1) * pageSize, resultPage * pageSize), total: devices.length, page: resultPage, page_size: pageSize };
+        if (query.locate_id === devices[0].id) { startOld(); await oldGate; }
+        return route.fulfill({ json: result });
+    });
+    const navigate = device => page.evaluate(({ node, device }) => {
+        location.hash = `/h/node-assets?owner=1&node=${node}&device=${device}`;
+    }, { node: id(1), device });
+
+    await navigate(devices[24].id);
+    await page.getByRole('heading', { name: 'Device management', exact: true }).waitFor();
+    await page.getByRole('region', { name: 'Services on Asset 25', exact: true }).waitFor();
+    assert.equal(await page.locator('[data-asset-device-id]').count(), 5, 'server locates the target on the second page');
+    assert.equal(new URLSearchParams(page.url().split('?')[1]).get('device'), devices[24].id);
+    assert.equal(requests.at(-1).locate_id, devices[24].id);
+    if (screenshotDir) {
+        const resetScroll = () => page.evaluate(() => {
+            document.activeElement?.blur();
+            for (let element = document.querySelector('.node-assets-page'); element; element = element.parentElement) {
+                element.scrollTop = 0; element.scrollLeft = 0;
+            }
+            window.scrollTo(0, 0);
+        });
+        await resetScroll();
+        await page.screenshot({ path: `${screenshotDir}/device-management-desktop.png`, animations: 'disabled' });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await resetScroll();
+        await page.screenshot({ path: `${screenshotDir}/device-management-mobile.png`, animations: 'disabled' });
+        await page.locator('.mobile-nav-toggle').click();
+        const mobileMenu = page.locator('.console-mobile-nav').getByRole('menu', { name: 'Navigation', exact: true });
+        const deviceLink = mobileMenu.getByRole('link', { name: 'Device management', exact: true });
+        await deviceLink.waitFor();
+        const labels = (await mobileMenu.getByRole('link').allTextContents()).map(label => label.trim());
+        assert.equal(labels.indexOf('Device management'), labels.indexOf('Network Nodes') + 1);
+        assert.equal(await deviceLink.evaluate(link => link.classList.contains('nav-child')), false);
+        await page.screenshot({ path: `${screenshotDir}/device-management-mobile-navigation.png`, animations: 'disabled' });
+        await page.keyboard.press('Escape');
+        await page.locator('.console-mobile-nav').waitFor({ state: 'hidden' });
+        await page.setViewportSize({ width: 1440, height: 960 });
+    }
+
+    await navigate(devices[0].id);
+    await oldStarted;
+    assert.equal(await page.locator('.service-panel').count(), 0, 'changing target clears the previous expanded services');
+    await navigate(devices[1].id);
+    await page.getByRole('region', { name: 'Services on Asset 2', exact: true }).waitFor();
+    const staleResponse = page.waitForResponse(response => {
+        const url = new URL(response.url());
+        return url.pathname.endsWith('/assets/devices') && url.searchParams.get('locate_id') === devices[0].id;
+    });
+    releaseOld();
+    await (await staleResponse).finished();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await page.getByRole('region', { name: 'Services on Asset 2', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('region', { name: 'Services on Asset 1', exact: true }).count(), 0, 'late response cannot restore the previous selection');
+
+    await navigate(id(9999));
+    await page.getByText('The linked device is unavailable under this node.', { exact: false }).waitFor();
+    await page.locator('[data-asset-device-id]').first().waitFor();
+    assert.equal(await page.locator('.service-panel').count(), 0, 'missing device never shows another device as selected');
+    assert.equal(requests.at(-1).locate_id, undefined, 'available devices reload after a confirmed missing target');
+    assert.equal(await page.locator('.assets-list-card').isVisible(), true);
+});
+
 test('merged workspace keeps map and service navigation, honors user administration permissions, and persists polling preference', async t => {
     const { page, state } = await open(t, '/h/deviceList', {}, state => { state.canManageUsers = true; });
     const menu = page.locator('.console-sidebar').getByRole('menu', { name: 'Navigation', exact: true });
-    for (const label of ['Service navigation', 'Network map', 'Network Nodes', 'Device list', 'User Management']) {
+    for (const label of ['Service navigation', 'Network map', 'Network Nodes', 'Device management', 'User Management']) {
         await menu.getByRole('link', { name: label, exact: true }).waitFor();
     }
+    const labels = (await menu.getByRole('link').allTextContents()).map(label => label.trim());
+    assert.equal(labels.indexOf('Device management'), labels.indexOf('Network Nodes') + 1);
+    assert.equal(await menu.getByRole('link', { name: 'Device management', exact: true }).evaluate(link => link.classList.contains('nav-child')), false);
     const refreshSwitch = page.getByRole('switch', { name: 'Auto refresh', exact: true });
     assert.ok(await refreshSwitch.isChecked());
     await refreshSwitch.uncheck();

@@ -9,7 +9,6 @@ const base = process.env.WEB_TEST_URL || 'http://127.0.0.1:5199';
 const screenshotDir = process.env.WEB_SCREENSHOT_DIR;
 let browser;
 let server;
-
 before(async () => {
     if (!process.env.WEB_TEST_URL) {
         server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '5199', '--strictPort'], { stdio: 'pipe' });
@@ -24,48 +23,60 @@ before(async () => {
     browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
     if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
 });
-
-after(async () => {
-    await browser?.close();
-    server?.kill();
-});
+after(async () => { await browser?.close(); server?.kill(); });
 
 const id = n => `00000000-0000-0000-0000-${n.toString(16).padStart(12, '0')}`;
 const uuid = n => ({ part1: 0, part2: 0, part3: 0, part4: n });
-const networkId = id(100);
-const otherNetworkId = id(101);
-const ipv4 = (n) => ({ address: { addr: (10 << 24) + (144 << 16) + n }, network_length: 24 });
-const asMember = (n, hostname) => ({ member_id: id(200 + n), device_id: id(n), hostname, hostname_override: null, alias: null, virtual_ipv4: `10.144.0.${n}`, runtime_virtual_ipv4: `10.144.0.${n}`, online: n !== 5, running: n !== 5, version: '2.7.0', error_msg: null, proxy_cidrs: n === 1 ? ['192.168.31.0/24'] : [] });
+const instanceId = n => id(1000 + n);
+const nodeNames = ['上海 · 家庭节点', '北京 · 办公室', '新加坡 · 中继', '东京 · 节点', '待定位电脑'];
+const ipv4 = n => ({ address: { addr: (10 << 24) + (144 << 16) + n }, network_length: 24 });
+const legacyRequest = request => /^\/services(?:\/|$)/.test(request.path) || /^\/networks\/[^/]+\/(?:map|members)$/.test(request.path);
+const binding = { state: 'legacy_unbound', reason: null, instance_id: null, snapshot: null, current: null, can_attach: true, can_refresh: false, can_edit_address: true };
 
 function fixture() {
-    const networks = [
-        { network_id: networkId, display_name: '家庭网络 · 测试数据', network_name: 'home', networking_method: 'Manual', member_count: 5, online_member_count: 4 },
-        { network_id: otherNetworkId, display_name: '实验网络 · 测试数据', network_name: 'lab', networking_method: 'Manual', member_count: 1, online_member_count: 1 },
-    ];
-    const members = {
-        [networkId]: [asMember(1, '上海 · 家庭网关'), asMember(2, '北京 · 办公室'), asMember(3, '新加坡 · 中继'), asMember(4, '东京 · 节点'), asMember(5, '待定位电脑')],
-        [otherNetworkId]: [asMember(6, '实验节点')],
+    const coordinates = [[31.23, 121.47], [39.9, 116.4], [1.35, 103.82], [35.68, 139.69], [null, null]];
+    const machines = nodeNames.map((hostname, i) => ({
+        owner_user_id: 1, client_url: `tcp://198.51.100.${i + 10}:11010`, alias: '', online: i !== 4,
+        info: { hostname, machine_id: uuid(i + 1), easytier_version: '2.7.0', report_time: '2026-10-23T12:00:00Z', running_network_instances: i === 4 ? [] : [uuid(1001 + i)] },
+        geo_location: { country: null, region: null, city: null, district: null, latitude: coordinates[i][0], longitude: coordinates[i][1], coordinate_system: 'WGS84' },
+        site_location: null, device_model: 'Fixture model', is_public_server: false, networks: [],
+        connection_ip: `198.51.100.${i + 10}`, ip_country: null, ip_region: null, ip_city: null,
+        ip_location_status: 'not_found', ip_observed_at: '2026-10-23T12:00:00Z',
+    }));
+    const types = ['Router', 'Server', 'Camera', 'Computer'].map((name, i) => ({ id: id(700 + i), owner_user_id: 1, name, created_at: '2026-10-23T12:00:00Z', updated_at: '2026-10-23T12:00:00Z' }));
+    const asset = (n, name, node, group, type, address, self = false, owner = 1) => ({
+        id: id(n), owner_user_id: owner, machine_id: id(node), name, gateway_group_id: group ? id(group) : null,
+        device_type_id: id(type), model: null, overlay_ip: address, lan_ip: group ? address.replace('10.31.', '192.168.') : null,
+        is_gateway_self: self, remarks: null, address_mode: 'legacy_manual', rule_key: null, host_offset: null,
+        network_instance_id: null, binding: structuredClone(binding), address_spec: null,
+        created_at: '2026-10-23T12:00:00Z', updated_at: '2026-10-23T12:00:00Z', warnings: [],
+    });
+    const devices = [asset(299, 'Home router', 1, 600, 700, '10.31.31.1', true), asset(300, 'NAS', 1, 600, 701, '10.31.31.20'),
+        asset(301, 'Entry camera', 1, 600, 702, '10.31.31.30'), asset(302, 'Office workstation', 2, null, 703, '10.144.0.2'),
+        asset(399, 'Other owner device', 6, null, 701, '10.145.0.6', false, 2)];
+    const groups = [{ id: id(600), owner_user_id: 1, machine_id: id(1), name: 'Home gateway', remarks: null,
+        subnets: ['192.168.31.0/24'], overlay_ip: '10.144.0.1', binding: structuredClone(binding), warnings: [],
+        created_at: '2026-10-23T12:00:00Z', updated_at: '2026-10-23T12:00:00Z' }];
+    const service = (n, name, deviceId, icon, accessUrl, shown = true) => {
+        const device = devices.find(item => item.id === id(deviceId));
+        return { id: id(400 + n), owner_user_id: device.owner_user_id, machine_id: device.machine_id, device_id: device.id,
+            name, protocols: ['tcp'], port: 8000 + n, remarks: 'Device-owned fixture service', access_url: accessUrl, icon,
+            show_in_navigation: shown, publication: null, overlay_ip: device.overlay_ip, lan_ip: device.lan_ip,
+            created_at: '2026-10-23T12:00:00Z', updated_at: '2026-10-23T12:00:00Z' };
     };
-    const map = {
-        [networkId]: {
-            revision: 1,
-            nodes: [
-                { device_id: id(1), latitude: 31.23, longitude: 121.47, label: '上海 · 家庭网关', role: 'gateway', layout: 'home' },
-                { device_id: id(2), latitude: 39.9, longitude: 116.4, label: '北京 · 办公室', role: 'node', layout: 'topology' },
-                { device_id: id(3), latitude: 1.35, longitude: 103.82, label: '新加坡 · 中继', role: 'node', layout: 'topology' },
-                { device_id: id(4), latitude: 35.68, longitude: 139.69, label: '东京 · 节点', role: 'node', layout: 'topology' },
-            ],
-            devices: [
-                { id: id(300), gateway_device_id: id(1), name: 'NAS', address: '192.168.31.20', kind: 'server', room: 'study' },
-                { id: id(301), gateway_device_id: id(1), name: '门口摄像头', address: '192.168.31.30', kind: 'camera', room: 'entry' },
-            ],
-        },
-        [otherNetworkId]: { revision: 0, nodes: [{ device_id: id(6), latitude: 51.5, longitude: -0.12, label: '实验节点', role: 'node', layout: 'topology' }], devices: [] },
-    };
-    const service = (n, name, icon, url, lan_device_id = null) => ({ id: id(400 + n), network_id: networkId, device_id: id(1), lan_device_id, name, description: n === 1 ? '家庭自动化' : '常用应用', url, icon, group: n < 3 ? '智能家居' : '个人服务', show_in_navigation: true, open_in_new_tab: true, sort_order: n });
-    const services = [service(1, 'Home Assistant', 'home', 'https://home.example.test/'), service(2, 'Immich', 'photos', 'https://photos.example.test/', id(300)), service(3, 'Jellyfin', 'media', 'https://media.example.test/', id(300)), service(4, 'Grafana', 'chart', 'https://metrics.example.test/')];
-    return { networks, members, map, services, requests: [], writes: [], failures: new Set(), failWrites: false, mapConflict: false, delays: new Map(), peerCounter: 0, nextService: 500, externalConsole: false };
+    const services = [service(1, 'Home Assistant', 299, 'home', 'https://home.example.test/'),
+        service(2, 'Immich', 300, 'server', 'https://photos.example.test/'), service(3, 'Jellyfin', 300, 'play', 'https://media.example.test/'),
+        service(4, 'Grafana', 300, 'globe', 'https://metrics.example.test/'), service(5, 'TCP-only service', 302, null, null, false),
+        service(6, 'Other owner service', 399, 'globe', 'https://other.example.test/')];
+    return { machines, devices, groups, types, services, requests: [], writes: [], failures: new Set(), failWrites: false,
+        delays: new Map(), gates: new Map(), peerCounter: 0, nextService: 500, externalConsole: false, admin: false };
 }
+
+const assetNode = (state, machine) => ({ ...machine, machine_id: id(machine.info.machine_id.part4), hostname: machine.info.hostname,
+    alias: machine.alias || '', owner_user_id: machine.owner_user_id, device_count: state.devices.filter(device => device.machine_id === id(machine.info.machine_id.part4)).length });
+const serviceCatalog = (state, owner) => state.services.filter(service => service.owner_user_id === owner).map(service => ({ ...service,
+    node_name: state.machines.find(machine => id(machine.info.machine_id.part4) === service.machine_id)?.info.hostname || 'Other owner node',
+    device_name: state.devices.find(device => device.id === service.device_id)?.name || 'Missing device' }));
 
 async function open(t, route = '/h/services', options = {}, configure = () => {}) {
     const state = fixture();
@@ -77,9 +88,7 @@ async function open(t, route = '/h/services', options = {}, configure = () => {}
         localStorage.setItem('lang', language);
         if (noWebGL) {
             const original = HTMLCanvasElement.prototype.getContext;
-            HTMLCanvasElement.prototype.getContext = function (type, ...args) {
-                return /webgl/i.test(type) ? null : original.call(this, type, ...args);
-            };
+            HTMLCanvasElement.prototype.getContext = function (type, ...args) { return /webgl/i.test(type) ? null : original.call(this, type, ...args); };
         }
     }, { language, noWebGL });
     await context.route(/^https:\/\/[^/]+\.example\.test\//, route => route.fulfill({ contentType: 'text/html', body: '<h1>Fixture service reached</h1>' }));
@@ -91,68 +100,115 @@ async function open(t, route = '/h/services', options = {}, configure = () => {}
     page.on('console', message => {
         if (['error', 'warning'].includes(message.type()) && /(?:TypeError|ReferenceError|Unhandled error during)/.test(message.text())) errors.push(message.text());
     });
-    t.after(() => assert.deepEqual(errors, [], 'no uncaught browser errors'));
+    t.after(() => {
+        assert.deepEqual(errors, [], 'no uncaught browser errors');
+        assert.deepEqual(state.requests.filter(legacyRequest), [], 'map and services must not consume the retired central-network datasets');
+    });
     await page.route('**/api_meta.js', route => route.fulfill({ contentType: 'text/javascript', body: 'window.apiMeta = { api_host: "" };' }));
-    await page.route('**/api/v1/**', async route => {
-        const request = route.request();
+    await page.route('**/tiles/**', route => route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT9sAAAAASUVORK5CYII=', 'base64') }));
+    await page.route('**/api/v1/**', async intercepted => {
+        const request = intercepted.request();
         const url = new URL(request.url());
         const path = url.pathname.replace('/api/v1', '');
         const method = request.method();
         const payload = request.postDataJSON();
-        state.requests.push({ path, method, payload });
+        const query = Object.fromEntries(url.searchParams);
+        const owner = Number(query.owner_user_id || 1);
+        const machineId = query.machine_id;
+        const record = { path, method, payload, query };
+        state.requests.push(record);
         const isMutation = method !== 'GET' && !path.endsWith('/proxy-rpc');
-        if (isMutation) state.writes.push({ path, method, payload });
-        if (state.delays.has(path)) await delay(state.delays.get(path));
-        if (state.failures.has(path) || (isMutation && state.failWrites)) return route.fulfill({ status: 503, json: { message: 'Fixture request failed' } });
+        if (isMutation) state.writes.push(record);
+        const milliseconds = state.delays.get(`${path}:${machineId || owner}`) ?? state.delays.get(path);
+        if (milliseconds) await delay(milliseconds);
+        const gate = state.gates.get(`${path}:${machineId || owner}`) ?? state.gates.get(path);
+        if (gate) await gate;
+        if (page.isClosed()) return;
+        if (state.failures.has(path) || (isMutation && state.failWrites)) return intercepted.fulfill({ status: 503, json: { message: 'Fixture request failed' } });
+        if (legacyRequest(record)) return intercepted.fulfill({ status: 410, json: { message: 'No central-network map or legacy services in this fixture' } });
         let result = {};
         if (path === '/console-info') result = { username: 'browser-fixture', config_server_protocol: 'udp', config_server_port: 22020, webhook_auth: state.externalConsole };
-        else if (path === '/summary') result = { device_count: 0 };
-        else if (path === '/machines') result = { machines: [] };
+        else if (path === '/admin/users/context') result = { actor: { id: 1, username: 'browser-fixture' }, available: !state.externalConsole, can_manage_users: false };
+        else if (path === '/summary') result = { device_count: state.machines.length };
+        else if (path === '/machines') result = { machines: state.machines };
         else if (path === '/blocked-devices') result = { blocked: [] };
-        else if (path === '/networks') result = { networks: state.networks };
-        else if (/^\/networks\/[^/]+\/members$/.test(path)) result = { members: state.members[path.split('/')[2]] || [], temporary_peers: [] };
-        else if (/^\/networks\/[^/]+\/map$/.test(path)) {
-            const net = path.split('/')[2];
-            if (method === 'PUT') {
-                if (state.mapConflict || payload.revision !== state.map[net].revision) return route.fulfill({ status: 409, json: { message: 'map has changed; reload before saving' } });
-                const removed = state.map[net].devices.filter(device => !payload.devices.some(next => next.id === device.id));
-                if (removed.some(device => state.services.some(service => service.network_id === net && service.lan_device_id === device.id))) {
-                    return route.fulfill({ status: 409, json: { message: 'remove or reassign the associated services before removing or moving a LAN device' } });
-                }
-                state.map[net] = { ...structuredClone(payload), revision: payload.revision + 1 };
+        // The shell still loads the bottom menu; its empty value must not hide nodes or services.
+        else if (path === '/networks') result = { networks: [] };
+        else if (path === '/assets/context') result = { actor: { id: 1, username: 'browser-fixture' }, can_manage_others: state.admin, available: !state.externalConsole };
+        else if (path === '/assets/accounts') result = { items: [{ id: 1, username: 'browser-fixture' }, { id: 2, username: 'other-owner' }] };
+        else if (path.startsWith('/assets/') && owner !== 1 && !state.admin) return intercepted.fulfill({ status: 403, json: { message: 'Owner access denied' } });
+        else if (path === '/assets/nodes') result = { items: owner === 1 ? state.machines.map(machine => assetNode(state, machine)) : [{ owner_user_id: 2, machine_id: id(6), hostname: 'Other owner node', alias: '', geo_location: null, is_public_server: false, device_count: 1 }] };
+        else if (path === '/assets/device-counts') result = { items: state.machines.map(machine => ({ machine_id: id(machine.info.machine_id.part4), device_count: assetNode(state, machine).device_count })) };
+        else if (path === '/assets/device-types' || path === '/assets/device-types/initialize') result = { items: state.types.filter(type => type.owner_user_id === owner) };
+        else if (path === '/assets/gateway-groups') result = { items: state.groups.filter(group => group.owner_user_id === owner && group.machine_id === machineId) };
+        else if (path === '/assets/devices') {
+            let items = state.devices.filter(device => device.owner_user_id === owner && device.machine_id === machineId);
+            if (query.group_id) items = items.filter(device => device.gateway_group_id === query.group_id);
+            if (query.type_id) items = items.filter(device => device.device_type_id === query.type_id);
+            if (query.keyword) items = items.filter(device => `${device.name} ${device.overlay_ip} ${device.lan_ip || ''}`.toLowerCase().includes(query.keyword.toLowerCase()));
+            const size = Math.max(1, Number(query.page_size || 20));
+            let selectedPage = Math.max(1, Number(query.page || 1));
+            if (query.locate_id) {
+                const index = items.findIndex(device => device.id === query.locate_id);
+                if (index < 0) return intercepted.fulfill({ status: 404, json: { code: 'asset_device_not_found', message: 'Device not found' } });
+                selectedPage = Math.floor(index / size) + 1;
             }
-            result = state.map[net];
-        } else if (path === '/services') {
-            if (method === 'POST') { result = { ...payload, id: id(state.nextService++) }; state.services.push(structuredClone(result)); }
-            else result = { services: state.services.filter(service => !url.searchParams.has('network_id') || service.network_id === url.searchParams.get('network_id')) };
-        } else if (path.startsWith('/services/')) {
-            const serviceId = path.split('/')[2];
-            if (method === 'DELETE') { state.services = state.services.filter(service => service.id !== serviceId); return route.fulfill({ status: 204 }); }
-            const current = state.services.find(service => service.id === serviceId);
-            if (!current) return route.fulfill({ status: 404, json: { message: 'Missing fixture service' } });
-            if (method === 'PUT') Object.assign(current, payload);
+            result = { items: items.slice((selectedPage - 1) * size, selectedPage * size), total: items.length, page: selectedPage, page_size: size };
+        } else if (/^\/assets\/devices\/[^/]+$/.test(path)) {
+            result = state.devices.find(device => device.id === path.split('/')[3] && device.machine_id === machineId && device.owner_user_id === owner);
+            if (!result) return intercepted.fulfill({ status: 404, json: { code: 'asset_device_not_found', message: 'Device not found' } });
+        } else if (/^\/assets\/devices\/[^/]+\/services$/.test(path)) {
+            const device = state.devices.find(device => device.id === path.split('/')[3] && device.machine_id === machineId && device.owner_user_id === owner);
+            if (!device) return intercepted.fulfill({ status: 404, json: { code: 'asset_device_not_found', message: 'Device not found' } });
+            if (method === 'POST') {
+                const { request_id, ...input } = payload;
+                assert.ok(request_id, 'service creation retains the idempotency key');
+                result = { ...input, id: id(state.nextService++), owner_user_id: owner, machine_id: machineId, device_id: device.id,
+                    overlay_ip: device.overlay_ip, lan_ip: device.lan_ip, publication: null, created_at: '2026-10-23T13:00:00Z', updated_at: '2026-10-23T13:00:00Z' };
+                state.services.push(structuredClone(result));
+            } else result = { items: state.services.filter(service => service.device_id === device.id) };
+        } else if (path === '/assets/services') result = { items: serviceCatalog(state, owner) };
+        else if (/^\/assets\/services\/[^/]+(?:\/navigation)?$/.test(path)) {
+            const current = state.services.find(service => service.id === path.split('/')[3] && service.owner_user_id === owner && service.machine_id === machineId);
+            if (!current) return intercepted.fulfill({ status: 404, json: { message: 'Service not found' } });
+            if (method === 'DELETE') { state.services = state.services.filter(service => service.id !== current.id); return intercepted.fulfill({ status: 204 }); }
+            if (path.endsWith('/navigation')) {
+                assert.equal(method, 'PATCH');
+                assert.deepEqual(Object.keys(payload), ['show_in_navigation'], 'navigation toggles do not rewrite service/publication fields');
+                if (payload.show_in_navigation && !current.access_url) return intercepted.fulfill({ status: 422, json: { message: 'A valid access address is required' } });
+            }
+            Object.assign(current, payload);
             result = current;
-        } else if (path.endsWith('/proxy-rpc')) {
+        } else if (/^\/assets\/nodes\/[^/]+\/metadata$/.test(path)) {
+            assert.equal(method, 'PATCH');
+            const machine = state.machines.find(machine => id(machine.info.machine_id.part4) === path.split('/')[3]);
+            Object.assign(machine, payload);
+            result = assetNode(state, machine);
+        } else if (/^\/machines\/[^/]+\/alias$/.test(path)) {
+            const machine = state.machines.find(machine => id(machine.info.machine_id.part4) === path.split('/')[2]);
+            machine.alias = payload.alias;
+        } else if (path === '/geocoding/config') result = { tile_url: `${base}/tiles/{z}/{x}/{y}.png`, attribution_text: 'Fixture tiles', attribution_url: 'https://example.test/', max_zoom: 19, reverse_enabled: false };
+        else if (path.endsWith('/proxy-rpc')) {
             const source = Number.parseInt(path.split('/')[2].slice(-12), 16);
+            assert.equal(payload.payload.instance.id.part4, 1000 + source, 'runtime queries use the actual registered machine instance');
             const peers = source === 1 ? [2, 3] : source === 2 ? [1] : source === 3 ? [1, 4] : source === 4 ? [3] : [];
-            if (payload.method_name === 'show_node_info') result = { node_info: { peer_id: source * 10, hostname: `node-${source}`, ipv4_addr: `10.144.0.${source}` } };
+            if (payload.method_name === 'show_node_info') result = { node_info: { peer_id: source * 10, inst_id: instanceId(source), hostname: nodeNames[source - 1], ipv4_addr: `10.144.0.${source}`, proxy_cidrs: source === 1 ? ['192.168.31.0/24'] : [] } };
             else if (payload.method_name === 'list_peer') {
                 state.peerCounter++;
                 result = { peer_infos: peers.map(n => ({ peer_id: n * 10, conns: [{ conn_id: `${source}-${n}`, tunnel: { tunnel_type: 'udp' }, stats: { latency_us: String(n * 2000), rx_bytes: String(100000 + state.peerCounter * 10000), tx_bytes: String(200000 + state.peerCounter * 10000) } }] })) };
-            } else if (payload.method_name === 'list_route') result = { routes: [1, 2, 3, 4].filter(n => n !== source).map(n => ({ peer_id: n * 10, hostname: `node-${n}`, ipv4_addr: ipv4(n), cost: peers.includes(n) ? 1 : 2, path_latency: n * 6, proxy_cidrs: [], version: '2.7.0', next_hop_peer_id: (peers.includes(n) ? n : source === 4 ? 3 : source === 2 ? 1 : 3) * 10 })) };
+            } else if (payload.method_name === 'list_route') result = { routes: [1, 2, 3, 4].filter(n => n !== source).map(n => ({ peer_id: n * 10, inst_id: instanceId(n), hostname: nodeNames[n - 1], ipv4_addr: ipv4(n), cost: peers.includes(n) ? 1 : 2, path_latency: n * 6, proxy_cidrs: [], version: '2.7.0', next_hop_peer_id: (peers.includes(n) ? n : source === 4 ? 3 : source === 2 ? 1 : 3) * 10 })) };
         }
-        await route.fulfill({ json: result });
+        await intercepted.fulfill({ json: result });
     });
     await page.goto(`${base}/#${route}`);
     await page.locator('.console-topbar').waitFor();
     return { page, state, context };
 }
 
-async function selectOption(page, label, option, scope = page) {
-    await scope.getByRole('combobox', { name: label, exact: true }).click();
+async function selectOption(page, label, option) {
+    await page.getByRole('combobox', { name: label, exact: true }).click();
     await page.getByRole('option', { name: option, exact: true }).click();
 }
-
 async function capture(page, name) {
     if (!screenshotDir) return;
     await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
@@ -160,16 +216,15 @@ async function capture(page, name) {
     await page.screenshot({ path: `${screenshotDir}/${name}.png`, fullPage: true, animations: 'disabled' });
     if (page.viewportSize().width === 390) await page.screenshot({ path: `${screenshotDir}/${name}-viewport.png`, animations: 'disabled' });
 }
+async function assertNoOverflow(page) { assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'page must not overflow horizontally'); }
+const assetDialog = page => page.getByRole('dialog', { name: 'Edit service', exact: true });
+const serviceRow = (page, serviceId) => page.locator(`.service-management-row[data-service-id="${serviceId}"]`);
 
-async function assertNoOverflow(page) {
-    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'page must not overflow horizontally');
-}
-
-test('navigation cards open services, filter, and persist removal without deleting the service', async t => {
+test('device-owned navigation works without central networks and toggles only the same service flag', async t => {
     const { page, state, context } = await open(t);
     await page.getByRole('link', { name: 'Open service: Immich', exact: true }).waitFor();
     assert.equal(await page.locator('.service-card').count(), 4);
-    assert.equal(await page.locator('.service-card').getByText('Not checked', { exact: true }).count(), 4);
+    const original = structuredClone(state.services.find(service => service.id === id(402)));
     const popupPromise = context.waitForEvent('page');
     await page.getByRole('link', { name: 'Open service: Immich', exact: true }).click();
     const popup = await popupPromise;
@@ -177,126 +232,231 @@ test('navigation cards open services, filter, and persist removal without deleti
     await popup.getByRole('heading', { name: 'Fixture service reached' }).waitFor();
     await popup.close();
     await page.getByRole('textbox', { name: 'Search services' }).fill('Immich');
+    await page.locator('.service-card').filter({ hasText: 'Home Assistant' }).waitFor({ state: 'detached' });
     assert.equal(await page.locator('.service-card').count(), 1);
     await page.getByRole('textbox', { name: 'Search services' }).fill('');
     await page.getByRole('button', { name: 'Service actions: Immich' }).click();
     await page.getByRole('menuitem', { name: 'Remove from navigation' }).click();
     await page.getByRole('link', { name: 'Open service: Immich', exact: true }).waitFor({ state: 'detached' });
-    assert.equal(state.services.length, 4);
-    assert.equal(state.services.find(s => s.name === 'Immich').show_in_navigation, false);
+    assert.deepEqual(state.services.find(service => service.id === id(402)), { ...original, show_in_navigation: false });
     await page.reload();
     await page.getByRole('link', { name: 'Open service: Home Assistant', exact: true }).waitFor();
     assert.equal(await page.locator('.service-card').count(), 3);
     await page.goto(`${base}/#/h/services/manage`);
-    await page.getByText('Immich', { exact: true }).waitFor();
     await page.getByRole('switch', { name: 'Show in service navigation: Immich', checked: false }).click();
     await page.getByRole('switch', { name: 'Show in service navigation: Immich', checked: true }).waitFor();
-    assert.equal(state.services.find(service => service.name === 'Immich').show_in_navigation, true);
-    await page.goto(`${base}/#/h/services`);
-    await page.reload();
-    await page.getByRole('link', { name: 'Open service: Immich', exact: true }).waitFor();
-    assert.equal(await page.locator('.service-card').count(), 4);
+    assert.deepEqual(state.services.find(service => service.id === id(402)), original);
+    assert.ok(state.requests.some(request => request.path === '/assets/services' && request.query.owner_user_id === '1'));
+    assert.equal(state.writes.filter(request => request.path.endsWith('/navigation')).length, 2);
 });
 
-test('service editor validates destinations and URLs, preserves failures, and persists create/edit/delete', async t => {
-    const { page, state } = await open(t, `/h/services/manage?create=1&network=${networkId}&node=${id(1)}`);
-    const editor = page.locator('.service-editor-drawer');
-    await editor.getByLabel('Service name', { exact: true }).fill('New service');
-    await editor.getByLabel('Service address', { exact: true }).fill('javascript:alert(1)');
-    await editor.getByRole('button', { name: 'Save service', exact: true }).click();
-    await editor.getByText('Enter a valid HTTP or HTTPS URL without embedded credentials.').waitFor();
-    assert.equal(state.writes.filter(w => w.path === '/services').length, 0);
-    await editor.getByLabel('Service address', { exact: true }).fill('https://new.example.test/');
-    await editor.getByLabel('Group', { exact: true }).fill('Automation');
-    await selectOption(page, 'Device behind gateway', 'NAS · 192.168.31.20');
+test('global editing updates the device service, preserves a failed draft, and deletion removes its navigation card', async t => {
+    const { page, state } = await open(t, `/h/services/manage?edit=${id(402)}`);
+    const editor = assetDialog(page);
+    await editor.locator('input[id$="-name"]').fill('Renamed Immich');
+    await editor.getByLabel('Access link', { exact: true }).fill('javascript:alert(1)');
+    await editor.getByRole('button', { name: 'Save', exact: true }).click();
+    await editor.getByText('Enter a complete web address starting with http:// or https://.', { exact: true }).waitFor();
+    assert.equal(state.writes.length, 0);
+    await editor.getByLabel('Access link', { exact: true }).fill('https://photos.example.test/library');
     state.failWrites = true;
-    await editor.getByRole('button', { name: 'Save service', exact: true }).click();
-    await editor.getByText('Fixture request failed', { exact: false }).waitFor();
-    assert.equal(await editor.getByLabel('Service name', { exact: true }).inputValue(), 'New service');
+    await editor.getByRole('button', { name: 'Save', exact: true }).click();
+    await editor.getByRole('alert').waitFor();
+    assert.equal(await editor.locator('input[id$="-name"]').inputValue(), 'Renamed Immich');
     state.failWrites = false;
-    await editor.getByRole('button', { name: 'Save service', exact: true }).click();
+    await editor.getByRole('button', { name: 'Save', exact: true }).click();
     await editor.waitFor({ state: 'hidden' });
-    const created = state.services.find(s => s.name === 'New service');
-    assert.ok(created);
-    assert.equal(created.network_id, networkId);
-    assert.equal(created.device_id, id(1));
-    assert.equal(created.lan_device_id, id(300));
-    await page.waitForURL(`**/#/h/services/manage?network=${networkId}`);
-    await page.goto(`${base}/#/h/services`);
-    await page.getByRole('link', { name: 'Open service: New service' }).waitFor();
-    await page.getByRole('button', { name: 'Service actions: New service' }).click();
-    await page.getByRole('menuitem', { name: 'Edit service' }).click();
-    await editor.getByLabel('Service name', { exact: true }).fill('Renamed service');
-    await editor.getByRole('button', { name: 'Save service', exact: true }).click();
-    await editor.waitFor({ state: 'hidden' });
-    assert.equal(state.services.find(s => s.id === created.id).name, 'Renamed service');
-    await page.getByRole('button', { name: 'Service actions: Renamed service' }).click();
+    await serviceRow(page, id(402)).getByRole('button', { name: 'Renamed Immich', exact: true }).waitFor();
+    const saved = state.services.find(service => service.id === id(402));
+    assert.equal(saved.device_id, id(300));
+    assert.equal(saved.machine_id, id(1));
+    assert.equal(saved.access_url, 'https://photos.example.test/library');
+    await page.goto(`${base}/#/h/node-assets?owner=1&node=${id(1)}&device=${id(300)}`);
+    await page.locator('.service-panel').getByText('Renamed Immich', { exact: true }).waitFor();
+    await page.goto(`${base}/#/h/services/manage`);
+    await page.getByRole('button', { name: 'Service actions: Renamed Immich' }).click();
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click();
-    assert.ok(state.services.some(s => s.id === created.id), 'cancelled deletion keeps the service');
-    await page.getByRole('button', { name: 'Service actions: Renamed service' }).click();
+    assert.ok(state.services.some(service => service.id === id(402)));
+    await page.getByRole('button', { name: 'Service actions: Renamed Immich' }).click();
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
-    await page.getByRole('button', { name: 'Renamed service', exact: true }).waitFor({ state: 'detached' });
-    assert.ok(!state.services.some(s => s.id === created.id));
+    await serviceRow(page, id(402)).waitFor({ state: 'detached' });
+    assert.ok(!state.services.some(service => service.id === id(402)));
     await page.goto(`${base}/#/h/services`);
-    await page.reload();
-    await page.getByRole('link', { name: 'Open service: Home Assistant', exact: true }).waitFor();
-    assert.equal(await page.getByRole('link', { name: 'Open service: Renamed service', exact: true }).count(), 0);
+    await page.getByRole('link', { name: 'Open service: Home Assistant' }).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Open service: Renamed Immich' }).count(), 0);
 });
 
-test('service navigation locates its exact network, node, and LAN device on the map', async t => {
+test('adding a service under its actual device appears in management and navigation without copying records', async t => {
+    const { page, state } = await open(t, `/h/node-assets?owner=1&node=${id(1)}&device=${id(300)}`);
+    await page.locator('.service-panel').getByText('Immich', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Add a service to NAS', exact: true }).click();
+    const editor = page.getByRole('dialog', { name: 'Add service', exact: true });
+    await editor.locator('input[id$="-name"]').fill('Device-created service');
+    await editor.locator('input[id$="-port"]').pressSequentially('9090');
+    await editor.locator('input[id$="-port"]').press('Tab');
+    assert.ok(await editor.getByRole('checkbox', { name: 'Show in service navigation', exact: true }).isDisabled());
+    await editor.getByLabel('Access link', { exact: true }).fill('https://new.example.test/');
+    await editor.getByRole('checkbox', { name: 'Show in service navigation', exact: true }).check();
+    await editor.getByRole('button', { name: 'Save', exact: true }).click();
+    await editor.waitFor({ state: 'hidden' });
+    const created = state.services.find(service => service.name === 'Device-created service');
+    assert.ok(created);
+    assert.equal(created.device_id, id(300));
+    assert.equal(created.show_in_navigation, true);
+    assert.equal(state.writes.filter(request => request.path === `/assets/devices/${id(300)}/services` && request.method === 'POST').length, 1);
+    await page.goto(`${base}/#/h/services/manage`);
+    await serviceRow(page, created.id).getByRole('button', { name: created.name, exact: true }).waitFor();
+    await page.goto(`${base}/#/h/services`);
+    await page.getByRole('link', { name: `Open service: ${created.name}`, exact: true }).waitFor();
+    assert.equal(state.services.filter(service => service.name === created.name).length, 1);
+});
+
+test('navigation without an access address opens the actual service editor and clearing the address disables the card', async t => {
+    const { page, state } = await open(t, '/h/services/manage');
+    await page.getByRole('switch', { name: 'Show in service navigation: TCP-only service', checked: false }).click();
+    const editor = assetDialog(page);
+    await editor.waitFor();
+    assert.equal(await editor.locator('input[id$="-name"]').inputValue(), 'TCP-only service');
+    assert.ok(await editor.getByRole('checkbox', { name: 'Show in service navigation', exact: true }).isDisabled());
+    assert.equal(state.writes.length, 0);
+    await editor.getByLabel('Access link', { exact: true }).fill('https://office.example.test/');
+    await editor.getByRole('checkbox', { name: 'Show in service navigation', exact: true }).check();
+    await editor.getByRole('button', { name: 'Save', exact: true }).click();
+    await editor.waitFor({ state: 'hidden' });
+    await page.getByRole('switch', { name: 'Show in service navigation: TCP-only service', checked: true }).waitFor();
+    await serviceRow(page, id(405)).getByRole('button', { name: 'TCP-only service', exact: true }).click();
+    await editor.getByLabel('Access link', { exact: true }).fill('');
+    await editor.getByRole('button', { name: 'Save', exact: true }).click();
+    await editor.waitFor({ state: 'hidden' });
+    await page.getByRole('switch', { name: 'Show in service navigation: TCP-only service', checked: false }).waitFor();
+    assert.equal(state.services.find(service => service.id === id(405)).access_url, null);
+});
+
+test('service navigation locates the registered node and same asset device without a central network selector', async t => {
     const { page, state } = await open(t);
     await page.getByRole('button', { name: 'Service actions: Immich' }).click();
     await page.getByRole('menuitem', { name: 'Locate node on map' }).click();
-    await page.waitForURL(`**/#/h/map?network=${networkId}&node=${id(1)}&device=${id(300)}`);
-    await page.locator('.map-device-row').getByText('192.168.31.20', { exact: false }).waitFor();
-    assert.ok(state.requests.some(r => r.path === `/networks/${networkId}/map`));
-    await page.waitForFunction(() => document.querySelector('canvas') || document.body.textContent.includes('3D rendering is unavailable'));
-    assert.ok(state.requests.filter(r => r.path.endsWith('/proxy-rpc')).every(r => r.payload.payload.instance.id.part4 === 100), 'RPC instance must be network ID, never member ID');
+    await page.waitForURL(url => url.hash.includes('/h/map?') && url.hash.includes(`node=${id(1)}`) && url.hash.includes(`device=${id(300)}`));
+    await page.locator('.map-device-row.selected').getByText('NAS', { exact: true }).waitFor();
+    await page.locator('.map-inspector h2').getByText(nodeNames[0], { exact: true }).waitFor();
+    assert.equal(await page.locator('#map-network').count(), 0);
+    assert.equal(await page.locator('.map-node-list-item').count(), 5);
+    assert.ok(!page.url().includes('network='));
+    await page.locator('.map-link-row').first().waitFor();
+    assert.ok(state.requests.some(request => request.path === '/machines'));
+    assert.ok(state.requests.some(request => request.path === '/assets/devices' && request.query.machine_id === id(1)));
 });
 
-test('sidebar collapse preserves accessible names and persists across reload', async t => {
-    const { page } = await open(t);
-    const nav = page.locator('.console-sidebar');
-    await nav.getByRole('link', { name: 'Service navigation', exact: true }).waitFor();
-    const links = await nav.getByRole('link').allTextContents();
-    assert.ok(links.findIndex(s => s.includes('Service navigation')) < links.findIndex(s => s.includes('Dashboard')));
-    await page.getByRole('button', { name: 'Collapse menu', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.console-sidebar').getBoundingClientRect().width <= 73);
-    await nav.getByRole('link', { name: 'Network map', exact: true }).waitFor();
-    await page.reload();
-    await page.getByRole('button', { name: 'Expand menu', exact: true }).waitFor();
-    assert.ok(await nav.evaluate(el => el.getBoundingClientRect().width <= 73));
-    await page.getByRole('button', { name: 'Expand menu', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.console-sidebar').getBoundingClientRect().width >= 207);
-});
-
-test('external Console hides central navigation and makes no map or service requests', async t => {
-    const { page, state } = await open(t, '/h/services', {}, state => { state.externalConsole = true; });
-    await page.waitForURL('**/#/h');
-    assert.equal(state.requests.some(r => r.path === '/services' || r.path.startsWith('/networks')), false);
-    assert.equal(await page.locator('a[href*="/h/services"], a[href*="/h/map"]').count(), 0);
-});
-
-test('changing a service network resets gateway device associations and offers only that network’s members', async t => {
-    const { page, state } = await open(t, `/h/services/manage?create=1&network=${networkId}&node=${id(1)}&device=${id(300)}`);
-    const editor = page.locator('.service-editor-drawer');
-    await editor.getByLabel('Service name', { exact: true }).fill('Lab service');
-    await editor.getByLabel('Service address', { exact: true }).fill('https://lab.example.test/');
-    await selectOption(page, 'Network', '实验网络 · 测试数据', editor);
-    await editor.getByRole('combobox', { name: 'Network node', exact: true }).getByText('实验节点', { exact: true }).waitFor();
-    assert.equal(await editor.getByRole('combobox', { name: 'Device behind gateway', exact: true }).count(), 0);
-    await editor.getByRole('button', { name: 'Save service', exact: true }).click();
+test('map locations edit registered metadata and survive reopening without writing separate map configuration', async t => {
+    const { page, state } = await open(t, `/h/map?node=${id(5)}`, { noWebGL: true });
+    await page.locator('.map-inspector h2').getByText(nodeNames[4], { exact: true }).waitFor();
+    await page.locator('.map-node-filters').getByRole('button', { name: 'Unlocated 1', exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll('.map-node-list-item').length === 1);
+    await page.locator('.map-coordinate-line').getByRole('button').click();
+    const editor = page.getByRole('dialog', { name: 'Edit attributes', exact: true });
+    await editor.locator('#device-node-geo-latitude').pressSequentially('48.85');
+    await editor.locator('#device-node-geo-latitude').press('Tab');
+    assert.ok(await editor.getByRole('button', { name: 'Save', exact: true }).isDisabled());
+    await editor.locator('#device-node-geo-longitude').pressSequentially('2.35');
+    await editor.locator('#device-node-geo-longitude').press('Tab');
+    state.failWrites = true;
+    await editor.getByRole('button', { name: 'Save', exact: true }).click();
+    await editor.getByRole('alert').waitFor();
+    assert.equal(await editor.locator('#device-node-geo-latitude').inputValue(), '48.85');
+    state.failWrites = false;
+    await editor.getByRole('button', { name: 'Save', exact: true }).click();
     await editor.waitFor({ state: 'hidden' });
-    const created = state.services.find(s => s.name === 'Lab service');
-    assert.equal(created.network_id, otherNetworkId);
-    assert.equal(created.device_id, id(6));
-    assert.equal(created.lan_device_id, null);
+    assert.equal(state.machines[4].geo_location.latitude, 48.85);
+    assert.equal(state.machines[4].geo_location.longitude, 2.35);
+    assert.equal(state.machines[4].geo_location.coordinate_system, 'WGS84');
+    assert.ok(state.writes.every(request => request.path === `/assets/nodes/${id(5)}/metadata`));
+    await page.reload();
+    await page.locator('.map-coordinate-line').getByText('48.8500°, 2.3500°', { exact: true }).waitFor();
+    await page.goto(`${base}/#/h/deviceList`);
+    await page.locator('.device-list-page').getByText('48.850000, 2.350000 · WGS84', { exact: true }).first().waitFor();
 });
 
-test('service loading failures recover without showing a false empty state', async t => {
-    const { page, state } = await open(t, '/h/services', {}, state => { state.failures.add('/services'); });
+test('actual running instances produce direct links and relay routes while failed samples become stale', async t => {
+    const { page, state } = await open(t, `/h/map?node=${id(1)}`);
+    await page.locator('.map-link-row').filter({ hasText: nodeNames[1] }).first().click();
+    const details = page.locator('.map-path-details');
+    await details.getByText('udp', { exact: true }).waitFor();
+    assert.match(await details.textContent(), /0 B\/s/, 'initial counters establish a baseline');
+    await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('.map-path-details dd')].some(element => {
+        const match = element.textContent.match(/↓ ([\d.]+) [kM]?B\/s/);
+        return match && Number(match[1]) > 0;
+    }));
+    await page.locator('.map-link-row').filter({ hasText: nodeNames[3] }).click();
+    await details.getByText(`${nodeNames[0]} → ${nodeNames[2]} → ${nodeNames[3]}`, { exact: true }).waitFor();
+    state.failures.add(`/machines/${id(1)}/proxy-rpc`);
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByText('Some nodes could not be queried. Retained links are marked stale.', { exact: true }).waitFor();
+    await page.locator('.map-link-row').filter({ hasText: nodeNames[3] }).click();
+    await details.getByText('Stale', { exact: true }).waitFor();
+});
+
+test('node selection fences late device responses from a previously selected node', async t => {
+    const { page, state } = await open(t, `/h/map?node=${id(1)}`, { noWebGL: true }, state => { state.delays.set(`/assets/devices:${id(1)}`, 800); });
+    if (!state.requests.some(request => request.path === '/assets/devices' && request.query.machine_id === id(1))) {
+        await page.waitForRequest(request => {
+            const url = new URL(request.url());
+            return url.pathname === '/api/v1/assets/devices' && url.searchParams.get('machine_id') === id(1);
+        });
+    }
+    await page.locator('.map-node-list-item').filter({ hasText: nodeNames[1] }).click();
+    await page.locator('.map-inspector h2').getByText(nodeNames[1], { exact: true }).waitFor();
+    await page.locator('.map-device-row').getByText('Office workstation', { exact: true }).waitFor();
+    await delay(950);
+    assert.equal(await page.locator('.map-device-row').getByText('NAS', { exact: true }).count(), 0);
+    assert.equal(await page.locator('.map-device-row').getByText('Office workstation', { exact: true }).count(), 1);
+    assert.ok(page.url().includes(`node=${id(2)}`));
+    assert.ok(state.requests.some(request => request.path === '/assets/devices' && request.query.machine_id === id(1)));
+});
+
+test('WebGL fallback keeps node actions and links to real device management', async t => {
+    const { page } = await open(t, `/h/map?node=${id(1)}&device=${id(300)}`, { noWebGL: true });
+    await page.getByText('3D rendering is unavailable. You can still use the node list and configuration controls.', { exact: true }).waitFor();
+    await page.locator('.map-device-row').filter({ hasText: 'NAS' }).getByRole('button', { name: 'Edit NAS', exact: true }).click();
+    await page.waitForURL(url => url.hash.includes('/h/node-assets?') && url.hash.includes(`node=${id(1)}`) && url.hash.includes(`device=${id(300)}`));
+    await page.locator('.service-panel').getByText('Immich', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('heading', { name: 'Device management', exact: true }).count(), 1);
+});
+
+test('auto refresh pauses map sampling while manual refresh and later resumption remain usable', async t => {
+    const { page, state } = await open(t, `/h/map?node=${id(1)}`, { noWebGL: true, clock: true });
+    await page.locator('.map-link-row').first().waitFor();
+    await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
+    await page.locator('.map-link-row').filter({ hasText: nodeNames[1] }).first().click();
+    const details = page.locator('.map-path-details');
+    const toggle = page.getByRole('switch', { name: 'Auto refresh', exact: true });
+    await toggle.uncheck();
+    const samples = () => state.requests.filter(request => request.path.endsWith('/proxy-rpc') || request.path === '/machines').length;
+    const paused = samples();
+    await page.clock.fastForward(30_000);
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    assert.equal(samples(), paused);
+    await details.getByText('Stale', { exact: true }).waitFor();
+    await page.clock.fastForward(15_000);
+    await details.getByText('Stale', { exact: true }).waitFor();
+    assert.equal(samples(), paused, 'expiry never turns paused samples current again');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
+    assert.ok(samples() > paused, 'manual refresh stays available while polling is paused');
+    const resumed = samples();
+    await toggle.check();
+    const nextMachines = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/machines');
+    await page.clock.fastForward(15_000);
+    await nextMachines;
+    await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
+    assert.ok(samples() > resumed);
+});
+
+test('service loading errors recover without pretending the device catalog is empty', async t => {
+    const { page, state } = await open(t, '/h/services', {}, state => { state.failures.add('/assets/services'); });
     await page.getByText('Fixture request failed', { exact: false }).waitFor();
     assert.equal(await page.getByRole('heading', { name: 'Your services start here' }).count(), 0);
     state.failures.clear();
@@ -305,203 +465,132 @@ test('service loading failures recover without showing a false empty state', asy
     assert.equal(await page.locator('.service-card').count(), 4);
 });
 
-test('unlocated node coordinates persist and concurrent map edits retain the unsaved draft', async t => {
-    const { page, state } = await open(t, `/h/map?network=${networkId}&node=${id(5)}`);
-    await page.locator('.map-inspector h2').filter({ hasText: '待定位电脑' }).waitFor();
-    await page.locator('.map-node-filters').getByRole('button', { name: 'Unlocated 1', exact: true }).click();
-    assert.equal(await page.locator('.map-node-list-item').count(), 1);
-    await page.locator('.map-coordinate-line').getByRole('button', { name: 'Edit node', exact: true }).click();
-    const editor = page.locator('.map-edit-drawer:visible');
-    await editor.getByLabel('Latitude', { exact: true }).fill('48.85');
-    await editor.getByRole('button', { name: 'Save changes', exact: true }).click();
-    await editor.getByText('Provide both latitude and longitude, or leave both empty.').waitFor();
-    assert.equal(state.writes.length, 0);
-    await editor.getByLabel('Longitude', { exact: true }).fill('2.35');
-    await editor.getByRole('button', { name: 'Save changes', exact: true }).click();
-    await editor.waitFor({ state: 'hidden' });
-    assert.deepEqual(state.map[networkId].nodes.find(node => node.device_id === id(5)).latitude, 48.85);
-    await page.reload();
-    await page.locator('.map-coordinate-line').getByText('48.8500°, 2.3500°', { exact: true }).waitFor();
-    await page.locator('.map-coordinate-line').getByRole('button', { name: 'Edit node', exact: true }).click();
-    await editor.getByLabel('Display name', { exact: true }).fill('Unsaved conflicting label');
-    state.mapConflict = true;
-    await editor.getByRole('button', { name: 'Save changes', exact: true }).click();
-    await editor.getByText('This map was changed elsewhere. Reload the latest configuration before editing again.').waitFor();
-    assert.equal(await editor.getByLabel('Display name', { exact: true }).inputValue(), 'Unsaved conflicting label');
-    assert.equal(await editor.getByRole('button', { name: 'Save changes', exact: true }).isDisabled(), true);
-    state.mapConflict = false;
-    state.map[networkId].nodes.find(node => node.device_id === id(5)).label = 'Saved elsewhere';
-    state.map[networkId].revision++;
-    await editor.getByRole('button', { name: 'Reload latest', exact: true }).click();
-    await editor.waitFor({ state: 'hidden' });
-    await page.locator('.map-inspector h2').filter({ hasText: 'Saved elsewhere' }).waitFor();
-});
-
-test('gateway LAN devices can be added, explored, linked to services, and removed', async t => {
-    const { page, state } = await open(t, `/h/map?network=${networkId}&node=${id(1)}`);
-    await page.getByRole('button', { name: 'Add device', exact: true }).click();
-    const editor = page.locator('.map-edit-drawer:visible');
-    await editor.getByLabel('Display name', { exact: true }).fill('Desk computer');
-    await editor.getByLabel('Address or hostname', { exact: true }).fill('192.168.31.40');
-    await editor.getByLabel('Device type').selectOption('desktop');
-    await editor.getByLabel('Room').selectOption('study');
-    await editor.getByRole('button', { name: 'Save changes', exact: true }).click();
-    await editor.waitFor({ state: 'hidden' });
-    const added = state.map[networkId].devices.find(device => device.name === 'Desk computer');
-    assert.equal(added.gateway_device_id, id(1));
-    assert.equal(added.room, 'study');
-    assert.equal(added.kind, 'desktop');
-    await page.locator('.map-device-row').filter({ hasText: 'Desk computer' }).waitFor();
-    assert.ok((await page.getByRole('link', { name: 'Add service', exact: true }).getAttribute('href')).includes(`device=${added.id}`));
-    await page.getByRole('button', { name: 'Explore node space', exact: true }).click();
-    await page.locator('.map-space-caption').getByText('Illustrative floor plan', { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Back to globe', exact: true }).click();
-    await page.locator('[data-testid="network-globe"]').waitFor({ state: 'visible' });
-    assert.ok(page.url().includes(`node=${id(1)}`));
-    await page.getByRole('button', { name: 'Remove Desk computer', exact: true }).click();
-    const removeDialog = page.getByRole('dialog', { name: 'Remove LAN device?', exact: true });
-    await removeDialog.getByRole('button', { name: 'Remove', exact: true }).click();
-    await removeDialog.waitFor({ state: 'hidden' });
-    assert.ok(!state.map[networkId].devices.some(device => device.id === added.id));
-    assert.ok(!page.url().includes(`device=${added.id}`));
-});
-
-test('deleting a referenced LAN device preserves configuration and opens the associated services', async t => {
-    const { page, state } = await open(t, `/h/map?network=${networkId}&node=${id(1)}&device=${id(300)}`);
-    await page.getByRole('button', { name: 'Remove NAS', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Remove LAN device?', exact: true });
-    await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
-    await dialog.getByText('remove or reassign the associated services before removing or moving a LAN device', { exact: false }).waitFor();
-    assert.ok(state.map[networkId].devices.some(device => device.id === id(300)));
-    assert.equal(state.map[networkId].revision, 1);
-    assert.equal(await dialog.getByRole('button', { name: 'Reload latest', exact: true }).count(), 0, 'association conflicts must not be mislabeled as revision conflicts');
-    await dialog.getByRole('button', { name: 'Manage associated services', exact: true }).click();
-    await page.waitForURL(`**/#/h/services/manage?edit=${id(402)}`);
-    await page.locator('.service-editor-drawer').getByLabel('Service name', { exact: true }).waitFor();
-    assert.equal(await page.locator('.service-editor-drawer').getByLabel('Service name', { exact: true }).inputValue(), 'Immich');
-});
-
-test('map renders measured direct links and verified relay paths, and marks failed telemetry stale', async t => {
-    const { page, state } = await open(t, `/h/map?network=${networkId}&node=${id(1)}`);
-    const direct = page.locator('.map-link-row').filter({ hasText: '北京 · 办公室' }).first();
-    await direct.click();
-    const details = page.locator('.map-path-details');
-    await details.getByText('udp', { exact: true }).waitFor();
-    assert.match(await details.textContent(), /0 B\/s/, 'first counters establish a baseline rather than fake throughput');
-    await details.getByText(/^\d+\.\d ms$/, { exact: true }).waitFor();
+test('administrator catalogs remain owner-specific and revoked access clears the other owner records', async t => {
+    const { page, state } = await open(t, '/h/services/manage', {}, state => { state.admin = true; });
+    await serviceRow(page, id(402)).waitFor();
+    await selectOption(page, 'Account', 'other-owner');
+    await serviceRow(page, id(406)).waitFor();
+    assert.equal(await page.locator('.service-management-row').count(), 1);
+    await page.getByRole('button', { name: 'Service actions: Other owner service' }).click();
+    assert.equal(await page.getByRole('menuitem', { name: 'Locate node on map' }).count(), 0);
+    await page.getByRole('menuitem', { name: 'Open owning device' }).waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('switch', { name: 'Show in service navigation: Other owner service', checked: true }).click();
+    await page.getByRole('switch', { name: 'Show in service navigation: Other owner service', checked: false }).waitFor();
+    const write = state.writes.find(request => request.path.endsWith('/navigation'));
+    assert.equal(write.query.owner_user_id, '2');
+    assert.equal(write.query.machine_id, id(6));
+    assert.equal(state.services.find(service => service.id === id(402)).show_in_navigation, true);
+    state.admin = false;
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-    await page.waitForFunction(() => [...document.querySelectorAll('.map-path-details dd')].some(element => {
-        const match = element.textContent.match(/↓ ([\d.]+) [kM]?B\/s/);
-        return match && Number(match[1]) > 0;
-    }));
-    await page.locator('.map-link-row').filter({ hasText: '东京 · 节点' }).click();
-    await details.getByText('上海 · 家庭网关 → 新加坡 · 中继 → 东京 · 节点', { exact: true }).waitFor();
-    assert.equal(await details.getByText('Path information is incomplete.', { exact: false }).count(), 0);
-    assert.ok(state.requests.filter(r => r.path.endsWith('/proxy-rpc')).every(r => r.payload.payload.instance.id.part4 === 100));
-    state.failures.add(`/machines/${id(1)}/proxy-rpc`);
-    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-    await page.getByText('Some nodes could not be queried. Retained links are marked stale.', { exact: true }).waitFor();
-    await page.locator('.map-link-row').filter({ hasText: '东京 · 节点' }).click();
-    await details.getByText('Stale', { exact: true }).waitFor();
+    await serviceRow(page, id(402)).waitFor();
+    assert.equal(await serviceRow(page, id(406)).count(), 0);
 });
 
-test('late responses from a previous network cannot replace the current selection', async t => {
-    const { page, state } = await open(t, `/h/map?network=${networkId}`, {}, state => { state.delays.set(`/networks/${networkId}/map`, 700); });
-    await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption(otherNetworkId);
-    await page.locator('.map-inspector h2').filter({ hasText: '实验节点' }).waitFor();
-    await delay(850);
-    assert.equal(await page.locator('.map-node-list-item').count(), 1);
-    assert.match(await page.locator('.map-node-list-item').textContent(), /实验节点/);
-    assert.ok(page.url().includes(`network=${otherNetworkId}`));
-    assert.equal(await page.locator('.map-device-row').count(), 0);
-    const currentRpc = state.requests.filter(r => r.path.endsWith('/proxy-rpc'));
-    assert.ok(currentRpc.some(r => r.payload.payload.instance.id.part4 === 101));
-});
-
-test('WebGL failure keeps node configuration usable', async t => {
-    const { page } = await open(t, `/h/map?network=${networkId}&node=${id(5)}`, { noWebGL: true });
-    await page.getByText('3D rendering is unavailable. You can still use the node list and configuration controls.', { exact: true }).waitFor();
-    await page.locator('.map-coordinate-line').getByRole('button', { name: 'Edit node', exact: true }).click();
-    await page.locator('.map-edit-drawer:visible').getByLabel('Latitude', { exact: true }).fill('45');
-    await page.locator('.map-edit-drawer:visible').getByLabel('Longitude', { exact: true }).fill('100');
-    await page.locator('.map-edit-drawer:visible').getByRole('button', { name: 'Save changes', exact: true }).click();
-    await page.locator('.map-coordinate-line').getByText('45.0000°, 100.0000°', { exact: true }).waitFor();
-});
-
-test('merged auto-refresh preference pauses map polling while manual refresh and later resumption remain usable', async t => {
-    const { page, state } = await open(t, `/h/map?network=${networkId}`, { noWebGL: true, clock: true });
-    await page.locator('.map-link-row').first().waitFor();
-    await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
-    const refreshSwitch = page.getByRole('switch', { name: 'Auto refresh', exact: true });
-    await refreshSwitch.uncheck();
-    const samples = () => state.requests.filter(request => request.path.endsWith('/proxy-rpc') || request.path.endsWith('/members')).length;
-    const paused = samples();
-    await page.clock.fastForward(30_000);
-    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-    assert.equal(samples(), paused, 'paused map does not sample on timer or visibility recovery');
-    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-    await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
-    assert.ok(samples() > paused, 'manual refresh samples while polling is paused');
-    const beforeResume = samples();
-    await refreshSwitch.check();
-    const nextMembers = page.waitForResponse(response => new URL(response.url()).pathname === `/api/v1/networks/${networkId}/members`);
-    await page.clock.fastForward(15_000);
-    await nextMembers;
-    await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
-    assert.ok(samples() > beforeResume, 're-enabled map resumes sampling');
-});
-
-test('Chinese dark desktop and mobile flows stay within the viewport', async t => {
-    const { page } = await open(t, '/h/services', { language: 'cn' });
-    await page.getByRole('link', { name: '访问服务: Immich', exact: true }).waitFor();
-    await assertNoOverflow(page);
-    await capture(page, 'fixture-service-navigation-cn-dark-desktop');
-    await page.getByRole('button', { name: '收起菜单', exact: true }).click();
+test('sidebar collapse persists and external mode does not request the asset service catalog', async t => {
+    const { page } = await open(t);
+    const nav = page.locator('.console-sidebar');
+    await nav.getByRole('link', { name: 'Service navigation', exact: true }).waitFor();
+    const links = await nav.getByRole('link').allTextContents();
+    assert.ok(links.findIndex(value => value.includes('Service navigation')) < links.findIndex(value => value.includes('Dashboard')));
+    await page.getByRole('button', { name: 'Collapse menu', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('.console-sidebar').getBoundingClientRect().width <= 73);
-    await capture(page, 'fixture-service-navigation-cn-dark-collapsed');
-    await page.getByRole('button', { name: '展开菜单', exact: true }).click();
-    await page.goto(`${base}/#/h/services/manage?edit=${id(402)}`);
-    const serviceEditor = page.locator('.service-editor-drawer');
-    await serviceEditor.getByLabel('服务名称', { exact: true }).waitFor();
-    await serviceEditor.getByRole('combobox', { name: '网关下挂设备', exact: true }).waitFor();
-    await capture(page, 'fixture-service-editor-cn-dark-desktop');
-    await serviceEditor.getByRole('button', { name: '取消', exact: true }).click();
-    await page.goto(`${base}/#/h/map?network=${networkId}&node=${id(1)}`);
-    await page.locator('.map-inspector h2').filter({ hasText: '上海 · 家庭网关' }).waitFor();
-    await page.locator('.network-globe .globe-loading').waitFor({ state: 'detached' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Expand menu', exact: true }).waitFor();
+    assert.ok(await nav.evaluate(element => element.getBoundingClientRect().width <= 73));
+    const external = await open(t, '/h/services', {}, state => { state.externalConsole = true; });
+    await external.page.waitForURL('**/#/h');
+    assert.equal(external.state.requests.some(request => request.path === '/assets/services'), false);
+    assert.equal(await external.page.locator('a[href*="/h/services"], a[href*="/h/map"]').count(), 0);
+});
+
+test('node space automatically fits one hundred devices arriving after its empty scene mounts', async t => {
+    let releaseDevices;
+    const deviceResponse = new Promise(resolve => { releaseDevices = resolve; });
+    t.after(() => releaseDevices());
+    const { page, state } = await open(t, `/h/map?node=${id(1)}`, {}, state => {
+        const template = state.devices.find(device => device.id === id(300));
+        state.devices = Array.from({ length: 100 }, (_, index) => ({ ...structuredClone(template),
+            id: id(2000 + index), name: `Load device ${String(index + 1).padStart(3, '0')}`,
+            gateway_group_id: null, overlay_ip: `10.31.32.${index + 1}`, lan_ip: null }));
+        state.groups = [];
+        state.services = [];
+        state.gates.set(`/assets/devices:${id(1)}`, deviceResponse);
+    });
+    await page.getByRole('button', { name: 'Node space', exact: true }).click();
+    const stage = page.locator('.map-stage');
+    await stage.locator('.node-space-canvas').waitFor();
+    await stage.getByText('This node has no asset devices', { exact: true }).waitFor();
+    assert.equal(await page.locator('.map-device-row').count(), 0);
+    releaseDevices();
+    await page.locator('.map-device-row').getByText('Load device 100', { exact: true }).waitFor();
+    assert.equal(await page.locator('.map-device-row').count(), 100);
+    await stage.getByText('This node has no asset devices', { exact: true }).waitFor({ state: 'detached' });
+    await assertNoOverflow(page);
+    // Outer-ring devices must remain in the automatically fitted view. Selecting
+    // them changes only the highlighted marker; no reset or zoom is performed.
+    for (const number of [97, 98, 99, 100]) {
+        const name = `Load device ${String(number).padStart(3, '0')}`;
+        await page.locator('.map-device-select').filter({ hasText: name }).click();
+        const label = stage.getByRole('button', { name, exact: true });
+        await label.waitFor();
+        const [bounds, canvas] = await Promise.all([label.boundingBox(), stage.locator('.node-space-canvas').boundingBox()]);
+        assert.ok(bounds && canvas && bounds.x >= canvas.x && bounds.x + bounds.width <= canvas.x + canvas.width
+            && bounds.y >= canvas.y && bounds.y + bounds.height <= canvas.y + canvas.height, `${name} stays inside the fitted scene`);
+    }
+    assert.ok(state.requests.some(request => request.path === '/assets/devices' && request.query.page_size === '100'));
+    if (screenshotDir) await stage.screenshot({ path: `${screenshotDir}/asset-node-space-100-devices-auto-fit.png`, animations: 'disabled' });
+});
+
+test('asset-backed 3D map and services remain usable on Chinese desktop and mobile layouts', async t => {
+    const { page, state } = await open(t, '/h/services', { language: 'cn' });
+    await page.getByRole('link', { name: '访问服务: Immich', exact: true }).waitFor();
+    assert.equal(await page.locator('.service-network-filter [role="combobox"]').textContent(), '全部网络节点');
+    await assertNoOverflow(page);
+    await capture(page, 'asset-service-navigation-cn-dark-desktop');
+    await page.goto(`${base}/#/h/services/manage`);
+    await serviceRow(page, id(402)).waitFor();
+    assert.deepEqual(await page.locator('.service-management-filter [role="combobox"]').allTextContents(), ['全部网络节点', '全部设备']);
+    await assertNoOverflow(page);
+    await capture(page, 'asset-service-management-cn-dark-desktop');
+    await page.goto(`${base}/#/h/map?node=${id(1)}&device=${id(300)}`);
+    await page.locator('.map-inspector h2').getByText(nodeNames[0], { exact: true }).waitFor();
     await page.locator('.map-link-row').first().waitFor();
     await page.locator('.map-stage canvas').waitFor();
-    assert.ok((await page.locator('.map-space-preview').boundingBox()).height >= 200, 'gateway spatial preview must not collapse in a flex inspector');
-    assert.ok((await page.getByRole('button', { name: '查看节点空间', exact: true }).boundingBox()).height >= 30, 'primary action must retain an accessible hit area');
     assert.ok(await page.locator('.map-stage canvas').evaluate(canvas => canvas.width > 0 && canvas.height > 0));
     await assertNoOverflow(page);
-    await capture(page, 'fixture-network-map-cn-dark-desktop');
+    await capture(page, 'asset-network-map-cn-dark-desktop');
     await page.getByRole('button', { name: '查看节点空间', exact: true }).click();
     await page.locator('.map-stage .node-space-canvas').waitFor();
-    await capture(page, 'fixture-node-space-cn-dark-desktop');
+    await capture(page, 'asset-node-space-cn-dark-desktop');
+    await page.getByRole('combobox', { name: '空间视图', exact: true }).selectOption('home');
+    await page.locator('.map-stage .node-space[data-layout="home"]').waitFor();
+    await capture(page, 'asset-node-home-cn-dark-desktop');
+    await page.getByRole('combobox', { name: '空间视图', exact: true }).selectOption('topology');
+    assert.equal(state.writes.length, 0, 'space layout is a local view preference, not independent map data');
     await page.setViewportSize({ width: 390, height: 844 });
     await assertNoOverflow(page);
-    await capture(page, 'fixture-node-space-cn-dark-mobile');
+    await capture(page, 'asset-node-space-cn-dark-mobile');
     await page.getByRole('button', { name: '返回地球', exact: true }).click();
     await assertNoOverflow(page);
-    await capture(page, 'fixture-network-map-cn-dark-mobile');
+    await capture(page, 'asset-network-map-cn-dark-mobile');
     await page.goto(`${base}/#/h/services`);
     await page.getByRole('link', { name: '访问服务: Immich', exact: true }).waitFor();
     await assertNoOverflow(page);
-    await capture(page, 'fixture-service-navigation-cn-dark-mobile');
+    await capture(page, 'asset-service-navigation-cn-dark-mobile');
+    await page.goto(`${base}/#/h/services/manage`);
+    await serviceRow(page, id(402)).waitFor();
+    await assertNoOverflow(page);
+    await capture(page, 'asset-service-management-cn-dark-mobile');
     await page.getByRole('button', { name: '导航', exact: true }).click();
+    await page.locator('.console-mobile-nav').getByRole('link', { name: '设备管理', exact: true }).waitFor();
     await page.locator('.console-mobile-nav').getByRole('link', { name: '网络地图', exact: true }).click();
     await page.locator('.console-mobile-nav').waitFor({ state: 'hidden' });
-    await page.waitForURL('**/#/h/map**');
     await page.setViewportSize({ width: 1440, height: 1024 });
     await page.emulateMedia({ colorScheme: 'light' });
     await page.reload();
-    await page.locator('.map-inspector h2').filter({ hasText: '上海 · 家庭网关' }).waitFor();
-    await page.locator('.network-globe .globe-loading').waitFor({ state: 'detached' });
+    await page.locator('.map-inspector h2').getByText(nodeNames[0], { exact: true }).waitFor();
     assert.equal(await page.locator('html').evaluate(element => element.classList.contains('app-dark')), false);
     await assertNoOverflow(page);
-    await capture(page, 'fixture-network-map-cn-light-desktop');
-    await page.goto(`${base}/#/h/services`);
-    await page.getByRole('link', { name: '访问服务: Immich', exact: true }).waitFor();
-    await capture(page, 'fixture-service-navigation-cn-light-desktop');
+    await capture(page, 'asset-network-map-cn-light-desktop');
 });

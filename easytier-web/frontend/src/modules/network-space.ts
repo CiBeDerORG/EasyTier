@@ -8,7 +8,7 @@ export interface MapNodeConfig {
     layout: 'topology' | 'home';
 }
 
-/** Manually configured LAN devices are distinct from EasyTier peers. */
+/** Device-space renderer input. Asset relationships are distinct from live peer links. */
 export interface MapLanDevice {
     id: string;
     gateway_device_id: string;
@@ -16,6 +16,10 @@ export interface MapLanDevice {
     address: string;
     kind: 'server' | 'desktop' | 'camera' | 'router' | 'other';
     room: 'living' | 'study' | 'bedroom' | 'entry';
+    parent_id?: string;
+    is_gateway?: boolean;
+    asset_device_id?: string;
+    group_name?: string;
 }
 
 export interface NetworkMapConfig {
@@ -64,6 +68,8 @@ export interface MapSceneLink {
 
 export interface NodeRuntimeInfo {
     peer_id: number;
+    inst_id?: string;
+    proxy_cidrs?: string[];
     hostname?: string;
     ipv4_addr?: string;
 }

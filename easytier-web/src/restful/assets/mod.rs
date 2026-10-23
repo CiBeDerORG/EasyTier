@@ -546,6 +546,33 @@ async fn delete_device(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn service_catalog(
+    auth: AuthSession,
+    Extension(service): Service,
+    Extension(config): Config,
+    query: OwnerInput,
+) -> HttpResult<Json<Value>> {
+    let Query(query) = query.map_err(query_error)?;
+    authorize(&auth, &config, &service, query.owner_user_id).await?;
+    let result = AssetsStore::new(service.db.clone()).service_catalog(query.owner_user_id).await.map_err(asset_error)?;
+    Ok(Json(result))
+}
+
+async fn set_service_navigation(
+    auth: AuthSession,
+    Extension(service): Service,
+    Extension(config): Config,
+    Path(id): Path<String>,
+    query: ScopeInput,
+    body: Body,
+) -> HttpResult<Json<Value>> {
+    let (_, owner, node) = scoped_context(&auth, &config, &service, query).await?;
+    let body = body_value(body)?;
+    let _mutation = service.lock_mutations().await;
+    let result = AssetsStore::new(service.db.clone()).set_service_navigation(owner, &node, &id, body).await.map_err(asset_error)?;
+    Ok(Json(result))
+}
+
 async fn list_services(
     auth: AuthSession,
     Extension(service): Service,
@@ -895,6 +922,8 @@ pub(crate) fn router() -> Router<AppStateInner> {
         .route("/api/v1/assets/devices/{id}/binding", put(apply_device_binding))
         .route("/api/v1/assets/devices/{id}/address", put(apply_device_address))
         .route("/api/v1/assets/devices/{id}/services", get(list_services).post(create_service))
+        .route("/api/v1/assets/services", get(service_catalog))
+        .route("/api/v1/assets/services/{id}/navigation", patch(set_service_navigation))
         .route("/api/v1/assets/services/{id}", put(update_service).delete(delete_service))
         .route("/api/v1/assets/validation/gateway-subnets", post(preview_subnets))
         .route("/api/v1/assets/validation/device-address", post(preview_device_address))

@@ -320,6 +320,8 @@ export interface AssetServiceInput {
     remarks: string | null;
     access_url: string | null;
     icon: AssetIcon | null;
+    /** Omitted preserves the existing setting for older clients. */
+    show_in_navigation?: boolean;
     /** Omitted preserves existing publication for old clients; null removes its mapping. */
     publication?: ServicePublicationInput | null;
 }
@@ -327,12 +329,19 @@ export interface AssetServiceInput {
 export interface AssetService extends AssetScope, AssetServiceInput {
     id: string;
     device_id: string;
+    show_in_navigation: boolean;
     /** Read-only current device addresses; never submitted with service edits. */
     readonly overlay_ip: string;
     readonly lan_ip: string | null;
     publication: ServicePublication | null;
     created_at: string;
     updated_at: string;
+}
+
+/** A view of the same device-owned service, with its parent names. */
+export interface AssetServiceCatalogEntry extends AssetService {
+    node_name: string;
+    device_name: string;
 }
 
 /** Keep this request ID and payload together until the outcome is known, including PUT retries. */

@@ -1,164 +1,199 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { Button, ConfirmDialog, InputText, Menu, Message, Select, Skeleton, Tag, useConfirm, useToast } from 'primevue';
-import ApiClient, { type CentralNetworkSummary } from '../modules/api';
-import type { ServiceEntry } from '../modules/network-space';
+import type ApiClient from '../modules/api';
+import type { AssetDevice, AssetService, AssetServiceCatalogEntry } from '../types/node-assets';
 import { serviceMessages } from '../modules/service-messages';
-import { safeServiceUrl, serviceError, serviceIcons, serviceInput, sortServices } from '../modules/service-utils';
-import ServiceEditor from './services/ServiceEditor.vue';
+import { safeServiceUrl, serviceError } from '../modules/service-utils';
+import { assetServiceScope, matchesAssetService, sortAssetServices, useServiceCatalog } from '../modules/service-catalog';
+import { assetServiceIconClass } from '../constants/asset-service-icons';
+import { publicationFeedback } from '../modules/publication-sync';
+import AssetServiceDialog from './node-assets/AssetServiceDialog.vue';
 
 const props = defineProps<{ api: ApiClient; centralEnabled: boolean }>();
-const { t } = useI18n({ useScope: 'local', messages: serviceMessages });
+const { t, locale } = useI18n({ useScope: 'local', messages: serviceMessages });
 const route = useRoute();
 const router = useRouter();
 const confirm = useConfirm();
 const toast = useToast();
-const services = ref<ServiceEntry[]>();
-const networks = ref<CentralNetworkSummary[]>([]);
+const { context, accounts, ownerId, ownerQuery, services, loading, error, available, load: loadCatalog, selectOwner, isCurrentOwner } = useServiceCatalog(props.api, () => t('loadFailed'));
 const search = ref('');
-const selectedNetwork = ref<string | null>(null);
-const loading = ref(false);
+const selectedNode = ref<string | null>(null);
+const selectedDevice = ref<string | null>(null);
 const updatingId = ref<string | null>(null);
-const error = ref('');
-const lastSaved = ref<ServiceEntry>();
+const lastSaved = ref<AssetService>();
+const editing = ref<AssetServiceCatalogEntry | null>(null);
+const editingDevice = ref<AssetDevice | null>(null);
 const editorVisible = ref(false);
-const editing = ref<ServiceEntry | null>(null);
-const editorDefaults = ref<{ network?: string; node?: string; device?: string }>({});
 const menu = ref<InstanceType<typeof Menu>>();
-const actionService = ref<ServiceEntry>();
-let requestVersion = 0;
+const actionService = ref<AssetServiceCatalogEntry>();
+let editGeneration = 0;
+let actionGeneration = 0;
+let disposed = false;
 let handledQuery = '';
-const networkNames = computed(() => new Map(networks.value.map(network => [network.network_id, network.display_name || network.network_name])));
-const networkOptions = computed(() => [{ label: t('allNetworks'), value: null }, ...networks.value.map(network => ({ label: network.display_name || network.network_name, value: network.network_id }))]);
+const busy = computed(() => loading.value || !!updatingId.value);
 const navigationCount = computed(() => (services.value ?? []).filter(service => service.show_in_navigation).length);
-const filtered = computed(() => {
-    const query = search.value.trim().toLocaleLowerCase();
-    return sortServices((services.value ?? []).filter(service =>
-        (!selectedNetwork.value || service.network_id === selectedNetwork.value) &&
-        (!query || `${service.name} ${service.description} ${service.group} ${service.url}`.toLocaleLowerCase().includes(query))));
-});
+const nodeOptions = computed(() => [{ label: t('allNodes'), value: null }, ...[...new Map((services.value ?? []).map(service => [service.machine_id, service.node_name])).entries()].map(([value, label]) => ({ value, label }))]);
+const deviceOptions = computed(() => [{ label: t('allDevices'), value: null }, ...[...new Map((services.value ?? []).filter(service => !selectedNode.value || service.machine_id === selectedNode.value).map(service => [service.device_id, `${service.device_name} · ${service.node_name}`])).entries()].map(([value, label]) => ({ value, label }))]);
+const filtered = computed(() => sortAssetServices((services.value ?? []).filter(service =>
+    (!selectedNode.value || service.machine_id === selectedNode.value) && (!selectedDevice.value || service.device_id === selectedDevice.value)
+    && matchesAssetService(service, search.value))));
 const menuItems = computed(() => [
-    { label: t('edit'), icon: 'pi pi-pencil', command: () => actionService.value && openEdit(actionService.value) },
-    { label: t('locate'), icon: 'pi pi-map-marker', command: () => { const service = actionService.value; if (service) router.push({ name: 'networkMap', query: { network: service.network_id, node: service.device_id, ...(service.lan_device_id ? { device: service.lan_device_id } : {}) } }); } },
+    { label: t('edit'), icon: 'pi pi-pencil', disabled: busy.value, command: () => actionService.value && openEdit(actionService.value) },
+    { label: t('locateDevice'), icon: 'pi pi-desktop', command: () => actionService.value && openDevice(actionService.value) },
+    ...(actionService.value?.owner_user_id === context.value?.actor.id ? [{ label: t('locate'), icon: 'pi pi-map-marker', command: () => {
+        const service = actionService.value;
+        if (service) void router.push({ name: 'networkMap', query: { node: service.machine_id, device: service.device_id } });
+    } }] : []),
     { separator: true },
-    { label: t('delete'), icon: 'pi pi-trash', command: () => actionService.value && deleteService(actionService.value) },
+    { label: t('delete'), icon: 'pi pi-trash', disabled: busy.value, command: () => actionService.value && deleteService(actionService.value) },
 ]);
+const load = () => loadCatalog();
+async function recoverAccess(cause: unknown) {
+    const status = (cause as { response?: { status?: number } })?.response?.status;
+    if (status === 401 || status === 403) await loadCatalog(true);
+}
 function queryValue(key: string): string | undefined { const value = route.query[key]; return typeof value === 'string' ? value : undefined; }
+function openDevice(service?: AssetServiceCatalogEntry) {
+    void router.push({ name: 'nodeAssets', query: { ...ownerQuery.value, ...(service ? { owner: String(service.owner_user_id) } : {}), node: service?.machine_id || selectedNode.value || undefined, device: service?.device_id || selectedDevice.value || undefined } });
+}
 function queryAction() {
-    if (!props.centralEnabled || services.value === undefined || editorVisible.value) return;
+    if (!available.value || services.value === undefined || loading.value || editorVisible.value || updatingId.value) return;
     const signature = JSON.stringify(route.query);
     if (signature === handledQuery) return;
     const editId = queryValue('edit');
     if (editId) {
+        handledQuery = signature;
         const entry = services.value.find(service => service.id === editId);
-        handledQuery = signature;
-        if (entry) openEdit(entry);
+        if (entry) void openEdit(entry);
         else error.value = t('serviceMissing');
-    } else if (queryValue('create') || queryValue('node')) {
-        handledQuery = signature;
-        openNew({ network: queryValue('network'), node: queryValue('node'), device: queryValue('device') });
-    }
+    } else if (queryValue('create')) { handledQuery = signature; openDevice(); }
+    else handledQuery = '';
 }
-async function load() {
-    const version = ++requestVersion;
-    if (!props.centralEnabled) { services.value = undefined; loading.value = false; return; }
-    loading.value = true;
-    error.value = '';
-    const results = await Promise.allSettled([props.api.list_services(), props.api.list_networks()]);
-    if (version !== requestVersion) return;
-    if (results[0].status === 'fulfilled') services.value = results[0].value;
-    else error.value = serviceError(results[0].reason, t('loadFailed'));
-    if (results[1].status === 'fulfilled') networks.value = results[1].value;
-    else if (!error.value) error.value = serviceError(results[1].reason, t('loadFailed'));
-    loading.value = false;
-    queryAction();
-}
-watch(() => props.centralEnabled, load, { immediate: true });
-watch(() => route.query, queryAction);
-watch(editorVisible, visible => {
-    if (!visible && (route.query.edit || route.query.create || route.query.node)) {
-        const query = { ...route.query };
-        delete query.edit; delete query.create; delete query.node; delete query.device;
-        router.replace({ query });
-        handledQuery = '';
-    }
-});
-onUnmounted(() => { requestVersion++; });
-function openNew(defaults: { network?: string; node?: string; device?: string } = {}) {
+watch(() => [route.query.node, route.query.device], () => { selectedNode.value = queryValue('node') || null; selectedDevice.value = queryValue('device') || null; }, { immediate: true });
+watch([services, loading, () => route.query], queryAction);
+watch(ownerId, () => { editGeneration++; actionGeneration++; editing.value = null; editingDevice.value = null; editorVisible.value = false; updatingId.value = null; lastSaved.value = undefined; handledQuery = ''; actionService.value = undefined; menu.value?.hide(); confirm.close(); });
+onBeforeUnmount(() => { disposed = true; editGeneration++; actionGeneration++; confirm.close(); });
+function closeEditor() {
+    editGeneration++;
+    editorVisible.value = false;
     editing.value = null;
-    editorDefaults.value = { network: defaults.network || selectedNetwork.value || undefined, node: defaults.node, device: defaults.device };
-    editorVisible.value = true;
+    editingDevice.value = null;
+    handledQuery = '';
+    if (route.query.edit) {
+        const query = { ...route.query }; delete query.edit;
+        void router.replace({ query });
+    }
 }
-function openEdit(service: ServiceEntry) { editing.value = service; editorDefaults.value = {}; editorVisible.value = true; }
-function openActions(service: ServiceEntry, event: MouseEvent) { actionService.value = service; menu.value?.toggle(event); }
-function saved(service: ServiceEntry) {
-    services.value = [...(services.value ?? []).filter(entry => entry.id !== service.id), service];
-    lastSaved.value = service;
-    toast.add({ severity: 'success', summary: t('saved'), life: 2500 });
-}
-async function toggleNavigation(service: ServiceEntry) {
-    if (updatingId.value) return;
+async function openEdit(service: AssetServiceCatalogEntry) {
+    if (busy.value || !isCurrentOwner(service.owner_user_id)) return;
+    const current = ++editGeneration;
     updatingId.value = service.id;
     error.value = '';
     try {
-        const updated = await props.api.update_service(service.id, { ...serviceInput(service), show_in_navigation: !service.show_in_navigation });
-        services.value = services.value?.map(entry => entry.id === updated.id ? updated : entry);
-        lastSaved.value = updated;
-        toast.add({ severity: 'success', summary: updated.show_in_navigation ? t('savedNav') : t('removed'), life: 2500 });
-    } catch (cause) { error.value = serviceError(cause, t('mutationFailed')); }
-    finally { updatingId.value = null; }
+        const device = await props.api.assetsDevice(assetServiceScope(service), service.device_id);
+        if (disposed || current !== editGeneration || !isCurrentOwner(service.owner_user_id)) return;
+        if (device.id !== service.device_id || device.owner_user_id !== service.owner_user_id || device.machine_id !== service.machine_id) throw new Error(t('serviceMissing'));
+        editing.value = service;
+        editingDevice.value = device;
+        editorVisible.value = true;
+    } catch (cause) {
+        if (!disposed && current === editGeneration) {
+            error.value = serviceError(cause, t('contextFailed'));
+            await recoverAccess(cause);
+        }
+    } finally { if (current === editGeneration) updatingId.value = null; }
 }
-function deleteService(service: ServiceEntry) {
+function openActions(service: AssetServiceCatalogEntry, event: MouseEvent) { actionService.value = service; menu.value?.toggle(event); }
+async function saved(service: AssetService) {
+    if (!isCurrentOwner(service.owner_user_id)) return;
+    const wasPublished = !!editing.value?.publication;
+    closeEditor();
+    lastSaved.value = service;
+    services.value = services.value?.map(entry => entry.id === service.id ? { ...entry, ...service } : entry);
+    const result = publicationFeedback(service, locale.value, t('saved'), service.publication ? 'save' : wasPublished ? 'remove' : 'save');
+    toast.add({ severity: result.warning ? 'warn' : 'success', summary: result.message, life: result.warning ? 6000 : 2500 });
+    await load();
+}
+async function toggleNavigation(service: AssetServiceCatalogEntry) {
+    if (busy.value || !isCurrentOwner(service.owner_user_id)) return;
+    if (!service.show_in_navigation && !safeServiceUrl(service.access_url || '')) { await openEdit(service); return; }
+    const current = ++actionGeneration;
+    const active = () => current === actionGeneration && isCurrentOwner(service.owner_user_id);
+    updatingId.value = service.id;
+    error.value = '';
+    try {
+        const updated = await props.api.assetsSetServiceNavigation(assetServiceScope(service), service.id, !service.show_in_navigation);
+        if (!active()) return;
+        lastSaved.value = updated;
+        services.value = services.value?.map(entry => entry.id === updated.id ? { ...entry, ...updated } : entry);
+        toast.add({ severity: 'success', summary: updated.show_in_navigation ? t('savedNav') : t('removed'), life: 2500 });
+        await load();
+    } catch (cause) { if (active()) { error.value = serviceError(cause, t('mutationFailed')); await recoverAccess(cause); } }
+    finally { if (active()) updatingId.value = null; }
+}
+function deleteService(service: AssetServiceCatalogEntry) {
+    const confirmationGeneration = actionGeneration;
     confirm.require({
         group: 'service-delete', header: t('deleteTitle'), message: t('deleteHint', { name: service.name }), icon: 'pi pi-exclamation-triangle',
         rejectProps: { label: t('cancel'), severity: 'secondary', outlined: true }, acceptProps: { label: t('delete'), severity: 'danger' },
         accept: async () => {
-            if (updatingId.value) return;
+            if (confirmationGeneration !== actionGeneration || busy.value || !isCurrentOwner(service.owner_user_id)) return;
+            const current = ++actionGeneration;
+            const active = () => current === actionGeneration && isCurrentOwner(service.owner_user_id);
             updatingId.value = service.id;
             error.value = '';
             try {
-                await props.api.delete_service(service.id);
+                const response = await props.api.assetsDeleteService(assetServiceScope(service), service.id);
+                if (!active()) return;
                 services.value = services.value?.filter(entry => entry.id !== service.id);
                 if (lastSaved.value?.id === service.id) lastSaved.value = undefined;
-                toast.add({ severity: 'success', summary: t('deleted'), life: 2500 });
-            } catch (cause) { error.value = serviceError(cause, t('mutationFailed')); }
-            finally { updatingId.value = null; }
+                const result = publicationFeedback(response, locale.value, t('deleted'), 'delete');
+                toast.add({ severity: result.warning ? 'warn' : 'success', summary: result.message, life: result.warning ? 6000 : 2500 });
+                await load();
+            } catch (cause) {
+                if (active()) {
+                    if ((cause as { response?: { status?: number } })?.response?.status === 404) await load();
+                    else { error.value = serviceError(cause, t('mutationFailed')); await recoverAccess(cause); }
+                }
+            } finally { if (active()) updatingId.value = null; }
         },
     });
 }
-function clearFilters() { search.value = ''; selectedNetwork.value = null; }
+function clearFilters() { search.value = ''; selectedNode.value = null; selectedDevice.value = null; }
 </script>
 
 <template>
     <div class="console-page service-management-page">
-        <header class="page-heading service-page-heading"><div class="service-heading-identity"><span class="service-page-mark"><i class="pi pi-sliders-h" aria-hidden="true"></i></span><div><h1>{{ t('management') }}</h1><p class="page-description">{{ t('managementHint') }}</p></div></div><Button v-if="centralEnabled" :label="t('add')" icon="pi pi-plus" @click="openNew()" /></header>
-        <Message v-if="!centralEnabled" severity="info" :closable="false">{{ t('external') }}</Message>
-        <template v-else>
-            <div class="service-management-back"><RouterLink :to="{ name: 'serviceNavigation' }"><i class="pi pi-arrow-left" aria-hidden="true"></i>{{ t('viewNavigation') }}</RouterLink><Button :aria-label="t('refresh')" icon="pi pi-refresh" text severity="secondary" :loading="loading" @click="load" /></div>
-            <Message v-if="error" severity="error" :closable="false"><div class="service-message-content">{{ error }}<Button :label="t('retry')" text size="small" @click="load" /></div></Message>
-            <Message v-if="lastSaved?.show_in_navigation" severity="success" :closable="true" @close="lastSaved = undefined"><div class="service-message-content"><span>{{ t('savedNav') }}</span><RouterLink :to="{ name: 'serviceNavigation' }">{{ t('viewNavigation') }} <i class="pi pi-arrow-up-right" aria-hidden="true"></i></RouterLink></div></Message>
+        <header class="page-heading service-page-heading"><div class="service-heading-identity"><span class="service-page-mark"><i class="pi pi-sliders-h" aria-hidden="true"></i></span><div><h1>{{ t('management') }}</h1><p class="page-description">{{ t('managementHint') }}</p></div></div><Button v-if="available" :label="t('addOnDevice')" icon="pi pi-plus" @click="openDevice()" /></header>
+        <Message v-if="context && !available" severity="info" :closable="false">{{ t('external') }}</Message>
+        <Message v-if="error" severity="error" :closable="false"><div class="service-message-content">{{ error }}<Button :label="t('retry')" text size="small" :disabled="busy" @click="load" /></div></Message>
+        <template v-if="available || loading">
+            <div class="service-management-back"><RouterLink :to="{ name: 'serviceNavigation', query: ownerQuery }"><i class="pi pi-arrow-left" aria-hidden="true"></i>{{ t('viewNavigation') }}</RouterLink><Button :aria-label="t('refresh')" icon="pi pi-refresh" text severity="secondary" :loading="loading" :disabled="busy" @click="load" /></div>
+            <Select v-if="context?.can_manage_others" :model-value="ownerId" :options="accounts" option-label="username" option-value="id" :aria-label="t('owner')" :disabled="busy" @update:model-value="selectOwner" />
+            <Message v-if="lastSaved?.show_in_navigation" severity="success" :closable="true" @close="lastSaved = undefined"><div class="service-message-content"><span>{{ t('savedNav') }}</span><RouterLink :to="{ name: 'serviceNavigation', query: ownerQuery }">{{ t('viewNavigation') }} <i class="pi pi-arrow-up-right" aria-hidden="true"></i></RouterLink></div></Message>
             <div v-if="services !== undefined && services.length" class="service-management-overview">
                 <span><i class="pi pi-box" aria-hidden="true"></i>{{ t('serviceCount') }}<strong>{{ services.length }}</strong></span>
                 <span><i class="pi pi-th-large" aria-hidden="true"></i>{{ t('entryCount') }}<strong>{{ navigationCount }}</strong></span>
                 <span><i class="pi pi-eye-slash" aria-hidden="true"></i>{{ t('hidden') }}<strong>{{ services.length - navigationCount }}</strong></span>
             </div>
             <section class="console-panel service-list-panel">
-                <div class="list-toolbar service-list-toolbar"><div class="search-field"><i class="pi pi-search" aria-hidden="true"></i><InputText v-model="search" :placeholder="t('search')" :aria-label="t('search')" /></div><Select :placeholder="t('allNetworks')" v-model="selectedNetwork" :options="networkOptions" option-label="label" option-value="value" :aria-label="t('network')" class="service-management-filter" /><span class="table-count">{{ t('filterCount', { count: filtered.length }) }}</span></div>
+                <div class="list-toolbar service-list-toolbar"><div class="search-field"><i class="pi pi-search" aria-hidden="true"></i><InputText v-model="search" :placeholder="t('search')" :aria-label="t('search')" /></div><Select v-model="selectedNode" :placeholder="t('allNodes')" :options="nodeOptions" option-label="label" option-value="value" :aria-label="t('node')" class="service-management-filter" @update:model-value="selectedDevice = null" /><Select v-model="selectedDevice" :placeholder="t('allDevices')" :options="deviceOptions" option-label="label" option-value="value" :aria-label="t('assetDevice')" class="service-management-filter" /><span class="table-count">{{ t('filterCount', { count: filtered.length }) }}</span></div>
                 <div v-if="loading && services === undefined" class="loading-rows" :aria-label="t('loading')"><Skeleton v-for="i in 4" :key="i" height="64px" /></div>
-                <div v-else-if="services !== undefined && !services.length" class="service-management-empty"><i class="pi pi-box" aria-hidden="true"></i><h2>{{ t('noServices') }}</h2><p>{{ t('noServicesHint') }}</p><Button :label="t('add')" icon="pi pi-plus" @click="openNew()" /></div>
+                <div v-else-if="services !== undefined && !services.length" class="service-management-empty"><i class="pi pi-box" aria-hidden="true"></i><h2>{{ t('noServices') }}</h2><p>{{ t('noServicesHint') }}</p><Button :label="t('addOnDevice')" icon="pi pi-plus" @click="openDevice()" /></div>
                 <div v-else-if="services !== undefined && !filtered.length" class="service-management-empty"><i class="pi pi-search" aria-hidden="true"></i><h2>{{ t('noResults') }}</h2><p>{{ t('noResultsHint') }}</p><Button :label="t('clear')" outlined @click="clearFilters" /></div>
                 <ul v-else class="service-management-list" :aria-label="t('management')">
                     <li v-for="service in filtered" :key="service.id" :data-service-id="service.id" class="service-management-row">
-                        <span class="service-management-icon"><i :class="['pi', serviceIcons[service.icon] || 'pi-globe']" aria-hidden="true"></i></span>
-                        <div class="service-management-identity"><button type="button" class="service-name-button" @click="openEdit(service)">{{ service.name }}</button><a :href="safeServiceUrl(service.url) || undefined" :aria-disabled="!safeServiceUrl(service.url)" :target="service.open_in_new_tab ? '_blank' : undefined" rel="noopener noreferrer" class="service-url" :title="service.url" @click="!safeServiceUrl(service.url) && $event.preventDefault()">{{ service.url }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i></a><span class="service-network-name">{{ networkNames.get(service.network_id) || service.network_id }}<template v-if="service.group"> · {{ service.group }}</template></span></div>
-                        <div class="service-management-state"><button type="button" class="service-navigation-toggle" role="switch" :aria-checked="service.show_in_navigation" :aria-label="`${t('show')}: ${service.name}`" :disabled="!!updatingId" @click="toggleNavigation(service)"><Tag :value="service.show_in_navigation ? t('enabled') : t('hidden')" :severity="service.show_in_navigation ? 'success' : 'secondary'" :icon="service.show_in_navigation ? 'pi pi-check' : 'pi pi-minus'" /></button><span class="service-unchecked" :title="t('uncheckedHint')">{{ t('unchecked') }}</span></div>
-                        <Button icon="pi pi-ellipsis-h" text rounded severity="secondary" :aria-label="`${t('actions')}: ${service.name}`" aria-haspopup="menu" :disabled="updatingId === service.id" @click="openActions(service, $event)" />
+                        <span class="service-management-icon"><i :class="assetServiceIconClass(service.icon)" aria-hidden="true"></i></span>
+                        <div class="service-management-identity"><button type="button" class="service-name-button" :disabled="busy" @click="openEdit(service)">{{ service.name }}</button><a v-if="safeServiceUrl(service.access_url || '')" :href="safeServiceUrl(service.access_url || '') || undefined" target="_blank" rel="noopener noreferrer" class="service-url" :title="service.access_url || undefined">{{ service.access_url }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i></a><span v-else class="service-network-name">{{ t('navigationUrlRequired') }}</span><button type="button" class="service-name-button service-network-name" @click="openDevice(service)">{{ service.node_name }} · {{ service.device_name }}</button></div>
+                        <div class="service-management-state"><button type="button" class="service-navigation-toggle" role="switch" :aria-checked="service.show_in_navigation" :aria-label="`${t('show')}: ${service.name}`" :disabled="busy" @click="toggleNavigation(service)"><Tag :value="service.show_in_navigation ? t('enabled') : t('hidden')" :severity="service.show_in_navigation ? 'success' : 'secondary'" :icon="service.show_in_navigation ? 'pi pi-check' : 'pi pi-minus'" /></button><span class="service-unchecked" :title="t('uncheckedHint')">{{ t('unchecked') }}</span></div>
+                        <Button icon="pi pi-ellipsis-h" text rounded severity="secondary" :aria-label="`${t('actions')}: ${service.name}`" aria-haspopup="menu" :disabled="busy" @click="openActions(service, $event)" />
                     </li>
                 </ul>
             </section>
-            <ServiceEditor :api="api" v-model:visible="editorVisible" :entry="editing" :defaults="editorDefaults" @saved="saved" />
+            <AssetServiceDialog v-if="editorVisible && editing && editingDevice" :api="api" :visible="true" :scope="{ owner_user_id: editing.owner_user_id, machine_id: editing.machine_id }" :device="editingDevice" :service="editing" @close="closeEditor" @saved="saved" @context-error="recoverAccess" />
             <Menu ref="menu" :model="menuItems" popup />
             <ConfirmDialog group="service-delete" class="console-dialog" />
         </template>

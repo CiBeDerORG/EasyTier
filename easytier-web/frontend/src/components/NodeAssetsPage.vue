@@ -16,7 +16,7 @@ const props = defineProps<{ api: ApiClient }>();
 const { t } = useI18n();
 const router = useRouter();
 const { context, accounts, ownerId, nodeId, ownerName, nodes, selectedNode, groups, types, rows,
-    total, page, pageSize, expandedIds, draft, contextVersion, booting, loading, error, invalidNode, scope,
+    total, page, pageSize, expandedIds, draft, contextVersion, booting, loading, error, invalidNode, invalidDevice, scope,
     listError, hasLoadedDevices, retry, refreshPage, selectOwner, selectNode, query, loadDevices, refreshCatalogs,
     afterDeviceSaved, afterDeviceDeleted, expand, handleContextFailure } = useNodeAssetsPage(props.api);
 const showGroups = ref(false), showTypes = ref(false), showDevice = ref(false);
@@ -123,6 +123,7 @@ async function confirmDelete() {
                 {{ error }} <Button :label="t('assets.page.retry')" size="small" text @click="retry" />
             </Message>
             <Message v-if="invalidNode" severity="warn" :closable="false">{{ t('assets.page.invalid_node') }}</Message>
+            <Message v-if="invalidDevice" severity="warn" :closable="false">{{ t('assets.page.invalid_device') }}</Message>
             <section v-if="context" class="assets-filter-card">
                 <div class="assets-context-grid">
                     <div v-if="context.can_manage_others" class="assets-field">

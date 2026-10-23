@@ -1,16 +1,18 @@
-# Focused copy shared by the node list, its attribute editor and device-list navigation.
+# Focused copy shared by network nodes, their attribute editor and device management.
 cn:
   page:
-    title: 设备列表
+    title: 设备管理
     subtitle: 管理所选网络节点下的设备与服务。
+    invalid_device: 链接中的设备不存在或不属于当前节点，请从设备列表重新选择。
   device:
     public_badge: 公网
     attributes_hint: 维护别名、设备型号、公网服务器标识和地理位置；连接 IP 归属地由系统自动记录。
     asset_metadata_failed: 设备数量和公网标识读取失败，请刷新重试。
 en:
   page:
-    title: Device list
+    title: Device management
     subtitle: Manage devices and services under the selected network node.
+    invalid_device: The linked device is unavailable under this node. Select another device from the list.
   device:
     public_badge: Public
     attributes_hint: Edit the alias, device model, public-server role and geographic location. Connection IP geolocation is recorded automatically.

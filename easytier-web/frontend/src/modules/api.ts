@@ -7,7 +7,7 @@ import type { PublicationMutationResult } from './publication-sync';
 import type {
     AddressPreviewInput, ApplyAddressInput, ApplyBindingInput, AssetAccount, AssetContextResponse,
     AssetDevice, AssetDeviceCount, AssetDeviceQuery, AssetDeviceUpdateInput, AssetListResponse,
-    AssetNode, AssetNodeUpdate, AssetPreview, AssetScope, AssetService, AssetServiceInput,
+    AssetNode, AssetNodeUpdate, AssetPreview, AssetScope, AssetService, AssetServiceInput, AssetServiceCatalogEntry,
     BindingPreviewInput, CandidateQuery, CreateAssetRequest, DeviceAddressPreviewInput,
     DeviceCreateInput, DeviceType, DeviceTypeInput, GatewayCreateInput, GatewayGroup,
     GatewayGroupUpdateInput, GatewaySubnetsPreviewInput, InstanceCandidate, InstancePreview,
@@ -138,6 +138,7 @@ export interface GatewayInfo {
 
 export interface NodeRouteInfo {
     peer_id: number;
+    inst_id?: string;
     hostname: string;
     ipv4_addr?: { address?: { addr?: number }, network_length?: number } | null;
     cost: number;
@@ -398,6 +399,18 @@ export class ApiClient {
     public async assetsServices(scope: AssetScope, deviceId: string): Promise<AssetListResponse<AssetService>> {
         return this.client.get<unknown, AssetListResponse<AssetService>>(
             `/assets/devices/${encodeURIComponent(deviceId)}/services`, { params: scope },
+        );
+    }
+
+    public async assetsServiceCatalog(ownerUserId: number): Promise<AssetListResponse<AssetServiceCatalogEntry>> {
+        return this.client.get<unknown, AssetListResponse<AssetServiceCatalogEntry>>('/assets/services', {
+            params: { owner_user_id: ownerUserId },
+        });
+    }
+
+    public async assetsSetServiceNavigation(scope: AssetScope, id: string, showInNavigation: boolean): Promise<AssetService> {
+        return this.client.patch<unknown, AssetService>(
+            `/assets/services/${encodeURIComponent(id)}/navigation`, { show_in_navigation: showInNavigation }, { params: scope },
         );
     }
 

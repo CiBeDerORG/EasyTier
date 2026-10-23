@@ -189,6 +189,125 @@ fn service_body(protocols: &[&str], port: u16) -> Value {
     json!({"request_id":Uuid::new_v4(), "name":"Service", "protocols":protocols, "port":port})
 }
 
+#[tokio::test]
+async fn service_catalog_uses_device_services_and_keeps_account_scopes_separate() {
+    let f = Fixture::new().await;
+    let node = f.node.to_string();
+    let device = f.device(device_body()).await;
+    let mut body = service_body(&["tcp"], 443);
+    body["access_url"] = json!("https://nas.example.test/");
+    body["show_in_navigation"] = json!(true);
+    let service = f.store.create_service(f.owner, f.owner, &node, id(&device), body).await.unwrap();
+    sqlx::query("UPDATE devices SET alias = 'Home node' WHERE user_id = ? AND machine_id = ?")
+        .bind(f.owner).bind(&node).execute(&f.db.inner()).await.unwrap();
+
+    // The same physical machine is independently registered by another owner.
+    let other_body = prepared_body(&f.store, f.other, &node, device_body()).await;
+    let other_device = f.store.create_device(f.other, f.other, &node, other_body).await.unwrap();
+    f.store.create_service(f.other, f.other, &node, id(&other_device), service_body(&["tcp"], 443)).await.unwrap();
+
+    let catalog = f.store.service_catalog(f.owner).await.unwrap();
+    let items = catalog["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], service["id"]);
+    assert_eq!(items[0]["device_id"], device["id"]);
+    assert_eq!(items[0]["device_name"], device["name"]);
+    assert_eq!(items[0]["node_name"], "Home node");
+    assert_eq!(items[0]["show_in_navigation"], true);
+    assert_eq!(items[0]["overlay_ip"], device["overlay_ip"]);
+
+    f.store.delete_device(f.owner, &node, id(&device)).await.unwrap();
+    assert!(f.store.service_catalog(f.owner).await.unwrap()["items"].as_array().unwrap().is_empty());
+    assert_eq!(f.store.service_catalog(f.other).await.unwrap()["items"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn service_navigation_patch_preserves_service_details_and_protocol_bindings() {
+    let f = Fixture::new().await;
+    let node = f.node.to_string();
+    let device = f.device(device_body()).await;
+    let mut body = service_body(&["tcp", "udp"], 8443);
+    body["access_url"] = json!("https://nas.example.test:8443/files");
+    body["remarks"] = json!("Existing device service");
+    let service = f.store.create_service(f.owner, f.owner, &node, id(&device), body).await.unwrap();
+    assert_eq!(service["show_in_navigation"], false);
+
+    // Visibility changes must not delete/reinsert protocol reservations.
+    sqlx::query("CREATE TRIGGER reject_navigation_binding_delete BEFORE DELETE ON asset_service_bindings BEGIN SELECT RAISE(ABORT, 'navigation touched bindings'); END")
+        .execute(&f.db.inner()).await.unwrap();
+    let enabled = f.store.set_service_navigation(f.owner, &node, id(&service), json!({"show_in_navigation":true})).await.unwrap();
+    assert_eq!(enabled["show_in_navigation"], true);
+    for field in ["id", "owner_user_id", "machine_id", "device_id", "name", "protocols", "port", "remarks", "access_url", "publication", "created_at"] {
+        assert_eq!(enabled[field], service[field], "{field}");
+    }
+    let disabled = f.store.set_service_navigation(f.owner, &node, id(&service), json!({"show_in_navigation":false})).await.unwrap();
+    assert_eq!(disabled["show_in_navigation"], false);
+    assert_eq!(disabled["protocols"], json!(["tcp", "udp"]));
+    assert_eq!(f.store.set_service_navigation(f.other, &node, id(&service), json!({"show_in_navigation":true})).await.unwrap_err().status, 404);
+    assert_eq!(f.store.set_service_navigation(f.owner, &f.second_node.to_string(), id(&service), json!({"show_in_navigation":true})).await.unwrap_err().status, 404);
+    for invalid in [json!({}), json!({"show_in_navigation":"true"}), json!({"show_in_navigation":null}), json!({"show_in_navigation":true,"name":"Overwrite"})] {
+        assert_eq!(f.store.set_service_navigation(f.owner, &node, id(&service), invalid).await.unwrap_err().status, 422);
+    }
+}
+
+#[tokio::test]
+async fn service_navigation_requires_a_url_and_old_editors_can_clear_it() {
+    let f = Fixture::new().await;
+    let node = f.node.to_string();
+    let device = f.device(device_body()).await;
+    let mut body = service_body(&["tcp"], 443);
+    body["show_in_navigation"] = json!(true);
+    assert_eq!(f.store.create_service(f.owner, f.owner, &node, id(&device), body.clone()).await.unwrap_err().status, 422);
+    body["access_url"] = json!("https://nas.example.test/");
+    let service = f.store.create_service(f.owner, f.owner, &node, id(&device), body).await.unwrap();
+    let mut update = update_body(&service, &["name", "protocols", "port", "remarks", "access_url", "icon"]);
+    update["name"] = json!("Renamed by old editor");
+    let retained = f.store.update_service(f.owner, &node, id(&service), update.clone()).await.unwrap();
+    assert_eq!(retained["show_in_navigation"], true);
+    update["access_url"] = Value::Null;
+    let cleared = f.store.update_service(f.owner, &node, id(&service), update.clone()).await.unwrap();
+    assert_eq!(cleared["show_in_navigation"], false);
+    assert!(cleared["access_url"].is_null());
+    assert_eq!(f.store.set_service_navigation(f.owner, &node, id(&service), json!({"show_in_navigation":true})).await.unwrap_err().status, 422);
+    update["show_in_navigation"] = json!(true);
+    assert_eq!(f.store.update_service(f.owner, &node, id(&service), update).await.unwrap_err().status, 422);
+
+    for unsafe_url in ["//example.test", "javascript:alert(1)", "https://user:secret@example.test/", "https://example.test/\n"] {
+        // Simulate an old/imported value: enabling still checks the persisted URL.
+        sqlx::query("UPDATE asset_services SET access_url = ? WHERE id = ?")
+            .bind(unsafe_url).bind(id(&service)).execute(&f.db.inner()).await.unwrap();
+        assert_eq!(f.store.set_service_navigation(f.owner, &node, id(&service), json!({"show_in_navigation":true})).await.unwrap_err().status, 422);
+    }
+}
+
+#[tokio::test]
+async fn service_create_replay_returns_current_navigation_without_reenabling_it() {
+    let f = Fixture::new().await;
+    let node = f.node.to_string();
+    let device = f.device(device_body()).await;
+    let body = service_body(&["tcp"], 443);
+    let service = f.store.create_service(f.owner, f.owner, &node, id(&device), body.clone()).await.unwrap();
+    let mut update = update_body(&service, &["name", "protocols", "port", "remarks", "access_url", "icon"]);
+    update["access_url"] = json!("https://nas.example.test/new");
+    update["show_in_navigation"] = json!(true);
+    f.store.update_service(f.owner, &node, id(&service), update).await.unwrap();
+    let replay = f.store.create_service(f.owner, f.owner, &node, id(&device), body.clone()).await.unwrap();
+    assert_eq!(replay["id"], service["id"]);
+    assert_eq!(replay["show_in_navigation"], true);
+    assert_eq!(replay["access_url"], "https://nas.example.test/new");
+    f.store.set_service_navigation(f.owner, &node, id(&service), json!({"show_in_navigation":false})).await.unwrap();
+    let replay = f.store.create_service(f.owner, f.owner, &node, id(&device), body.clone()).await.unwrap();
+    assert_eq!(replay["show_in_navigation"], false);
+    // A retry after deleting only the service must stop in Operation::replay,
+    // before reading current navigation, even while its parent device survives.
+    f.store.delete_service(f.owner, &node, id(&service)).await.unwrap();
+    let deleted = f.store.create_service(f.owner, f.owner, &node, id(&device), body).await.unwrap_err();
+    assert_eq!(deleted.status, 410);
+    assert_eq!(deleted.code, "created_resource_deleted");
+    assert_eq!(f.store.get_device(f.owner, &node, id(&device)).await.unwrap()["id"], device["id"]);
+    assert!(f.store.list_services(f.owner, &node, id(&device)).await.unwrap()["items"].as_array().unwrap().is_empty());
+}
+
 fn update_body(record: &Value, fields: &[&str]) -> Value {
     let mut body = serde_json::Map::new();
     for field in fields {

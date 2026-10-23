@@ -22,6 +22,7 @@ pub struct Model {
     pub access_url: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]
     pub icon: Option<String>,
+    pub show_in_navigation: bool,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

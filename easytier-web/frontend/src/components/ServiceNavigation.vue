@@ -1,84 +1,87 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { Button, InputText, Menu, Message, Select, Skeleton, useToast } from 'primevue';
-import ApiClient, { type CentralNetworkSummary } from '../modules/api';
-import type { ServiceEntry } from '../modules/network-space';
+import type ApiClient from '../modules/api';
+import type { AssetServiceCatalogEntry } from '../types/node-assets';
 import { serviceMessages } from '../modules/service-messages';
-import { serviceError, serviceInput, sortServices } from '../modules/service-utils';
+import { serviceError } from '../modules/service-utils';
+import { assetServiceScope, matchesAssetService, sortAssetServices, useServiceCatalog } from '../modules/service-catalog';
 import ServiceCard from './services/ServiceCard.vue';
 
 const props = defineProps<{ api: ApiClient; centralEnabled: boolean }>();
 const { t } = useI18n({ useScope: 'local', messages: serviceMessages });
 const router = useRouter();
 const toast = useToast();
-const services = ref<ServiceEntry[]>();
-const networks = ref<CentralNetworkSummary[]>([]);
+const { context, accounts, ownerId, ownerQuery, services, loading, error, available, load: loadCatalog, selectOwner, isCurrentOwner } = useServiceCatalog(props.api, () => t('loadFailed'));
 const search = ref('');
-const selectedNetwork = ref<string | null>(null);
-const selectedGroup = ref<string | null>(null);
-const loading = ref(false);
-const error = ref('');
-let requestVersion = 0;
+const selectedNode = ref<string | null>(null);
+const selectedDevice = ref<string | null>(null);
 const menu = ref<InstanceType<typeof Menu>>();
-const actionService = ref<ServiceEntry>();
+const actionService = ref<AssetServiceCatalogEntry>();
 const updating = ref(false);
-const networkNames = computed(() => new Map(networks.value.map(network => [network.network_id, network.display_name || network.network_name])));
-const networkOptions = computed(() => [{ label: t('allNetworks'), value: null }, ...networks.value.map(network => ({ label: network.display_name || network.network_name, value: network.network_id }))]);
-const visibleServices = computed(() => sortServices((services.value ?? []).filter(service => service.show_in_navigation)));
-const linkedNetworkCount = computed(() => new Set(visibleServices.value.map(service => service.network_id)).size);
-const groups = computed(() => [...new Set(visibleServices.value.map(service => service.group))].sort((a, b) => a.localeCompare(b)));
-const filtered = computed(() => {
-    const query = search.value.trim().toLocaleLowerCase();
-    return visibleServices.value.filter(service =>
-        (!selectedNetwork.value || service.network_id === selectedNetwork.value) &&
-        (selectedGroup.value === null || service.group === selectedGroup.value) &&
-        (!query || `${service.name} ${service.description} ${service.group} ${service.url}`.toLocaleLowerCase().includes(query)));
-});
+let actionGeneration = 0;
+const busy = computed(() => loading.value || updating.value);
+const visibleServices = computed(() => sortAssetServices((services.value ?? []).filter(service => service.show_in_navigation)));
+const nodeOptions = computed(() => [{ label: t('allNodes'), value: null }, ...[...new Map(visibleServices.value.map(service => [service.machine_id, service.node_name])).entries()].map(([value, label]) => ({ value, label }))]);
+const linkedNodeCount = computed(() => new Set(visibleServices.value.map(service => service.machine_id)).size);
+const groups = computed(() => [...new Map(visibleServices.value.filter(service => !selectedNode.value || service.machine_id === selectedNode.value)
+    .map(service => [service.device_id, { id: service.device_id, label: `${service.device_name} · ${service.node_name}` }])).values()]);
+const deviceCount = computed(() => new Set(visibleServices.value.map(service => service.device_id)).size);
+const filtered = computed(() => visibleServices.value.filter(service =>
+    (!selectedNode.value || service.machine_id === selectedNode.value) && (!selectedDevice.value || service.device_id === selectedDevice.value)
+    && matchesAssetService(service, search.value)));
 const sections = computed(() => {
-    const grouped = new Map<string, ServiceEntry[]>();
+    const grouped = new Map<string, AssetServiceCatalogEntry[]>();
     for (const service of filtered.value) {
-        const items = grouped.get(service.group) ?? [];
-        items.push(service);
-        grouped.set(service.group, items);
+        const entries = grouped.get(service.device_id) ?? [];
+        entries.push(service);
+        grouped.set(service.device_id, entries);
     }
-    return [...grouped.entries()].map(([name, entries]) => ({ name, entries }));
+    return [...grouped.entries()].map(([id, entries]) => ({ id, name: `${entries[0].device_name} · ${entries[0].node_name}`, entries }));
 });
 const menuItems = computed(() => [
-    { label: t('edit'), icon: 'pi pi-pencil', command: () => actionService.value && router.push({ name: 'serviceManagement', query: { edit: actionService.value.id } }) },
-    { label: t('locate'), icon: 'pi pi-map-marker', command: () => { const service = actionService.value; if (service) router.push({ name: 'networkMap', query: { network: service.network_id, node: service.device_id, ...(service.lan_device_id ? { device: service.lan_device_id } : {}) } }); } },
+    { label: t('edit'), icon: 'pi pi-pencil', disabled: busy.value, command: () => actionService.value && router.push({ name: 'serviceManagement', query: { owner: String(actionService.value.owner_user_id), edit: actionService.value.id } }) },
+    { label: t('locateDevice'), icon: 'pi pi-desktop', command: () => {
+        const service = actionService.value;
+        if (service) void router.push({ name: 'nodeAssets', query: { owner: String(service.owner_user_id), node: service.machine_id, device: service.device_id } });
+    } },
+    ...(actionService.value?.owner_user_id === context.value?.actor.id ? [{ label: t('locate'), icon: 'pi pi-map-marker', command: () => {
+        const service = actionService.value;
+        if (service) void router.push({ name: 'networkMap', query: { node: service.machine_id, device: service.device_id } });
+    } }] : []),
     { separator: true },
-    { label: t('remove'), icon: 'pi pi-eye-slash', disabled: updating.value, command: () => removeFromNavigation() },
+    { label: t('remove'), icon: 'pi pi-eye-slash', disabled: busy.value, command: () => removeFromNavigation() },
 ]);
-async function load() {
-    const version = ++requestVersion;
-    if (!props.centralEnabled) { services.value = undefined; loading.value = false; return; }
-    loading.value = true;
-    error.value = '';
-    const results = await Promise.allSettled([props.api.list_services(), props.api.list_networks()]);
-    if (version !== requestVersion) return;
-    if (results[0].status === 'fulfilled') services.value = results[0].value;
-    else error.value = serviceError(results[0].reason, t('loadFailed'));
-    if (results[1].status === 'fulfilled') networks.value = results[1].value;
-    else if (!error.value) error.value = serviceError(results[1].reason, t('loadFailed'));
-    loading.value = false;
-}
-watch(() => props.centralEnabled, load, { immediate: true });
-onUnmounted(() => { requestVersion++; });
-function openActions(service: ServiceEntry, event: MouseEvent) { actionService.value = service; menu.value?.toggle(event); }
+const load = () => loadCatalog();
+watch(ownerId, () => { actionGeneration++; clearFilters(); menu.value?.hide(); actionService.value = undefined; updating.value = false; });
+onBeforeUnmount(() => { actionGeneration++; });
+watch(selectedNode, () => { selectedDevice.value = null; });
+function openActions(service: AssetServiceCatalogEntry, event: MouseEvent) { actionService.value = service; menu.value?.toggle(event); }
 async function removeFromNavigation() {
     const service = actionService.value;
-    if (!service || updating.value) return;
+    if (!service || busy.value || !isCurrentOwner(service.owner_user_id)) return;
+    const current = ++actionGeneration;
+    const active = () => current === actionGeneration && isCurrentOwner(service.owner_user_id);
     updating.value = true;
+    error.value = '';
     try {
-        const updated = await props.api.update_service(service.id, { ...serviceInput(service), show_in_navigation: false });
-        services.value = services.value?.map(entry => entry.id === updated.id ? updated : entry);
+        const updated = await props.api.assetsSetServiceNavigation(assetServiceScope(service), service.id, false);
+        if (!active()) return;
+        services.value = services.value?.map(entry => entry.id === updated.id ? { ...entry, ...updated } : entry);
         toast.add({ severity: 'success', summary: t('removed'), detail: t('removedHint'), life: 4000 });
-    } catch (cause) { error.value = serviceError(cause, t('mutationFailed')); }
-    finally { updating.value = false; }
+        await load();
+    } catch (cause) {
+        if (active()) {
+            error.value = serviceError(cause, t('mutationFailed'));
+            const status = (cause as { response?: { status?: number } })?.response?.status;
+            if (status === 401 || status === 403) await loadCatalog(true);
+        }
+    }
+    finally { if (active()) updating.value = false; }
 }
-function clearFilters() { search.value = ''; selectedNetwork.value = null; selectedGroup.value = null; }
+function clearFilters() { search.value = ''; selectedNode.value = null; selectedDevice.value = null; }
 </script>
 
 <template>
@@ -86,40 +89,41 @@ function clearFilters() { search.value = ''; selectedNetwork.value = null; selec
         <header class="page-heading service-page-heading">
             <div class="service-heading-identity"><span class="service-page-mark"><i class="pi pi-th-large" aria-hidden="true"></i></span><div><h1>{{ t('navigation') }}</h1><p class="page-description">{{ t('navigationHint') }}</p></div></div>
             <div class="service-heading-actions">
-                <Button icon="pi pi-refresh" text severity="secondary" :aria-label="t('refresh')" :loading="loading" @click="load" />
-                <RouterLink v-if="centralEnabled" :to="{ name: 'serviceManagement' }" class="service-manage-link"><i class="pi pi-sliders-h" aria-hidden="true"></i>{{ t('management') }}</RouterLink>
+                <Button icon="pi pi-refresh" text severity="secondary" :aria-label="t('refresh')" :loading="loading" :disabled="busy" @click="load" />
+                <RouterLink v-if="available" :to="{ name: 'serviceManagement', query: ownerQuery }" class="service-manage-link"><i class="pi pi-sliders-h" aria-hidden="true"></i>{{ t('management') }}</RouterLink>
             </div>
         </header>
-        <Message v-if="!centralEnabled" severity="info" :closable="false">{{ t('external') }}</Message>
-        <template v-else>
-            <Message v-if="error" severity="error" :closable="false"><div class="service-error">{{ error }}<Button :label="t('retry')" text size="small" @click="load" /></div></Message>
+        <Message v-if="context && !available" severity="info" :closable="false">{{ t('external') }}</Message>
+        <Message v-if="error" severity="error" :closable="false"><div class="service-error">{{ error }}<Button :label="t('retry')" text size="small" :disabled="busy" @click="load" /></div></Message>
+        <template v-if="available || loading">
+            <Select v-if="context?.can_manage_others" :model-value="ownerId" :options="accounts" option-label="username" option-value="id" :aria-label="t('owner')" :disabled="busy" @update:model-value="selectOwner" />
             <div v-if="services !== undefined && visibleServices.length" class="service-navigation-overview">
                 <div><span>{{ t('entryCount') }}</span><strong>{{ visibleServices.length }}</strong></div>
-                <div><span>{{ t('linkedNetworks') }}</span><strong>{{ linkedNetworkCount }}</strong></div>
-                <div><span>{{ t('customGroups') }}</span><strong>{{ groups.length }}</strong></div>
-                <Button :label="t('add')" icon="pi pi-plus" text size="small" @click="router.push({ name: 'serviceManagement', query: { create: '1' } })" />
+                <div><span>{{ t('linkedNodes') }}</span><strong>{{ linkedNodeCount }}</strong></div>
+                <div><span>{{ t('linkedDevices') }}</span><strong>{{ deviceCount }}</strong></div>
+                <Button :label="t('addOnDevice')" icon="pi pi-plus" text size="small" @click="router.push({ name: 'nodeAssets', query: ownerQuery })" />
             </div>
             <div v-if="visibleServices.length" class="service-navigation-toolbar">
                 <div class="search-field"><i class="pi pi-search" aria-hidden="true"></i><InputText v-model="search" :placeholder="t('search')" :aria-label="t('search')" /></div>
-                <Select :placeholder="t('allNetworks')" v-model="selectedNetwork" :options="networkOptions" option-label="label" option-value="value" :aria-label="t('network')" class="service-network-filter" />
+                <Select v-model="selectedNode" :placeholder="t('allNodes')" :options="nodeOptions" option-label="label" option-value="value" :aria-label="t('node')" class="service-network-filter" />
             </div>
-            <div v-if="groups.length > 1" class="service-group-filters" role="group" :aria-label="t('group')">
-                <button type="button" :class="{ active: selectedGroup === null }" :aria-pressed="selectedGroup === null" @click="selectedGroup = null">{{ t('allGroups') }}</button>
-                <button v-for="group in groups" :key="group" type="button" :class="{ active: selectedGroup === group }" :aria-pressed="selectedGroup === group" @click="selectedGroup = group">{{ group || t('ungrouped') }}</button>
+            <div v-if="groups.length > 1" class="service-group-filters" role="group" :aria-label="t('assetDevice')">
+                <button type="button" :class="{ active: selectedDevice === null }" :aria-pressed="selectedDevice === null" @click="selectedDevice = null">{{ t('allDevices') }}</button>
+                <button v-for="group in groups" :key="group.id" type="button" :class="{ active: selectedDevice === group.id }" :aria-pressed="selectedDevice === group.id" @click="selectedDevice = group.id">{{ group.label }}</button>
             </div>
             <div v-if="loading && services === undefined" class="service-navigation-grid" :aria-label="t('loading')"><Skeleton v-for="i in 4" :key="i" height="190px" /></div>
             <section v-else-if="services !== undefined && visibleServices.length === 0" class="service-empty">
                 <i class="pi pi-th-large" aria-hidden="true"></i><h2>{{ t('empty') }}</h2><p>{{ t('emptyHint') }}</p>
-                <Button :label="t('add')" icon="pi pi-plus" @click="router.push({ name: 'serviceManagement', query: { create: '1' } })" />
+                <Button :label="t('management')" icon="pi pi-sliders-h" @click="router.push({ name: 'serviceManagement', query: ownerQuery })" />
             </section>
             <section v-else-if="services !== undefined && filtered.length === 0" class="service-empty">
                 <i class="pi pi-search" aria-hidden="true"></i><h2>{{ t('noResults') }}</h2><p>{{ t('noResultsHint') }}</p><Button :label="t('clear')" outlined @click="clearFilters" />
             </section>
-            <section v-for="section in sections" :key="section.name" class="service-group-section">
-                <header><i class="pi pi-folder" aria-hidden="true"></i><h2>{{ section.name || t('ungrouped') }}</h2><span>{{ section.entries.length }}</span></header>
-                <div class="service-navigation-grid"><ServiceCard v-for="service in section.entries" :key="service.id" :service="service" :network-name="networkNames.get(service.network_id)" @actions="openActions" /></div>
+            <section v-for="section in sections" :key="section.id" class="service-group-section">
+                <header><i class="pi pi-desktop" aria-hidden="true"></i><h2>{{ section.name }}</h2><span>{{ section.entries.length }}</span></header>
+                <div class="service-navigation-grid"><ServiceCard v-for="service in section.entries" :key="service.id" :service="service" @actions="openActions" /></div>
             </section>
-            <RouterLink :to="{ name: 'networkMap' }" class="service-map-link">
+            <RouterLink v-if="ownerId === context?.actor.id" :to="{ name: 'networkMap' }" class="service-map-link">
                 <span class="service-map-icon"><i class="pi pi-globe" aria-hidden="true"></i></span><span><strong>{{ t('map') }}</strong><span class="service-map-hint">{{ t('mapHint') }}</span></span><span class="service-map-action">{{ t('openMap') }}<i class="pi pi-arrow-right" aria-hidden="true"></i></span>
             </RouterLink>
             <Menu ref="menu" :model="menuItems" popup />
