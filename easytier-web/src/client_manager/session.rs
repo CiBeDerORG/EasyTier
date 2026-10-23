@@ -26,11 +26,14 @@ use super::{
     storage::{Storage, StorageToken, WeakRefStorage},
 };
 use crate::FeatureFlags;
+use crate::db::DeviceConnectionObservation;
 use crate::webhook::SharedWebhookConfig;
 
 mod runtime_revision;
 mod webhook_validation;
 
+#[cfg(test)]
+mod connection_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 
@@ -142,6 +145,7 @@ pub struct SessionData {
     notifier: broadcast::Sender<()>,
     req: Option<HeartbeatRequest>,
     location: Option<Location>,
+    connection_observation: Option<DeviceConnectionObservation>,
     heartbeat_count: std::sync::atomic::AtomicU32,
     session_identity: Option<HeartbeatIdentity>,
     auth_state: SessionAuthState,
@@ -175,6 +179,7 @@ impl SessionData {
             notifier: tx,
             req: None,
             location,
+            connection_observation: None,
             heartbeat_count: std::sync::atomic::AtomicU32::new(0),
             session_identity: None,
             auth_state: SessionAuthState::Init,
@@ -995,6 +1000,13 @@ impl Session {
             config_reconcile_task: None,
             route_ready: Arc::new(Notify::new()),
         }
+    }
+
+    pub(super) async fn set_connection_observation(
+        &mut self,
+        observation: Option<DeviceConnectionObservation>,
+    ) {
+        self.data.write().await.connection_observation = observation;
     }
 
     pub async fn serve(&mut self, tunnel: Box<dyn Tunnel>) {

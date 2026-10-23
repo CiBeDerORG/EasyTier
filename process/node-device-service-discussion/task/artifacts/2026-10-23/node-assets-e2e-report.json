@@ -1,0 +1,75 @@
+{
+  "startedAt": "2026-10-22T23:53:52.761Z",
+  "checks": [
+    {
+      "name": "Administrator selects another account and a registered node",
+      "passed": true,
+      "durationMs": 1867
+    },
+    {
+      "name": "Gateway group supports manual IPv4/IPv6 subnet rows and editing",
+      "passed": true,
+      "durationMs": 810
+    },
+    {
+      "name": "Custom device type can be created and renamed",
+      "passed": true,
+      "durationMs": 871
+    },
+    {
+      "name": "Search is explicit; creating outside current filters resets them and expands the new direct device",
+      "passed": true,
+      "durationMs": 1795
+    },
+    {
+      "name": "Grouped device accepts a subnet mismatch with visible warning; multiple service lists stay expanded",
+      "passed": true,
+      "durationMs": 1200
+    },
+    {
+      "name": "Service CRUD uses real API; dual protocols, HTTP link, icon, and conflict handling",
+      "passed": true,
+      "durationMs": 1606
+    },
+    {
+      "name": "Device editing preserves ownership; reopening a collapsed service panel does not reopen an old add dialog",
+      "passed": true,
+      "durationMs": 880
+    },
+    {
+      "name": "Referenced groups and types cannot be deleted",
+      "passed": true,
+      "durationMs": 924
+    },
+    {
+      "name": "Chinese desktop and 390px screenshots show the saved data and service form",
+      "passed": true,
+      "durationMs": 1634
+    },
+    {
+      "name": "An offline registered node accepts manual device and service management",
+      "passed": true,
+      "durationMs": 2617
+    },
+    {
+      "name": "Service delete and device cascade delete persist; empty group and unused type can then be deleted",
+      "passed": true,
+      "durationMs": 3427
+    },
+    {
+      "name": "Responsive layout has no document-wide horizontal overflow",
+      "passed": true,
+      "durationMs": 0
+    }
+  ],
+  "screenshots": [
+    "/workspace/.easytier-node-assets-verification/screenshots/node-assets-desktop-cn.png",
+    "/workspace/.easytier-node-assets-verification/screenshots/node-assets-mobile-390-cn.png",
+    "/workspace/.easytier-node-assets-verification/screenshots/node-assets-service-form-390-cn.png"
+  ],
+  "pageErrors": [],
+  "layoutIssues": [],
+  "cleanupErrors": [],
+  "finishedAt": "2026-10-22T23:54:10.428Z",
+  "passed": true
+}

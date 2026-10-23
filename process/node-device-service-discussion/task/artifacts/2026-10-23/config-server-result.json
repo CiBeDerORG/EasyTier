@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "transport": "tcp",
+  "realClientRegistration": true,
+  "observedSourceIp": "127.0.0.1",
+  "manualPropertiesPreserved": true,
+  "publicRolePreserved": true
+}

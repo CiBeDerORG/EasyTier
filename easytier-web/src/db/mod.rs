@@ -1,11 +1,13 @@
 // sea-orm-cli generate entity -u sqlite:./et.db -o easytier-web/src/db/entity/ --with-serde both --with-copy-enums
 mod central_intent;
 mod devices;
+pub(crate) mod assets;
 #[allow(unused_imports)]
 pub mod entity;
 
 pub(crate) use central_intent::{CentralIntentError, CentralOwnedRuntimeConfig};
 pub use devices::DeviceHeartbeatRecord;
+pub(crate) use devices::{DeviceConnectionObservation, IpLocationStatus};
 
 use easytier::common::config::{ConfigSource, NetworkConfig};
 use easytier_core::management::remote_client::{ListNetworkProps, Storage};
@@ -263,7 +265,7 @@ impl Db {
         let db = sqlx::pool::PoolOptions::new()
             .max_lifetime(None)
             .idle_timeout(None)
-            .connect(db_path)
+            .connect_with(db_path.parse::<sqlx::sqlite::SqliteConnectOptions>()?.foreign_keys(true))
             .await?;
 
         Ok(db)

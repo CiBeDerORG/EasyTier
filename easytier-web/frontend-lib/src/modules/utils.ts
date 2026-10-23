@@ -88,6 +88,11 @@ export interface DeviceNetwork {
     network_name: string;
 }
 
+export interface DeviceAttributes {
+    site_location: string | null;
+    device_model: string | null;
+}
+
 export interface DeviceInfo {
     hostname: string;
     alias?: string;
@@ -101,6 +106,14 @@ export interface DeviceInfo {
     networks?: Array<DeviceNetwork>;
     online?: boolean;
     last_seen?: string;
+    site_location?: string | null;
+    device_model?: string | null;
+    connection_ip?: string | null;
+    ip_country?: string | null;
+    ip_region?: string | null;
+    ip_city?: string | null;
+    ip_location_status?: 'unknown' | 'resolved' | 'non_public' | 'not_found' | 'unavailable';
+    ip_observed_at?: string | null;
 }
 
 export function buildDeviceInfo(device: any): DeviceInfo {
@@ -118,6 +131,14 @@ export function buildDeviceInfo(device: any): DeviceInfo {
         networks: device.networks ?? [],
         online: device.online ?? false,
         last_seen: device.last_seen,
+        site_location: device.site_location,
+        device_model: device.device_model,
+        connection_ip: device.connection_ip,
+        ip_country: device.ip_country,
+        ip_region: device.ip_region,
+        ip_city: device.ip_city,
+        ip_location_status: device.ip_location_status,
+        ip_observed_at: device.ip_observed_at,
     };
 
     return dev_info;

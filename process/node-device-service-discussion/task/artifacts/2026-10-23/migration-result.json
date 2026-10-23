@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "preservedNodes": 4,
+  "oldMigrationCount": 9,
+  "newMigrationCount": 10,
+  "foreignKeyViolations": [],
+  "baseURL": "http://127.0.0.1:53087"
+}

@@ -5,8 +5,10 @@ import Tooltip from 'primevue/tooltip';
 import { useRoute, useRouter } from 'vue-router';
 import { Utils } from 'easytier-frontend-lib';
 import DeviceDetails from './DeviceDetails.vue';
+import DeviceAttributesDialog from './DeviceAttributesDialog.vue';
 import { useI18n } from 'vue-i18n'
 import ApiClient from '../modules/api';
+import type { AssetContextResponse } from '../types/node-assets';
 
 const { t } = useI18n()
 
@@ -27,8 +29,34 @@ const deviceList = ref<Array<Utils.DeviceInfo> | undefined>(undefined);
 const search = ref('');
 const loadError = ref(false);
 const refreshing = ref(false);
-let requestInFlight = false;
+let requestInFlight: Promise<Array<any>> | undefined;
 const expandedRows = ref({});
+const assetContext = ref<AssetContextResponse | null>(null);
+const assetCounts = ref<Record<string, number>>({});
+const assetCountsFailed = ref(false);
+let assetCountRequest = 0;
+let disposed = false;
+const loadAssetCounts = async () => {
+    if (!api) return;
+    const request = ++assetCountRequest;
+    try {
+        const context = assetContext.value ?? await api.assetsContext();
+        if (disposed || request !== assetCountRequest) return;
+        assetContext.value = context;
+        if (!context.available) return;
+        const result = await api.assetsDeviceCounts(context.actor.id);
+        if (disposed || request !== assetCountRequest) return;
+        assetCounts.value = Object.fromEntries(result.items.map(item => [item.machine_id, item.device_count]));
+        assetCountsFailed.value = false;
+    } catch {
+        if (!disposed && request === assetCountRequest) { assetCountsFailed.value = true; assetCounts.value = {}; }
+    }
+};
+const assetCountLabel = (machineId: string) => t('assets.page.device_count', { count: assetCounts.value[machineId] ?? '—' });
+const openAssets = (machineId: string) => {
+    if (!assetContext.value?.available) return;
+    router.push({ name: 'nodeAssets', query: { owner: String(assetContext.value.actor.id), node: machineId } });
+};
 
 // 桌面端可在表格与卡片视图之间切换，选择持久化；移动端始终使用紧凑列表
 const viewMode = ref<'table' | 'card'>(localStorage.getItem('deviceList.viewMode') === 'card' ? 'card' : 'table');
@@ -59,19 +87,22 @@ const copyEnrollCommand = async () => {
 };
 
 const loadDevices = async (manual = false) => {
+    // Only the user's refresh reloads manual asset counts; the existing one-
+    // second instance poll never calls any asset API.
+    if (manual) void loadAssetCounts();
     // A manual refresh can show progress for an already running background request.
     if (manual) refreshing.value = true;
     if (requestInFlight) return;
-    requestInFlight = true;
+    requestInFlight = api?.list_machines() ?? Promise.resolve([]);
     try {
-        const resp = await api?.list_machines();
+        const resp = await requestInFlight;
         deviceList.value = (resp || []).map(Utils.buildDeviceInfo);
         loadError.value = false;
     } catch (e) {
         loadError.value = true;
         console.error(e);
     } finally {
-        requestInFlight = false;
+        requestInFlight = undefined;
         refreshing.value = false;
     }
 };
@@ -86,10 +117,13 @@ const periodFunc = new Utils.PeriodicTask(async () => {
 
 onMounted(() => {
     periodFunc.start();
+    void loadAssetCounts();
     api?.get_console_info().then(info => { enrollInfo.value = info; }).catch(() => {});
 });
 
 onUnmounted(() => {
+    disposed = true;
+    ++assetCountRequest;
     periodFunc.stop();
 });
 
@@ -162,6 +196,21 @@ const saveAlias = async () => {
     } finally {
         aliasSaving.value = false;
     }
+};
+
+const attributesTarget = ref<Utils.DeviceInfo | null>(null);
+const handleEditAttributes = (device: Utils.DeviceInfo) => {
+    if (!attributesTarget.value) attributesTarget.value = { ...device };
+};
+const handleAttributesSaved = async (machineId: string, attributes: Utils.DeviceAttributes) => {
+    attributesTarget.value = null;
+    // Finish any pre-save list response before applying the saved attributes.
+    // The normal refresh keeps the current filter, view and expanded rows.
+    await requestInFlight?.catch(() => {});
+    const device = deviceList.value?.find(device => device.machine_id === machineId);
+    if (device) Object.assign(device, attributes);
+    toast.add({ severity: 'success', summary: t('web.device.attributes_saved'), life: 2000 });
+    await loadDevices();
 };
 
 const confirmDeleteDevice = async () => {
@@ -240,6 +289,7 @@ const locationText = (device: Utils.DeviceInfo) => {
                 </div>
             </div>
             <template v-else>
+                <p v-if="assetCountsFailed" class="muted" role="status">{{ t('assets.page.count_failed') }}</p>
                 <DataTable v-if="viewMode === 'table'" :value="sortedDeviceList" class="console-table desktop-list" size="small"
                     v-model:expandedRows="expandedRows" dataKey="machine_id" scrollable
                     :paginator="sortedDeviceList.length > 20" :rows="20">
@@ -258,6 +308,9 @@ const locationText = (device: Utils.DeviceInfo) => {
                     <Column :header="t('web.console.location')">
                         <template #body="{ data }">{{ locationText(data) }}</template>
                     </Column>
+                    <Column v-if="assetContext?.available" :header="t('assets.page.devices')" style="width: 7rem">
+                        <template #body="{ data }"><Button :label="assetCountLabel(data.machine_id)" icon="pi pi-desktop" text size="small" @click="openAssets(data.machine_id)" /></template>
+                    </Column>
                     <Column field="running_network_count" :header="t('web.device.networks')" sortable style="width: 7rem" />
                     <Column field="easytier_version" :header="t('web.device.version')" sortable style="width: 7rem">
                         <template #body="{ data }"><span class="mono-value muted">v{{ (data.easytier_version || '?').split('-')[0] }}</span></template>
@@ -275,6 +328,9 @@ const locationText = (device: Utils.DeviceInfo) => {
                                 <Button icon="pi pi-cog" severity="secondary" text rounded
                                     :aria-label="`${t('web.console.manage')} ${data.hostname}`"
                                     @click="handleDeviceManagement(data)" />
+                                <Button v-if="centralEnabled" v-tooltip.top="t('web.device.edit_attributes')" icon="pi pi-file-edit"
+                                    severity="secondary" text rounded :aria-label="t('web.device.edit_attributes')"
+                                    @click="handleEditAttributes(data)" />
                             </div>
                         </template>
                     </Column>
@@ -293,21 +349,35 @@ const locationText = (device: Utils.DeviceInfo) => {
                                     <span v-if="device.alias && device.hostname" class="preview-secondary mono-value">{{ device.hostname }}</span>
                                 </span>
                             </button>
-                            <span class="mono-value muted shrink-0">v{{ (device.easytier_version || '?').split('-')[0] }}</span>
+                            <span class="device-version-badge" :title="device.easytier_version">v{{ (device.easytier_version || '?').split('-')[0] }}</span>
                         </div>
-                        <p class="preview-secondary">{{ locationText(device) }}</p>
                         <div class="device-card-actions">
-                            <span class="muted"><i class="pi pi-sitemap" aria-hidden="true"></i> {{ device.running_network_count }} {{ t('web.console.instances') }}</span>
-                            <div class="flex items-center gap-1">
+                            <p class="device-card-location" :title="locationText(device)">
+                                <i class="pi pi-map-marker" aria-hidden="true"></i>
+                                <span>{{ locationText(device) }}</span>
+                            </p>
+                            <div class="device-card-controls">
                                 <Button v-if="centralEnabled" v-tooltip.top="t('web.console.set_alias')" icon="pi pi-pencil" severity="secondary"
                                     text rounded class="w-8 h-8" :aria-label="t('web.console.set_alias')" @click="handleSetAlias(device)" />
                                 <Button v-if="centralEnabled" v-tooltip.top="t('web.console.delete_device')" icon="pi pi-trash" severity="danger"
                                     text rounded class="w-8 h-8" :aria-label="t('web.console.delete_device')" @click="handleDeleteDevice(device)" />
+                                <Button v-if="assetContext?.available" :label="assetCountLabel(device.machine_id)" icon="pi pi-desktop"
+                                    text size="small" @click="openAssets(device.machine_id)" />
+                                <span class="device-network-count"
+                                    :title="`${t('web.device.networks')}: ${device.running_network_count}`">{{ device.running_network_count }}</span>
                                 <Button icon="pi pi-cog" severity="secondary" text rounded class="w-8 h-8"
                                     :aria-label="`${t('web.console.manage')} ${device.hostname}`"
                                     @click="handleDeviceManagement(device)" />
+                                <Button v-if="centralEnabled" v-tooltip.top="t('web.device.edit_attributes')" icon="pi pi-file-edit"
+                                    severity="secondary" text rounded class="w-8 h-8" :aria-label="t('web.device.edit_attributes')"
+                                    @click="handleEditAttributes(device)" />
                             </div>
                         </div>
+                        <DeviceDetails :device="device" :card-view="true" />
+                        <dl v-if="device.site_location || device.device_model" class="device-attributes-summary">
+                            <div v-if="device.site_location"><dt>{{ t('web.device.site_location') }}</dt><dd :title="device.site_location">{{ device.site_location }}</dd></div>
+                            <div v-if="device.device_model"><dt>{{ t('web.device.device_model') }}</dt><dd :title="device.device_model">{{ device.device_model }}</dd></div>
+                        </dl>
                     </article>
                 </div>
                 <div class="mobile-list">
@@ -320,14 +390,21 @@ const locationText = (device: Utils.DeviceInfo) => {
                             <span class="mono-value muted">v{{ (device.easytier_version || '?').split('-')[0] }}</span>
                         </div>
                         <p class="preview-secondary">{{ locationText(device) }} · {{ device.running_network_count }} {{ t('web.console.instances') }}</p>
+                        <Button v-if="assetContext?.available" :label="assetCountLabel(device.machine_id)" icon="pi pi-desktop"
+                            text size="small" @click="openAssets(device.machine_id)" />
                         <details>
                             <summary>{{ t('web.console.details') }}</summary>
                             <DeviceDetails :device="device" :compact="true" />
                         </details>
+                        <Button v-if="centralEnabled" class="attributes-edit" :label="t('web.device.edit_attributes')"
+                            icon="pi pi-file-edit" text size="small" severity="secondary" @click="handleEditAttributes(device)" />
                     </article>
                 </div>
             </template>
         </section>
+
+        <DeviceAttributesDialog v-if="attributesTarget" :device="attributesTarget" :api="api"
+            @close="attributesTarget = null" @saved="handleAttributesSaved" />
 
         <!-- 设置别名对话框 -->
         <Dialog v-model:visible="aliasVisible" modal :header="t('web.console.alias_dialog_title')" :style="{ width: '26rem' }">
@@ -408,8 +485,68 @@ const locationText = (device: Utils.DeviceInfo) => {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin-top: 4px;
-    padding-top: 10px;
-    border-top: 1px solid var(--console-border);
 }
+
+.device-version-badge {
+    flex-shrink: 0;
+    background-color: #3b82f6;
+    color: #fff;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.75rem;
+    font-size: 0.65rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.device-card-location {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    margin: 0;
+    color: var(--console-muted, #64748b);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+}
+
+.device-card-location .pi-map-marker {
+    flex-shrink: 0;
+    font-size: 0.9rem;
+}
+
+.device-card-location span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.device-card-controls {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 0.25rem;
+}
+
+.device-network-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    padding: 0 0.25rem;
+    border-radius: 9999px;
+    background-color: #dbeafe;
+    color: #1e40af;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.device-attributes-summary { margin: 0; padding-top: 10px; border-top: 1px solid var(--console-border); font-size: 0.875rem; }
+.device-attributes-summary > div { display: flex; gap: 0.5rem; min-width: 0; }
+.device-attributes-summary dt { color: var(--console-muted, #64748b); flex-shrink: 0; }
+.device-attributes-summary dd { margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attributes-edit { align-self: flex-start; }
 </style>

@@ -161,7 +161,9 @@ type NavItem = {
 
 const workspaceNavigation = computed<NavItem[]>(() => [
     { key: 'dashboard', label: t('web.main.dashboard'), icon: 'pi pi-chart-pie', to: { name: 'dashboard' } },
+    { key: 'networkTopology', label: t('web.main.network_topology'), icon: 'pi pi-sitemap', to: { name: 'networkTopology' } },
     { key: 'deviceList', label: t('web.main.device_list'), icon: 'pi pi-server', to: { name: 'deviceList' } },
+    ...(centralEnabled.value ? [{ key: 'nodeAssets', label: t('assets.page.title'), icon: 'pi pi-list', to: { name: 'nodeAssets' }, child: true }] : []),
 ]);
 const networkNavigation = computed<NavItem[]>(() => [
     { key: 'networkList', label: t('web.main.network_list'), icon: 'pi pi-globe', to: { name: 'networkList' } },
@@ -210,7 +212,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <template #item="{ item, props }">
                         <RouterLink :to="item.to" custom v-slot="{ href, navigate }">
                             <a v-bind="props.action" :href="href" @click="navigate"
-                                :class="{ 'is-active': activeKey === item.key }" :aria-current="activeKey === item.key ? 'page' : undefined">
+                                :class="{ 'is-active': activeKey === item.key, 'nav-child': item.child }" :aria-current="activeKey === item.key ? 'page' : undefined">
                                 <span v-bind="props.icon" aria-hidden="true"></span><span v-bind="props.label">{{ item.label }}</span>
                             </a>
                         </RouterLink>
@@ -240,7 +242,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <template #item="{ item, props }">
                         <RouterLink :to="item.to" custom v-slot="{ href, navigate }">
                             <a v-bind="props.action" :href="href" @click="navigate($event); forceShowSideBar = false"
-                                :class="{ 'is-active': activeKey === item.key }" :aria-current="activeKey === item.key ? 'page' : undefined">
+                                :class="{ 'is-active': activeKey === item.key, 'nav-child': item.child }" :aria-current="activeKey === item.key ? 'page' : undefined">
                                 <span v-bind="props.icon" aria-hidden="true"></span><span v-bind="props.label">{{ item.label }}</span>
                             </a>
                         </RouterLink>

@@ -1,3 +1,4 @@
+mod ip_location;
 #[cfg(test)]
 mod listener_tests;
 mod managed_config;
@@ -25,7 +26,6 @@ use easytier_core::{
     socket::SocketListener,
     tunnel::{Tunnel, web_security},
 };
-use maxminddb::geoip2;
 use session::{Location, ManagedConfigPersistedChange, Session};
 use storage::{Storage, StorageToken};
 
@@ -236,7 +236,16 @@ impl ClientManager {
                     };
                     let info = tunnel.info().unwrap();
                     let client_url: url::Url = info.remote_addr.unwrap().into();
-                    let location = Self::lookup_location(&client_url, geoip_db.clone());
+                    let observation = ip_location::lookup_connection_observation(
+                        &client_url,
+                        geoip_db.as_ref(),
+                    );
+                    let location = observation.as_ref().and_then(ip_location::legacy_location);
+                    // Persist only direct TCP/UDP observations. Proxy provenance for
+                    // WebSocket connections is outside the node registry contract.
+                    let observation = observation.filter(|_| {
+                        matches!(client_url.scheme(), "tcp" | "udp")
+                    });
                     tracing::info!(
                         "New session from {:?}, secure: {}, location: {:?}",
                         client_url,
@@ -252,6 +261,7 @@ impl ClientManager {
                         webhook_config.clone(),
                         next_session_epoch.fetch_add(1, Ordering::Relaxed) + 1,
                     );
+                    session.set_connection_observation(observation).await;
                     session.serve(tunnel).await;
                     let session = Arc::new(session);
                     sessions.insert(client_url, session.clone());
@@ -441,103 +451,6 @@ impl ClientManager {
 
     fn db(&self) -> &Db {
         self.storage.db()
-    }
-
-    fn lookup_location(
-        client_url: &url::Url,
-        geoip_db: Arc<Option<maxminddb::Reader<Vec<u8>>>>,
-    ) -> Option<Location> {
-        let host = client_url.host_str()?;
-        let ip: std::net::IpAddr = if let Ok(ip) = host.parse() {
-            ip
-        } else {
-            tracing::debug!("Failed to parse host as IP address: {}", host);
-            return None;
-        };
-
-        // Skip lookup for private/special IPs
-        let is_private = match ip {
-            std::net::IpAddr::V4(ipv4) => {
-                ipv4.is_private() || ipv4.is_loopback() || ipv4.is_unspecified()
-            }
-            std::net::IpAddr::V6(ipv6) => ipv6.is_loopback() || ipv6.is_unspecified(),
-        };
-
-        if is_private {
-            tracing::debug!("Skipping GeoIP lookup for special IP: {}", ip);
-            let location = Location {
-                country: "本地网络".to_string(),
-                city: None,
-                region: None,
-            };
-            return Some(location);
-        }
-
-        let location = if let Some(db) = &*geoip_db {
-            match db
-                .lookup(ip)
-                .and_then(|result| result.decode::<geoip2::City>())
-            {
-                Ok(Some(city)) => {
-                    let country = city
-                        .country
-                        .names
-                        .simplified_chinese
-                        .or(city.country.names.english)
-                        .unwrap_or("海外")
-                        .to_string();
-                    let city_name = city
-                        .city
-                        .names
-                        .simplified_chinese
-                        .or(city.city.names.english)
-                        .map(str::to_string);
-                    let region = (!city.subdivisions.is_empty()).then(|| {
-                        city.subdivisions
-                            .iter()
-                            .filter_map(|subdivision| {
-                                subdivision
-                                    .names
-                                    .simplified_chinese
-                                    .or(subdivision.names.english)
-                            })
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    });
-
-                    Location {
-                        country,
-                        city: city_name,
-                        region,
-                    }
-                }
-                Ok(None) => Location {
-                    country: "海外".to_string(),
-                    city: None,
-                    region: None,
-                },
-                Err(err) => {
-                    tracing::debug!("GeoIP lookup failed for {}: {}", ip, err);
-                    Location {
-                        country: "海外".to_string(),
-                        city: None,
-                        region: None,
-                    }
-                }
-            }
-        } else {
-            tracing::debug!(
-                "GeoIP database not available, using default location for {}",
-                ip
-            );
-            Location {
-                country: "海外".to_string(),
-                city: None,
-                region: None,
-            }
-        };
-
-        Some(location)
     }
 }
 

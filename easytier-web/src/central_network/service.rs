@@ -485,6 +485,13 @@ impl CentralNetworkService {
         block: bool,
     ) -> Result<bool, CentralNetworkServiceError> {
         let _mutation = self.mutation_lock.lock().await;
+        // Refuse before publishing an empty configuration, disconnecting,
+        // blocking or otherwise disturbing this node's running networks.
+        if self.db.node_has_assets(user_id, machine_id).await? {
+            return Err(CentralNetworkServiceError::Conflict(
+                "node_has_assets: remove its gateway groups and devices first".into(),
+            ));
+        }
         if let Some(session) = self
             .client_manager
             .get_session_by_machine_id(user_id, &machine_id)

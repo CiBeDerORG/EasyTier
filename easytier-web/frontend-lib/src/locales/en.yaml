@@ -375,11 +375,11 @@ web:
     delete_device_confirm: "Delete device {device}? It will be removed from its networks and its managed configs withdrawn."
     block_device: "Also block this device"
     block_device_hint: "A blocked device cannot re-register; unblock it from the bell menu."
-    no_block_device_hint: "Without blocking, the device re-registers itself automatically on its next connection."
+    no_block_device_hint: "Without blocking, the device returns to Network Nodes automatically on its next connection."
     enroll_title: "Device Enrollment"
     enroll_hint: "Run this command on a device to enroll it with this console:"
     enroll_copy: "Copy enrollment command"
-    enroll_token_note: "The path at the end is the enrollment token (your username). Enrolled devices show up in the device list."
+    enroll_token_note: "The path at the end is the enrollment token (your username). Enrolled devices show up under Network Nodes."
     enroll_webhook_note: "This console issues enrollment tokens through an external auth system; replace the username at the end with the token it assigned."
     blocked_devices: "Blocked Devices"
     blocked_empty: "No blocked devices."
@@ -410,7 +410,7 @@ web:
     all_details: "Expand all details"
     ascending: "Ascending"
     descending: "Descending"
-    device_missing: "This device is no longer in the device list."
+    device_missing: "This device is no longer shown under Network Nodes."
     loading: "Loading"
     instances: "instances"
     view_table: "Table view"
@@ -437,7 +437,8 @@ web:
   
   main:
     dashboard: Dashboard
-    device_list: Device List
+    network_topology: Network Topology
+    device_list: Network Nodes
     device_management: Device Management
     login_page: Login Page
     settings: Settings
@@ -447,7 +448,7 @@ web:
     network_list: Networks
 
   device:
-    list: Device List
+    list: Network Nodes
     management: Device Management
     add: Add Device
     delete: Delete Device
@@ -465,6 +466,24 @@ web:
     machine_id: Machine ID
     unknown_location: Unknown Location
     central_networks: Joined Networks
+    edit_attributes: Edit attributes
+    site_location: Location
+    device_model: Device model
+    attributes_hint: Add the device's installation location and model. Leave a field empty to clear it.
+    site_location_hint: "For example, home cabinet or office. Up to 256 characters."
+    device_model_hint: "For example, NanoPi R4S. Up to 128 characters."
+    attributes_too_long: "Use no more than {limit} characters."
+    attributes_invalid_control: Control characters are not allowed.
+    attributes_saved: Device attributes saved
+    attributes_save_failed: Could not save attributes. Your input is kept; please try again.
+    attributes_not_found: This device was removed or is no longer accessible. Your input is kept.
+    connection_ip: Connection source IP
+    ip_location: IP location
+    ip_observed_at: IP recorded at
+    attributes_not_recorded: Not recorded
+    ip_location_non_public: Non-public IP; location unavailable
+    ip_location_not_found: No location found for this IP
+    ip_location_unavailable: IP location lookup unavailable
     
   device_management:
     edit_network: Edit Network
@@ -807,3 +826,204 @@ disable_relay_data: Disable Data Relay
 disable_relay_data_help: Do not relay data packets for other peers, so this node carries no traffic it did not originate.
 prefer_peer_relay: Prefer Peer Relay
 prefer_peer_relay_help: Prefer a credential peer that already relays to a destination over advertising another direct edge to the same destination.
+
+assets:
+  groups:
+    title: "Manage gateway groups"
+    node_context: "Network node: "
+    scope_hint: "Manage all gateway groups on the current network node, including empty groups."
+    add: "Add gateway group"
+    edit: "Edit gateway group"
+    name: "Group name"
+    name_required: "Enter a gateway group name."
+    subnets: "LAN subnets"
+    subnets_hint: "Enter one standard IPv4 or IPv6 CIDR per row. At least one subnet is required."
+    subnet_number: "LAN subnet {number}"
+    remove_subnet: "Remove subnet {number}"
+    add_subnet: "Add subnet"
+    preview: "Check subnets"
+    preview_failed: "Subnet checks are temporarily unavailable. Saving will validate the data again."
+    remarks: "Notes"
+    uncertain: "The last save result is unknown. Retrying sends the original values. If you close this form, refresh to check whether the group was created."
+    request_failed: "Unable to complete the gateway group operation. Please retry."
+    save_failed: "Unable to save the group. Your input has been kept."
+    cancel: "Cancel"
+    retry_save: "Retry last save"
+    save: "Save"
+    delete: "Delete permanently"
+    delete_prompt: "Permanently delete gateway group “{name}”?"
+    delete_hint: "This cannot be restored in the interface. Groups containing devices cannot be deleted; delete their devices first."
+    loading: "Loading gateway groups…"
+    retry: "Reload"
+    empty: "This node has no gateway groups yet. Add a group to get started."
+    edit_named: "Edit gateway group {name}"
+    delete_named: "Delete gateway group {name}"
+    close: "Close"
+  types:
+    title: "Manage device types"
+    owner_context: "Asset owner: "
+    scope_hint: "Manage types for the current asset owner. Renaming preserves device references; types in use cannot be deleted."
+    add: "Add type"
+    edit: "Edit type"
+    name: "Type name"
+    name_required: "Enter a type name."
+    request_failed: "Unable to complete the device type operation. Please retry."
+    save_failed: "Unable to save the type. Your input has been kept."
+    uncertain: "The last save result is unknown. Retrying sends the original name. If you close this form, refresh to check whether the type was created."
+    retry_save: "Retry last save"
+    save: "Save"
+    cancel: "Cancel"
+    delete: "Delete permanently"
+    delete_prompt: "Permanently delete device type “{name}”?"
+    delete_hint: "This cannot be restored in the interface. Types referenced by devices cannot be deleted; change those devices’ types first."
+    loading: "Loading device types…"
+    retry: "Reload"
+    empty: "This account has no device types. You can add one or leave a device’s type empty."
+    edit_named: "Edit type {name}"
+    delete_named: "Delete type {name}"
+    close: "Close"
+  deviceList: "Devices"
+  deviceTotal: "{count} devices"
+  deviceEmpty: "No devices match the current filters"
+  deviceName: "Device name"
+  deviceModel: "Model"
+  deviceType: "Device type"
+  deviceGroup: "Gateway group"
+  deviceDirectNode: "Directly under this node"
+  deviceUnclassified: "Unclassified"
+  deviceOverlayIp: "Overlay IP"
+  deviceLanIp: "LAN IP"
+  deviceLanWarning: "Outside registered subnets"
+  deviceLanMismatch: "The LAN IP is outside this group's registered subnets. You can still save it."
+  deviceGatewaySelf: "Gateway itself"
+  deviceGatewaySelfHelp: "Register the gateway's own services here. Each gateway group can have at most one such device."
+  deviceRemarks: "Notes"
+  deviceCreatedAt: "Registered"
+  deviceActions: "Actions"
+  deviceAddService: "Add service"
+  deviceAddServiceFor: "Add a service to {name}"
+  deviceEdit: "Edit device"
+  deviceEditNamed: "Edit device {name}"
+  deviceDelete: "Delete device"
+  deviceDeleteNamed: "Delete device {name}"
+  deviceCreate: "Add device"
+  deviceContext: "Account {owner} · Network node {node}"
+  deviceOwnershipFixed: "The node and gateway group cannot be changed after the device is created."
+  deviceGroupHelp: "Leave empty to attach directly to this node. Ownership cannot be changed after the first save."
+  deviceIpHelp: "Enter a single IPv4 or IPv6 address, without a port, URL, or CIDR prefix. Overlay IP is required; LAN IP is optional."
+  deviceCheckAddresses: "Check addresses"
+  devicePreviewFailed: "Address validation failed. Retry, or save to receive the final validation result."
+  deviceNameRequired: "Enter a device name"
+  deviceOverlayRequired: "Enter an overlay IP"
+  deviceTextTooLong: "Use at most {limit} characters"
+  deviceSaveFailed: "Could not save the device. Review the values and retry."
+  deviceSaveUncertain: "The previous save result is unknown. Fields are locked; Retry save repeats the same operation."
+  deviceRetrySave: "Retry save"
+  deviceCancel: "Cancel"
+  deviceSave: "Save"
+  services:
+    title: "Services"
+    panelFor: "Services on {name}"
+    deviceContext: "Device: {name}"
+    add: "Add service"
+    addTitle: "Add service"
+    edit: "Edit"
+    editTitle: "Edit service"
+    delete: "Delete"
+    deleteTitle: "Delete service"
+    deleteConfirm: "Permanently delete the service “{name}”? It cannot be restored from this page."
+    cancel: "Cancel"
+    save: "Save"
+    refresh: "Refresh"
+    retry: "Retry"
+    retryOriginal: "Retry original save"
+    name: "Service name"
+    protocols: "Transport protocols"
+    protocolHint: "You can select both TCP and UDP."
+    port: "Service port"
+    accessUrl: "Access link"
+    urlHint: "Optional complete HTTP/HTTPS web address, including a path if needed."
+    icon: "Service icon"
+    defaultIcon: "Default icon"
+    remarks: "Notes"
+    actions: "Actions"
+    open: "Open link"
+    openNamed: "Open the link for “{name}” in a new tab"
+    loading: "Loading services…"
+    empty: "No services have been registered on this device."
+    saved: "Service saved."
+    deleted: "Service deleted."
+    alreadyRemoved: "This service no longer exists. The list has been refreshed."
+    loadFailed: "Could not load services. Please retry."
+    saveFailed: "Could not save the service. Review the fields and retry."
+    deleteFailed: "Could not delete the service. Please retry."
+    contextChanged: "The device context changed. Select the node again or refresh the device list."
+    unknownOutcome: "The save result could not be confirmed. Your values are preserved; retry the original save to confirm the result."
+    nameRequired: "Enter a service name."
+    nameTooLong: "Use no more than 128 characters for the service name."
+    protocolRequired: "Select at least one transport protocol."
+    portInvalid: "Enter an integer port between 1 and 65535."
+    remarksTooLong: "Notes must not exceed 2000 characters."
+    urlInvalid: "Enter a complete web address starting with http:// or https://."
+    urlTooLong: "The access link must not exceed 2048 characters."
+  serviceIcons:
+    server: "Server"
+    globe: "Website"
+    database: "Database"
+    mobile: "Phone"
+    desktop: "Computer"
+    home: "Home"
+    cloud: "Cloud"
+    cog: "Settings"
+    play: "Media"
+    link: "Link"
+    shield: "Security"
+    wifi: "Wi-Fi"
+  page:
+    title: "Node details"
+    subtitle: "Manage gateway groups, devices and services belonging to a network node."
+    back: "Back to network nodes"
+    unavailable: "Asset management is unavailable in this authentication mode."
+    retry: "Retry"
+    invalid_node: "The previous account or node is no longer available. Please select again."
+    account: "Managed account"
+    select_account: "Select an account"
+    node: "Network node"
+    select_node: "Select a network node"
+    managing: "Managing account: {account}"
+    public_node: "Public server"
+    no_location: "No location"
+    no_model: "No model"
+    edit_node: "Edit node properties"
+    delete_node: "Delete node"
+    group: "Gateway group"
+    manage_groups: "Manage gateway groups"
+    type: "Device type"
+    manage_types: "Manage device types"
+    keyword: "Keyword"
+    keyword_hint: "Device name, model or IP"
+    query: "Search"
+    devices: "Devices"
+    refresh: "Refresh current data"
+    add_device: "Add device"
+    choose_node: "Select a network node to view its devices."
+    location: "Location"
+    model: "Device model"
+    public_hint: "Record this node as a public server. Service publishing will be available in a later phase."
+    cancel: "Cancel"
+    save: "Save"
+    confirm_delete: "Confirm deletion"
+    delete_device_hint: "Permanently delete device “{name}” and all services present when deletion is processed? This cannot be undone."
+    delete_node_hint: "Delete network node “{name}”? Remove its gateway groups and devices first."
+    delete: "Delete"
+    operation_failed: "The operation failed. Please retry."
+    all_devices: "All devices"
+    all_types: "All types"
+    device_count: "Devices {count}"
+    count_failed: "Device counts could not be loaded. Refresh to retry."
+    stale_results: "The query failed. Previous results are displayed; please retry."
+  errors:
+    mutationPending: "A save is already in progress."
+    unknownOutcome: "The previous save may have succeeded. Retry its original values before changing them."
+    contextChanged: "The account or node changed. Reopen the form before continuing."
+    noPendingAttempt: "There is no unresolved save to retry."

@@ -1,4 +1,5 @@
 mod auth;
+mod assets;
 pub(crate) mod captcha;
 mod central_network;
 mod network;
@@ -348,6 +349,9 @@ impl RestfulServer {
             .merge(NetworkApi::build_route())
             .merge(rpc::router())
             .route_layer(login_required!(Backend))
+            // Asset handlers authenticate the session themselves so errors use
+            // their JSON contract, including unauthenticated requests.
+            .merge(assets::router())
             .merge(auth::router().layer(Extension(self.feature_flags.clone())))
             .merge(oidc::router())
             .with_state(self.client_mgr.clone())

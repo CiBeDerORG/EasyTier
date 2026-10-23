@@ -1,6 +1,13 @@
 import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { type Api, NetworkTypes, Utils } from 'easytier-frontend-lib';
 import { Md5 } from 'ts-md5';
+import type {
+    AssetAccount, AssetContextResponse, AssetDevice, AssetDeviceCount, AssetDeviceInput,
+    AssetDeviceQuery, AssetListResponse, AssetNode, AssetNodeUpdate, AssetPreview,
+    AssetScope, AssetService, AssetServiceInput, CreateAssetRequest, DeviceAddressPreviewInput,
+    DeviceType, DeviceTypeInput, GatewayGroup, GatewayGroupInput, GatewaySubnetsPreviewInput,
+    PagedDevices,
+} from '../types/node-assets';
 
 export interface ValidateConfigResponse {
     toml_config: string;
@@ -255,6 +262,135 @@ export class ApiClient {
         });
     }
 
+    // Manual assets use the same cookie transport and 401 handling as the original Web API.
+    public async assetsContext(): Promise<AssetContextResponse> {
+        return this.client.get<unknown, AssetContextResponse>('/assets/context');
+    }
+
+    public async assetsAccounts(): Promise<AssetListResponse<AssetAccount>> {
+        return this.client.get<unknown, AssetListResponse<AssetAccount>>('/assets/accounts');
+    }
+
+    public async assetsNodes(ownerUserId: number): Promise<AssetListResponse<AssetNode>> {
+        return this.client.get<unknown, AssetListResponse<AssetNode>>('/assets/nodes', {
+            params: { owner_user_id: ownerUserId },
+        });
+    }
+
+    public async assetsDeviceCounts(ownerUserId: number): Promise<AssetListResponse<AssetDeviceCount>> {
+        return this.client.get<unknown, AssetListResponse<AssetDeviceCount>>('/assets/device-counts', {
+            params: { owner_user_id: ownerUserId },
+        });
+    }
+
+    public async assetsUpdateNode(scope: AssetScope, input: AssetNodeUpdate): Promise<AssetNode> {
+        return this.client.patch<unknown, AssetNode>(
+            `/assets/nodes/${encodeURIComponent(scope.machine_id)}/metadata`, input,
+            { params: { owner_user_id: scope.owner_user_id } },
+        );
+    }
+
+    public async assetsDeleteNode(scope: AssetScope, block = false): Promise<void> {
+        await this.client.delete(`/assets/nodes/${encodeURIComponent(scope.machine_id)}`, {
+            params: { owner_user_id: scope.owner_user_id, block },
+        });
+    }
+
+    public async assetsGroups(scope: AssetScope): Promise<AssetListResponse<GatewayGroup>> {
+        return this.client.get<unknown, AssetListResponse<GatewayGroup>>('/assets/gateway-groups', { params: scope });
+    }
+
+    public async assetsCreateGroup(scope: AssetScope, input: CreateAssetRequest<GatewayGroupInput>): Promise<GatewayGroup> {
+        return this.client.post<unknown, GatewayGroup>('/assets/gateway-groups', input, { params: scope });
+    }
+
+    public async assetsUpdateGroup(scope: AssetScope, id: string, input: GatewayGroupInput): Promise<GatewayGroup> {
+        return this.client.put<unknown, GatewayGroup>(`/assets/gateway-groups/${encodeURIComponent(id)}`, input, { params: scope });
+    }
+
+    public async assetsDeleteGroup(scope: AssetScope, id: string): Promise<void> {
+        await this.client.delete(`/assets/gateway-groups/${encodeURIComponent(id)}`, { params: scope });
+    }
+
+    public async assetsInitializeTypes(ownerUserId: number): Promise<AssetListResponse<DeviceType>> {
+        return this.client.post<unknown, AssetListResponse<DeviceType>>('/assets/device-types/initialize', {}, {
+            params: { owner_user_id: ownerUserId },
+        });
+    }
+
+    public async assetsTypes(ownerUserId: number): Promise<AssetListResponse<DeviceType>> {
+        return this.client.get<unknown, AssetListResponse<DeviceType>>('/assets/device-types', {
+            params: { owner_user_id: ownerUserId },
+        });
+    }
+
+    public async assetsCreateType(ownerUserId: number, input: CreateAssetRequest<DeviceTypeInput>): Promise<DeviceType> {
+        return this.client.post<unknown, DeviceType>('/assets/device-types', input, {
+            params: { owner_user_id: ownerUserId },
+        });
+    }
+
+    public async assetsUpdateType(ownerUserId: number, id: string, input: DeviceTypeInput): Promise<DeviceType> {
+        return this.client.put<unknown, DeviceType>(`/assets/device-types/${encodeURIComponent(id)}`, input, {
+            params: { owner_user_id: ownerUserId },
+        });
+    }
+
+    public async assetsDeleteType(ownerUserId: number, id: string): Promise<void> {
+        await this.client.delete(`/assets/device-types/${encodeURIComponent(id)}`, {
+            params: { owner_user_id: ownerUserId },
+        });
+    }
+
+    public async assetsDevices(scope: AssetScope, query: AssetDeviceQuery = {}): Promise<PagedDevices> {
+        // Explicit scope wins even if a caller accidentally includes extra fields in query.
+        return this.client.get<unknown, PagedDevices>('/assets/devices', { params: { ...query, ...scope } });
+    }
+
+    public async assetsDevice(scope: AssetScope, id: string): Promise<AssetDevice> {
+        return this.client.get<unknown, AssetDevice>(`/assets/devices/${encodeURIComponent(id)}`, { params: scope });
+    }
+
+    public async assetsCreateDevice(scope: AssetScope, input: CreateAssetRequest<AssetDeviceInput>): Promise<AssetDevice> {
+        return this.client.post<unknown, AssetDevice>('/assets/devices', input, { params: scope });
+    }
+
+    public async assetsUpdateDevice(scope: AssetScope, id: string, input: AssetDeviceInput): Promise<AssetDevice> {
+        return this.client.put<unknown, AssetDevice>(`/assets/devices/${encodeURIComponent(id)}`, input, { params: scope });
+    }
+
+    public async assetsDeleteDevice(scope: AssetScope, id: string): Promise<void> {
+        await this.client.delete(`/assets/devices/${encodeURIComponent(id)}`, { params: scope });
+    }
+
+    public async assetsServices(scope: AssetScope, deviceId: string): Promise<AssetListResponse<AssetService>> {
+        return this.client.get<unknown, AssetListResponse<AssetService>>(
+            `/assets/devices/${encodeURIComponent(deviceId)}/services`, { params: scope },
+        );
+    }
+
+    public async assetsCreateService(scope: AssetScope, deviceId: string, input: CreateAssetRequest<AssetServiceInput>): Promise<AssetService> {
+        return this.client.post<unknown, AssetService>(
+            `/assets/devices/${encodeURIComponent(deviceId)}/services`, input, { params: scope },
+        );
+    }
+
+    public async assetsUpdateService(scope: AssetScope, id: string, input: AssetServiceInput): Promise<AssetService> {
+        return this.client.put<unknown, AssetService>(`/assets/services/${encodeURIComponent(id)}`, input, { params: scope });
+    }
+
+    public async assetsDeleteService(scope: AssetScope, id: string): Promise<void> {
+        await this.client.delete(`/assets/services/${encodeURIComponent(id)}`, { params: scope });
+    }
+
+    public async assetsPreviewSubnets(scope: AssetScope, input: GatewaySubnetsPreviewInput): Promise<AssetPreview> {
+        return this.client.post<unknown, AssetPreview>('/assets/validation/gateway-subnets', input, { params: scope });
+    }
+
+    public async assetsPreviewDeviceAddress(scope: AssetScope, input: DeviceAddressPreviewInput): Promise<AssetPreview> {
+        return this.client.post<unknown, AssetPreview>('/assets/validation/device-address', input, { params: scope });
+    }
+
     // 注册
     public async register(data: RegisterData): Promise<RegisterResponse> {
         try {
@@ -325,6 +461,10 @@ export class ApiClient {
 
     public async update_machine_alias(machine_id: string, alias: string): Promise<undefined> {
         await this.client.put(`/machines/${machine_id}/alias`, { alias });
+    }
+
+    public async update_machine_attributes(machine_id: string, attributes: { site_location: string; device_model: string }): Promise<Utils.DeviceAttributes> {
+        return await this.client.put<any, Utils.DeviceAttributes>(`/machines/${machine_id}/attributes`, attributes);
     }
 
     public async list_blocked_devices(): Promise<BlockedDevice[]> {

@@ -1,0 +1,21 @@
+✔ card edit is additive, separates automatic location and cancels without a request (3848.132847ms)
+✔ save trims manual fields, persists clear, and keeps the selected view and search (3004.513586ms)
+✔ background list responses do not overwrite the open draft or leak it to another node (2349.102743ms)
+✔ 503 keeps the draft visible for correction or retry (1917.501935ms)
+✔ 404 keeps the draft visible for correction or retry (1928.080784ms)
+✔ an in-flight save disables closing, editing, and duplicate submissions (1761.567782ms)
+✔ Unicode limits count code points and reject excessive length and controls (2945.53907ms)
+✔ default table keeps expansion after an attribute save (1575.791062ms)
+✔ mobile list exposes the same edit flow without horizontal dialog overflow (1410.068498ms)
+✔ external console mode does not offer unsupported attribute editing (998.071695ms)
+✔ card details keep all six fields visible and attribute editing beside the gear above them (1248.786178ms)
+✔ card Last Seen falls back from recorded time to report time to a dash for online and offline nodes (1200.804696ms)
+✔ card details wrap long IPv6, UUID and version values without overflow (1580.686281ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 26758.840307

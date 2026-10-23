@@ -1,0 +1,17 @@
+▶ real asset API with isolated session, SQLite, and registered nodes
+  ✔ session JSON errors and exact administrator authorization (362.650125ms)
+  ✔ node properties keep source observations and persist public role (23.213558ms)
+  ✔ type initialization and standard gateway subnets (49.953225ms)
+  ✔ idempotent create, address warning, ownership and reference guards (59.962919ms)
+  ✔ dual protocol atomic port conflicts and safe service fields (47.795533ms)
+  ✔ query filtering and locating use the requested scope (12.736159ms)
+  ✔ device deletion cascades every current service and replay remains gone (47.724354ms)
+✔ real asset API with isolated session, SQLite, and registered nodes (606.465513ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 685.473451
