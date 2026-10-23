@@ -170,45 +170,23 @@ const handleDeleteDevice = (device: Utils.DeviceInfo) => {
 // 别名仅改变控制台内的显示名，不影响设备上报的主机名
 const deviceName = (device: Utils.DeviceInfo) => device.alias || device.hostname || device.machine_id;
 
-const aliasVisible = ref(false);
-const aliasTarget = ref<Utils.DeviceInfo | null>(null);
-const aliasInput = ref('');
-const aliasSaving = ref(false);
-
-const handleSetAlias = (device: Utils.DeviceInfo) => {
-    aliasTarget.value = device;
-    aliasInput.value = device.alias ?? '';
-    aliasVisible.value = true;
-};
-
-const saveAlias = async () => {
-    if (!aliasTarget.value || !api) return;
-    const alias = aliasInput.value.trim();
-    if (alias.length > 64) return;
-    aliasSaving.value = true;
-    try {
-        await api.update_machine_alias(aliasTarget.value.machine_id, alias);
-        aliasVisible.value = false;
-        await loadDevices();
-    } catch (e) {
-        console.error(e);
-        toast.add({ severity: 'error', summary: t('web.console.load_failed'), life: 3000 });
-    } finally {
-        aliasSaving.value = false;
-    }
-};
-
 const attributesTarget = ref<Utils.DeviceInfo | null>(null);
 const handleEditAttributes = (device: Utils.DeviceInfo) => {
     if (!attributesTarget.value) attributesTarget.value = { ...device };
 };
-const handleAttributesSaved = async (machineId: string, attributes: Utils.DeviceAttributes) => {
-    attributesTarget.value = null;
-    // Finish any pre-save list response before applying the saved attributes.
-    // The normal refresh keeps the current filter, view and expanded rows.
+const handleAttributesUpdated = async (machineId: string, changes: Partial<Utils.DeviceAttributes> & { alias?: string }) => {
+    // Reflect each confirmed write even when another field fails or editing is cancelled.
+    if (attributesTarget.value?.machine_id === machineId) Object.assign(attributesTarget.value, changes);
+    // Finish any pre-save list response before applying confirmed changes.
     await requestInFlight?.catch(() => {});
+    if (disposed) return;
     const device = deviceList.value?.find(device => device.machine_id === machineId);
-    if (device) Object.assign(device, attributes);
+    if (device) Object.assign(device, changes);
+};
+const handleAttributesSaved = async () => {
+    attributesTarget.value = null;
+    await requestInFlight?.catch(() => {});
+    if (disposed) return;
     toast.add({ severity: 'success', summary: t('web.device.attributes_saved'), life: 2000 });
     await loadDevices();
 };
@@ -321,8 +299,6 @@ const locationText = (device: Utils.DeviceInfo) => {
                     <Column :header="t('web.console.manage')" style="width: 7rem">
                         <template #body="{ data }">
                             <div class="flex items-center gap-1">
-                                <Button v-if="centralEnabled" v-tooltip.top="t('web.console.set_alias')" icon="pi pi-pencil" severity="secondary"
-                                    text rounded :aria-label="t('web.console.set_alias')" @click="handleSetAlias(data)" />
                                 <Button v-if="centralEnabled" v-tooltip.top="t('web.console.delete_device')" icon="pi pi-trash" severity="danger"
                                     text rounded :aria-label="t('web.console.delete_device')" @click="handleDeleteDevice(data)" />
                                 <Button icon="pi pi-cog" severity="secondary" text rounded
@@ -357,8 +333,6 @@ const locationText = (device: Utils.DeviceInfo) => {
                                 <span>{{ locationText(device) }}</span>
                             </p>
                             <div class="device-card-controls">
-                                <Button v-if="centralEnabled" v-tooltip.top="t('web.console.set_alias')" icon="pi pi-pencil" severity="secondary"
-                                    text rounded class="w-8 h-8" :aria-label="t('web.console.set_alias')" @click="handleSetAlias(device)" />
                                 <Button v-if="centralEnabled" v-tooltip.top="t('web.console.delete_device')" icon="pi pi-trash" severity="danger"
                                     text rounded class="w-8 h-8" :aria-label="t('web.console.delete_device')" @click="handleDeleteDevice(device)" />
                                 <Button v-if="assetContext?.available" :label="assetCountLabel(device.machine_id)" icon="pi pi-desktop"
@@ -404,21 +378,7 @@ const locationText = (device: Utils.DeviceInfo) => {
         </section>
 
         <DeviceAttributesDialog v-if="attributesTarget" :device="attributesTarget" :api="api"
-            @close="attributesTarget = null" @saved="handleAttributesSaved" />
-
-        <!-- 设置别名对话框 -->
-        <Dialog v-model:visible="aliasVisible" modal :header="t('web.console.alias_dialog_title')" :style="{ width: '26rem' }">
-            <div class="flex flex-col gap-3">
-                <div class="text-sm muted">{{ t('web.console.alias_hint') }}</div>
-                <InputText v-model="aliasInput" id="device-alias-input" :maxlength="64" autocomplete="off"
-                    :placeholder="aliasTarget?.hostname" @keydown.enter="saveAlias" />
-                <div class="text-xs muted text-right">{{ aliasInput.trim().length }}/64</div>
-            </div>
-            <template #footer>
-                <Button :label="t('web.common.cancel')" severity="secondary" @click="aliasVisible = false" />
-                <Button :label="t('web.common.confirm')" icon="pi pi-check" :loading="aliasSaving" @click="saveAlias" />
-            </template>
-        </Dialog>
+            @close="attributesTarget = null" @updated="handleAttributesUpdated" @saved="handleAttributesSaved" />
 
         <!-- 删除确认对话框 -->
         <Dialog v-model:visible="deleteVisible" modal :header="t('web.console.delete_device')" :style="{ width: '26rem' }">

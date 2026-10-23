@@ -10,9 +10,11 @@ use easytier::common::config::{
 };
 use easytier::proto::api::config::VpnPortalClientPatch;
 use easytier::proto::common::Void;
+use easytier::proto::rpc_types::controller::BaseController;
 use easytier::proto::{api::manage::*, web::*};
 use easytier_core::management::remote_client::{
     GetNetworkMetasResponse, ListNetworkInstanceIdsJsonResp, RemoteClientError, RemoteClientManager,
+    Storage as _,
 };
 use sea_orm::DbErr;
 
@@ -773,21 +775,45 @@ impl NetworkApi {
             payload.config.network_name.as_deref(),
         )
         .await?;
+        let new_disabled = match network_service
+            .db
+            .get_network_config((user_id, machine_id), &inst_id.to_string())
+            .await
+            .map_err(convert_db_error)?
+        {
+            Some(stored) => stored.disabled,
+            None => match client_mgr.get_rpc_client((user_id, machine_id)) {
+                Some(client) => {
+                    // Use the existing bounded RPC once; an uncertain online result must
+                    // not persist a running instance as disabled.
+                    let running = client
+                        .list_network_instance(
+                            BaseController::default(),
+                            ListNetworkInstanceRequest {},
+                        )
+                        .await
+                        .map_err(convert_rpc_error)?;
+                    !running.inst_ids.contains(&inst_id.into())
+                }
+                None => true, // Offline new configurations retain the saved/stopped default.
+            },
+        };
         client_mgr
             .invalidate_applied_config_revision(user_id, machine_id)
             .await;
-        let result = client_mgr
-            .handle_save_network_config_with_source(
+        let result = network_service
+            .db
+            .save_web_network_config_preserving_state(
                 (user_id, machine_id),
                 inst_id,
                 payload.config,
-                RuntimeConfigSource::Web,
+                new_disabled,
             )
             .await;
         client_mgr
             .invalidate_applied_config_revision(user_id, machine_id)
             .await;
-        result.map_err(convert_error)?;
+        result.map_err(convert_db_error)?;
         Ok(())
     }
 

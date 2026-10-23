@@ -1231,8 +1231,14 @@ async fn catalog_uses_persistent_scope_core_dhcp_defaults_and_effective_address_
         .list_instance_candidates(f.owner, &node, "gateway", None, None)
         .await
         .unwrap();
-    assert_eq!(corrupt["items"][0]["role"], "unknown");
-    assert_eq!(corrupt["items"][0]["selectable"], false);
+    let corrupt_candidate = corrupt["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["instance_id"] == dynamic.to_string())
+        .unwrap();
+    assert_eq!(corrupt_candidate["role"], "unknown");
+    assert_eq!(corrupt_candidate["selectable"], false);
     assert!(!corrupt.to_string().contains("broken-secret-value"));
 }
 
@@ -1282,7 +1288,13 @@ async fn stale_preview_rolls_back_creation_and_gateway_occupancy_is_node_scoped(
         .list_instance_candidates(f.owner, &node, "gateway", None, None)
         .await
         .unwrap();
-    assert_eq!(candidates["items"][0]["bound_gateway"]["id"], group["id"]);
+    let occupied = candidates["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["instance_id"] == instance)
+        .unwrap();
+    assert_eq!(occupied["bound_gateway"]["id"], group["id"]);
     seed_config(
         &f.db,
         f.owner,

@@ -66,9 +66,10 @@ onBeforeUnmount(() => { disposed = true; generation += 1; });
             <Button :label="t('assets.binding.refresh')" icon="pi pi-refresh" size="small" text
                 :loading="loading" :disabled="disabled || loading" @click="load" />
         </div>
+        <p v-if="!fixedInstanceId" class="muted">{{ t('assets.binding.savedInstancesHint') }}</p>
         <p v-if="loading" role="status" class="muted">{{ t('assets.binding.loading') }}</p>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
-        <p v-else-if="!loading && !visibleItems.length" class="muted">{{ t('assets.binding.empty') }}</p>
+        <p v-else-if="!loading && !visibleItems.length" class="muted">{{ t(fixedInstanceId ? 'assets.binding.fixedEmpty' : 'assets.binding.empty') }}</p>
         <p v-else-if="!loading && !hasSelectable" class="warning">{{ t('assets.binding.noSelectable') }}</p>
         <div class="choices" role="radiogroup" :aria-label="t('assets.binding.instance')">
             <button v-for="item in visibleItems" :key="item.instance_id" type="button" role="radio"
@@ -76,6 +77,10 @@ onBeforeUnmount(() => { disposed = true; generation += 1; });
                 :aria-checked="modelValue?.instance_id === item.instance_id"
                 :disabled="disabled || loading || !item.selectable" @click="select(item)">
                 <span class="heading"><strong>{{ item.display_name || item.instance_id }}</strong><code>{{ item.instance_id.slice(0, 8) }}</code></span>
+                <span class="availability" :class="item.selectable ? 'available' : 'unavailable'">
+                    <i :class="item.selectable ? 'pi pi-check-circle' : 'pi pi-ban'" aria-hidden="true"></i>
+                    {{ t(item.selectable ? 'assets.binding.available' : 'assets.binding.notAvailable') }}
+                </span>
                 <span class="muted">{{ t(item.online === null ? 'assets.binding.unknownOnline' : item.online ? 'assets.binding.online' : 'assets.binding.offline') }}
                     <span v-if="item.disabled"> · {{ t('assets.binding.disabled') }}</span> · {{ instanceSource(item.source) }}</span>
                 <span>{{ t('assets.binding.instanceIp') }}: <code>{{ item.ipv4 || t('assets.binding.noValue') }}</code>
@@ -84,7 +89,7 @@ onBeforeUnmount(() => { disposed = true; generation += 1; });
                 <span v-for="rule in item.rules" :key="rule.rule_key" class="rule"><code>{{ rule.real_cidr }}<template v-if="rule.mapped_cidr"> → {{ rule.mapped_cidr }}</template></code>
                     <span class="muted">{{ t(rule.mapped_cidr ? 'assets.binding.mapping' : 'assets.binding.proxy') }}</span></span>
                 <span v-if="item.bound_gateway" class="warning">{{ t('assets.binding.inUse') }}: {{ item.bound_gateway.name }} · {{ item.bound_gateway.id.slice(0, 8) }}</span>
-                <span v-if="!item.selectable" class="warning">{{ candidateReason(item) }}</span>
+                <span v-if="!item.selectable" class="warning">{{ candidateReason(item, role) }}</span>
             </button>
         </div>
     </section>
@@ -97,6 +102,9 @@ onBeforeUnmount(() => { disposed = true; generation += 1; });
 .instance.selected { border-color:var(--p-primary-color,#3b82f6); box-shadow:0 0 0 1px var(--p-primary-color,#3b82f6); }
 .instance:disabled { cursor:default; background:var(--p-content-hover-background,#f8fafc); }
 .instance:focus-visible { outline:2px solid var(--p-primary-color,#3b82f6); outline-offset:2px; }
+.availability { display:inline-flex; align-items:center; justify-self:start; gap:.35rem; padding:.15rem .45rem; border-radius:.3rem; font-size:.8125rem; font-weight:600; }
+.availability.available { color:var(--p-green-700,#15803d); background:var(--p-green-50,#f0fdf4); }
+.availability.unavailable { color:var(--p-orange-700,#9a3412); background:var(--p-orange-50,#fff7ed); }
 .rule { display:flex; flex-wrap:wrap; gap:.5rem; }
 .muted { color:var(--p-text-muted-color,#64748b); font-size:.8125rem; }
 .warning { color:var(--p-orange-700,#9a3412); font-size:.8125rem; }

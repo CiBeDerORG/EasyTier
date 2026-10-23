@@ -146,6 +146,7 @@ export interface InstancePreview {
 }
 
 export interface CandidateQuery {
+    /** Determines selectability; the catalog includes all saved instances on the node. */
     role: AssetRole;
     /** Existing subject references must supply both kind and ID. */
     subject_kind?: Subject['resource_kind'];

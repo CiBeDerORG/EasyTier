@@ -31,6 +31,7 @@ const curNetworkInfo = ref<NetworkTypes.NetworkInstance | null>(null);
 const showConfigEditDialog = ref(false);
 const isEditingNetwork = ref(false); // Flag to indicate if we're in network editing mode
 const currentNetworkConfig = ref<NetworkTypes.NetworkConfig | undefined>(undefined);
+const savingNetworkConfig = ref(false);
 
 const listInstanceIdResponse = ref<Api.ListNetworkInstanceIdResponse | undefined>(undefined);
 
@@ -242,15 +243,27 @@ const saveAndRunNewNetwork = async (config?: NetworkTypes.NetworkConfig) => {
 }
 
 const saveNetworkConfig = async () => {
-    if (!currentNetworkConfig.value) {
+    const config = currentNetworkConfig.value;
+    if (!config || savingNetworkConfig.value) {
         return;
     }
-    await props.api.save_config(currentNetworkConfig.value);
 
-    delete networkMetaCache.value[currentNetworkConfig.value.instance_id];
-    await loadNetworkMetas([currentNetworkConfig.value.instance_id]);
+    savingNetworkConfig.value = true;
+    try {
+        await props.api.save_config(config);
 
-    toast.add({ severity: 'success', summary: t("web.common.success"), detail: t("web.device_management.config_saved"), life: 2000 });
+        delete networkMetaCache.value[config.instance_id];
+        await loadNetworkMetas([config.instance_id]);
+        await loadNetworkInstanceIds().catch(e => console.error('Failed to refresh network instances', e));
+
+        emits('update');
+        toast.add({ severity: 'success', summary: t("web.common.success"), detail: t("web.device_management.config_saved"), life: 2000 });
+    } catch (e: any) {
+        console.error(e);
+        toast.add({ severity: 'error', summary: t('web.device_management.config_save_failed'), detail: JSON.stringify(e.response?.data ?? e), life: 5000 });
+    } finally {
+        savingNetworkConfig.value = false;
+    }
 }
 const newNetwork = async () => {
     const newNetworkConfig = props.newConfigGenerator?.() ?? NetworkTypes.DEFAULT_NETWORK_CONFIG();
@@ -565,18 +578,18 @@ onUnmounted(() => {
                 </div>
 
                 <div class="w-full flex gap-2 flex-wrap justify-start mb-3">
-                    <Button @click="showConfigEditDialog = true" icon="pi pi-file-edit"
+                    <Button @click="showConfigEditDialog = true" icon="pi pi-file-edit" :disabled="savingNetworkConfig"
                         :label="t('web.device_management.edit_as_file')" iconPos="left" severity="secondary" />
-                    <Button @click="importConfig" icon="pi pi-upload" :label="t('web.device_management.import_config')"
+                    <Button @click="importConfig" icon="pi pi-upload" :disabled="savingNetworkConfig" :label="t('web.device_management.import_config')"
                         iconPos="left" severity="help" />
-                    <Button v-if="networkIsDisabled" @click="saveNetworkConfig" :disabled="!currentNetworkConfig"
+                    <Button @click="saveNetworkConfig" :disabled="!currentNetworkConfig" :loading="savingNetworkConfig"
                         icon="pi pi-save" :label="t('web.device_management.save_config')" iconPos="left"
                         severity="success" />
                 </div>
 
                 <Divider />
 
-                <Config :cur-network="currentNetworkConfig" :config-invalid="!currentNetworkConfig"
+                <Config :cur-network="currentNetworkConfig" :config-invalid="!currentNetworkConfig || savingNetworkConfig"
                     @run-network="saveAndRunNewNetwork"></Config>
             </div>
 

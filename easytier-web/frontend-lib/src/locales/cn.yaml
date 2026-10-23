@@ -467,9 +467,11 @@ web:
     unknown_location: 未知位置
     central_networks: 所属网络
     edit_attributes: 编辑属性
+    alias: 别名
     site_location: 地点
     device_model: 设备型号
-    attributes_hint: 手动填写设备的安装地点和型号，留空保存可清除。
+    attributes_hint: 可编辑别名、安装地点和设备型号，留空保存可清除。
+    attributes_partial_saved: 部分更改已保存。未保存的内容仍保留在表单中，请重试；取消不会撤销已保存的更改。
     site_location_hint: 例如：家中机柜、办公室，最多 256 个字符。
     device_model_hint: 例如：NanoPi R4S，最多 128 个字符。
     attributes_too_long: 最多填写 {limit} 个字符。
@@ -497,6 +499,7 @@ web:
     edit_as_file: 编辑为文件
     save_config: 保存配置
     config_saved: 配置已保存
+    config_save_failed: 保存配置失败
     import_config: 导入配置
     create_new: 创建新网络
     network_status: 网络状态
@@ -1032,13 +1035,15 @@ assets:
     role: "设备角色"
     gateway: "网关设备"
     ordinary: "普通设备"
-    roleHint: "先选择角色，再选择当前节点下匹配的网络实例。"
+    roleHint: "先选择设备角色，再从当前节点已保存的全部网络实例中选择可用实例。"
     instance: "网络实例"
     chooseInstance: "请选择网络实例"
     refresh: "刷新实例"
     loading: "正在读取实例配置…"
-    empty: "当前节点没有符合条件的网络实例。"
-    noSelectable: "当前实例暂不可绑定，请查看各实例的原因。"
+    savedInstancesHint: "以下列出当前节点已保存的全部网络实例；不可用的实例会标明原因。"
+    empty: "当前节点还没有已保存的网络实例，请先在网络节点中保存配置，再刷新此列表。"
+    fixedEmpty: "当前绑定的网络实例没有已保存配置。"
+    noSelectable: "当前没有可用于所选设备角色的实例，请查看各实例的原因。"
     requestFailed: "无法读取实例资料，请手动重试。"
     online: "在线"
     offline: "离线"
@@ -1053,6 +1058,10 @@ assets:
     proxy: "子网代理 · 不改址"
     mapping: "网段映射 · 改址"
     instanceIp: "实例组网 IP"
+    available: "可用"
+    notAvailable: "不可用"
+    gatewayInstanceOnly: "该实例配置了子网代理或网段映射，请选择“网关设备”。"
+    ordinaryInstanceOnly: "该实例没有子网转发规则，请选择“普通设备”。"
     unavailable: "暂不可选择"
     inUse: "已绑定网关"
     legacyHint: "这是未绑定的旧资料。原地址继续保留，补绑前请核对新旧信息。"

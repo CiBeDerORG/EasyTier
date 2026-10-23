@@ -467,9 +467,11 @@ web:
     unknown_location: Unknown Location
     central_networks: Joined Networks
     edit_attributes: Edit attributes
+    alias: Alias
     site_location: Location
     device_model: Device model
-    attributes_hint: Add the device's installation location and model. Leave a field empty to clear it.
+    attributes_hint: Edit the alias, installation location and device model. Save an empty field to clear it.
+    attributes_partial_saved: Some changes were saved. Unsaved changes remain in the form; retry to save them. Cancel will not undo saved changes.
     site_location_hint: "For example, home cabinet or office. Up to 256 characters."
     device_model_hint: "For example, NanoPi R4S. Up to 128 characters."
     attributes_too_long: "Use no more than {limit} characters."
@@ -497,6 +499,7 @@ web:
     edit_as_file: Edit as File
     save_config: Save Config
     config_saved: Config Saved
+    config_save_failed: Failed to save configuration
     import_config: Import Config
     create_new: Create New Network
     network_status: Network Status
@@ -1032,13 +1035,15 @@ assets:
     role: "Device role"
     gateway: "Gateway"
     ordinary: "Ordinary device"
-    roleHint: "Choose a role, then a matching network instance on this node."
+    roleHint: "Choose a device role, then select an available instance from all configurations saved on this node."
     instance: "Network instance"
     chooseInstance: "Select a network instance"
     refresh: "Refresh instances"
     loading: "Loading instance configurations…"
-    empty: "This node has no matching network instances."
-    noSelectable: "No instance can be bound yet. Review the reasons below."
+    savedInstancesHint: "All saved network instances on this node are shown below, with reasons for any that are unavailable."
+    empty: "This node has no saved network instances. Save a configuration in Network Nodes, then refresh this list."
+    fixedEmpty: "The bound network instance has no saved configuration."
+    noSelectable: "No instance is currently available for the selected device role. Review the reasons below."
     requestFailed: "Unable to load instances. Please retry manually."
     online: "Online"
     offline: "Offline"
@@ -1053,6 +1058,10 @@ assets:
     proxy: "Subnet proxy · original addresses"
     mapping: "Subnet mapping · translated addresses"
     instanceIp: "Instance overlay IP"
+    available: "Available"
+    notAvailable: "Unavailable"
+    gatewayInstanceOnly: "This instance has subnet proxy or mapping rules. Choose Gateway to use it."
+    ordinaryInstanceOnly: "This instance has no subnet forwarding rules. Choose Ordinary device to use it."
     unavailable: "Not selectable"
     inUse: "Bound to gateway"
     legacyHint: "This existing record is not bound. Its addresses are preserved; review the old and new values before binding."

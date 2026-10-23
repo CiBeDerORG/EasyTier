@@ -34,7 +34,10 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-fn candidate(row: &SqliteRow, exclude_group_id: Option<&str>, runtime: &RuntimeObservations) -> AssetResult<Value> {
+fn candidate(
+    row: &SqliteRow, requested_role: Option<&str>, exclude_group_id: Option<&str>,
+    runtime: &RuntimeObservations,
+) -> AssetResult<Value> {
     let instance_id: String = row.try_get("network_instance_id")?;
     let source: String = row.try_get("source")?;
     let observation = runtime.get(&instance_id);
@@ -133,6 +136,16 @@ fn candidate(row: &SqliteRow, exclude_group_id: Option<&str>, runtime: &RuntimeO
         reason = Some("The persistent instance configuration could not be parsed.".into());
     }
 
+    // Keep invalid configuration/address reasons first, then role mismatch, then occupancy.
+    // The requested role affects list availability, never the stored configuration fingerprint.
+    if reason.is_none() {
+        reason = match (requested_role, role) {
+            (Some("ordinary"), "gateway") => Some("This instance has subnet rules and must be bound as a gateway.".into()),
+            (Some("gateway"), "ordinary") => Some("This instance has no subnet rules and must be bound as an ordinary device.".into()),
+            _ => None,
+        };
+    }
+
     let fingerprint_input = json!({"role":role,"ipv4_policy":ip_policy,"rules":rules});
     let fingerprint = format!("{:x}", Sha256::digest(fingerprint_input.to_string().as_bytes()));
     let gateway_id: Option<String> = row.try_get("gateway_id")?;
@@ -167,11 +180,8 @@ pub(super) async fn list_candidates(
         .bind(owner).bind(node).fetch_all(&mut *connection).await?;
     let mut items = Vec::new();
     for row in rows {
-        let item = candidate(&row, exclude_group_id, runtime)?;
-        // Invalid configurations remain visible with their explanation, never as direct devices.
-        if item["role"].as_str() == Some(role) || item["role"].as_str() == Some("unknown") {
-            items.push(item);
-        }
+        // Every saved instance remains visible; the requested role only controls availability.
+        items.push(candidate(&row, Some(role), exclude_group_id, runtime)?);
     }
     Ok(items)
 }
@@ -183,7 +193,7 @@ pub(super) async fn get_candidate(
     ensure_node(connection, owner, node).await?;
     let row = sqlx::query(&format!("{CATALOG_SQL} AND c.network_instance_id = ?"))
         .bind(owner).bind(node).bind(instance_id).fetch_optional(&mut *connection).await?;
-    row.map(|row| candidate(&row, exclude_group_id, runtime)).transpose()
+    row.map(|row| candidate(&row, None, exclude_group_id, runtime)).transpose()
 }
 
 /// Explicit allow-list: no future candidate field can silently enter a persisted snapshot.
