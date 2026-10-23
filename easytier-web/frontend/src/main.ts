@@ -45,6 +45,16 @@ const routes = [
     {
         path: '/h', component: MainPage, children: [
             {
+                path: 'automation',
+                name: 'automationCenter',
+                component: () => import('./components/AutomationCenter.vue'),
+            },
+            {
+                path: 'applications',
+                name: 'deployAgents',
+                component: () => import('./components/DeployAgents.vue'),
+            },
+            {
                 path: 'services',
                 name: 'serviceNavigation',
                 component: () => import('./components/ServiceNavigation.vue'),

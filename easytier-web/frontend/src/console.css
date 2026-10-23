@@ -327,6 +327,7 @@ html.app-dark .console-node-drawer.p-drawer { --node-soft: var(--p-surface-800);
 @media (max-width: 1000px) { .account-name, .console-account > .pi { display: none; } .console-account.p-button { padding: 4px; } }
 @media (max-width: 767px) {
   .console-topbar { min-height: 64px; gap: 8px; }
+  .manual-navigation-refresh .p-button-label { display: none; }
   .console-breadcrumb { gap: 6px; }
   .console-current-page { max-width: 95px; }
   .console-topbar-actions { gap: 2px; }

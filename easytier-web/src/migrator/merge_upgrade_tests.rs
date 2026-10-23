@@ -3,6 +3,17 @@ use sea_orm::{ConnectionTrait, Database, DatabaseConnection, Statement};
 use sea_orm_migration::{MigrationTrait, MigratorTrait};
 
 const MAP_MIGRATION: &str = "m20261024_000011_network_space";
+const AGENT_MIGRATION: &str = "m20261024_000011_deploy_agents";
+
+struct AgentBranch;
+impl MigratorTrait for AgentBranch {
+    fn migrations() -> Vec<Box<dyn MigrationTrait>> {
+        Migrator::migrations()
+            .into_iter()
+            .filter(|migration| migration.name() < "m20261022" || migration.name() == AGENT_MIGRATION)
+            .collect()
+    }
+}
 
 // Reproduce the two parent branches' migration histories, including their
 // recorded versions, before running the combined migration registry.
@@ -51,6 +62,8 @@ async fn assert_schema_complete_and_idempotent(db: &DatabaseConnection) {
         "asset_services",
         "network_map_configs",
         "network_services",
+        "deploy_agents",
+        "deploy_tasks",
     ] {
         let sql = format!("SELECT COUNT(*) AS n FROM {table}");
         assert!(
@@ -69,6 +82,34 @@ async fn assert_schema_complete_and_idempotent(db: &DatabaseConnection) {
         .unwrap()
         .is_empty()
     );
+}
+
+#[tokio::test]
+async fn agent_database_upgrades_without_losing_bindings_credentials_or_tasks() {
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    AgentBranch::up(&db, None).await.unwrap();
+    seed_shared_records(&db).await;
+    db.execute_unprepared(
+        r#"
+        INSERT INTO deploy_agents(id, user_id, alias, endpoint, ca_pem, credential, agent_id, updated_at)
+            VALUES ('connection-1', 1001, 'NAS', 'https://nas:7014', 'certificate',
+                'encrypted-credential', 'agent-1', '2026-10-23');
+        INSERT INTO deploy_tasks(task_id, connection_id, user_id, request_cipher, result_json, logs, log_offset, updated_at)
+            VALUES ('task-1', 'connection-1', 1001, 'encrypted-request', '{"status":"running"}',
+                'saved log', 9, '2026-10-23');
+        "#,
+    ).await.unwrap();
+    Migrator::up(&db, None).await.unwrap();
+    let row = db.query_one(Statement::from_string(db.get_database_backend(),
+        "SELECT a.credential, a.agent_id, t.request_cipher, t.result_json, t.logs, t.log_offset FROM deploy_agents a JOIN deploy_tasks t ON t.connection_id = a.id".to_owned(),
+    )).await.unwrap().unwrap();
+    assert_eq!(row.try_get::<String>("", "credential").unwrap(), "encrypted-credential");
+    assert_eq!(row.try_get::<String>("", "agent_id").unwrap(), "agent-1");
+    assert_eq!(row.try_get::<String>("", "request_cipher").unwrap(), "encrypted-request");
+    assert_eq!(row.try_get::<String>("", "result_json").unwrap(), "{\"status\":\"running\"}");
+    assert_eq!(row.try_get::<String>("", "logs").unwrap(), "saved log");
+    assert_eq!(row.try_get::<i64>("", "log_offset").unwrap(), 9);
+    assert_schema_complete_and_idempotent(&db).await;
 }
 
 #[tokio::test]

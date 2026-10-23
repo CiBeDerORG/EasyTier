@@ -46,5 +46,9 @@
 - 发布分支：`feat/node-attributes-tech-console`。
 - 目标镜像：`ghcr.io/cibederorg/easytier:feat-node-attributes-tech-console`，平台 `linux/amd64`；同时保留提交 SHA 标签。
 - 已核对自动 push 触发条件、发布步骤及本轮差异；`git diff --check` 通过。
-- 不重复运行已通过且源码未变化的本地回归；远端流程将执行 Web/原生构建、容器启动测试和镜像发布核验。
+- 首次推送被非快进保护拒绝：远端新增 `4e778010`（部署管理及自动化中心）。已合入远端更新，保留其全部功能；两个冲突文件取功能并集，保留双方测试脚本及迁移，未强制覆盖远端。
+- 合并后的 `pnpm build:ci` 通过；三条父分支数据库升级测试 3/3 通过；导航/服务目录/创建重放/部署代理定向后端测试 12/12 通过（其中包含重复的地图父分支升级用例，不作为额外唯一本例）。
+- 最终合并产物的菜单/设备定位浏览器 2/2、部署管理浏览器 2/2 通过，已目视菜单及手机布局。部署浏览器使用模拟 API，未触发真实安装。
+- 合并验证日志：`/tmp/easytier-node-assets-release-merge-frontend.log`、`/tmp/easytier-node-assets-release-merge-upgrade.log`、`/tmp/easytier-node-assets-release-merge-services.log`；浏览器证据：`/workspace/scratch/easytier-node-assets-release/`。
+- 未重复完整应用回归；本轮新增远端代码经上述定向验证，远端发布流程还将执行 Web/原生构建、容器启动测试和镜像发布核验。
 - 提交、远端构建及发布结果：执行中，尚未报告成功；完成后补充准确提交、Actions 地址、digest 和拉取结果。
