@@ -273,6 +273,15 @@ impl Db {
         self.db.clone()
     }
 
+    pub(crate) fn deploy_agent_key_path(&self) -> Option<std::path::PathBuf> {
+        if self.db_path.ends_with(":memory:") || self.db_path.contains("mode=memory") {
+            return None;
+        }
+        let mut path = self.db.connect_options().get_filename().as_os_str().to_os_string();
+        path.push(".deploy-agent.key");
+        Some(path.into())
+    }
+
     pub fn orm_db(&self) -> &DatabaseConnection {
         &self.orm_db
     }

@@ -18,6 +18,7 @@ import DeviceManagement from './components/DeviceManagement.vue'
 import Dashboard from './components/Dashboard.vue'
 import NetworkList from './components/NetworkList.vue'
 import NetworkDetail from './components/NetworkDetail.vue'
+import DeployAgents from './components/DeployAgents.vue'
 import DialogService from 'primevue/dialogservice';
 import ToastService from 'primevue/toastservice';
 
@@ -63,6 +64,11 @@ const routes = [
                 path: 'networks',
                 name: 'networkList',
                 component: NetworkList,
+            },
+            {
+                path: 'applications',
+                name: 'deployAgents',
+                component: DeployAgents,
             },
             {
                 path: 'networks/:networkId',

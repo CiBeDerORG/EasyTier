@@ -1,6 +1,7 @@
 mod auth;
 pub(crate) mod captcha;
 mod central_network;
+mod deploy_agent;
 mod network;
 pub(crate) mod oidc;
 mod rpc;
@@ -347,6 +348,9 @@ impl RestfulServer {
             .merge(central_routes)
             .merge(NetworkApi::build_route())
             .merge(rpc::router())
+            .merge(deploy_agent::router(Arc::new(
+                crate::deploy_agent::Service::new(self.db.clone()).await?,
+            )))
             .route_layer(login_required!(Backend))
             .merge(auth::router().layer(Extension(self.feature_flags.clone())))
             .merge(oidc::router())

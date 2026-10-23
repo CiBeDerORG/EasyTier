@@ -16,7 +16,7 @@ const cycleThemeMode = () => {
 };
 
 import { I18nUtils } from 'easytier-frontend-lib'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { Button, Drawer, Menu, OverlayBadge, Popover, TieredMenu, useToast } from 'primevue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDialog } from 'primevue/usedialog';
@@ -77,7 +77,6 @@ const loadBlockedDevices = async () => {
         // Notifications are best-effort.
     }
 };
-let networkTimer: number | undefined;
 const loadNavigation = async () => {
     if (!enrollInfo.value) {
         try {
@@ -91,9 +90,7 @@ const loadNavigation = async () => {
 };
 onMounted(() => {
     loadNavigation();
-    networkTimer = window.setInterval(loadNavigation, 10_000);
 });
-onUnmounted(() => window.clearInterval(networkTimer));
 
 // Device enrollment info: the config-server command devices run to join
 // this console. Also identifies whether central management is available.
@@ -162,6 +159,7 @@ type NavItem = {
 const workspaceNavigation = computed<NavItem[]>(() => [
     { key: 'dashboard', label: t('web.main.dashboard'), icon: 'pi pi-chart-pie', to: { name: 'dashboard' } },
     { key: 'deviceList', label: t('web.main.device_list'), icon: 'pi pi-server', to: { name: 'deviceList' } },
+    { key: 'deployAgents', label: '应用与服务', icon: 'pi pi-box', to: { name: 'deployAgents' } },
 ]);
 const networkNavigation = computed<NavItem[]>(() => [
     { key: 'networkList', label: t('web.main.network_list'), icon: 'pi pi-globe', to: { name: 'networkList' } },
@@ -204,7 +202,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
             <RouterLink :to="{ name: 'dashboard' }" class="console-brand">
                 <img :src="Icon" alt="" /><span>EasyTier<span class="brand-caption">{{ t('web.console.console') }}</span></span>
             </RouterLink>
-            <div class="nav-caption">{{ t('web.console.workspace') }}</div>
+            <div class="nav-caption">{{ t('web.console.workspace') }} <Button icon="pi pi-refresh" text size="small" aria-label="刷新导航" @click="loadNavigation" /></div>
             <nav :aria-label="t('web.console.navigation')">
                 <Menu :model="workspaceNavigation" :aria-label="t('web.console.navigation')" class="console-navigation">
                     <template #item="{ item, props }">
