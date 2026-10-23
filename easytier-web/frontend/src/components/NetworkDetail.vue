@@ -595,7 +595,7 @@ const nodePeerRows = computed(() => {
         const conns = peer.conns ?? [];
         const protocols = [...new Set(conns.map(conn => conn.tunnel?.tunnel_type).filter((v): v is string => !!v))];
         const bestLatency = conns
-            .map(conn => conn.stats?.latency_us ? conn.stats.latency_us / 1000 : undefined)
+            .map(conn => conn.stats?.latency_us ? Number(conn.stats.latency_us) / 1000 : undefined)
             .filter((v): v is number => v != null)
             .sort((a, b) => a - b)[0];
         const row = rows.get(peer_id) ?? {
@@ -1493,13 +1493,13 @@ const switchTab = async (tab: string) => {
                                 <span class="font-mono text-xs">{{ data.conn.tunnel?.remote_addr?.url ?? '—' }}</span>
                             </template></Column>
                             <Column :header="t('web.network_detail.path_latency')"><template #body="{ data }">
-                                {{ data.conn.stats ? latencyLabel(data.conn.stats.latency_us ? data.conn.stats.latency_us / 1000 : undefined) : '—' }}
+                                {{ data.conn.stats ? latencyLabel(data.conn.stats.latency_us ? Number(data.conn.stats.latency_us) / 1000 : undefined) : '—' }}
                             </template></Column>
                             <Column :header="t('web.network_detail.loss_rate')"><template #body="{ data }">
                                 {{ ((data.conn.loss_rate ?? 0) * 100).toFixed(1) + '%' }}
                             </template></Column>
                             <Column :header="t('web.network_detail.traffic')"><template #body="{ data }">
-                                <span class="font-mono text-xs">↓{{ ((data.conn.stats?.rx_bytes ?? 0) / 1024).toFixed(0) }}K ↑{{ ((data.conn.stats?.tx_bytes ?? 0) / 1024).toFixed(0) }}K</span>
+                                <span class="font-mono text-xs">↓{{ (Number(data.conn.stats?.rx_bytes ?? 0) / 1024).toFixed(0) }}K ↑{{ (Number(data.conn.stats?.tx_bytes ?? 0) / 1024).toFixed(0) }}K</span>
                             </template></Column>
                         </DataTable>
                         </details>

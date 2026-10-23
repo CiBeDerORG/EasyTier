@@ -30,6 +30,14 @@ const { t } = useI18n()
 const router = useRouter();
 const toast = useToast();
 const route = useRoute();
+const sidebarStorageKey = 'easytier.sidebar.collapsed';
+const sidebarCollapsed = ref((() => {
+    try { return localStorage.getItem(sidebarStorageKey) === 'true'; } catch { return false; }
+})());
+const toggleSidebar = () => {
+    sidebarCollapsed.value = !sidebarCollapsed.value;
+    try { localStorage.setItem(sidebarStorageKey, String(sidebarCollapsed.value)); } catch { /* Session-only preference. */ }
+};
 const api = new ApiClient(getApiBase(), () => router.push({ name: 'login' }));
 const dialog = useDialog();
 const userMenu = ref();
@@ -102,7 +110,7 @@ const enrollInfo = ref<import('../modules/api').ConsoleInfo | null>(null);
 const enrollLoading = ref(false);
 const centralEnabled = computed(() => enrollInfo.value?.webhook_auth === false);
 watch([() => enrollInfo.value?.webhook_auth, () => route.name], ([external, name]) => {
-    if (external && (name === 'networkList' || name === 'networkDetail')) {
+    if (external && ['networkList', 'networkDetail', 'networkMap', 'serviceNavigation', 'serviceManagement'].includes(String(name))) {
         router.replace({ name: 'dashboard' });
     }
 });
@@ -160,8 +168,11 @@ type NavItem = {
 };
 
 const workspaceNavigation = computed<NavItem[]>(() => [
+    ...(centralEnabled.value ? [{ key: 'serviceNavigation', label: t('web.console.service_navigation'), icon: 'pi pi-th-large', to: { name: 'serviceNavigation' } }] : []),
     { key: 'dashboard', label: t('web.main.dashboard'), icon: 'pi pi-chart-pie', to: { name: 'dashboard' } },
+    ...(centralEnabled.value ? [{ key: 'networkMap', label: t('web.console.network_map'), icon: 'pi pi-globe', to: { name: 'networkMap' } }] : []),
     { key: 'deviceList', label: t('web.main.device_list'), icon: 'pi pi-server', to: { name: 'deviceList' } },
+    ...(centralEnabled.value ? [{ key: 'serviceManagement', label: t('web.console.service_management'), icon: 'pi pi-sliders-h', to: { name: 'serviceManagement' } }] : []),
 ]);
 const networkNavigation = computed<NavItem[]>(() => [
     { key: 'networkList', label: t('web.main.network_list'), icon: 'pi pi-globe', to: { name: 'networkList' } },
@@ -198,10 +209,10 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
 </script>
 
 <template>
-    <div class="web-console">
+    <div class="web-console" :class="{ 'is-sidebar-collapsed': sidebarCollapsed, 'is-map-page': route.name === 'networkMap' }">
         <a class="skip-link" href="#main-content" @click.prevent="mainContent?.focus()">{{ t('web.console.skip_content') }}</a>
-        <aside class="console-sidebar">
-            <RouterLink :to="{ name: 'dashboard' }" class="console-brand">
+        <aside id="console-sidebar" class="console-sidebar">
+            <RouterLink :to="{ name: 'dashboard' }" class="console-brand" aria-label="EasyTier">
                 <img :src="Icon" alt="" /><span>EasyTier<span class="brand-caption">{{ t('web.console.console') }}</span></span>
             </RouterLink>
             <div class="nav-caption">{{ t('web.console.workspace') }}</div>
@@ -209,7 +220,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                 <Menu :model="workspaceNavigation" :aria-label="t('web.console.navigation')" class="console-navigation">
                     <template #item="{ item, props }">
                         <RouterLink :to="item.to" custom v-slot="{ href, navigate }">
-                            <a v-bind="props.action" :href="href" @click="navigate"
+                            <a v-bind="props.action" :href="href" @click="navigate" :aria-label="String(item.label)" :title="sidebarCollapsed ? String(item.label) : undefined"
                                 :class="{ 'is-active': activeKey === item.key }" :aria-current="activeKey === item.key ? 'page' : undefined">
                                 <span v-bind="props.icon" aria-hidden="true"></span><span v-bind="props.label">{{ item.label }}</span>
                             </a>
@@ -220,7 +231,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <Menu v-if="centralEnabled" :model="networkNavigation" :aria-label="t('web.main.network_list')" class="console-navigation">
                         <template #item="{ item, props }">
                             <RouterLink :to="item.to" custom v-slot="{ href, navigate }">
-                                <a v-bind="props.action" :href="href" @click="navigate"
+                                <a v-bind="props.action" :href="href" @click="navigate" :aria-label="String(item.label)" :title="sidebarCollapsed ? String(item.label) : undefined"
                                     :class="{ 'is-active': activeKey === item.key, 'nav-child': item.child }" :aria-current="activeKey === item.key ? 'page' : undefined">
                                     <span v-bind="props.icon" aria-hidden="true"></span><span v-bind="props.label">{{ item.label }}</span>
                                     <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
@@ -229,9 +240,14 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                         </template>
                 </Menu>
             </nav>
-            <a href="https://easytier.cn" target="_blank" rel="noopener noreferrer" class="console-docs">
-                <i class="pi pi-book" aria-hidden="true"></i>{{ t('web.console.documentation') }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i>
+            <a href="https://easytier.cn" target="_blank" rel="noopener noreferrer" class="console-docs" :aria-label="t('web.console.documentation')" :title="sidebarCollapsed ? t('web.console.documentation') : undefined">
+                <i class="pi pi-book" aria-hidden="true"></i><span>{{ t('web.console.documentation') }}</span><i class="pi pi-arrow-up-right" aria-hidden="true"></i>
             </a>
+            <Button :icon="sidebarCollapsed ? 'pi pi-angle-double-right' : 'pi pi-angle-double-left'"
+                :label="sidebarCollapsed ? undefined : t('web.console.collapse_menu')" text severity="secondary" class="sidebar-collapse"
+                :aria-label="t(sidebarCollapsed ? 'web.console.expand_menu' : 'web.console.collapse_menu')"
+                :title="t(sidebarCollapsed ? 'web.console.expand_menu' : 'web.console.collapse_menu')"
+                :aria-expanded="!sidebarCollapsed" aria-controls="console-sidebar" @click="toggleSidebar" />
         </aside>
         <Drawer v-model:visible="forceShowSideBar" :header="t('web.console.navigation')" class="console-mobile-nav">
             <nav :aria-label="t('web.console.navigation')">

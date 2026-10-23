@@ -527,6 +527,12 @@ async fn persist_intent(
             )
         })?;
     }
+    super::network_space::prune_network_space(
+        transaction,
+        prepared.intent.user_id,
+        prepared.intent.id,
+    )
+    .await?;
     Ok(())
 }
 

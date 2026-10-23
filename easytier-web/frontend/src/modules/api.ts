@@ -1,6 +1,7 @@
 import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { type Api, NetworkTypes, Utils } from 'easytier-frontend-lib';
 import { Md5 } from 'ts-md5';
+import type { NetworkMapConfig, NodeRuntimeInfo, ServiceEntry, ServiceInput } from './network-space';
 
 export interface ValidateConfigResponse {
     toml_config: string;
@@ -127,7 +128,9 @@ export interface NodeRouteInfo {
 export interface NodePeerConn {
     conn_id: string;
     tunnel?: { tunnel_type?: string, local_addr?: any, remote_addr?: any } | null;
-    stats?: { latency_us?: number, rx_bytes?: number, tx_bytes?: number } | null;
+    // Protobuf JSON serializes uint64 values as decimal strings and omits zero.
+    // Number values remain accepted for older peers and compatible consumers.
+    stats?: { latency_us?: number | string, rx_bytes?: number | string, tx_bytes?: number | string } | null;
     loss_rate?: number;
     is_closed?: boolean;
 }
@@ -404,22 +407,60 @@ export class ApiClient {
 
     // --- Node runtime detail (per network instance, via proxy-rpc) ---
 
+    public async get_network_map(network_id: string): Promise<NetworkMapConfig> {
+        return await this.client.get<any, NetworkMapConfig>(`/networks/${encodeURIComponent(network_id)}/map`);
+    }
+
+    public async save_network_map(network_id: string, config: NetworkMapConfig): Promise<NetworkMapConfig> {
+        return await this.client.put<any, NetworkMapConfig>(`/networks/${encodeURIComponent(network_id)}/map`, config);
+    }
+
+    public async list_services(network_id?: string): Promise<ServiceEntry[]> {
+        const response = await this.client.get<any, { services: ServiceEntry[] }>('/services', {
+            params: network_id ? { network_id } : undefined,
+        });
+        return response.services;
+    }
+
+    public async create_service(input: ServiceInput): Promise<ServiceEntry> {
+        return await this.client.post<any, ServiceEntry>('/services', input);
+    }
+
+    public async update_service(id: string, input: ServiceInput): Promise<ServiceEntry> {
+        return await this.client.put<any, ServiceEntry>(`/services/${encodeURIComponent(id)}`, input);
+    }
+
+    public async delete_service(id: string): Promise<void> {
+        await this.client.delete(`/services/${encodeURIComponent(id)}`);
+    }
+
+    public async get_node_info(machine_id: string, inst_id: string): Promise<NodeRuntimeInfo> {
+        const response = await this.client.post<any, { node_info?: NodeRuntimeInfo }>(`/machines/${machine_id}/proxy-rpc`, {
+            service_name: 'api.instance.PeerManageRpcService',
+            method_name: 'show_node_info',
+            payload: { instance: { id: Utils.StrToUuid(inst_id) } },
+        }, { timeout: 10_000 });
+        if (!response.node_info) throw new Error('Node runtime information is unavailable');
+        return response.node_info;
+    }
+
     public async get_node_routes(machine_id: string, inst_id: string): Promise<NodeRouteInfo[]> {
         const response = await this.client.post<any, { routes?: NodeRouteInfo[] }>(`/machines/${machine_id}/proxy-rpc`, {
             service_name: 'api.instance.PeerManageRpcService',
             method_name: 'list_route',
             payload: { instance: { id: Utils.StrToUuid(inst_id) } },
-        });
+        }, { timeout: 10_000 });
         return response.routes ?? [];
     }
 
     public async get_node_peers(machine_id: string, inst_id: string): Promise<NodePeerInfo[]> {
-        const response = await this.client.post<any, { peer_infos?: NodePeerInfo[] }>(`/machines/${machine_id}/proxy-rpc`, {
+        const response = await this.client.post<any, { peer_infos?: Array<Omit<NodePeerInfo, 'conns'> & { conns?: NodePeerConn[] }> }>(`/machines/${machine_id}/proxy-rpc`, {
             service_name: 'api.instance.PeerManageRpcService',
             method_name: 'list_peer',
             payload: { instance: { id: Utils.StrToUuid(inst_id) } },
-        });
-        return response.peer_infos ?? [];
+        }, { timeout: 10_000 });
+        // An empty protobuf repeated field is omitted on the wire.
+        return (response.peer_infos ?? []).map(peer => ({ ...peer, conns: peer.conns ?? [] }));
     }
 
     public async get_node_acl_stats(machine_id: string, inst_id: string): Promise<NodeAclRuleStat[]> {

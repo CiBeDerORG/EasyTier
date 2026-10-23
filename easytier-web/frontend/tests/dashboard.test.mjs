@@ -19,7 +19,7 @@ before(async () => {
             await delay(100);
         }
     }
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
     if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
 });
 
@@ -85,6 +85,7 @@ async function open(t, route = '/h', options = {}, configure = () => {}) {
         if (path === '/summary') result = { device_count: state.machines.length };
         else if (path === '/console-info') result = { username: 'test-user', config_server_protocol: 'udp', config_server_port: 22020, webhook_auth: state.externalConsole ?? false };
         else if (path === '/machines') result = { machines: state.machines };
+        else if (path === '/blocked-devices') result = { blocked: [] };
         else if (path === '/networks/gateway-info') {
             await delay(state.gatewayDelay);
             result = { enabled: state.gatewayEnabled, peer_url: 'tcp://192.0.2.1:11010', relay_data: true };
@@ -726,7 +727,10 @@ test('responsive layouts, localization, dark mode and mobile drawer', async t =>
     const { page, state } = await open(t);
     const workspaceMenu = page.locator('.console-sidebar').getByRole('menu', { name: 'Navigation' });
     await workspaceMenu.focus();
-    await page.keyboard.press('ArrowDown'); // Dashboard -> Device List
+    await page.keyboard.press('Home'); // Service navigation is the first item.
+    await page.keyboard.press('ArrowDown'); // Dashboard
+    await page.keyboard.press('ArrowDown'); // Network map
+    await page.keyboard.press('ArrowDown'); // Device List
     await page.keyboard.press('Enter');
     await page.waitForURL('**/#/h/deviceList');
     await workspaceMenu.locator('[aria-current="page"]', { hasText: 'Device List' }).waitFor();

@@ -352,6 +352,11 @@ event:
 
 web:
   console:
+    service_navigation: 服务导航
+    service_management: 服务管理
+    network_map: 网络地图
+    collapse_menu: 收起菜单
+    expand_menu: 展开菜单
     theme_mode: 主题（浅色 / 深色 / 跟随系统）
     location: "位置"
     console: "管理控制台"

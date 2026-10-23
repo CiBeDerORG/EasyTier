@@ -42,6 +42,21 @@ const routes = [
     {
         path: '/h', component: MainPage, children: [
             {
+                path: 'services',
+                name: 'serviceNavigation',
+                component: () => import('./components/ServiceNavigation.vue'),
+            },
+            {
+                path: 'services/manage',
+                name: 'serviceManagement',
+                component: () => import('./components/ServiceManagement.vue'),
+            },
+            {
+                path: 'map',
+                name: 'networkMap',
+                component: () => import('./components/NetworkMap.vue'),
+            },
+            {
                 path: '',
                 alias: 'dashboard',
                 name: 'dashboard',

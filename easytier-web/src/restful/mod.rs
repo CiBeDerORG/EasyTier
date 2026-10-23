@@ -2,6 +2,7 @@ mod auth;
 pub(crate) mod captcha;
 mod central_network;
 mod network;
+mod network_space;
 pub(crate) mod oidc;
 mod rpc;
 mod users;
@@ -338,7 +339,7 @@ impl RestfulServer {
         let central_routes = if self.webhook_config.has_external_endpoint() {
             Router::new()
         } else {
-            central_network::CentralNetworkApi::build_route()
+            central_network::CentralNetworkApi::build_route().merge(network_space::router())
         };
         let mut app = Router::new()
             .route("/api/v1/summary", get(Self::handle_get_summary))

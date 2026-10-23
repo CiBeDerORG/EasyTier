@@ -41,6 +41,8 @@
 .console-navigation .pi { font-size: 15px; }
 .console-navigation a.nav-child { padding-left: 34px; }
 .console-navigation a.nav-child .pi { font-size: 12px; opacity: .85; }
+.console-navigation a.nav-child .p-menu-item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.console-navigation a.nav-child .pi, .console-navigation .nav-badge { flex-shrink: 0; }
 .console-navigation .nav-badge { margin-left: auto; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--p-content-border); color: var(--p-text-muted-color); font-variant-numeric: tabular-nums; }
 .console-navigation a.is-active .nav-badge { background: var(--p-primary-color); color: var(--p-primary-contrast-color); }
 .console-docs { display: flex; gap: 10px; align-items: center; margin-top: auto; padding: 12px; font-size: 12px; color: var(--console-muted); }
@@ -232,4 +234,32 @@ html.app-dark .console-node-drawer.p-drawer { --node-soft: var(--p-surface-800);
   .network-tabs > .p-tabpanels { padding: 16px; }
   .list-toolbar { padding: 12px; }
   .search-field { max-width: none; }
+}
+
+/* Desktop navigation keeps the same focusable links in both presentations. */
+.web-console { --console-sidebar-width: 208px; }
+.console-sidebar { width: var(--console-sidebar-width); overflow-y: auto; overflow-x: hidden; transition: width .18s ease; }
+.console-workspace { margin-left: var(--console-sidebar-width); transition: margin-left .18s ease; }
+.sidebar-collapse.p-button { width: 100%; justify-content: flex-start; flex-shrink: 0; margin-top: 8px; min-height: 40px; }
+.is-sidebar-collapsed { --console-sidebar-width: 72px; }
+.is-sidebar-collapsed .console-sidebar { padding-inline: 10px; }
+.is-sidebar-collapsed .console-brand { padding-inline: 9px; }
+.is-sidebar-collapsed .console-brand > span,
+.is-sidebar-collapsed .console-sidebar .nav-caption,
+.is-sidebar-collapsed .console-sidebar .p-menu-item-label,
+.is-sidebar-collapsed .console-sidebar .nav-badge,
+.is-sidebar-collapsed .console-docs > span,
+.is-sidebar-collapsed .console-docs > .pi:last-child { display: none; }
+.is-sidebar-collapsed .console-navigation a,
+.is-sidebar-collapsed .console-navigation a.nav-child { padding: 12px; justify-content: center; }
+.is-sidebar-collapsed .console-sidebar .console-navigation + .console-navigation { margin-top: 16px; }
+.is-sidebar-collapsed .console-docs,
+.is-sidebar-collapsed .sidebar-collapse.p-button { justify-content: center; }
+.is-map-page .console-content { max-width: none; padding: 0; }
+@media (max-width: 767px) {
+  .console-workspace { margin-left: 0; }
+  .is-map-page .console-content { padding: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .console-sidebar, .console-workspace { transition: none; }
 }

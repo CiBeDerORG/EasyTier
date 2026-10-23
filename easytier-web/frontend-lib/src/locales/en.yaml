@@ -352,6 +352,11 @@ event:
 
 web:
   console:
+    service_navigation: Service navigation
+    service_management: Service management
+    network_map: Network map
+    collapse_menu: Collapse menu
+    expand_menu: Expand menu
     theme_mode: Theme (light / dark / system)
     location: "Location"
     console: "Management console"
