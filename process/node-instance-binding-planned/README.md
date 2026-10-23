@@ -52,3 +52,10 @@ updated_at: 2026-10-23
 - 用户确认保存实例配置后候选已出现；新增要求为候选卡片显示 host 名称，不能使用网络名称。
 - 基线：`feat/node-attributes-main@4b7b63da0d18dd320fca933bf6705e24a5ec4012`；修改 `easytier-web/src/db/assets/instances.rs`，名称依次取非空实例 `hostname`、同账号同节点的 `devices.hostname`、实例 ID。普通和网关候选共用该实现。
 - 状态：源码已修正并经人工交叉审阅；遵守调试模式，未运行测试、构建、类型检查、lint 或手动触发 CI，未部署。本节是后续修复记录，上述历史验证不覆盖此变更；详见[逐轮记录](task/test-report.md)。
+
+## 2026-10-23 授权发布 hostname 修复镜像
+
+- 用户明确要求“直接构建 提交到github镜像站”，本轮按该授权构建并发布到既有 GHCR 镜像。
+- 修复源码提交：`e023e5945ba70ca7f0ef29279a92b7eb315a4948`。发布提交仅添加工作流发布记录注释和本轮文档，沿用已有工作流文件 push 触发规则。
+- 目标：`ghcr.io/cibederorg/easytier:feat-node-attributes-main`，构建 `linux/amd64` 与 `linux/arm64`；具体 run、revision、digest 和成功状态将在实际结束后回填。
+- 当前状态：发布请求准备完成，尚未取得本次构建或推送成功证据。详见[逐轮记录](task/test-report.md)。

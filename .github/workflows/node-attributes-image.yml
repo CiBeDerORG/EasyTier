@@ -1,4 +1,5 @@
 name: EasyTier GHCR Image
+# Publication request: 2026-10-23 hostname labels (e023e5945ba70ca7f0ef29279a92b7eb315a4948).
 run-name: "GHCR image - ${{ github.ref_name }} - ${{ github.sha }}"
 
 on:
