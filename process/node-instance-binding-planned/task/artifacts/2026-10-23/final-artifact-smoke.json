@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "baseURL": "http://127.0.0.1:53087",
+  "binarySha256": "5d7c0653745d12e88e1cd1d2c6cb329ebaa224a23cd0aba7ba21c8d8d6294a5f",
+  "frontendAsset": "index-BOyOoWD3.js",
+  "frontendSha256": "3aff81fcee4959b611430c3ecc2d7f156b67b3cbd2ad8bf808f023fa31f0f5d9",
+  "embeddedMatchesBuiltFrontend": true,
+  "readinessStatus": 200,
+  "ownerLogin": true,
+  "administratorLogin": true,
+  "sessionAndAssetContext": true,
+  "fullApiAndRecoveryRerun": false,
+  "reason": "Only frontend display fixes changed since the passing API and recovery checks."
+}

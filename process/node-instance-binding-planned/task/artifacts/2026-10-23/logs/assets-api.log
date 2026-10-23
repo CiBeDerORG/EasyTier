@@ -1,0 +1,17 @@
+▶ real asset API with isolated sessions, SQLite and bound device registration
+  ✔ session JSON errors and exact administrator authorization (312.703933ms)
+  ✔ node properties keep source observations and persist public role (26.921222ms)
+  ✔ type initialization and instance-bound gateways preserve name and deletion rules (106.261424ms)
+  ✔ idempotent create, LAN uniqueness, parent and self-device guards (111.201842ms)
+  ✔ dual protocol atomic port conflicts and safe service fields (63.467577ms)
+  ✔ query filtering and locating use the requested scope (17.271614ms)
+  ✔ device deletion cascades every current service and replay remains gone (22.577132ms)
+✔ real asset API with isolated sessions, SQLite and bound device registration (696.335739ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 816.205721

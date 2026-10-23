@@ -1,11 +1,11 @@
 ---
-status: verified_pending_delivery
+status: delivered
 updated_at: 2026-10-23
 ---
 
 # 开发任务看板
 
-16 个任务文档已齐备。**T01–T15 已完成本轮开发和授权范围内的集中验证，T16 备份部署尚未执行。** 结果、覆盖边界、修复记录和截图见[最终验证报告](verification-2026-10-23.md)。调试模式继续生效；本轮用户已授权提交与 push；提交结果以 Git 记录为准，不追加测试、主动触发 CI 或替换原部署。
+**最新交付：** 16项任务已完成本轮交付范围，R01–R05在实例绑定版本中修复并实测，原服务11221已升级，手工备份与恢复证据均已记录。新版本的[验证报告](../../node-instance-binding-planned/task/verification-report.md)、[交付记录](../../node-instance-binding-planned/task/release-record.md)说明覆盖及边界；本目录此前验证报告仍代表当时版本。
 
 |ID|任务|依赖|实施状态|
 |---|---|---|---|
@@ -17,14 +17,14 @@ updated_at: 2026-10-23
 |T06|[设备接口与删除](task-06-devices-api.md)|T01、T02、T03、T04|已实现/本轮验证通过|
 |T07|[服务接口](task-07-services-api.md)|T01、T02、T03、T04|已实现/本轮验证通过|
 |T08|[前端类型与接口客户端](task-08-frontend-api-contract.md)|T01|已实现/本轮验证通过|
-|T09|[详情页上下文与查询](task-09-node-assets-page.md)|T08|已实现/本轮验证通过|
+|T09|[详情页上下文与查询](task-09-node-assets-page.md)|T08|复审修复已通过新轮实测|
 |T10|[网关组与类型弹窗](task-10-group-and-type-dialogs.md)|T08|已实现/本轮验证通过|
-|T11|[设备表格与编辑](task-11-device-table-and-dialog.md)|T08|已实现/本轮验证通过|
+|T11|[设备表格与编辑](task-11-device-table-and-dialog.md)|T08|复审修复已通过新轮实测|
 |T12|[服务明细与编辑](task-12-service-table-and-dialog.md)|T08|已实现/本轮验证通过|
 |T13|[后端集成与删除前置保护](task-13-backend-integration.md)|T02–T07|已实现/本轮验证通过|
-|T14|[前端入口与联调美化](task-14-frontend-integration-and-polish.md)|T09–T13|已实现/本轮验证通过|
+|T14|[前端入口与联调美化](task-14-frontend-integration-and-polish.md)|T09–T13|复审修复已通过新轮实测|
 |T15|[授权后的功能验收](task-15-authorized-verification.md)|T14、测试授权|已完成/报告与截图已归档|
-|T16|[备份升级与交付](task-16-backup-and-delivery.md)|T15、交付授权|待备份部署/未执行|
+|T16|[备份升级与交付](task-16-backup-and-delivery.md)|T15、交付授权|随实例绑定版已备份/部署|
 
 验证授权只限制执行检查，不要求每个模块开发前再次批准；调试模式继续生效。后续任务完成时更新其状态、交接内容与 [test-report](test-report.md)，不要把尚未执行的验收条件写成通过。
 

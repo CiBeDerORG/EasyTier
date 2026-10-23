@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "isolated": true,
+  "beforeMigrationCount": 10,
+  "afterMigrationCount": 11,
+  "sameRequestReplaysAcrossRestart": 7,
+  "retainedSavedAddressAndService": true,
+  "restoredOldServerHttpLogin": true,
+  "restoredLegacyIPv6AndService": true,
+  "restored": {
+    "tables": {
+      "devices": true,
+      "asset_gateway_groups": true,
+      "asset_gateway_subnets": true,
+      "asset_devices": true,
+      "asset_services": true,
+      "asset_service_bindings": true
+    },
+    "migrationCount": 10,
+    "foreignKeyViolations": []
+  }
+}

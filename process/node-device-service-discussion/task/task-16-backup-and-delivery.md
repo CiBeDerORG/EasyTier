@@ -1,7 +1,7 @@
 ---
 id: T16
 plan: P08
-status: awaiting_delivery
+status: delivered
 owner_role: release
 depends_on: [T15]
 updated_at: 2026-10-23
@@ -9,7 +9,7 @@ updated_at: 2026-10-23
 
 # T16：手工备份、升级恢复与交付
 
-T15 本轮集中验证已完成，备份与原部署升级尚未实施。来源 Q43/Q49/Q50：小规模、单后端、升级前手工备份、允许短暂停机，停机与恢复时长无硬指标。对应 [P08](../plan/plan-08-acceptance-and-release.md)。T15 已产出含页面的本地构建及验收截图；本任务不把隔离实例启动视为部署完成，原服务尚未替换，未提交或 push。
+本任务已随实例绑定版本完成：当前云环境11221已手工备份并升级，原TCP22030/账号/节点属性/客户端保持；真实旧库与旧制品恢复演练通过。具体新旧制品、数据核对、备份和部署过程统一记录在[新轮交付记录](../../node-instance-binding-planned/task/release-record.md)，不维护两套相互冲突的部署记录。下面保留原工作顺序与验收边界。
 
 ## 写入范围与前置
 

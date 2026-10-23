@@ -1,0 +1,46 @@
+{
+  "startedAt": "2026-10-23T02:37:22.827Z",
+  "checks": [
+    {
+      "name": "R02: duplicate instance and type names expose distinct stable short IDs",
+      "passed": true,
+      "durationMs": 1166
+    },
+    {
+      "name": "V06: changing the saved instance after preview returns a real conflict and preserves draft input",
+      "passed": true,
+      "durationMs": 1510
+    },
+    {
+      "name": "R05: Unicode code-point limits match the server; control characters and over-limit values cannot submit",
+      "passed": true,
+      "durationMs": 918
+    },
+    {
+      "name": "R03: a deleted device reports a resource error without clearing the valid node",
+      "passed": true,
+      "durationMs": 765
+    },
+    {
+      "name": "R03 transient network failure keeps the last successful rows and manual retry recovers",
+      "passed": true,
+      "durationMs": 163,
+      "injectedFailure": "Aborted one real device-list request; no successful response was mocked."
+    },
+    {
+      "name": "R04: returning from a scrolled detail page resets the node-list scroll position",
+      "passed": true,
+      "durationMs": 129
+    },
+    {
+      "name": "R03: revoking a separate administrator in the real database clears cross-account forms and data",
+      "passed": true,
+      "durationMs": 2008
+    }
+  ],
+  "screenshots": [],
+  "pageErrors": [],
+  "cleanupErrors": [],
+  "passed": true,
+  "finishedAt": "2026-10-23T02:37:31.319Z"
+}

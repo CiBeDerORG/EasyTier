@@ -1,0 +1,84 @@
+{
+  "startedAt": "2026-10-23T02:34:16.508Z",
+  "checks": [
+    {
+      "name": "Administrator selects another account and a registered node",
+      "passed": true,
+      "durationMs": 3007
+    },
+    {
+      "name": "Gateway manager requires a persisted gateway instance and preserves metadata editing",
+      "passed": true,
+      "durationMs": 1143
+    },
+    {
+      "name": "Add-device Gateway role creates a gateway and highlights it without counting it as an entity device",
+      "passed": true,
+      "durationMs": 971
+    },
+    {
+      "name": "Custom device type can be created and renamed",
+      "passed": true,
+      "durationMs": 842
+    },
+    {
+      "name": "Search is explicit; creating outside current filters resets them and expands the new direct device",
+      "passed": true,
+      "durationMs": 2225
+    },
+    {
+      "name": "Grouped device derives mapped addresses from its rule; multiple service lists stay expanded",
+      "passed": true,
+      "durationMs": 1958
+    },
+    {
+      "name": "Service CRUD uses real API; dual protocols, HTTP link, icon, and conflict handling",
+      "passed": true,
+      "durationMs": 3691
+    },
+    {
+      "name": "Device editing preserves ownership; reopening a collapsed service panel does not reopen an old add dialog",
+      "passed": true,
+      "durationMs": 1144
+    },
+    {
+      "name": "Referenced groups and types cannot be deleted",
+      "passed": true,
+      "durationMs": 1138
+    },
+    {
+      "name": "Chinese desktop and 390px screenshots show the saved data and service form",
+      "passed": true,
+      "durationMs": 7491
+    },
+    {
+      "name": "An offline registered node accepts persisted-instance device and service management",
+      "passed": true,
+      "durationMs": 5489
+    },
+    {
+      "name": "Service delete and device cascade delete persist; empty group and unused type can then be deleted",
+      "passed": true,
+      "durationMs": 4014
+    },
+    {
+      "name": "Responsive layout has no document-wide horizontal overflow",
+      "passed": true,
+      "durationMs": 0
+    }
+  ],
+  "screenshots": [
+    "screenshots/node-assets-desktop-cn.png",
+    "screenshots/node-binding-gateway-manager-cn.png",
+    "screenshots/node-binding-add-gateway-cn.png",
+    "screenshots/node-binding-type-manager-cn.png",
+    "screenshots/node-binding-derived-device-address-cn.png",
+    "screenshots/node-assets-mobile-390-cn.png",
+    "screenshots/node-assets-service-form-390-cn.png"
+  ],
+  "pageErrors": [],
+  "layoutIssues": [],
+  "cleanupErrors": [],
+  "finishedAt": "2026-10-23T02:34:49.663Z",
+  "passed": true
+}

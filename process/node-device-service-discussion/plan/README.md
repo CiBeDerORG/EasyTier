@@ -1,9 +1,16 @@
 ---
-status: awaiting_delivery
+status: delivered
 updated_at: 2026-10-23
 ---
 
 # 本轮开发计划汇总
+
+**最新状态：** 本需求及R01–R05修复已随实例绑定版本验证并部署，T16交付合并到[新轮T14记录](../../node-instance-binding-planned/task/release-record.md)。以下是前轮计划记录，旧“待部署”表示当时阶段。
+
+## 前轮计划记录
+
+
+**最新复审：** 主CRUD有实现；发现操作入口、同名选择、失效恢复等5项待完善问题，详见[功能覆盖复审](../task/review-2026-10-23-feature-coverage.md)。T09/T11/T14需补充处理；先前测试结果仍有效于其执行范围，T16部署未执行。以下“完成”记录表示此前实施/验收阶段，不覆盖本次新发现。
 
 已依据[原始需求与四角色结论](../require/require-10-consolidated-scope.md)完成 8 个计划、16 个任务的拆分及实施交接。当前 P01 已完成，P02–P07 已在本轮报告范围内验证，P08 等待部署交付；对应 T02–T14 已验证、T15 已完成，T16 待部署。当前代码未提交或 push，原部署未被替换。
 

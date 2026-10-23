@@ -9,6 +9,8 @@ updated_at: 2026-10-23
 
 # T11 设备表格与编辑
 
+**最新复审补充：** R01–R05已在实例绑定版本修复并通过真实浏览器验证，见[新轮验证报告](../../node-instance-binding-planned/task/verification-report.md)。历史证据保留，下面原验证摘要不扩大为新轮结果。
+
 ## 当前状态（2026-10-23）
 
 状态：**已验证（`verified`）**。

@@ -1,0 +1,38 @@
+{
+  "startedAt": "2026-10-23T02:41:23.437Z",
+  "checks": [
+    {
+      "name": "Final embedded bundle loads with real authenticated node details",
+      "passed": true
+    },
+    {
+      "name": "Occupied gateway candidate uses Chinese reason and remains unselectable",
+      "passed": true
+    },
+    {
+      "name": "Derived child source separates gateway, instance name and short ID; full ID remains in title",
+      "passed": true
+    },
+    {
+      "name": "No new assets requests during a 3-second idle observation",
+      "passed": true
+    }
+  ],
+  "screenshots": [
+    "screenshots/node-binding-add-gateway-cn.png",
+    "screenshots/node-binding-derived-device-address-cn.png"
+  ],
+  "pageErrors": [],
+  "bundles": [
+    "/api_meta.js",
+    "/assets/index-BOyOoWD3.js"
+  ],
+  "idleObservation": {
+    "milliseconds": 3000,
+    "assetRequests": [],
+    "limit": "A short observation, not proof for every future interval."
+  },
+  "passed": true,
+  "cleanupStatus": 204,
+  "finishedAt": "2026-10-23T02:41:30.728Z"
+}

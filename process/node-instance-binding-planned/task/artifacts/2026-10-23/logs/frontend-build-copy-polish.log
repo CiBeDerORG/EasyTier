@@ -1,0 +1,43 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+$ pnpm --dir ../frontend-lib build && vue-tsc -b && vite build
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+$ pnpm codegen:proto && vue-tsc -b && vite build
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+$ node scripts/codegen-proto.mjs
+vite v5.4.21 building for production...
+transforming...
+Browserslist: browsers data (caniuse-lite) is 13 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+✓ 352 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+computing gzip size...
+[vite:dts] Declaration files built in 7004ms.
+
+dist/style.css                   923.93 kB │ gzip: 363.65 kB
+dist/easytier-frontend-lib.js  1,446.79 kB │ gzip: 288.92 kB
+dist/style.css                        923.93 kB │ gzip: 363.65 kB
+dist/easytier-frontend-lib.umd.cjs  1,011.10 kB │ gzip: 247.53 kB
+dist/style.css                    923.93 kB │ gzip: 363.65 kB
+dist/easytier-frontend-lib.cjs  1,010.93 kB │ gzip: 247.43 kB
+✓ built in 14.00s
+vite v5.4.21 building for production...
+transforming...
+Browserslist: browsers data (caniuse-lite) is 13 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+✓ 701 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                        0.55 kB │ gzip:   0.35 kB
+dist/assets/easytier-B8oGRBhv.png     21.11 kB
+dist/assets/index-Y7R5K_ju.css       978.38 kB │ gzip: 371.96 kB
+dist/assets/index-BOyOoWD3.js      2,429.76 kB │ gzip: 582.63 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 12.69s
