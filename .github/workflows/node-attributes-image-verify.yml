@@ -1,0 +1,69 @@
+name: Verify published EasyTier GHCR image
+run-name: "Verify GHCR image - ${{ github.ref_name }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Original build run containing ghcr-publication-report
+        required: true
+        default: '39903466090'
+      build_revision:
+        description: Source revision recorded in the published image
+        required: true
+        default: '9eb9e8aced76776c59668d8686affc2a8f302317'
+  push:
+    branches: ["feat/node-attributes-main"]
+    paths: [".github/workflows/node-attributes-image-verify.yml"]
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+jobs:
+  verify:
+    name: Verify existing image without rebuilding or pushing
+    if: github.repository == 'CiBeDerORG/EasyTier' && github.ref == 'refs/heads/feat/node-attributes-main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      REGISTRY_IMAGE: ghcr.io/cibederorg/easytier
+      IMAGE_TAG: feat-node-attributes-main
+      IMAGE_REVISION: ${{ inputs.build_revision || '9eb9e8aced76776c59668d8686affc2a8f302317' }}
+      SOURCE_RUN_ID: ${{ inputs.build_run_id || '39903466090' }}
+      VERIFY_ONLY: 'true'
+      REPORT_DIR: process/test/ghcr-reverify
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Download the original publication digest evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ghcr-publication-report
+          path: process/test/ghcr-reverify/
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify manifests and authenticated and anonymous pulls
+        shell: bash
+        run: bash .github/scripts/ghcr-publish.sh unused "$REPORT_DIR"
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ghcr-reverification-report
+          path: process/test/ghcr-reverify/
+          if-no-files-found: warn
+          retention-days: 14

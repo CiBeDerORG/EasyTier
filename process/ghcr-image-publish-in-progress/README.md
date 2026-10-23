@@ -16,8 +16,9 @@
 - [x] 检查当前分支与已通过的自动化回归。
 - [x] 对照官方构建方式及 deploy 的 CLI、端口、挂载接口。
 - [x] 实现双架构构建、容器冒烟和 GHCR 发布工作流。
-- [ ] 完成生产构建及两个原生架构的容器验证。
-- [ ] 发布镜像并回读 manifest、digest、两个架构。
+- [x] 完成生产构建及两个原生架构的容器验证。
+- [x] 发布镜像并回读 manifest、digest、两个架构。
+- [ ] 修复 Runner 的本地多架构 digest 冲突后重新验证实际拉取。
 - [ ] 确认匿名拉取是否可用，交付实际可用的地址。
 
 ## 入口
@@ -25,6 +26,7 @@
 - 工作流：`.github/workflows/node-attributes-image.yml`。
 - 冒烟检查：`.github/scripts/ghcr-smoke.sh`。
 - 发布校验：`.github/scripts/ghcr-publish.sh`。
+- 已发布镜像只读验证：`.github/workflows/node-attributes-image-verify.yml`。
 - [轮次记录](task/test-report.md)。
 - [完整构建与发布报告](../test/2026-10-23-ghcr-image-publish.md)。
 

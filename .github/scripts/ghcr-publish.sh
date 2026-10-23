@@ -5,10 +5,11 @@ archive_dir=${1:?image archive directory is required}
 report_dir=${2:?report directory is required}
 image=${REGISTRY_IMAGE:?REGISTRY_IMAGE is required}
 tag=${IMAGE_TAG:?IMAGE_TAG is required}
-revision=${GITHUB_SHA:?GITHUB_SHA is required}
+revision=${IMAGE_REVISION:-${GITHUB_SHA:?GITHUB_SHA is required}}
 mkdir -p "$report_dir"
-: > "$report_dir/platform-digests.tsv"
 
+if [ "${VERIFY_ONLY:-false}" != true ]; then
+: > "$report_dir/platform-digests.tsv"
 refs=()
 for arch in amd64 arm64; do
     gzip -dc "$archive_dir/easytier-$arch.tar.gz" | docker load
@@ -45,6 +46,7 @@ docker buildx imagetools create \
     --tag "$image:sha-$revision" \
     --tag "$image:$tag" \
     "${refs[@]}"
+fi
 
 docker buildx imagetools inspect "$image:$tag" --raw > "$report_dir/manifest.json"
 docker buildx imagetools inspect "$image:$tag" | tee "$report_dir/inspect-branch-tag.txt"
@@ -78,21 +80,60 @@ print(f'Verified multi-platform index: {digest}')
 PY
 
 digest=$(cat "$report_dir/digest.txt")
-for arch in amd64 arm64; do
-    docker pull --platform "linux/$arch" "$image@$digest" 2>&1 | tee "$report_dir/pull-$arch.log"
-done
+# A classic Docker image store cannot map one index digest to two platform
+# images. Pull the distinct child digests already checked against that index.
+while IFS=$'\t' read -r arch reference; do
+    docker pull --platform "linux/$arch" "$reference" 2>&1 | tee "$report_dir/pull-$arch.log"
+    docker image inspect "$reference" > "$report_dir/pulled-image-$arch.json"
+    python3 - "$report_dir/pulled-image-$arch.json" "$arch" "$revision" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as stream:
+    image = json.load(stream)[0]
+assert image['Os'] == 'linux'
+assert image['Architecture'] == sys.argv[2]
+assert image['Config']['Labels']['org.opencontainers.image.revision'] == sys.argv[3]
+assert image['Config']['Entrypoint'] == ['/sbin/tini', '--', 'easytier-core']
+PY
+done < "$report_dir/platform-digests.tsv"
 
 # A new GHCR package may be private. Record anonymous access separately from
 # authenticated publication; never report private images as anonymously usable.
 anonymous_config=$(mktemp -d "$RUNNER_TEMP/ghcr-anonymous.XXXXXX")
+trap 'rm -rf -- "$anonymous_config"' EXIT
 anonymous_pull=true
-for arch in amd64 arm64; do
-    if ! DOCKER_CONFIG="$anonymous_config" docker pull --platform "linux/$arch" "$image@$digest" \
-        > "$report_dir/anonymous-pull-$arch.log" 2>&1; then
+if DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$image@$digest" \
+    > "$report_dir/anonymous-manifest.json" 2> "$report_dir/anonymous-manifest-error.log"; then
+    python3 - "$report_dir" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+anonymous = json.loads((root / 'anonymous-manifest.json').read_text())
+verified = json.loads((root / 'manifest.json').read_text())
+# docker manifest inspect may reconstruct the list without index annotations.
+# The immutable index request and its platform-to-child mapping are what matter.
+def children(manifest):
+    assert manifest['schemaVersion'] == 2
+    assert len(manifest['manifests']) == 2
+    return {
+        (item['platform']['os'], item['platform']['architecture']): item['digest']
+        for item in manifest['manifests']
+    }
+assert children(anonymous) == children(verified)
+PY
+else
+    anonymous_pull=false
+    cat "$report_dir/anonymous-manifest-error.log"
+fi
+while IFS=$'\t' read -r arch reference; do
+    if ! DOCKER_CONFIG="$anonymous_config" docker pull --platform "linux/$arch" "$reference" \
+        2>&1 | tee "$report_dir/anonymous-pull-$arch.log"; then
         anonymous_pull=false
-        break
     fi
-done
+done < "$report_dir/platform-digests.tsv"
 printf '%s\n' "$anonymous_pull" > "$report_dir/anonymous-pull.txt"
 
 python3 - "$report_dir" "$image" "$tag" "$revision" "$anonymous_pull" <<'PY'
@@ -113,6 +154,8 @@ record = {
     'digest': digest,
     'platforms': ['linux/amd64', 'linux/arm64'],
     'anonymous_pull_verified': anonymous,
+    'build_run_id': os.environ.get('SOURCE_RUN_ID', os.environ['GITHUB_RUN_ID']),
+    'verification_revision': os.environ['GITHUB_SHA'],
     'run_url': f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
 }
 (root / 'publication.json').write_text(json.dumps(record, indent=2) + '\n')
@@ -123,7 +166,8 @@ summary = f'''# EasyTier GHCR publication
 - Digest: `{digest}`
 - Platforms: linux/amd64, linux/arm64
 - Both native images passed binary and container startup smoke tests before upload.
-- Both architectures were pulled back from GHCR by the verified index digest.
+- Both architectures were pulled from GHCR by their child digests, each checked against the verified index digest.
+- Pulled image platform, source revision and official entrypoint were checked.
 - Anonymous pull of both platforms verified: **{str(anonymous).lower()}**
 - Run: {record['run_url']}
 

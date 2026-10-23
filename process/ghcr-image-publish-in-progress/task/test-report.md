@@ -11,3 +11,12 @@
 - 容器检查使用独立编写的 CLI 接口 fixture、临时数据和 `--network none`，不复制或执行私有 deploy 脚本。
 - 当前生产构建、容器执行、GHCR 推送和匿名拉取均未完成，不宣称镜像已可用。实际运行和结果以[完整报告](../../test/2026-10-23-ghcr-image-publish.md)为准。
 - 提交前已执行两个 Bash 脚本的语法检查和工作流 YAML 解析，均通过；已独立复核构建顺序、发布权限与受检镜像 digest 链路。
+
+## 2026-10-23 双架构构建完成与发布验证修复
+
+- 运行 #39903466090：前端、amd64、arm64 构建及镜像冒烟均通过，各架构 8 项 PASS。
+- 两个平台镜像已推送，分支标签与固定 SHA 标签的总 digest 均为 `sha256:672bc12769b402a697870387b647d4c479efb26ae754cd75f84ca3c9559917aa`。
+- 原发布 job 的认证拉取第二个平台报 `cannot overwrite digest`；这是 Runner Docker classic store 对同一个 index 引用的本地映射限制。原运行整体为 failure，如实保留。
+- 修复认证与匿名拉取均使用已经核对到总 index 的各平台子 digest；补充实际架构、源码 revision、入口断言。
+- 新增只读镜像验证工作流，仅有 contents/actions/packages read 权限，复用原运行的 publication artifact；制品源码仍为 `9eb9e8a`，不把验证提交标成制品版本。
+- 修改后的 Bash 语法和两个工作流 YAML 解析均通过。重验证及匿名访问仍待实际运行。
