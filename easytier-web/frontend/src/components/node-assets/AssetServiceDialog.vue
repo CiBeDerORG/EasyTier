@@ -26,7 +26,13 @@ const form = reactive({
 const savingEdit = ref(false);
 const saveError = ref('');
 const fieldErrors = ref<Record<string, string>>({});
+const addresses = ref<Pick<AssetDevice, 'overlay_ip' | 'lan_ip'>>({
+    overlay_ip: props.device.overlay_ip, lan_ip: props.device.lan_ip,
+});
+const addressLoading = ref(false);
+const addressError = ref('');
 let revision = 0;
+let addressRevision = 0;
 
 const busy = computed(() => savingEdit.value || attempt.pending.value);
 const uncertain = computed(() => !editing.value && attempt.uncertain.value);
@@ -34,6 +40,40 @@ const fieldsDisabled = computed(() => busy.value || uncertain.value);
 const iconOptions = computed(() => ASSET_SERVICE_ICON_OPTIONS.map(option => ({ ...option, label: t(option.labelKey) })));
 const formId = computed(() => `asset-service-form-${props.device.id}-${props.service?.id ?? 'new'}`);
 const fieldId = (field: string) => `${formId.value}-${field}`;
+
+function adoptDeviceAddresses() {
+    // A newer parent device update takes precedence over an earlier read request.
+    addressRevision++;
+    addresses.value = { overlay_ip: props.device.overlay_ip, lan_ip: props.device.lan_ip };
+    addressLoading.value = false;
+    addressError.value = '';
+}
+
+async function loadDeviceAddresses() {
+    if (!props.visible || addressLoading.value) return;
+    const current = ++addressRevision;
+    const context = contextKey.value;
+    const scope = { ...props.scope };
+    const deviceId = props.device.id;
+    const active = () => current === addressRevision && props.visible && context === contextKey.value;
+    addressLoading.value = true;
+    addressError.value = '';
+    try {
+        const device = await props.api.assetsDevice(scope, deviceId);
+        if (!active()) return;
+        if (device.id !== deviceId || device.owner_user_id !== scope.owner_user_id || device.machine_id !== scope.machine_id) {
+            addressError.value = t('assets.services.contextChanged');
+            return;
+        }
+        addresses.value = { overlay_ip: device.overlay_ip, lan_ip: device.lan_ip };
+    } catch (error: unknown) {
+        if (!active()) return;
+        addressError.value = t('assets.services.addressLoadFailed');
+        emit('context-error', error);
+    } finally {
+        if (active()) addressLoading.value = false;
+    }
+}
 
 const resetDraft = () => {
     revision++;
@@ -50,15 +90,19 @@ const resetDraft = () => {
     form.icon = record?.icon ?? null;
 };
 
+watch([() => props.device.overlay_ip, () => props.device.lan_ip], adoptDeviceAddresses, { flush: 'sync' });
 watch(() => [props.visible, contextKey.value, props.service?.id] as const, () => {
-    if (props.visible) resetDraft();
-    else {
+    adoptDeviceAddresses();
+    if (props.visible) {
+        resetDraft();
+        void loadDeviceAddresses();
+    } else {
         revision++;
         attempt.reset();
         savingEdit.value = false;
     }
 }, { immediate: true });
-onBeforeUnmount(() => { revision++; attempt.reset(); });
+onBeforeUnmount(() => { revision++; addressRevision++; attempt.reset(); });
 
 function validate(): AssetServiceInput | null {
     const errors: Record<string, string> = {};
@@ -129,6 +173,7 @@ async function save() {
 function close() {
     // Discarding a form does not cancel a request already accepted by the server.
     revision++;
+    addressRevision++;
     attempt.reset();
     emit('close');
 }
@@ -145,6 +190,28 @@ function close() {
                 <InputText :id="fieldId('name')" v-model="form.name" :disabled="fieldsDisabled" autocomplete="off"
                     required :aria-invalid="!!fieldErrors.name" :aria-describedby="fieldId('name-error')" />
                 <small v-if="fieldErrors.name" :id="fieldId('name-error')" class="field-error">{{ fieldErrors.name }}</small>
+            </div>
+            <div class="service-field" :aria-busy="addressLoading">
+                <div class="service-fields-row">
+                    <div class="service-field">
+                        <label :for="fieldId('overlay-ip')">{{ t('assets.deviceOverlayIp') }}</label>
+                        <InputText :id="fieldId('overlay-ip')" :modelValue="addresses.overlay_ip || t('assets.services.addressMissing')"
+                            readonly :aria-describedby="fieldId('address-help')" />
+                    </div>
+                    <div class="service-field">
+                        <label :for="fieldId('lan-ip')">{{ t('assets.deviceLanIp') }}</label>
+                        <InputText :id="fieldId('lan-ip')" :modelValue="addresses.lan_ip || t('assets.services.addressMissing')"
+                            readonly :aria-describedby="fieldId('address-help')" />
+                    </div>
+                </div>
+                <small :id="fieldId('address-help')">{{ t('assets.services.addressHint') }}</small>
+                <div v-if="addressLoading || addressError" class="service-address-status" role="status">
+                    <small v-if="addressLoading">{{ t('assets.services.addressLoading') }}</small>
+                    <template v-else>
+                        <small class="field-error">{{ addressError }}</small>
+                        <Button :label="t('assets.services.retry')" type="button" text size="small" @click="loadDeviceAddresses" />
+                    </template>
+                </div>
             </div>
             <div class="service-fields-row">
                 <fieldset class="service-field protocol-field" :disabled="fieldsDisabled" :aria-describedby="fieldId('protocol-error')">
@@ -215,6 +282,7 @@ function close() {
 .service-field label, .service-field legend { font-weight: 600; }
 .service-field small { color: var(--console-muted, var(--p-text-muted-color)); }
 .service-fields-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+.service-address-status { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .protocol-field { margin: 0; padding: 0; border: 0; }
 .protocol-field legend { margin-bottom: 0.6rem; }
 .protocol-options, .protocol-option, .icon-choice { display: flex; align-items: center; gap: 0.6rem; }

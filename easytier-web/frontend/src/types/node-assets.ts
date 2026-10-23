@@ -297,6 +297,9 @@ export interface AssetServiceInput {
 export interface AssetService extends AssetScope, AssetServiceInput {
     id: string;
     device_id: string;
+    /** Read-only current device addresses; never submitted with service edits. */
+    readonly overlay_ip: string;
+    readonly lan_ip: string | null;
     created_at: string;
     updated_at: string;
 }

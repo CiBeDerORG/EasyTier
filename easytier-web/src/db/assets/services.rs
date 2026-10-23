@@ -30,7 +30,11 @@ impl AssetsStore {
     pub(crate) async fn list_services(&self, owner: i32, node: &str, device: &str) -> AssetResult<Value> {
         let mut connection = self.pool.acquire().await?;
         ensure_device(&mut connection, owner, node, device).await?;
-        let rows = sqlx::query("SELECT * FROM asset_services WHERE owner_user_id = ? AND machine_id = ? AND device_id = ? ORDER BY created_at DESC,id DESC")
+        let rows = sqlx::query(
+            "SELECT s.*, d.overlay_ip, d.lan_ip FROM asset_services s \
+             JOIN asset_devices d ON d.id = s.device_id AND d.owner_user_id = s.owner_user_id AND d.machine_id = s.machine_id \
+             WHERE s.owner_user_id = ? AND s.machine_id = ? AND s.device_id = ? ORDER BY s.created_at DESC,s.id DESC",
+        )
             .bind(owner).bind(node).bind(device).fetch_all(&mut *connection).await?;
         let mut items = Vec::with_capacity(rows.len());
         for row in rows { items.push(service_json(&mut connection, &row).await?); }
@@ -41,7 +45,16 @@ impl AssetsStore {
         let payload = validation::service_payload(&body, true)?;
         let operation = Operation::new(actor, owner, "create_service", json!({"machine_id":node,"device_id":device}), &body, &payload)?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
-        if let Some(response) = operation.replay(&mut transaction).await? {
+        if let Some(mut response) = operation.replay(&mut transaction).await? {
+            // Creation metadata is replayed unchanged; inherited addresses always
+            // reflect the parent device, including operations saved before these fields existed.
+            let (overlay_ip, lan_ip) = sqlx::query_as::<_, (String, Option<String>)>(
+                "SELECT overlay_ip, lan_ip FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?",
+            )
+                .bind(device).bind(owner).bind(node).fetch_optional(&mut *transaction).await?
+                .ok_or_else(AssetError::not_found)?;
+            response["overlay_ip"] = json!(overlay_ip);
+            response["lan_ip"] = json!(lan_ip);
             transaction.commit().await?;
             return Ok(response);
         }
@@ -54,7 +67,11 @@ impl AssetsStore {
             .bind(payload["remarks"].as_str()).bind(payload["access_url"].as_str()).bind(payload["icon"].as_str())
             .bind(&timestamp).bind(&timestamp).execute(&mut *transaction).await?;
         insert_bindings(&mut transaction, owner, node, device, &id, &payload).await?;
-        let row = sqlx::query("SELECT * FROM asset_services WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
+        let row = sqlx::query(
+            "SELECT s.*, d.overlay_ip, d.lan_ip FROM asset_services s \
+             JOIN asset_devices d ON d.id = s.device_id AND d.owner_user_id = s.owner_user_id AND d.machine_id = s.machine_id \
+             WHERE s.id = ? AND s.owner_user_id = ? AND s.machine_id = ?",
+        )
             .bind(&id).bind(owner).bind(node).fetch_one(&mut *transaction).await?;
         let response = service_json(&mut transaction, &row).await?;
         operation.finish(&mut transaction, "service", &id, &response).await?;
@@ -76,7 +93,11 @@ impl AssetsStore {
             .bind(payload["access_url"].as_str()).bind(payload["icon"].as_str()).bind(now()).bind(id).bind(owner).bind(node)
             .execute(&mut *transaction).await?;
         insert_bindings(&mut transaction, owner, node, &device, id, &payload).await?;
-        let row = sqlx::query("SELECT * FROM asset_services WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
+        let row = sqlx::query(
+            "SELECT s.*, d.overlay_ip, d.lan_ip FROM asset_services s \
+             JOIN asset_devices d ON d.id = s.device_id AND d.owner_user_id = s.owner_user_id AND d.machine_id = s.machine_id \
+             WHERE s.id = ? AND s.owner_user_id = ? AND s.machine_id = ?",
+        )
             .bind(id).bind(owner).bind(node).fetch_one(&mut *transaction).await?;
         let response = service_json(&mut transaction, &row).await?;
         transaction.commit().await?;
