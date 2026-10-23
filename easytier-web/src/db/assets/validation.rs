@@ -178,7 +178,7 @@ pub(super) fn device_payload(body: &Value, creating: bool) -> AssetResult<Value>
 }
 
 pub(super) fn service_payload(body: &Value, creating: bool) -> AssetResult<Value> {
-    let mut allowed = vec!["name", "protocols", "port", "remarks", "access_url", "icon"];
+    let mut allowed = vec!["name", "protocols", "port", "remarks", "access_url", "icon", "publication"];
     if creating { allowed.push("request_id"); }
     keys(body, &allowed)?;
     let input_protocols = body.get("protocols").and_then(Value::as_array)
@@ -211,6 +211,12 @@ pub(super) fn service_payload(body: &Value, creating: bool) -> AssetResult<Value
             return Err(AssetError::field("icon", "Choose an available built-in icon."));
         }
     }
-    Ok(json!({"name":required_string(body,"name",128)?,"protocols":protocols,"port":port,
-        "remarks":optional_string(body,"remarks",2000)?,"access_url":access_url,"icon":icon}))
+    let mut payload = json!({"name":required_string(body,"name",128)?,"protocols":protocols,"port":port,
+        "remarks":optional_string(body,"remarks",2000)?,"access_url":access_url,"icon":icon});
+    // Preserve the canonical payload of pre-publication idempotency keys.
+    // Absence also means that older edit clients retain the existing binding.
+    if let Some(publication) = body.get("publication") {
+        payload["publication"] = super::publications::input(publication)?;
+    }
+    Ok(payload)
 }

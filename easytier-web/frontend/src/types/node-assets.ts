@@ -285,6 +285,30 @@ export type AssetProtocol = 'tcp' | 'udp';
 export type AssetIcon = 'server' | 'globe' | 'database' | 'mobile' | 'desktop'
     | 'home' | 'cloud' | 'cog' | 'play' | 'link' | 'shield' | 'wifi';
 
+export interface ServicePublicationInput {
+    machine_id: string;
+    instance_id: string;
+    bind_ip: string;
+    bind_port: number;
+    dst_port: number;
+}
+
+export interface ServicePublication extends ServicePublicationInput {
+    server_name: string;
+    network_name: string;
+    readonly protocols: AssetProtocol[];
+    readonly dst_ip: string;
+}
+
+export interface ServicePublicationNetwork {
+    instance_id: string;
+    display_name: string;
+    network_name: string;
+    selectable: boolean;
+    unavailable_code?: string | null;
+    unavailable_reason: string | null;
+}
+
 export interface AssetServiceInput {
     name: string;
     protocols: AssetProtocol[];
@@ -292,6 +316,8 @@ export interface AssetServiceInput {
     remarks: string | null;
     access_url: string | null;
     icon: AssetIcon | null;
+    /** Omitted preserves existing publication for old clients; null removes its mapping. */
+    publication?: ServicePublicationInput | null;
 }
 
 export interface AssetService extends AssetScope, AssetServiceInput {
@@ -300,6 +326,7 @@ export interface AssetService extends AssetScope, AssetServiceInput {
     /** Read-only current device addresses; never submitted with service edits. */
     readonly overlay_ip: string;
     readonly lan_ip: string | null;
+    publication: ServicePublication | null;
     created_at: string;
     updated_at: string;
 }

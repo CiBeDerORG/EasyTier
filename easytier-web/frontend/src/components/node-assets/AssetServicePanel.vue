@@ -104,9 +104,10 @@ function openEdit(service: AssetService) {
 function saved(service: AssetService) {
     if (service.owner_user_id !== props.scope.owner_user_id || service.machine_id !== props.scope.machine_id
         || service.device_id !== props.device.id) return;
+    const wasPublished = !!editingService.value?.publication;
     editorVisible.value = false;
     editingService.value = null;
-    feedback.value = t('assets.services.saved');
+    feedback.value = t(service.publication ? 'assets.publication.saved' : wasPublished ? 'assets.publication.removed' : 'assets.services.saved');
     emit('changed');
     void loadServices();
 }
@@ -183,6 +184,7 @@ function safeAccessUrl(value: string | null): string | null {
                     <th scope="col">{{ t('assets.services.name') }}</th>
                     <th scope="col">{{ t('assets.services.protocols') }}</th>
                     <th scope="col">{{ t('assets.services.port') }}</th>
+                    <th scope="col">{{ t('assets.publication.column') }}</th>
                     <th scope="col">{{ t('assets.services.accessUrl') }}</th>
                     <th scope="col">{{ t('assets.services.remarks') }}</th>
                     <th scope="col">{{ t('assets.services.actions') }}</th>
@@ -192,6 +194,15 @@ function safeAccessUrl(value: string | null): string | null {
                         <td><span class="service-name"><i :class="assetServiceIconClass(service.icon)" aria-hidden="true"></i>{{ service.name }}</span></td>
                         <td class="service-protocol">{{ service.protocols.map(protocol => protocol.toUpperCase()).join(' / ') }}</td>
                         <td class="service-port">{{ service.port }}</td>
+                        <td>
+                            <div v-if="service.publication" class="service-publication-info">
+                                <span>{{ t('assets.publication.configured') }}</span>
+                                <small>{{ service.publication.server_name || service.publication.machine_id }}</small>
+                                <small>{{ service.publication.network_name || service.publication.instance_id }}</small>
+                                <code>{{ service.publication.bind_ip.includes(':') ? `[${service.publication.bind_ip}]` : service.publication.bind_ip }}:{{ service.publication.bind_port }}</code>
+                            </div>
+                            <span v-else class="service-muted">{{ t('assets.publication.notPublished') }}</span>
+                        </td>
                         <td>
                             <a v-if="safeAccessUrl(service.access_url)" :href="safeAccessUrl(service.access_url) || undefined"
                                 target="_blank" rel="noopener noreferrer" class="service-link"
@@ -220,6 +231,7 @@ function safeAccessUrl(value: string | null): string | null {
             :closeOnEscape="!deleting" :dismissableMask="false"
             @update:visible="value => { if (!value && !deleting) deleteTarget = null; }">
             <p class="delete-description">{{ t('assets.services.deleteConfirm', { name: deleteTarget?.name ?? '' }) }}</p>
+            <p v-if="deleteTarget?.publication" class="delete-description">{{ t('assets.publication.deleteHint') }}</p>
             <p v-if="deleteError" class="service-error" role="alert">{{ deleteError }}</p>
             <template #footer>
                 <Button :label="t('assets.services.cancel')" severity="secondary" :disabled="deleting" @click="deleteTarget = null" />
@@ -244,6 +256,8 @@ function safeAccessUrl(value: string | null): string | null {
 .service-name { display: flex; align-items: center; gap: 0.5rem; overflow-wrap: anywhere; min-width: 7rem; }
 .service-name i { color: var(--p-primary-color); flex-shrink: 0; }
 .service-protocol, .service-port { white-space: nowrap; }
+.service-publication-info { display: grid; gap: 0.25rem; min-width: 8rem; max-width: 18rem; overflow-wrap: anywhere; }
+.service-publication-info small { color: var(--console-muted, var(--p-text-muted-color)); }
 .service-remarks { min-width: 6rem; max-width: 22rem; overflow-wrap: anywhere; white-space: pre-wrap; }
 .service-link { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--p-primary-color); white-space: nowrap; }
 .service-link:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 3px; border-radius: 2px; }

@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::{QueryBuilder, Row, Sqlite, SqliteConnection};
 
-use super::{AssetsStore, binding_ops, common::{AssetError, AssetResult, address_warning, device_json, ensure_device, ensure_group, ensure_node, ensure_type, group_subnets, now}, idempotency::Operation, validation};
+use super::{AssetsStore, binding_ops, common::{AssetError, AssetResult, address_warning, device_json, ensure_device, ensure_group, ensure_node, ensure_type, group_subnets, now}, idempotency::Operation, publications, validation};
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct DeviceListQuery {
@@ -195,6 +195,7 @@ impl AssetsStore {
             .bind(payload["device_type_id"].as_str()).bind(payload["name"].as_str()).bind(payload["model"].as_str())
             .bind(payload["overlay_ip"].as_str()).bind(payload["lan_ip"].as_str()).bind(payload["is_gateway_self"].as_bool().unwrap_or(false))
             .bind(payload["remarks"].as_str()).bind(now()).bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
+        publications::sync_device_address(&mut transaction, owner, node, id).await?;
         let row = sqlx::query("SELECT * FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(id).bind(owner).bind(node).fetch_one(&mut *transaction).await?;
         let response = device_json(&mut transaction, &row, &self.runtime_observations).await?;
@@ -205,6 +206,7 @@ impl AssetsStore {
     pub(crate) async fn delete_device(&self, owner: i32, node: &str, id: &str) -> AssetResult<()> {
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         ensure_device(&mut transaction, owner, node, id).await?;
+        publications::remove_device(&mut transaction, owner, node, id).await?;
         // The cascading FK removes every service present at deletion time, not
         // only the service IDs displayed in a prior browser confirmation.
         sqlx::query("DELETE FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?")

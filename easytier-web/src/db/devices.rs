@@ -52,9 +52,9 @@ pub(crate) struct DeviceConnectionObservation {
 }
 
 impl Db {
-    /// A registered node with any manual children must remain intact. This
-    /// check is also made before central-network shutdown while holding the
-    /// same mutation lock used by manual asset creation.
+    /// A node with manual children or hosted service publications must remain
+    /// intact. Check before central-network shutdown while holding the same
+    /// mutation lock used by asset creation and service publication.
     pub(crate) async fn node_has_assets(
         &self,
         user_id: UserIdInDb,
@@ -62,8 +62,11 @@ impl Db {
     ) -> Result<bool, DbErr> {
         sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM asset_gateway_groups WHERE owner_user_id = ? AND machine_id = ? \
-             UNION ALL SELECT 1 FROM asset_devices WHERE owner_user_id = ? AND machine_id = ?)",
+             UNION ALL SELECT 1 FROM asset_devices WHERE owner_user_id = ? AND machine_id = ? \
+             UNION ALL SELECT 1 FROM asset_service_publications WHERE owner_user_id = ? AND public_machine_id = ?)",
         )
+        .bind(user_id)
+        .bind(machine_id.to_string())
         .bind(user_id)
         .bind(machine_id.to_string())
         .bind(user_id)
@@ -307,8 +310,11 @@ impl Db {
 
         let has_assets = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM asset_gateway_groups WHERE owner_user_id = ? AND machine_id = ? \
-             UNION ALL SELECT 1 FROM asset_devices WHERE owner_user_id = ? AND machine_id = ?)",
+             UNION ALL SELECT 1 FROM asset_devices WHERE owner_user_id = ? AND machine_id = ? \
+             UNION ALL SELECT 1 FROM asset_service_publications WHERE owner_user_id = ? AND public_machine_id = ?)",
         )
+        .bind(user_id)
+        .bind(&machine_id_value)
         .bind(user_id)
         .bind(&machine_id_value)
         .bind(user_id)
@@ -318,7 +324,7 @@ impl Db {
         .map_err(sqlx_db_error)?;
         if has_assets {
             transaction.rollback().await.map_err(sqlx_db_error)?;
-            return Err(DbErr::Custom("node_has_assets: remove its gateway groups and devices first".into()));
+            return Err(DbErr::Custom("node_has_assets: remove its gateway groups and devices, and unpublish services using this node first".into()));
         }
 
         if block {

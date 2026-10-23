@@ -9,7 +9,7 @@ import type {
     BindingPreviewInput, CandidateQuery, CreateAssetRequest, DeviceAddressPreviewInput,
     DeviceCreateInput, DeviceType, DeviceTypeInput, GatewayCreateInput, GatewayGroup,
     GatewayGroupUpdateInput, GatewaySubnetsPreviewInput, InstanceCandidate, InstancePreview,
-    PagedDevices, Subject,
+    PagedDevices, ServicePublicationNetwork, Subject,
 } from '../types/node-assets';
 
 export interface ValidateConfigResponse {
@@ -384,6 +384,12 @@ export class ApiClient {
         return this.client.get<unknown, AssetListResponse<AssetService>>(
             `/assets/devices/${encodeURIComponent(deviceId)}/services`, { params: scope },
         );
+    }
+
+    public async assetsServicePublicationNetworks(ownerUserId: number, machineId: string): Promise<AssetListResponse<ServicePublicationNetwork>> {
+        return this.client.get<unknown, AssetListResponse<ServicePublicationNetwork>>('/assets/service-publication/networks', {
+            params: { owner_user_id: ownerUserId, machine_id: machineId },
+        });
     }
 
     public async assetsCreateService(scope: AssetScope, deviceId: string, input: CreateAssetRequest<AssetServiceInput>): Promise<AssetService> {

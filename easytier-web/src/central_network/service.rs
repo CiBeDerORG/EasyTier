@@ -592,7 +592,7 @@ impl CentralNetworkService {
         // blocking or otherwise disturbing this node's running networks.
         if self.db.node_has_assets(user_id, machine_id).await? {
             return Err(CentralNetworkServiceError::Conflict(
-                "node_has_assets: remove its gateway groups and devices first".into(),
+                "node_has_assets: remove its gateway groups and devices, and unpublish services using this node first".into(),
             ));
         }
         if let Some(session) = self

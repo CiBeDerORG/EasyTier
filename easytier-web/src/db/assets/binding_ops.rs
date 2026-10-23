@@ -1,5 +1,5 @@
-//! Asset-side binding workflows. Reading and confirming these records never
-//! changes the EasyTier configuration or starts/stops a network instance.
+//! Asset-side binding workflows. They do not start or stop network instances;
+//! a confirmed device IP change also updates its service-owned public mappings.
 use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
@@ -8,7 +8,7 @@ use sqlx::{Row, SqliteConnection, sqlite::SqliteRow};
 use super::{
     AssetsStore, address_derivation, bindings, instances,
     common::{AssetError, AssetResult, device_json, ensure_node, group_json, now},
-    devices::validate_relations, idempotency::Operation, validation,
+    devices::validate_relations, idempotency::Operation, publications, validation,
 };
 use instances::RuntimeObservations;
 
@@ -366,6 +366,7 @@ impl AssetsStore {
             sqlx::query("UPDATE asset_devices SET address_mode = 'direct_instance', overlay_ip = ?, lan_ip = ?, rule_key = NULL, host_offset = NULL, updated_at = ? WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
                 .bind(preview["addresses"]["overlay_ip"].as_str()).bind(preview["addresses"]["lan_ip"].as_str())
                 .bind(now()).bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
+            publications::sync_device_address(&mut transaction, owner, node, id).await?;
         } else {
             sqlx::query("UPDATE asset_gateway_groups SET updated_at = ? WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
                 .bind(now()).bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
@@ -392,6 +393,7 @@ impl AssetsStore {
             .bind(spec["mode"].as_str()).bind(spec["rule_key"].as_str()).bind(spec["host_offset"].as_i64())
             .bind(now()).bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
         save_snapshot(&mut transaction, owner, node, "device", id, &prepared.snapshot).await?;
+        publications::sync_device_address(&mut transaction, owner, node, id).await?;
         let row = subject_row(&mut transaction, owner, node, "device", id).await?;
         let response = device_json(&mut transaction, &row, &self.runtime_observations).await?;
         operation.finish(&mut transaction, "device", id, &response).await?;

@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 use sqlx::{Row, SqliteConnection};
 
-use super::{AssetsStore, common::{AssetError, AssetResult, ensure_device, now, service_json}, idempotency::Operation, validation};
+use super::{AssetsStore, common::{AssetError, AssetResult, ensure_device, now, service_json}, idempotency::Operation, publications, validation};
 
 async fn available_bindings(connection: &mut SqliteConnection, owner: i32, node: &str, device: &str, excluded_id: &str, payload: &Value) -> AssetResult<()> {
     for protocol in payload["protocols"].as_array().into_iter().flatten() {
@@ -55,6 +55,11 @@ impl AssetsStore {
                 .ok_or_else(AssetError::not_found)?;
             response["overlay_ip"] = json!(overlay_ip);
             response["lan_ip"] = json!(lan_ip);
+            if let Some(id) = response["id"].as_str().map(str::to_owned) {
+                // A retry returns current publication ownership without replaying
+                // side effects or reviving a publication removed after creation.
+                response["publication"] = publications::response(&mut transaction, owner, node, &id).await?;
+            }
             transaction.commit().await?;
             return Ok(response);
         }
@@ -67,6 +72,7 @@ impl AssetsStore {
             .bind(payload["remarks"].as_str()).bind(payload["access_url"].as_str()).bind(payload["icon"].as_str())
             .bind(&timestamp).bind(&timestamp).execute(&mut *transaction).await?;
         insert_bindings(&mut transaction, owner, node, device, &id, &payload).await?;
+        publications::sync_service(&mut transaction, owner, node, device, &id, &payload, self.publication_runtime_proof.as_ref()).await?;
         let row = sqlx::query(
             "SELECT s.*, d.overlay_ip, d.lan_ip FROM asset_services s \
              JOIN asset_devices d ON d.id = s.device_id AND d.owner_user_id = s.owner_user_id AND d.machine_id = s.machine_id \
@@ -93,6 +99,7 @@ impl AssetsStore {
             .bind(payload["access_url"].as_str()).bind(payload["icon"].as_str()).bind(now()).bind(id).bind(owner).bind(node)
             .execute(&mut *transaction).await?;
         insert_bindings(&mut transaction, owner, node, &device, id, &payload).await?;
+        publications::sync_service(&mut transaction, owner, node, &device, id, &payload, self.publication_runtime_proof.as_ref()).await?;
         let row = sqlx::query(
             "SELECT s.*, d.overlay_ip, d.lan_ip FROM asset_services s \
              JOIN asset_devices d ON d.id = s.device_id AND d.owner_user_id = s.owner_user_id AND d.machine_id = s.machine_id \
@@ -106,6 +113,7 @@ impl AssetsStore {
 
     pub(crate) async fn delete_service(&self, owner: i32, node: &str, id: &str) -> AssetResult<()> {
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        publications::remove_service(&mut transaction, owner, node, id).await?;
         let result = sqlx::query("DELETE FROM asset_services WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
         if result.rows_affected() == 0 { return Err(AssetError::not_found()); }

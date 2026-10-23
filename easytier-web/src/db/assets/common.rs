@@ -178,12 +178,16 @@ pub(super) async fn device_json(connection: &mut SqliteConnection, row: &SqliteR
 
 pub(super) async fn service_json(connection: &mut SqliteConnection, row: &SqliteRow) -> AssetResult<Value> {
     let id: String = row.try_get("id")?;
+    let owner: i32 = row.try_get("owner_user_id")?;
+    let node: String = row.try_get("machine_id")?;
+    let publication = super::publications::response(connection, owner, &node, &id).await?;
     let protocols = sqlx::query_scalar::<_, String>("SELECT protocol FROM asset_service_bindings WHERE service_id = ? ORDER BY protocol")
         .bind(&id).fetch_all(&mut *connection).await?;
     Ok(json!({"id":id,"owner_user_id":row.try_get::<i32,_>("owner_user_id")?,
         "machine_id":row.try_get::<String,_>("machine_id")?,"device_id":row.try_get::<String,_>("device_id")?,
         "name":row.try_get::<String,_>("name")?,"protocols":protocols,"port":row.try_get::<i32,_>("port")?,
         "overlay_ip":row.try_get::<String,_>("overlay_ip")?,"lan_ip":row.try_get::<Option<String>,_>("lan_ip")?,
+        "publication":publication,
         "remarks":row.try_get::<Option<String>,_>("remarks")?,"access_url":row.try_get::<Option<String>,_>("access_url")?,
         "icon":row.try_get::<Option<String>,_>("icon")?,"created_at":row.try_get::<String,_>("created_at")?,
         "updated_at":row.try_get::<String,_>("updated_at")?}))

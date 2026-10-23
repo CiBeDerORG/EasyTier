@@ -3,9 +3,10 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { Button, Checkbox, Dialog, InputNumber, InputText, Select, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import type ApiClient from '../../modules/api';
-import type { AssetDevice, AssetIcon, AssetProtocol, AssetScope, AssetService, AssetServiceInput } from '../../types/node-assets';
+import type { AssetDevice, AssetIcon, AssetProtocol, AssetScope, AssetService, AssetServiceInput, ServicePublicationInput } from '../../types/node-assets';
 import { formatAssetError, getAssetError, useAssetMutation } from '../../composables/useAssetMutation';
 import { ASSET_SERVICE_ICON_OPTIONS, assetServiceIconClass } from '../../constants/asset-service-icons';
+import ServicePublicationDialog from './ServicePublicationDialog.vue';
 
 const props = defineProps<{
     visible: boolean;
@@ -31,6 +32,11 @@ const addresses = ref<Pick<AssetDevice, 'overlay_ip' | 'lan_ip'>>({
 });
 const addressLoading = ref(false);
 const addressError = ref('');
+const publicationEnabled = ref(false);
+const publicationEditorVisible = ref(false);
+const publication = ref<ServicePublicationInput | null>(null);
+const publicationLabels = reactive({ server_name: '', network_name: '' });
+let publicationWasEnabled = false;
 let revision = 0;
 let addressRevision = 0;
 
@@ -88,6 +94,15 @@ const resetDraft = () => {
     form.remarks = record?.remarks ?? '';
     form.access_url = record?.access_url ?? '';
     form.icon = record?.icon ?? null;
+    const configured = record?.publication;
+    publication.value = configured ? {
+        machine_id: configured.machine_id, instance_id: configured.instance_id,
+        bind_ip: configured.bind_ip, bind_port: configured.bind_port, dst_port: configured.dst_port,
+    } : null;
+    publicationEnabled.value = !!configured;
+    publicationEditorVisible.value = false;
+    publicationLabels.server_name = configured?.server_name ?? '';
+    publicationLabels.network_name = configured?.network_name ?? '';
 };
 
 watch([() => props.device.overlay_ip, () => props.device.lan_ip], adoptDeviceAddresses, { flush: 'sync' });
@@ -100,9 +115,41 @@ watch(() => [props.visible, contextKey.value, props.service?.id] as const, () =>
         revision++;
         attempt.reset();
         savingEdit.value = false;
+        publicationEditorVisible.value = false;
     }
 }, { immediate: true });
 onBeforeUnmount(() => { revision++; addressRevision++; attempt.reset(); });
+
+function openPublication() {
+    if (fieldsDisabled.value || !props.visible) return;
+    publicationWasEnabled = publicationEnabled.value;
+    publicationEnabled.value = true;
+    publicationEditorVisible.value = true;
+}
+
+function togglePublication(value: boolean) {
+    if (fieldsDisabled.value) return;
+    if (value) openPublication();
+    else publicationEnabled.value = false;
+}
+
+function cancelPublication() {
+    publicationEditorVisible.value = false;
+    publicationEnabled.value = publicationWasEnabled;
+}
+
+function confirmPublication(value: ServicePublicationInput, labels: { server_name: string; network_name: string }) {
+    publication.value = { ...value };
+    publicationEnabled.value = true;
+    publicationEditorVisible.value = false;
+    Object.assign(publicationLabels, labels);
+    fieldErrors.value = Object.fromEntries(Object.entries(fieldErrors.value)
+        .filter(([field]) => field !== 'publication' && !field.startsWith('publication.')));
+}
+
+function endpoint(ip: string, port: number) {
+    return `${ip.includes(':') ? `[${ip}]` : ip}:${port}`;
+}
 
 function validate(): AssetServiceInput | null {
     const errors: Record<string, string> = {};
@@ -116,6 +163,7 @@ function validate(): AssetServiceInput | null {
         errors.port = t('assets.services.portInvalid');
     }
     if (Array.from(remarks).length > 2000) errors.remarks = t('assets.services.remarksTooLong');
+    if (publicationEnabled.value && !publication.value) errors.publication = t('assets.publication.configurationRequired');
     if (accessUrl) {
         try {
             const url = new URL(accessUrl);
@@ -136,17 +184,23 @@ function validate(): AssetServiceInput | null {
         remarks: remarks || null,
         access_url: accessUrl || null,
         icon: form.icon ?? null,
+        publication: publicationEnabled.value && publication.value ? {
+            machine_id: publication.value.machine_id, instance_id: publication.value.instance_id,
+            bind_ip: publication.value.bind_ip, bind_port: publication.value.bind_port,
+            dst_port: publication.value.dst_port,
+        } : null,
     };
 }
 
 async function save() {
-    if (busy.value || !props.visible) return;
+    if (busy.value || !props.visible || publicationEditorVisible.value) return;
     const payload = validate();
     if (!payload) return;
     const scope = { ...props.scope };
     const deviceId = props.device.id;
     const serviceId = props.service?.id;
     const current = revision;
+    let reviewPublication = false;
     saveError.value = '';
     try {
         let result: AssetService;
@@ -165,8 +219,13 @@ async function save() {
         emit('context-error', error);
         fieldErrors.value = getAssetError(error).field_errors;
         saveError.value = formatAssetError(error, t('assets.services.saveFailed'), key => t(key));
+        reviewPublication = publicationEnabled.value && Object.keys(fieldErrors.value)
+            .some(field => field === 'publication' || field.startsWith('publication.'));
     } finally {
-        if (current === revision) savingEdit.value = false;
+        if (current === revision) {
+            savingEdit.value = false;
+            if (reviewPublication && !uncertain.value) openPublication();
+        }
     }
 }
 
@@ -175,6 +234,7 @@ function close() {
     revision++;
     addressRevision++;
     attempt.reset();
+    publicationEditorVisible.value = false;
     emit('close');
 }
 </script>
@@ -182,6 +242,7 @@ function close() {
 <template>
     <Dialog :visible="visible" modal :header="t(editing ? 'assets.services.editTitle' : 'assets.services.addTitle')"
         :style="{ width: '38rem', maxWidth: 'calc(100vw - 2rem)' }" :dismissableMask="false"
+        :closable="!publicationEditorVisible" :closeOnEscape="!publicationEditorVisible"
         @update:visible="value => { if (!value) close(); }">
         <form :id="formId" class="service-form" @submit.prevent="save">
             <p class="service-context">{{ t('assets.services.deviceContext', { name: device.name }) }}</p>
@@ -235,6 +296,24 @@ function close() {
                     <small v-if="fieldErrors.port" :id="fieldId('port-error')" class="field-error">{{ fieldErrors.port }}</small>
                 </div>
             </div>
+            <div class="service-field service-publication">
+                <div class="service-publication-heading">
+                    <div class="service-publication-toggle">
+                        <Checkbox :inputId="fieldId('public')" :modelValue="publicationEnabled" binary
+                            :disabled="fieldsDisabled" @update:modelValue="togglePublication" />
+                        <label :for="fieldId('public')">{{ t('assets.publication.label') }}</label>
+                    </div>
+                    <Button v-if="publicationEnabled" :label="t('assets.publication.configure')" type="button" icon="pi pi-cog" text size="small"
+                        :disabled="fieldsDisabled" @click="openPublication" />
+                </div>
+                <div v-if="publicationEnabled && publication" class="service-publication-summary">
+                    <span>{{ publicationLabels.server_name || publication.machine_id }} · {{ publicationLabels.network_name || publication.instance_id }}</span>
+                    <code>{{ endpoint(publication.bind_ip, publication.bind_port) }} → {{ endpoint(addresses.overlay_ip, publication.dst_port) }}</code>
+                </div>
+                <small v-if="publicationEnabled">{{ t('assets.publication.applyHint') }}</small>
+                <small v-else-if="service?.publication">{{ t('assets.publication.disableHint') }}</small>
+                <small v-if="fieldErrors.publication" class="field-error">{{ fieldErrors.publication }}</small>
+            </div>
             <div class="service-field">
                 <label :for="fieldId('url')">{{ t('assets.services.accessUrl') }}</label>
                 <InputText :id="fieldId('url')" v-model="form.access_url" :disabled="fieldsDisabled" inputmode="url"
@@ -270,9 +349,14 @@ function close() {
         <template #footer>
             <Button :label="t('assets.services.cancel')" severity="secondary" @click="close" />
             <Button :label="t(uncertain ? 'assets.services.retryOriginal' : 'assets.services.save')" icon="pi pi-check"
-                type="submit" :form="formId" :loading="busy" :disabled="busy" />
+                type="submit" :form="formId" :loading="busy" :disabled="busy || publicationEditorVisible" />
         </template>
     </Dialog>
+    <ServicePublicationDialog v-if="publicationEditorVisible" :visible="true" :api="api" :scope="scope"
+        :form-id="`${formId}-publication`" :publication="publication" :server-name="publicationLabels.server_name"
+        :network-name="publicationLabels.network_name" :protocols="form.protocols" :service-port="form.port"
+        :target-ip="addresses.overlay_ip" :field-errors="fieldErrors" :disabled="fieldsDisabled"
+        @cancel="cancelPublication" @confirmed="confirmPublication" @context-error="emit('context-error', $event)" />
 </template>
 
 <style scoped>
@@ -283,6 +367,10 @@ function close() {
 .service-field small { color: var(--console-muted, var(--p-text-muted-color)); }
 .service-fields-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
 .service-address-status { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.service-publication { padding: 0.8rem; border: 1px solid var(--console-border, var(--p-content-border-color)); border-radius: 0.5rem; }
+.service-publication-heading, .service-publication-toggle { display: flex; align-items: center; gap: 0.6rem; }
+.service-publication-heading { justify-content: space-between; flex-wrap: wrap; }
+.service-publication-summary { display: grid; gap: 0.3rem; font-size: 0.875rem; overflow-wrap: anywhere; }
 .protocol-field { margin: 0; padding: 0; border: 0; }
 .protocol-field legend { margin-bottom: 0.6rem; }
 .protocol-options, .protocol-option, .icon-choice { display: flex; align-items: center; gap: 0.6rem; }
