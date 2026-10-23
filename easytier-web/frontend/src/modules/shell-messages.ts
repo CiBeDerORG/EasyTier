@@ -1,5 +1,7 @@
 export const shellMessages = {
     cn: {
+        deployAgents: '应用与服务', automationCenter: '自动化中心', manualRefresh: '刷新导航',
+        manualRefreshHint: '本页仅手动操作；刷新导航只读取控制台已保存的数据。',
         workspace: '网络工作空间', central: '集中管理', external: '设备控制台', discovering: '正在连接控制台',
         networkCount: '{count} 个网络', clipboardFailed: '复制失败，请手动选择并复制命令。',
         authEyebrow: 'EASYTIER · NETWORK WORKSPACE', authTitle: '让每个节点，\n连接更多可能。',
@@ -19,6 +21,8 @@ export const shellMessages = {
         passwordSaved: '密码已更新', savePassword: '更新密码',
     },
     en: {
+        deployAgents: 'Applications & services', automationCenter: 'Automation center', manualRefresh: 'Refresh navigation',
+        manualRefreshHint: 'Actions on this page are manual. Refresh navigation reads saved console data only.',
         workspace: 'Network workspace', central: 'Central management', external: 'Device console', discovering: 'Connecting to console',
         networkCount: '{count} networks', clipboardFailed: 'Could not copy. Select and copy the command manually.',
         authEyebrow: 'EASYTIER · NETWORK WORKSPACE', authTitle: 'Every node.\nMore possibilities.',

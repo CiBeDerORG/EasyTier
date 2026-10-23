@@ -30,6 +30,7 @@ mod client_manager;
 #[cfg(test)]
 mod config_server_listener_tests;
 mod db;
+mod deploy_agent;
 mod migrator;
 mod restful;
 mod webhook;

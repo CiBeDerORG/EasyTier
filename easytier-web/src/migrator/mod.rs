@@ -16,6 +16,7 @@ mod m20261023_000014_user_soft_delete;
 mod m20261023_000015_service_publications;
 mod m20261023_000016_node_geo_locations;
 mod m20261024_000011_network_space;
+mod m20261024_000011_deploy_agents;
 
 #[cfg(test)]
 mod merge_upgrade_tests;
@@ -41,6 +42,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261023_000015_service_publications::Migration),
             Box::new(m20261023_000016_node_geo_locations::Migration),
             Box::new(m20261024_000011_network_space::Migration),
+            Box::new(m20261024_000011_deploy_agents::Migration),
         ]
     }
 }

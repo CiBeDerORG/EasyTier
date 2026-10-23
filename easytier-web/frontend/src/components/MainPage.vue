@@ -34,6 +34,8 @@ const autoRefreshEnabled = Polling.provideAutoRefresh();
 const router = useRouter();
 const toast = useToast();
 const route = useRoute();
+const manualManagementPage = computed(() => ['deployAgents', 'automationCenter'].includes(String(route.name)));
+const navigationAutoRefresh = computed(() => autoRefreshEnabled.value && !manualManagementPage.value);
 const sidebarStorageKey = 'easytier.sidebar.collapsed';
 const sidebarCollapsed = ref((() => {
     try { return localStorage.getItem(sidebarStorageKey) === 'true'; } catch { return false; }
@@ -127,7 +129,7 @@ const loadNavigation = async (canContinue = () => true) => {
     }
     if (canContinue()) await Promise.all([loadNetworks(), loadBlockedDevices()]);
 };
-Polling.useAutoRefreshTask(loadNavigation, 10_000, { enabled: autoRefreshEnabled });
+Polling.useAutoRefreshTask(loadNavigation, 10_000, { enabled: navigationAutoRefresh });
 onMounted(() => {
     // The users page performs and reports its own permission check on entry.
     if (route.name !== 'userManagement') void loadUserAdminAccess();
@@ -209,6 +211,7 @@ const workspaceNavigation = computed<NavItem[]>(() => [
     ...(centralEnabled.value ? [{ key: 'nodeAssets', label: t('assets.page.title'), icon: 'pi pi-list', to: { name: 'nodeAssets' }, child: true }] : []),
     ...(centralEnabled.value ? [{ key: 'serviceManagement', label: t('web.console.service_management'), icon: 'pi pi-sliders-h', to: { name: 'serviceManagement' } }] : []),
     ...(canManageUsers.value ? [{ key: 'userManagement', label: t('user_admin.title'), icon: 'pi pi-users', to: { name: 'userManagement' } }] : []),
+    { key: 'deployAgents', label: ui('deployAgents'), icon: 'pi pi-box', to: { name: 'deployAgents' } },
 ]);
 const networkNavigation = computed<NavItem[]>(() => [
     { key: 'networkList', label: t('web.main.network_list'), icon: 'pi pi-globe', to: { name: 'networkList' } },
@@ -326,7 +329,9 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <i class="pi pi-angle-right topbar-brand" aria-hidden="true"></i><span class="console-current-page">{{ pageTitle }}</span>
                 </div>
                 <div class="console-topbar-actions">
-                    <div class="console-auto-refresh flex items-center gap-2" :title="t('web.console.auto_refresh_hint')">
+                    <Button v-if="manualManagementPage" :label="ui('manualRefresh')" icon="pi pi-refresh"
+                        text severity="secondary" size="small" :title="ui('manualRefreshHint')" @click="loadNavigation()" />
+                    <div v-else class="console-auto-refresh flex items-center gap-2" :title="t('web.console.auto_refresh_hint')">
                         <InputSwitch inputId="console-auto-refresh" v-model="autoRefreshEnabled"
                             :aria-label="t('web.console.auto_refresh')" />
                         <label for="console-auto-refresh" class="text-sm whitespace-nowrap">{{ t('web.console.auto_refresh') }}</label>

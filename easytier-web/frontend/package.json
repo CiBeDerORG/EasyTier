@@ -8,6 +8,8 @@
     "build": "pnpm --dir ../frontend-lib build && pnpm build:ci",
     "build:ci": "vue-tsc -b && vite build",
     "preview": "vite preview",
+    "test:agent": "pnpm build && node --test tests/deploy-agents.test.mjs",
+    "test:agent:integration": "node tests/deploy-agent-integration.mjs",
     "test:unit": "node --test --experimental-strip-types tests/network-space-unit.test.mjs",
     "test:network-space": "pnpm build && node --test tests/network-space.test.mjs",
     "test:browser": "pnpm build && node --test tests/dashboard.test.mjs tests/network-space.test.mjs",
