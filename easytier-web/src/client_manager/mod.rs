@@ -345,7 +345,7 @@ impl ClientManager {
         self.invalidate_applied_config_revision(user_id, machine_id)
             .await;
         let rpc = session.scoped_rpc_client();
-        let stopped = tokio::time::timeout(Duration::from_secs(8), async {
+        let stopped = tokio::time::timeout(Duration::from_secs(8), async move {
             use easytier::proto::api::manage::{
                 DeleteNetworkInstanceRequest, ListNetworkInstanceRequest,
             };

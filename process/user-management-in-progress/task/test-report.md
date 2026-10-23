@@ -49,3 +49,10 @@
 - 前端：57 个单元测试、10 组网络配置映射断言和 13 个节点属性浏览器回归全部通过，Vue 类型检查及生产构建通过。
 - 新增工作流只在当前分支的工作流文件变化或手动调用时触发；普通源码与报告提交不触发，未部署或操作实际用户数据。
 - 本轮未修改业务代码。新增用户管理专项业务场景仍待验证，详见[本轮完整测试报告](../../test/2026-10-23-node-attributes-main-github-actions.md)。
+
+## 2026-10-23 修复删除用户接口编译阻塞
+
+- 用户要求检查并修改上一轮 Actions 发现的问题，沿用 `feat/node-attributes-main`。
+- 将 `ClientManager::stop_networks_for_deleted_user` 的 RPC timeout 异步块改为 `async move`，使只有 `Send` 的 RPC client 由 future 持有，解决跨 await 借用导致的 handler future 约束问题。
+- 工作流增加分支/提交号运行标题，由本次提交触发修复后的既有 Web 回归；普通源码与报告提交仍不自动触发。
+- 当前为修复准备阶段，尚无本轮执行结果；结果、提交号及运行链接以[本轮修复与复测报告](../../test/2026-10-23-user-delete-send-fix.md)为准。
