@@ -18,6 +18,7 @@ mod m20261023_000016_node_geo_locations;
 mod m20261024_000011_network_space;
 mod m20261024_000011_deploy_agents;
 mod m20261024_000017_asset_service_navigation;
+mod m20261024_000018_automation_center;
 
 #[cfg(test)]
 mod merge_upgrade_tests;
@@ -45,6 +46,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261024_000011_network_space::Migration),
             Box::new(m20261024_000011_deploy_agents::Migration),
             Box::new(m20261024_000017_asset_service_navigation::Migration),
+            Box::new(m20261024_000018_automation_center::Migration),
         ]
     }
 }

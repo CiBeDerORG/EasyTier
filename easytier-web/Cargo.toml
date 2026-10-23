@@ -22,7 +22,7 @@ prost.workspace = true
 
 maxminddb = "0.32"
 
-axum = { workspace = true, features = ["macros"] }
+axum = { workspace = true, features = ["macros", "ws"] }
 axum-login = { version = "0.18" }
 password-auth = { version = "1.0.0" }
 axum-messages = "0.8.0"

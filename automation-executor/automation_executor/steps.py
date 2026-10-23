@@ -1,0 +1,115 @@
+"""Finite device actions executed in a separate, bounded worker process.
+
+The pinned uiautomator2 low-level RPC is intentionally used without its
+restart-and-retry wrapper: a failed response must never repeat a click/input.
+"""
+import base64
+import os
+from pathlib import Path
+import time
+
+
+class StepFailure(Exception):
+    def __init__(self, code, message, outcome_unknown=False):
+        self.code, self.message, self.outcome_unknown = code, message, outcome_unknown
+        super().__init__(message)
+
+
+def execute(target, step, parameters, artifact_path=None):
+    import adbutils
+    from uiautomator2.core import DEFAULT_SERVER_PORT, _jsonrpc_call
+    from uiautomator2._selector import Selector
+
+    address = f'{target["ip"]}:{target["adb_port"]}'
+    dev = adbutils.adb.device(serial=address)
+    if dev.get_state() != "device":
+        raise StepFailure("adb_unauthorized", "手机未连接或未授权")
+    def rpc(method, *params, timeout=8):
+        # No exception text/params escape into logs or user-facing errors.
+        readonly = method in ("count", "objInfo", "deviceInfo", "takeScreenshot")
+        try:
+            result = _jsonrpc_call(dev, DEFAULT_SERVER_PORT, method, params, timeout, False)
+        except Exception:
+            raise StepFailure("capability_unavailable" if readonly else "device_action_unconfirmed",
+                              "控件组件不可用，请检查手机后手动重新准备" if readonly else "设备动作结果未确认，未重复发送",
+                              outcome_unknown=not readonly) from None
+        if result is False and not readonly:
+            raise StepFailure("action_rejected", "设备拒绝执行该动作")
+        return result
+
+    rpc("deviceInfo", timeout=5)  # One bounded readiness check; never restart the helper here.
+
+    def find(raw, timeout_ms=0):
+        translated = {"resource_id": "resourceId", "description": "description", "text": "text"}
+        selected = Selector(**{translated[key]: value for key, value in raw.items()})
+        deadline = time.monotonic() + timeout_ms / 1000
+        while True:
+            count = rpc("count", selected)
+            if count == 1:
+                return selected
+            if isinstance(count, int) and count > 1:
+                raise StepFailure("selector_ambiguous", "控件条件匹配多项，请缩小条件")
+            if time.monotonic() >= deadline:
+                raise StepFailure("selector_not_found", "在规定时间内未找到控件")
+            # Bounded read-only waiting inside this explicit step, not a scanner.
+            time.sleep(min(.2, max(0, deadline - time.monotonic())))
+
+    kind = step["type"]
+    if kind in ("wait_for", "assert"):
+        find(step["selector"], step["timeout_ms"])
+        return {"state": "assertion_passed", "message": "指定控件条件检查通过"}
+    if kind == "tap" and "selector" in step:
+        selected = find(step["selector"])
+        info = rpc("objInfo", selected)
+        bounds = info.get("visibleBounds") or info.get("bounds")
+        if not isinstance(bounds, dict) or not all(isinstance(bounds.get(k), int) for k in ("left", "top", "right", "bottom")):
+            raise StepFailure("selector_geometry_invalid", "无法确定控件的有效点击区域")
+        if bounds["right"] <= bounds["left"] or bounds["bottom"] <= bounds["top"]:
+            raise StepFailure("selector_geometry_invalid", "控件没有有效点击区域")
+        rpc("click", (bounds["left"] + bounds["right"]) // 2, (bounds["top"] + bounds["bottom"]) // 2)
+    elif kind in ("tap", "swipe"):
+        width, height = dev.window_size()
+        if (width < 1 or height < 1 or abs(width / height - step["width"] / step["height"]) > .02
+                or (width > height) != (step["width"] > step["height"])):
+            raise StepFailure("geometry_changed", "设备方向或画面比例与步骤不匹配，请重新校准坐标")
+        x, y = min(width - 1, round(step["x"] * width)), min(height - 1, round(step["y"] * height))
+        if kind == "tap":
+            rpc("click", x, y)
+        else:
+            tx, ty = min(width - 1, round(step["to_x"] * width)), min(height - 1, round(step["to_y"] * height))
+            rpc("swipe", x, y, tx, ty, max(1, step["duration_ms"] // 5))
+    elif kind == "input_text":
+        value = step["text"] if "text" in step else parameters[step["parameter"]]
+        selected = find(step["selector"]) if "selector" in step else Selector(focused=True)
+        if "selector" not in step and rpc("count", selected) != 1:
+            raise StepFailure("input_target_missing", "请先选择唯一的文字输入框")
+        # Setting text is Unicode-capable; no clipboard, IME fallback or retries.
+        if value:
+            rpc("setText", selected, value)
+        else:
+            rpc("clearTextField", selected)
+    elif kind == "key":
+        code = {"HOME": 3, "BACK": 4, "RECENT": 187, "WAKE": 224}[step["key"]]
+        rpc("pressKeyCode", code)
+    elif kind == "launch_app":
+        response = dev.shell2(["am", "start", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-p", step["package"]], timeout=10)
+        if response.returncode != 0 or "Error:" in response.output:
+            raise StepFailure("app_start_failed", "无法打开指定应用，请检查是否已安装且提供启动入口")
+    elif kind == "screenshot":
+        encoded = rpc("takeScreenshot", 1, 80)
+        if not isinstance(encoded, str) or not encoded or len(encoded) > 12 * 1024 * 1024:
+            raise StepFailure("screenshot_failed", "未取得有效截图或截图超过容量限制")
+        data = base64.b64decode(encoded, validate=True)
+        if len(data) > 8 * 1024 * 1024:
+            raise StepFailure("screenshot_failed", "截图超过 8MiB 上限")
+        if not (data.startswith(b"\xff\xd8") or data.startswith(b"\x89PNG\r\n\x1a\n")):
+            raise StepFailure("screenshot_failed", "截图格式不受支持")
+        path = Path(artifact_path)
+        with path.open("xb") as handle:
+            handle.write(data)
+        os.chmod(path, 0o600)
+        return {"state": "completed", "message": "截图已保存，仅作为该时刻的画面证据",
+                "artifact_size": len(data), "mime_type": "image/png" if data.startswith(b"\x89PNG") else "image/jpeg"}
+    else:
+        raise StepFailure("unsupported_step", "不支持该脚本动作")
+    return {"state": "action_sent", "message": "动作已交给设备；应用结果需通过后续断言确认"}

@@ -3,6 +3,7 @@ mod central_intent;
 mod devices;
 pub(crate) mod node_geo;
 pub(crate) mod assets;
+pub(crate) mod automation;
 pub(crate) mod user_admin;
 #[allow(unused_imports)]
 pub mod entity;

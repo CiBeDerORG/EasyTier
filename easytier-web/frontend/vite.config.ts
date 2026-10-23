@@ -14,6 +14,7 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: API_BASE_URL,
+        ws: true,
       },
       "/api_meta.js": {
         target: API_BASE_URL,

@@ -2,6 +2,7 @@
 
 |需求|状态|进度及问题|
 |---|---|---|
+|[自动化中心](automation-center-in-progress/README.md)|源码完成，待验证|基于feat/node-attributes-tech-console的f951e054，在feat/automation-center实现资产接入、WebRTC手机墙与悬浮控制、有限脚本及逐设备结果；延续调试模式，未测试/部署/push。|
 |[用户管理与删除停网](user-management-in-progress/README.md)|已实现，待验证|管理员菜单、全量用户列表和逻辑删除；禁用全部网络配置，保留节点/设备/服务，在线停止与离线未确认分开反馈。本轮按用户指令先提交推送，测试与部署未执行。|
 |[节点设备角色与网络实例绑定](node-instance-binding-planned/README.md)|已验证并部署当前云环境|14项任务完成，角色/实例绑定、IPv4派生、旧资料兼容与配置变化处理已交付；[验证报告](node-instance-binding-planned/task/verification-report.md)、[备份部署记录](node-instance-binding-planned/task/release-record.md)。无公网/Dot访问入口。|
 |[节点详情、设备与服务](node-device-service-discussion/README.md)|已交付|原16项任务及R01–R05复审修复已随实例绑定版验证部署；原报告保留历史证据，最终结果见新轮报告。|

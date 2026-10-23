@@ -128,6 +128,14 @@ async fn delete_user(
             None
         }
     };
+    // Database triggers have already recorded automation revocation in the
+    // account retirement transaction. Notify the executor after releasing the
+    // existing configuration lock; its failure cannot undo account deletion.
+    drop(_mutation);
+    let automation_service = service.clone();
+    tokio::spawn(async move {
+        super::automation::revoke_actor_or_owner(&automation_service, user_id).await;
+    });
     Ok(Json(json!({
         "user_id": deleted.user_id,
         "deleted_at": deleted.deleted_at,

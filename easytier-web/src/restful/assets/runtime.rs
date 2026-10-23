@@ -13,7 +13,7 @@ use super::AppStateInner;
 /// Call only after checking asset scope permissions, before taking a mutation
 /// lock or opening a write transaction. A failed optional observation must not
 /// prevent reading saved configurations or maintaining existing asset metadata.
-pub(super) async fn observe(
+pub(in crate::restful) async fn observe(
     manager: &AppStateInner,
     db: &Db,
     owner: i32,

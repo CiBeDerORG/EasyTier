@@ -1,5 +1,6 @@
 mod auth;
 mod assets;
+mod automation;
 pub(crate) mod captcha;
 mod central_network;
 mod geocoding;
@@ -355,6 +356,7 @@ impl RestfulServer {
             // Asset handlers authenticate the session themselves so errors use
             // their JSON contract, including unauthenticated requests.
             .merge(assets::router())
+            .merge(automation::router())
             .merge(user_admin::router())
             .merge(auth::router().layer(Extension(self.feature_flags.clone())))
             .merge(oidc::router())

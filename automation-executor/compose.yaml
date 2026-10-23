@@ -1,0 +1,25 @@
+services:
+  automation-executor:
+    build: .
+    # ICE advertises host addresses and uses dynamic UDP ports. Linux only.
+    network_mode: host
+    init: true
+    restart: unless-stopped
+    command: ["uvicorn", "automation_executor.app:app", "--host", "${AUTOMATION_BIND_IP:-127.0.0.1}", "--port", "${AUTOMATION_PORT:-8766}", "--workers", "1", "--no-access-log"]
+    environment:
+      AUTOMATION_TOKEN: ${AUTOMATION_TOKEN:?Set a private token of at least 32 bytes}
+      AUTOMATION_CALLBACK_URL: ${AUTOMATION_CALLBACK_URL:?Set the trusted EasyTier backend URL}
+      AUTOMATION_MAX_RUNNING: ${AUTOMATION_MAX_RUNNING:-2}
+      AUTOMATION_MAX_PENDING: ${AUTOMATION_MAX_PENDING:-30}
+      AUTOMATION_MAX_MEDIA_SESSIONS: ${AUTOMATION_MAX_MEDIA_SESSIONS:-10}
+      AUTOMATION_MAX_MEDIA_STARTING: ${AUTOMATION_MAX_MEDIA_STARTING:-2}
+      AUTOMATION_ICE_SERVERS: ${AUTOMATION_ICE_SERVERS:-[]}
+      AUTOMATION_TURN_URLS: ${AUTOMATION_TURN_URLS:-[]}
+      AUTOMATION_TURN_SECRET: ${AUTOMATION_TURN_SECRET:-}
+      AUTOMATION_TURN_TTL_SECONDS: ${AUTOMATION_TURN_TTL_SECONDS:-3600}
+    volumes:
+      - executor-data:/var/lib/easytier-automation
+      - adb-identity:/home/automation/.android
+volumes:
+  executor-data:
+  adb-identity:

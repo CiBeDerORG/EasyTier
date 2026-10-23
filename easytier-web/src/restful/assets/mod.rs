@@ -2,7 +2,7 @@
 //! Existing machine registration and network instance routes remain separate.
 mod publication;
 mod publication_apply;
-mod runtime;
+pub(super) mod runtime;
 
 use std::sync::Arc;
 

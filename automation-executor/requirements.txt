@@ -1,0 +1,7 @@
+# Direct compatibility pins. Transitive lock/build verification is still pending.
+fastapi==0.115.12
+uvicorn==0.34.0
+httpx==0.28.1
+aiortc==1.13.0
+av==14.4.0
+uiautomator2==3.7.1

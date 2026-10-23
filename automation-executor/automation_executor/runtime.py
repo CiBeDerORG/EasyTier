@@ -1,0 +1,481 @@
+import asyncio
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from uuid import uuid4
+
+import httpx
+
+from . import PROTOCOL_VERSION
+from . import adb, validation
+from .errors import ExecutorError, invalid
+from .journal import Journal, TERMINAL, now
+from .worker import PreparedHelper, cleanup_record, execute_step
+
+
+@dataclass
+class Session:
+    target: dict
+    deadline: float
+    timer: asyncio.Task | None = None
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    commands: OrderedDict = field(default_factory=OrderedDict)
+    last_seq: int = 0
+    cancel: asyncio.Event = field(default_factory=asyncio.Event)
+    closing: bool = False
+
+
+class Runtime:
+    def __init__(self, settings):
+        from .media import MediaManager
+        self.settings = settings
+        settings.data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.artifact_dir = settings.data_dir / "artifacts"
+        self.artifact_dir.mkdir(mode=0o700, exist_ok=True)
+        self.journal = Journal(settings.data_dir / "execution.sqlite3")
+        self.journal.recover()
+        self.media = MediaManager()
+        self.http = httpx.AsyncClient(timeout=8, follow_redirects=False, trust_env=False,
+                                     headers={b"Authorization": ("Bearer " + settings.token).encode()})
+        self.sessions: dict[str, Session] = {}
+        self.tasks: dict[str, asyncio.Task] = {}
+        self.cancellations: dict[str, asyncio.Event] = {}
+        self.helpers: dict[str, PreparedHelper] = {}
+        self.admission = asyncio.Lock()
+        self.capacity = asyncio.Semaphore(settings.max_running)
+        self.artifact_lock = asyncio.Lock()
+        self.shutting_down = False
+
+    def health(self):
+        return {"protocol_version": PROTOCOL_VERSION, "state": "ready", "executor_id": self.journal.executor_id, "generation": self.journal.generation,
+                "capabilities": {"adb": True, "webrtc": True, "scripts": bool(self.settings.callback_url)},
+                "limits": {"running_devices": self.settings.max_running, "pending_runs": self.settings.max_pending}}
+
+    def prepared(self, target):
+        helper = self.helpers.get(target["device_id"])
+        return bool(helper and helper.ready_flag and helper.alive() and helper.target["target_fingerprint"] == target["target_fingerprint"]
+                    and self.journal.prepared(target))
+
+    def session(self, sid):
+        current = self.sessions.get(sid)
+        if not current or current.closing or asyncio.get_running_loop().time() >= current.deadline:
+            raise ExecutorError("session_expired", "会话已关闭或授权到期，请重新打开画面", 410)
+        return current
+
+    async def prepare(self, body):
+        if self.shutting_down:
+            raise ExecutorError("executor_stopping", "执行器正在停止", 503)
+        validation.object_fields(body, {"target", "action", "pairing_port", "code"}, {"target", "action"})
+        target = validation.target(body["target"])
+        action = body["action"]
+        if action not in ("pair", "connect", "inspect", "automation"):
+            raise invalid("不支持该准备操作")
+        if action == "inspect":
+            result = await adb.prepare(self.settings.adb_binary, target, action, body.get("pairing_port"), body.get("code"))
+            result["capabilities"]["automation"] = self.prepared(target)
+            return result
+        async with self.admission:
+            previous = self.journal.control(target)
+            if (previous and previous["kind"] == "prepare" and previous["state"] == "cleanup_pending"
+                    and previous["device_id"] not in self.helpers):
+                # Only explicit preparation can reclaim a preparation interrupted by
+                # restart. Never steal a current active preparation or a run/session.
+                helper_holder = "helper:" + previous["device_id"]
+                record = self.journal.worker_record(helper_holder)
+                if not await asyncio.to_thread(cleanup_record, record):
+                    raise ExecutorError("cleanup_pending", "旧控件准备进程尚未确认停止，请稍后手动重试")
+                self.journal.clear_worker(helper_holder)
+                self.journal.release(previous["holder"])
+            holder = "prepare:" + str(uuid4())
+            self.journal.claim(target, holder, "prepare")
+        try:
+            if action == "automation":
+                if body.get("code") is not None or body.get("pairing_port") is not None:
+                    raise invalid()
+                await adb.require_connected(self.settings.adb_binary, target)
+                if any(did != target["device_id"] and validation.endpoint(helper.target) == validation.endpoint(target)
+                       for did, helper in self.helpers.items()):
+                    raise ExecutorError("target_alias_conflict", "同一 ADB 地址已由另一设备资料准备，请先修正重复目标")
+                old = self.helpers.pop(target["device_id"], None)
+                if old and not await old.close():
+                    self.helpers[target["device_id"]] = old
+                    raise ExecutorError("cleanup_pending", "之前的控件组件尚未完成清理")
+                if len(self.helpers) >= 30:
+                    raise ExecutorError("executor_capacity", "控件准备容量已满", 429)
+                old_record = self.journal.worker_record("helper:" + target["device_id"])
+                if not await asyncio.to_thread(cleanup_record, old_record):
+                    raise ExecutorError("cleanup_pending", "旧控件进程尚未完成清理")
+                helper = PreparedHelper(self.journal, target, self.settings.adb_binary)
+                try:
+                    result = await helper.ready()
+                except BaseException:
+                    if not await helper.close():
+                        self.helpers[target["device_id"]] = helper
+                    raise
+                self.helpers[target["device_id"]] = helper
+                self.journal.mark_prepared(target)
+                return result
+            return await adb.prepare(self.settings.adb_binary, target, action, body.get("pairing_port"), body.get("code"))
+        finally:
+            self.journal.release(holder, clean=self.journal.worker_record(holder) is None)
+
+    async def create_session(self, body):
+        validation.object_fields(body, {"id", "target", "quality", "lease_seconds"}, {"id", "target", "quality", "lease_seconds"})
+        sid = validation.identifier(body["id"])
+        target = validation.target(body["target"])
+        validation.integer(body["lease_seconds"], 1, 60)
+        if body["quality"] not in ("wall", "focus"):
+            raise invalid("画质档位无效")
+        async with self.admission:
+            if self.shutting_down:
+                raise ExecutorError("executor_stopping", "执行器正在停止", 503)
+            self.journal.create_session(sid, target)
+            try:
+                details = await self.media.create(sid, target, body["quality"])
+                if self.journal.db.execute("SELECT 1 FROM closed_sessions WHERE id=?", (sid,)).fetchone():
+                    await self.media.close(sid)
+                    raise ExecutorError("session_closed", "创建期间会话已被关闭")
+            except Exception:
+                self.journal.session_state(sid, "failed")
+                raise
+            current = Session(target, asyncio.get_running_loop().time() + body["lease_seconds"])
+            self.sessions[sid] = current
+            current.timer = asyncio.create_task(self._expire_session(sid, current))
+        return {"id": sid, "device_id": target["device_id"], "state": "opening", **details,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=body["lease_seconds"])).isoformat()}
+
+    async def _expire_session(self, sid, session):
+        try:
+            while not session.closing:
+                remaining = session.deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    await self.close_session(sid)
+                    return
+                await asyncio.sleep(remaining)
+        except asyncio.CancelledError:
+            pass
+
+    async def offer(self, sid, body):
+        validation.object_fields(body, {"sdp", "type"}, {"sdp", "type"})
+        if body["type"] != "offer":
+            raise invalid("SDP 类型必须为 offer")
+        sdp = validation.text(body["sdp"], 65536)
+        self.session(sid)
+        result = await self.media.offer(sid, sdp)
+        self.session(sid)  # It may have expired while ADB/ICE was being prepared.
+        self.journal.session_state(sid, "active")
+        return result
+
+    async def renew(self, sid, body):
+        validation.object_fields(body, {"target_fingerprint", "lease_seconds"}, {"target_fingerprint", "lease_seconds"})
+        seconds = validation.integer(body["lease_seconds"], 1, 60)
+        current = self.session(sid)
+        if body["target_fingerprint"] != current.target["target_fingerprint"]:
+            await self.close_session(sid)
+            raise ExecutorError("target_changed", "设备目标已经改变")
+        try:
+            status = self.media.status(sid)
+        except Exception:
+            await self.close_session(sid)
+            raise ExecutorError("media_closed", "媒体会话已结束，请手动重新连接") from None
+        if status.get("state") in ("closed", "failed", "cleanup_pending"):
+            await self.close_session(sid)
+            raise ExecutorError("media_closed", "媒体会话已结束，请手动重新连接")
+        current.deadline = asyncio.get_running_loop().time() + seconds
+        return {"id": sid, "state": status.get("state", "active"), "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()}
+
+    async def command(self, sid, body):
+        current = self.session(sid)
+        allowed = {"type", "command_id", "seq", "action", "x", "y", "width", "height", "key", "text"}
+        validation.object_fields(body, allowed, {"type", "command_id", "seq"})
+        command_id = validation.identifier(body["command_id"])
+        sequence = validation.integer(body["seq"], 1, 2 ** 53 - 1)
+        kind = body["type"]
+        if kind not in ("touch", "touch.release", "key", "input_text", "stop"):
+            raise invalid("不支持该控制动作")
+        # Let cancellation interrupt a text worker before waiting for its command lock.
+        if kind in ("stop", "touch.release") and sequence == current.last_seq + 1:
+            current.cancel.set()
+        request_digest = validation.digest(body)
+        async with current.lock:
+            self.session(sid)
+            old = current.commands.get(command_id)
+            if old:
+                if old[0] != request_digest:
+                    raise ExecutorError("idempotency_conflict", "控制编号与原命令不一致")
+                if old[1]["type"] == "error":
+                    raise ExecutorError(old[1]["code"], old[1]["message"], old[1].get("status", 409))
+                return old[1]
+            if sequence != current.last_seq + 1:
+                raise ExecutorError("command_order_invalid", "控制顺序不一致，请重新打开控制通道")
+            current.last_seq = sequence
+            pending = {"type": "error", "command_id": command_id, "state": "outcome_unknown", "code": "outcome_unknown", "message": "该命令结果未确认，不会重复发送"}
+            current.commands[command_id] = (request_digest, pending)
+            while len(current.commands) > 256:
+                current.commands.popitem(last=False)
+            holder = "session:" + sid
+            try:
+                if kind in ("stop", "touch.release"):
+                    current.cancel.set()
+                    outcome = await self.media.command(sid, body)
+                    if kind == "stop":
+                        self.journal.release(holder, clean=self.journal.worker_record(holder) is None)
+                else:
+                    if kind == "input_text":
+                        value = validation.text(body.get("text"), 2000, empty=True)
+                        if not self.prepared(current.target):
+                            raise ExecutorError("capability_missing", "请先在设备配置中点击准备脚本控制，文字输入需要控件组件")
+                    self.journal.claim(current.target, holder, "manual")
+                    if kind == "input_text":
+                        current.cancel = asyncio.Event()
+                        outcome = await execute_step(self.journal, holder, current.target,
+                                                     {"id": command_id, "type": "input_text", "text": value}, {},
+                                                     current.cancel, self.settings.adb_binary)
+                    else:
+                        outcome = await self.media.command(sid, body)
+            except Exception as exc:
+                if all(hasattr(exc, key) for key in ("code", "message", "status")):
+                    current.commands[command_id] = (request_digest, {"type": "error", "code": exc.code,
+                                                                    "message": exc.message, "status": exc.status})
+                raise
+            result = {"type": "ack", "command_id": command_id, "state": outcome.get("state", "action_sent")}
+            current.commands[command_id] = (request_digest, result)
+            return result
+
+    async def close_session(self, sid):
+        sid = validation.identifier(sid)
+        # Persist before any await: a late create/offer cannot revive this id.
+        self.journal.refuse_session(sid)
+        current = self.sessions.get(sid)
+        if current:
+            current.closing = True
+            current.cancel.set()
+            if current.timer and current.timer is not asyncio.current_task():
+                current.timer.cancel()
+        holder = "session:" + sid
+        result = await self.media.close(sid)
+        worker = self.journal.worker_record(holder)
+        if worker:
+            clean = await asyncio.to_thread(cleanup_record, worker)
+            if clean:
+                self.journal.clear_worker(holder)
+        else:
+            clean = True
+        clean = clean and not result.get("cleanup_pending", False)
+        self.journal.release(holder, clean=clean)
+        self.journal.session_state(sid, "closed" if clean else "cleanup_pending")
+        if clean:
+            self.sessions.pop(sid, None)
+        return {"id": sid, "state": "closed" if clean else "cleanup_pending", "cleanup_pending": not clean}
+
+    async def _authorize(self, rid, target):
+        if not self.settings.callback_url:
+            raise ExecutorError("callback_unconfigured", "执行器未配置主服务授权地址", 503)
+        try:
+            response = await self.http.post(self.settings.callback_url + "/api/v1/automation/internal/authorize",
+                                            json={"run_id": rid, "executor_id": self.journal.executor_id, "device_id": target["device_id"], "target_fingerprint": target["target_fingerprint"]})
+            if response.status_code != 200 or response.json().get("authorized") is not True:
+                raise ExecutorError("grant_revoked", "任务权限已撤销或设备目标已改变")
+        except (httpx.HTTPError, ValueError):
+            raise ExecutorError("authorization_unavailable", "无法确认任务权限，已停止发送新动作", 503) from None
+
+    async def _publish(self, event):
+        if not self.settings.callback_url:
+            return
+        try:
+            response = await self.http.post(self.settings.callback_url + "/api/v1/automation/internal/events", json=event)
+            if 200 <= response.status_code < 300:
+                self.journal.delivered(event["event_id"])
+        except httpx.HTTPError:
+            pass  # Persisted evidence remains available for explicit refresh.
+
+    async def _update(self, rid, did, values):
+        event = self.journal.update_device(rid, did, values)
+        await self._publish(event)
+
+    async def create_run(self, body):
+        request = validation.run_request(body)
+        if request["expected_executor_id"] != self.journal.executor_id:
+            raise ExecutorError("executor_identity_changed", "执行器身份已改变，禁止继续旧派发")
+        if not self.settings.callback_url:
+            raise ExecutorError("callback_unconfigured", "请先配置执行器的主服务授权地址", 503)
+        async with self.admission:
+            result, created = self.journal.accept_run(request, allow_new=not self.shutting_down and len(self.tasks) < self.settings.max_pending)
+            if created:
+                cancel = asyncio.Event()
+                self.cancellations[request["id"]] = cancel
+                task = asyncio.create_task(self._run(request, cancel))
+                self.tasks[request["id"]] = task
+                task.add_done_callback(lambda _task, rid=request["id"]: self._task_done(rid))
+        return result
+
+    def _task_done(self, rid):
+        task = self.tasks.pop(rid, None)
+        self.cancellations.pop(rid, None)
+        if task and not task.cancelled():
+            # Retrieve exceptions without logging potentially sensitive third-party details.
+            task.exception()
+
+    async def _run(self, body, cancel):
+        limit = asyncio.Semaphore(body["concurrency"])
+        try:
+            await asyncio.gather(*(self._run_device(body, target, cancel, limit) for target in body["targets"]), return_exceptions=True)
+        finally:
+            body["parameters"].clear()  # Runtime values are never used for restart/replay.
+
+    async def _run_device(self, body, target, cancel, limit):
+        rid, did = body["id"], target["device_id"]
+        holder = "run:" + rid + ":" + did
+        results = [{"step_id": step["id"], "state": "pending"} for step in body["steps"]]
+        acquired = False
+        current_step = None
+        in_flight = False
+        try:
+            async with asyncio.timeout(300):
+                await limit.acquire()
+                try:
+                    await self.capacity.acquire()
+                except BaseException:
+                    limit.release()
+                    raise
+            acquired = True
+            if cancel.is_set() or self.journal.cancelled(rid):
+                await self._update(rid, did, {"state": "cancelled", "steps": results})
+                return
+            self.journal.claim(target, holder, "script")
+            if not self.prepared(target):
+                raise ExecutorError("capability_missing", "该设备尚未准备脚本控制")
+            await self._authorize(rid, target)
+            await adb.require_connected(self.settings.adb_binary, target)
+            await self._update(rid, did, {"state": "running", "steps": results})
+            for index, step in enumerate(body["steps"]):
+                if cancel.is_set() or self.journal.cancelled(rid):
+                    await self._update(rid, did, {"state": "cancelled", "steps": results})
+                    return
+                await self._authorize(rid, target)
+                current_step = step["id"]
+                results[index].update(state="running", started_at=now())
+                await self._update(rid, did, {"state": "running", "current_step": current_step, "steps": results})
+                if step["type"] == "screenshot":
+                    async with self.artifact_lock:
+                        # Count actual local files too: a crash between file write and
+                        # journal registration must not make orphan bytes invisible.
+                        stored_bytes = sum(path.stat().st_size for path in self.artifact_dir.iterdir() if path.is_file())
+                        if stored_bytes + 8 * 1024 * 1024 > self.settings.max_artifact_bytes:
+                            raise ExecutorError("artifact_capacity", "截图存储容量不足，请手动清理后重新运行")
+                        aid = str(uuid4())
+                        path = self.artifact_dir / aid
+                        registered = False
+                        try:
+                            in_flight = True
+                            result = await execute_step(self.journal, holder, target, step, body["parameters"], cancel, self.settings.adb_binary, path)
+                            in_flight = False
+                            size = path.stat().st_size
+                            self.journal.artifact(aid, rid, did, current_step, path, size)
+                            registered = True
+                        finally:
+                            if not registered:
+                                path.unlink(missing_ok=True)
+                        result["artifact_id"] = aid
+                        result["size"] = size
+                else:
+                    in_flight = True
+                    result = await execute_step(self.journal, holder, target, step, body["parameters"], cancel, self.settings.adb_binary)
+                    in_flight = False
+                results[index].update(result)
+                results[index]["finished_at"] = now()
+                await self._update(rid, did, {"state": "running", "steps": results})
+            await self._update(rid, did, {"state": "completed", "current_step": current_step, "steps": results})
+        except BaseException as exc:
+            cancelled = cancel.is_set() or self.journal.cancelled(rid) or isinstance(exc, asyncio.CancelledError)
+            code = getattr(exc, "code", "executor_interrupted")
+            unknown = (getattr(exc, "outcome_unknown", False)
+                       or (isinstance(exc, asyncio.CancelledError) and in_flight)
+                       or code in ("operation_cancelled", "step_timeout", "worker_interrupted", "device_action_unconfirmed"))
+            state = "outcome_unknown" if unknown else ("cancelled" if cancelled else "failed")
+            if code in ("grant_revoked", "authorization_unavailable", "executor_interrupted") and not cancelled:
+                state = "interrupted"
+            message = getattr(exc, "message", "执行已中断，未自动重放动作")
+            for step_result in results:
+                if step_result["state"] == "running":
+                    step_result.update(state="outcome_unknown" if unknown else "failed", message=message, finished_at=now())
+                elif step_result["state"] == "pending":
+                    step_result["state"] = "cancelled" if cancelled else "skipped"
+            await self._update(rid, did, {"state": state, "current_step": current_step, "steps": results,
+                                         "error": {"code": code, "message": message}})
+        finally:
+            clean = self.journal.worker_record(holder) is None
+            self.journal.release(holder, clean=clean)
+            if acquired:
+                self.capacity.release()
+                limit.release()
+            if clean and self.journal.cancelled(rid):
+                # This device's execution path is finished and cannot send another action.
+                await self._update(rid, did, {"cleanup_confirmed": True})
+
+    async def cancel_run(self, rid, body):
+        rid = validation.identifier(rid)
+        validation.object_fields(body, {"expected_executor_id"}, {"expected_executor_id"})
+        if validation.identifier(body["expected_executor_id"]) != self.journal.executor_id:
+            raise ExecutorError("executor_identity_changed", "执行器身份已改变，无法确认旧任务停止")
+        result = self.journal.cancel(rid)
+        cancel = self.cancellations.get(rid)
+        if cancel:
+            cancel.set()
+        task = self.tasks.get(rid)
+        if task and not task.done():
+            if not task.cancelling():
+                task.cancel()
+            await asyncio.wait({task}, timeout=5)
+        # On an explicit cancellation after restart, clean only recorded owned processes.
+        if (not task or task.done()) and result.get("devices"):
+            for device in self.journal.run(rid)["devices"]:
+                holder = "run:" + rid + ":" + device["device_id"]
+                record = self.journal.worker_record(holder)
+                clean = await asyncio.to_thread(cleanup_record, record)
+                self.journal.release(holder, clean=clean)
+                if clean:
+                    values = {"cleanup_confirmed": True}
+                    if device["state"] not in TERMINAL:
+                        values["state"] = "cancelled"
+                        values["steps"] = [{**step, "state": "outcome_unknown" if step["state"] == "running" else
+                                            ("cancelled" if step["state"] in ("pending", "queued") else step["state"])}
+                                           for step in device["steps"]]
+                        if any(step["state"] == "outcome_unknown" for step in values["steps"]):
+                            values["state"] = "outcome_unknown"
+                    # Response is immediate durable proof; caller refreshes without a timer.
+                    self.journal.update_device(rid, device["device_id"], values)
+        return self.journal.run(rid) if result.get("devices") else result
+
+    def artifact(self, rid, aid):
+        row = self.journal.find_artifact(validation.identifier(rid), validation.identifier(aid))
+        if not row:
+            raise ExecutorError("artifact_not_found", "截图不存在", 404)
+        path = Path(row["path"])
+        if path.parent.resolve() != self.artifact_dir.resolve() or not path.is_file():
+            raise ExecutorError("artifact_not_found", "截图文件不可用", 404)
+        return path
+
+    async def shutdown(self):
+        self.shutting_down = True
+        for sid in list(self.sessions):
+            try:
+                await self.close_session(sid)
+            except Exception:
+                pass
+        for rid, cancel in list(self.cancellations.items()):
+            self.journal.cancel(rid)
+            cancel.set()
+        tasks = list(self.tasks.values())
+        for task in tasks:
+            if not task.done() and not task.cancelling():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        for helper in self.helpers.values():
+            await helper.close()
+        self.helpers.clear()
+        await self.media.close_all()
+        await self.http.aclose()
+        self.journal.close()
