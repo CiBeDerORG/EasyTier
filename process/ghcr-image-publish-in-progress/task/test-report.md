@@ -30,3 +30,14 @@
 - 新 job 核对实际平台、原制品 revision、总 index digest 和默认入口，所有验证证据名称按 run_attempt 区分，可在可见性更新后单独重跑。
 - 修改后的 YAML、3 个 Bash 块和 1 个 Python 块静态检查通过，实际匿名拉取待运行。
 - GitHub 连接器无包可见性修改能力；Browser 连接返回缺少发起会话的浏览器上下文，因此当前未能进入包设置，尚未修改可见性。
+
+## 2026-10-23 冷缓存结果与本轮交付状态
+
+- 最终只读运行 [#39907312596](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596) 于北京时间 13:43:42 完成：认证/manifest job success，amd64/arm64 匿名 job 均 failure。
+- 两个匿名 job 在独立新 Runner 上确认本地没有目标镜像，使用空 Docker 配置、无 registry 登录、permissions {}；拉取部署标签均返回 unauthorized。
+- 已发布镜像为 `ghcr.io/cibederorg/easytier:feat-node-attributes-main`，包含 amd64/arm64 两个平台和四个官方式程序。制品 revision `9eb9e8a`，总 digest `sha256:672bc12769b402a697870387b647d4c479efb26ae754cd75f84ca3c9559917aa`。
+- 目前可由具有包读取权限的环境拉取；尚不能宣称无需登录即可只换地址使用。
+- 剩余动作：包管理员在组织 Packages → easytier → Package settings → Danger Zone → Change visibility 设为 Public，再重跑失败的两个匿名 job。无需重建镜像。
+- 当前连接器没有包可见性修改能力，Browser 缺少发起会话上下文，无法完成这一步；没有使用未支持的 API 或改动组织策略。
+- 已记录 deploy 仓库内 `easytier/deploy/docker-compose.yaml` 的单行替换及 `sudo bash deploy.sh easytier update` 用法。本轮未修改 deploy 或运行安装/重启。
+- 最终文档提交只更新本 README、轮次记录和完整报告，不触发构建/测试。
