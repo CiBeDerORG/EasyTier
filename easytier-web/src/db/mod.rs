@@ -1,19 +1,23 @@
 // sea-orm-cli generate entity -u sqlite:./et.db -o easytier-web/src/db/entity/ --with-serde both --with-copy-enums
 mod central_intent;
 mod devices;
+pub(crate) mod node_geo;
+pub(crate) mod assets;
+pub(crate) mod user_admin;
 #[allow(unused_imports)]
 pub mod entity;
 pub(crate) mod network_space;
 
 pub(crate) use central_intent::{CentralIntentError, CentralOwnedRuntimeConfig};
 pub use devices::DeviceHeartbeatRecord;
+pub(crate) use devices::{DeviceConnectionObservation, IpLocationStatus};
 
 use easytier::common::config::{ConfigSource, NetworkConfig};
 use easytier_core::management::remote_client::{ListNetworkProps, Storage};
 use entity::user_running_network_configs;
 use sea_orm::{
     ColumnTrait as _, DatabaseConnection, DbErr, EntityTrait, QueryFilter as _, Set,
-    SqlxSqliteConnector, TransactionTrait as _, sea_query::OnConflict,
+    SqlxSqliteConnector, TransactionTrait as _,
 };
 use sea_orm_migration::MigratorTrait as _;
 use sqlx::{Sqlite, SqlitePool, migrate::MigrateDatabase as _, types::chrono};
@@ -73,6 +77,28 @@ fn sqlx_db_error(error: sqlx::Error) -> DbErr {
     DbErr::Custom(error.to_string())
 }
 
+// Check inside the same SQLite write transaction as configuration mutations.
+// A request or heartbeat authorized before account deletion must not revive
+// disabled configurations or remove the retained network intent afterwards.
+async fn require_active_config_owner(
+    transaction: &mut sqlx::Transaction<'_, Sqlite>,
+    user_id: UserIdInDb,
+) -> Result<(), DbErr> {
+    let active: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL)",
+    )
+    .bind(user_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(sqlx_db_error)?;
+    if !active {
+        return Err(DbErr::Custom(
+            "account_deleted: network configuration owner is inactive".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn read_managed_config_revision(
     transaction: &mut sqlx::Transaction<'_, Sqlite>,
     user_id: UserIdInDb,
@@ -117,6 +143,7 @@ async fn write_managed_config_revision(
     device_id: Uuid,
     config_revision: &str,
 ) -> Result<(), DbErr> {
+    require_active_config_owner(transaction, user_id).await?;
     let now = chrono::Local::now().fixed_offset();
     sqlx::query(
         r#"
@@ -169,6 +196,7 @@ async fn upsert_network_config(
     source: ConfigSource,
     web_only_update: bool,
 ) -> Result<bool, DbErr> {
+    require_active_config_owner(transaction, user_id).await?;
     let now = chrono::Local::now().fixed_offset();
     let mut query = r#"
         INSERT INTO user_running_network_configs (
@@ -264,7 +292,7 @@ impl Db {
         let db = sqlx::pool::PoolOptions::new()
             .max_lifetime(None)
             .idle_timeout(None)
-            .connect(db_path)
+            .connect_with(db_path.parse::<sqlx::sqlite::SqliteConnectOptions>()?.foreign_keys(true))
             .await?;
 
         Ok(db)
@@ -371,27 +399,13 @@ impl Db {
         (user_id, device_id): (UserIdInDb, Uuid),
         config_revision: &str,
     ) -> Result<(), DbErr> {
-        use entity::managed_config_revisions as mcr;
-
-        let now = chrono::Local::now().fixed_offset();
-        let on_conflict = OnConflict::columns([mcr::Column::UserId, mcr::Column::DeviceId])
-            .update_columns([mcr::Column::ConfigRevision, mcr::Column::UpdateTime])
-            .to_owned();
-        let insert_m = mcr::ActiveModel {
-            user_id: Set(user_id),
-            device_id: Set(device_id.to_string()),
-            config_revision: Set(config_revision.to_string()),
-            create_time: Set(now),
-            update_time: Set(now),
-            ..Default::default()
-        };
-
-        mcr::Entity::insert(insert_m)
-            .on_conflict(on_conflict)
-            .do_nothing()
-            .exec(self.orm_db())
-            .await?;
-        Ok(())
+        let mut transaction = self
+            .db
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(sqlx_db_error)?;
+        write_managed_config_revision(&mut transaction, user_id, device_id, config_revision).await?;
+        transaction.commit().await.map_err(sqlx_db_error)
     }
 
     pub(crate) async fn apply_managed_config_update(
@@ -434,6 +448,7 @@ impl Db {
             .begin_with("BEGIN IMMEDIATE")
             .await
             .map_err(sqlx_db_error)?;
+        require_active_config_owner(&mut transaction, user_id).await?;
         let current_revision =
             read_managed_config_revision(&mut transaction, user_id, device_id).await?;
         if target_revision.is_some() && current_revision.as_deref() == target_revision {
@@ -595,6 +610,51 @@ impl Db {
         })
     }
 
+    /// Save from Web without changing an existing instance's enabled/disabled intent.
+    /// The observed default applies only to a configuration that is new at commit time.
+    pub(crate) async fn save_web_network_config_preserving_state(
+        &self,
+        (user_id, device_id): (UserIdInDb, Uuid),
+        network_inst_id: Uuid,
+        network_config: NetworkConfig,
+        new_disabled: bool,
+    ) -> Result<(), DbErr> {
+        let network_config =
+            serde_json::to_string(&network_config).map_err(|e| DbErr::Json(e.to_string()))?;
+        let mut transaction = self
+            .db
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(sqlx_db_error)?;
+        require_active_config_owner(&mut transaction, user_id).await?;
+        let now = chrono::Local::now().fixed_offset();
+        sqlx::query(
+            r#"
+            INSERT INTO user_running_network_configs (
+                user_id, device_id, network_instance_id, network_config,
+                source, disabled, create_time, update_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, device_id, network_instance_id) DO UPDATE SET
+                network_config = excluded.network_config,
+                source = excluded.source,
+                update_time = excluded.update_time
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id.to_string())
+        .bind(network_inst_id.to_string())
+        .bind(network_config)
+        .bind(ConfigSource::Web.as_str())
+        .bind(new_disabled)
+        .bind(now)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(sqlx_db_error)?;
+        clear_managed_config_revision(&mut transaction, user_id, device_id).await?;
+        transaction.commit().await.map_err(sqlx_db_error)
+    }
+
     pub async fn delete_web_network_configs(
         &self,
         (user_id, device_id): (UserIdInDb, Uuid),
@@ -605,6 +665,7 @@ impl Db {
             .begin_with("BEGIN IMMEDIATE")
             .await
             .map_err(sqlx_db_error)?;
+        require_active_config_owner(&mut transaction, user_id).await?;
         let mut deleted = false;
         for instance_id in network_inst_ids {
             let result = sqlx::query(
@@ -676,6 +737,7 @@ impl Storage<(UserIdInDb, Uuid), user_running_network_configs::Model, DbErr> for
             .begin_with("BEGIN IMMEDIATE")
             .await
             .map_err(sqlx_db_error)?;
+        require_active_config_owner(&mut transaction, user_id).await?;
         let mut deleted_web_config = false;
         for instance_id in network_inst_ids {
             deleted_web_config |=
@@ -714,6 +776,7 @@ impl Storage<(UserIdInDb, Uuid), user_running_network_configs::Model, DbErr> for
             .begin_with("BEGIN IMMEDIATE")
             .await
             .map_err(sqlx_db_error)?;
+        require_active_config_owner(&mut transaction, user_id).await?;
         let source =
             read_config_source(&mut transaction, user_id, device_id, network_inst_id).await?;
         let result = sqlx::query(
@@ -746,6 +809,13 @@ impl Storage<(UserIdInDb, Uuid), user_running_network_configs::Model, DbErr> for
         use entity::user_running_network_configs as urnc;
 
         let configs = urnc::Entity::find().filter(urnc::Column::UserId.eq(user_id));
+        let configs = if matches!(props, ListNetworkProps::EnabledOnly) {
+            configs.filter(sea_orm::sea_query::Expr::cust(
+                "EXISTS (SELECT 1 FROM users WHERE users.id = user_running_network_configs.user_id AND users.deleted_at IS NULL)",
+            ))
+        } else {
+            configs
+        };
         let configs = if matches!(
             props,
             ListNetworkProps::EnabledOnly | ListNetworkProps::DisabledOnly

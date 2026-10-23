@@ -7,6 +7,7 @@ import EasytierFrontendLib from 'easytier-frontend-lib'
 import PrimeVue from 'primevue/config'
 import ConsoleTheme from './theme';
 import { initThemeMode } from './modules/theme';
+import { consoleDialogPassThrough } from './modules/dialog-dismiss';
 import ConfirmationService from 'primevue/confirmationservice';
 import { I18nUtils } from 'easytier-frontend-lib'
 
@@ -14,10 +15,12 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import MainPage from './components/MainPage.vue'
 import Login from './components/Login.vue'
 import DeviceList from './components/DeviceList.vue'
+import NodeAssetsPage from './components/NodeAssetsPage.vue'
 import DeviceManagement from './components/DeviceManagement.vue'
 import Dashboard from './components/Dashboard.vue'
 import NetworkList from './components/NetworkList.vue'
 import NetworkDetail from './components/NetworkDetail.vue'
+import UserManagement from './components/UserManagement.vue'
 import DialogService from 'primevue/dialogservice';
 import ToastService from 'primevue/toastservice';
 
@@ -63,6 +66,21 @@ const routes = [
                 component: Dashboard,
             },
             {
+                path: 'topology',
+                name: 'networkTopology',
+                redirect: { name: 'networkMap' },
+            },
+            {
+                path: 'node-assets',
+                name: 'nodeAssets',
+                component: NodeAssetsPage,
+            },
+            {
+                path: 'users',
+                name: 'userManagement',
+                component: UserManagement,
+            },
+            {
                 path: 'deviceList',
                 name: 'deviceList',
                 component: DeviceList,
@@ -105,6 +123,7 @@ app.use(I18nUtils.i18n)
 // is the only one that takes effect.
 app.use(PrimeVue,
     {
+        pt: { dialog: consoleDialogPassThrough },
         theme: {
             preset: ConsoleTheme,
             options: {

@@ -140,6 +140,7 @@ pub(super) async fn remove_device_from_central_intents(
     user_id: UserIdInDb,
     device_id: Uuid,
 ) -> Result<(), CentralIntentError> {
+    super::require_active_config_owner(transaction, user_id).await?;
     let network_ids = sqlx::query_scalar::<_, String>(
         r#"
         SELECT network_id
@@ -185,6 +186,7 @@ impl Db {
             .begin_with("BEGIN IMMEDIATE")
             .await
             .map_err(sqlx_db_error)?;
+        super::require_active_config_owner(&mut transaction, user_id).await?;
         let owned: HashSet<String> = sqlx::query_scalar(
             "SELECT network_id FROM network_members WHERE user_id = ? AND device_id = ?",
         )
@@ -308,6 +310,7 @@ impl Db {
             .begin_with("BEGIN IMMEDIATE")
             .await
             .map_err(sqlx_db_error)?;
+        super::require_active_config_owner(&mut transaction, prepared.intent.user_id).await?;
         let result = persist_intent(&mut transaction, &prepared).await;
         match result {
             Ok(result) => {
@@ -350,6 +353,7 @@ impl Db {
             .begin_with("BEGIN IMMEDIATE")
             .await
             .map_err(sqlx_db_error)?;
+        super::require_active_config_owner(&mut transaction, user_id).await?;
         remove_obsolete_member_configs(&mut transaction, user_id, network_id, &[]).await?;
         sqlx::query("DELETE FROM networks WHERE user_id = ? AND id = ?")
             .bind(user_id)

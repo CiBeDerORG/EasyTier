@@ -1,0 +1,56 @@
+# GHCR 镜像轮次记录
+
+## 2026-10-23 发布准备
+
+- 用户明确授权构建并发布 GHCR 镜像，要求保持官方镜像接口，并适配现有 deploy 的单行镜像地址替换。
+- 源码基线：`3713e084746b45b5124f0746183e9ffdb07c4592`，包含已通过 Web 回归的 `f24a9c7aad2ce8233045e8a1b43800ddf5999dd8`。
+- 新增工作流仅在当前分支的该工作流文件变化或手动调用时执行；普通源码或报告提交不自动发布。
+- 构建采用官方的 musl 目标与四程序打包顺序；前端和 config generator 一并内嵌。
+- Dockerfile 的运行目录、默认入口及程序路径保持官方接口；健康检查适配现有 RPC 端口及零网络实例状态。
+- 发布 job 仅在两个架构的容器检查全部通过后执行，上传的 tar 来自实际受检镜像；仅发布 job 获得 `packages: write`。
+- 容器检查使用独立编写的 CLI 接口 fixture、临时数据和 `--network none`，不复制或执行私有 deploy 脚本。
+- 当前生产构建、容器执行、GHCR 推送和匿名拉取均未完成，不宣称镜像已可用。实际运行和结果以[完整报告](../../test/2026-10-23-ghcr-image-publish.md)为准。
+- 提交前已执行两个 Bash 脚本的语法检查和工作流 YAML 解析，均通过；已独立复核构建顺序、发布权限与受检镜像 digest 链路。
+
+## 2026-10-23 双架构构建完成与发布验证修复
+
+- 运行 #39903466090：前端、amd64、arm64 构建及镜像冒烟均通过，各架构 8 项 PASS。
+- 两个平台镜像已推送，分支标签与固定 SHA 标签的总 digest 均为 `sha256:672bc12769b402a697870387b647d4c479efb26ae754cd75f84ca3c9559917aa`。
+- 原发布 job 的认证拉取第二个平台报 `cannot overwrite digest`；这是 Runner Docker classic store 对同一个 index 引用的本地映射限制。原运行整体为 failure，如实保留。
+- 修复认证与匿名拉取均使用已经核对到总 index 的各平台子 digest；补充实际架构、源码 revision、入口断言。
+- 新增只读镜像验证工作流，仅有 contents/actions/packages read 权限，复用原运行的 publication artifact；制品源码仍为 `9eb9e8a`，不把验证提交标成制品版本。
+- 修改后的 Bash 语法和两个工作流 YAML 解析均通过。重验证及匿名访问仍待实际运行。
+
+## 2026-10-23 认证拉取通过，补充冷缓存匿名验证
+
+- 修复提交 `ce3d8fde1fbf9fcdbf765f5d84e186805ca2f6f2` 的只读验证运行 [#39906421259](https://github.com/CiBeDerORG/EasyTier/actions/runs/39906421259) 已完成，job success。
+- 两个平台按对应子 digest 实际认证拉取成功；平台、源码 revision、默认入口、index 与标签均一致。
+- 匿名读取总 manifest 返回 unauthorized；同 daemon 已有子镜像缓存的 pull 显示 Image is up to date，不能判定匿名可用。
+- 新增两个独立 Runner 的匿名拉取 job，permissions 为 {}，不 checkout/login/import，不共享认证镜像缓存；直接拉部署标签，失败会使 job 失败。
+- 新 job 核对实际平台、原制品 revision、总 index digest 和默认入口，所有验证证据名称按 run_attempt 区分，可在可见性更新后单独重跑。
+- 修改后的 YAML、3 个 Bash 块和 1 个 Python 块静态检查通过，实际匿名拉取待运行。
+- GitHub 连接器无包可见性修改能力；Browser 连接返回缺少发起会话的浏览器上下文，因此当前未能进入包设置，尚未修改可见性。
+
+## 2026-10-23 13:44 冷缓存首次结果（历史）
+
+- 只读运行 [#39907312596 的 attempt 1](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/attempts/1) 于北京时间 13:43:42 完成：认证/manifest job success，amd64/arm64 匿名 job 均 failure。
+- 两个匿名 job 在独立新 Runner 上确认本地没有目标镜像，使用空 Docker 配置、无 registry 登录、permissions {}；拉取部署标签均返回 unauthorized。
+- 已发布镜像为 `ghcr.io/cibederorg/easytier:feat-node-attributes-main`，包含 amd64/arm64 两个平台和四个官方式程序。制品 revision `9eb9e8a`，总 digest `sha256:672bc12769b402a697870387b647d4c479efb26ae754cd75f84ca3c9559917aa`。
+- 目前可由具有包读取权限的环境拉取；尚不能宣称无需登录即可只换地址使用。
+- 剩余动作：包管理员在组织 Packages → easytier → Package settings → Danger Zone → Change visibility 设为 Public，再重跑失败的两个匿名 job。无需重建镜像。
+- 当前连接器没有包可见性修改能力，Browser 缺少发起会话上下文，无法完成这一步；没有使用未支持的 API 或改动组织策略。
+- 已记录 deploy 仓库内 `easytier/deploy/docker-compose.yaml` 的单行替换及 `sudo bash deploy.sh easytier update` 用法。本轮未修改 deploy 或运行安装/重启。
+- 最终文档提交只更新本 README、轮次记录和完整报告，不触发构建/测试。
+
+## 2026-10-23 14:35 公开访问生效与最终交付
+
+- 用户反馈公开访问设置“改好了”，随后仅重跑运行 #39907312596 之前失败的两个匿名 job。
+- [attempt 2](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/attempts/2) 于北京时间 14:34:57 开始、14:35:11 完成，整体 success。
+- amd64 job `120278070521`、arm64 job `120278070746` 均 success。各自在新的独立 Runner 上确认本地无目标镜像，设置空 Docker 配置且不登录，四层均实际下载完成。
+- 两份结果 JSON 均为 `anonymous_pull_verified: true`、`local_repository_cache_empty_before_pull: true`、attempt 2；架构、源码 revision、官方入口及原总 digest 全部匹配。
+- 镜像地址仍为 `ghcr.io/cibederorg/easytier:feat-node-attributes-main`；源码 revision 仍为 `9eb9e8aced76776c59668d8686affc2a8f302317`；总 digest 仍为 `sha256:672bc12769b402a697870387b647d4c479efb26ae754cd75f84ca3c9559917aa`。
+- 新证据：[amd64](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/artifacts/12483303056)、[arm64](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/artifacts/12483700729)。历史失败证据保留，不以新结果覆盖。
+- 认证/manifest 成功 job 沿用 attempt 1 结果；未重新构建、推送镜像或重跑容器功能测试。现有功能测试结果只对应已发布的原镜像。
+- 两个平台免登录获取镜像的条件现已达成。deploy 可在仓库内 `easytier/deploy/docker-compose.yaml` 替换 image 后运行 `sudo bash deploy.sh easytier update`；本轮未修改 deploy 或执行生产部署。
+- Actions 提供运行日志和验证证据，当前工作流未提供对外可访问的 EasyTier 管理网页；该页面需在服务器实际部署后访问。
+- 本轮提交仅更新 README、轮次记录和完整报告，未执行文档以外的新测试、构建或 CI。

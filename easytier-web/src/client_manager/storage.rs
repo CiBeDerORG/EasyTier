@@ -2,7 +2,7 @@ use std::sync::{Arc, Weak};
 
 use dashmap::{DashMap, mapref::entry::Entry};
 
-use crate::db::{Db, UserIdInDb};
+use crate::db::{Db, DeviceConnectionObservation, UserIdInDb};
 
 use super::session::{
     ManagedConfigPersistedChange, ManagedConfigReconcileHint, ManagedRuntimeState,
@@ -35,12 +35,19 @@ struct ManagedRuntimeContinuity {
     runtime_id: Option<uuid::Uuid>,
     session_epoch: u64,
     state: SharedManagedRuntimeState,
+    // Retained across runtime changes: every connection for this node shares
+    // the same async write order, including after disconnect and reconnect.
+    observation_write_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 #[derive(Debug)]
 pub struct StorageInner {
     user_clients_map: DashMap<UserIdInDb, DashMap<uuid::Uuid, ClientInfo>>,
     managed_runtime_states: DashMap<(UserIdInDb, uuid::Uuid), ManagedRuntimeContinuity>,
+    // Finite writes only: keep SQLite completion alive if its Session stops.
+    // Completed tasks are reaped at the next write; dropping Storage aborts
+    // remaining tasks. Tasks never hold Storage, so there is no owner cycle.
+    observation_writes: std::sync::Mutex<tokio::task::JoinSet<()>>,
     pub db: Db,
 }
 
@@ -91,6 +98,7 @@ impl Storage {
         Storage(Arc::new(StorageInner {
             user_clients_map: DashMap::new(),
             managed_runtime_states: DashMap::new(),
+            observation_writes: std::sync::Mutex::new(tokio::task::JoinSet::new()),
             db,
         }))
     }
@@ -117,10 +125,12 @@ impl Storage {
                     return new_state();
                 }
                 let state = new_state();
+                let observation_write_lock = current.observation_write_lock.clone();
                 entry.insert(ManagedRuntimeContinuity {
                     runtime_id,
                     session_epoch,
                     state: state.clone(),
+                    observation_write_lock,
                 });
                 state
             }
@@ -130,6 +140,7 @@ impl Storage {
                     runtime_id,
                     session_epoch,
                     state: state.clone(),
+                    observation_write_lock: Arc::new(tokio::sync::Mutex::new(())),
                 });
                 state
             }
@@ -283,6 +294,7 @@ impl Storage {
                 runtime_id: None,
                 session_epoch,
                 state: Arc::new(std::sync::Mutex::new(ManagedRuntimeState::default())),
+                observation_write_lock: Arc::new(tokio::sync::Mutex::new(())),
             });
         if session_epoch < continuity.session_epoch {
             return;
@@ -298,6 +310,64 @@ impl Storage {
             session_epoch,
         };
         Self::update_client_info_map(&inner, &client_info);
+    }
+
+    pub(super) async fn persist_connection_observation(
+        &self,
+        stoken: &StorageToken,
+        session_epoch: u64,
+        observation: &DeviceConnectionObservation,
+    ) -> Result<bool, sea_orm::DbErr> {
+        let Some(write_lock) = self
+            .0
+            .managed_runtime_states
+            .get(&(stoken.user_id, stoken.machine_id))
+            .map(|current| current.observation_write_lock.clone())
+        else {
+            return Ok(false);
+        };
+        // Release DashMap guards before awaiting. Serializing only these small
+        // metadata writes prevents an older in-flight SQL update from finishing
+        // after the newer connection's update; authentication/config do not
+        // acquire this lock. Recheck ownership after waiting for earlier writes.
+        let guard = write_lock.lock_owned().await;
+        if self.0.is_session_superseded(stoken, session_epoch)
+            || !self.0.owns_authorized_session(stoken, session_epoch)
+        {
+            return Ok(false);
+        }
+        let db = self.db().clone();
+        let device_id = (stoken.user_id, stoken.machine_id);
+        let observation = observation.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        {
+            let mut writes = self.0.observation_writes.lock().unwrap();
+            while let Some(result) = writes.try_join_next() {
+                if let Err(error) = result {
+                    tracing::warn!(%error, "connection metadata task did not complete");
+                }
+            }
+            writes.spawn(async move {
+                // SQLite's worker may keep executing after its caller is
+                // cancelled. Own the lock until SQL completion, independently
+                // of the session validation task's lifetime.
+                let _guard = guard;
+                let result = db
+                    .update_device_connection_observation(device_id, &observation)
+                    .await;
+                if let Err(error) = &result {
+                    tracing::warn!(
+                        %error,
+                        user_id = device_id.0,
+                        machine_id = %device_id.1,
+                        "failed to persist authenticated connection location"
+                    );
+                }
+                let _ = tx.send(result);
+            });
+        }
+        rx.await
+            .map_err(|_| sea_orm::DbErr::Custom("connection metadata write stopped".into()))?
     }
 
     pub fn remove_client(&self, stoken: &StorageToken) {
@@ -419,6 +489,149 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn connection_observation_write_order_survives_session_cancellation() {
+        use crate::db::{DeviceHeartbeatRecord, IpLocationStatus};
+
+        let storage = Storage::new(Db::memory_db().await);
+        let user_id = storage
+            .db()
+            .auto_create_user("source-owner")
+            .await
+            .unwrap()
+            .id;
+        let machine_id = uuid::Uuid::new_v4();
+        storage
+            .db()
+            .upsert_device_heartbeat(DeviceHeartbeatRecord {
+                user_id,
+                machine_id,
+                hostname: "node".into(),
+                easytier_version: "test".into(),
+                device_os: "{}".into(),
+                client_url: String::new(),
+            })
+            .await
+            .unwrap();
+        let old = make_storage_token(user_id, machine_id, "tcp://192.0.2.1:1001");
+        let newest = make_storage_token(user_id, machine_id, "tcp://192.0.2.2:1002");
+        let observation = |ip: &str| DeviceConnectionObservation {
+            connection_ip: ip.to_string(),
+            ip_country: None,
+            ip_region: None,
+            ip_city: None,
+            ip_location_status: IpLocationStatus::NotFound,
+            ip_observed_at: chrono::Utc::now().fixed_offset(),
+        };
+        let old_observation = observation("192.0.2.1");
+        let new_observation = observation("192.0.2.2");
+        storage.update_session_client(old.clone(), 1, true, 1);
+
+        // Occupy the DB pool so the old writer has passed
+        // the ownership check but cannot finish its SQL yet.
+        let pool = storage.db().inner();
+        let mut connections = Vec::new();
+        for _ in 0..pool.options().get_max_connections() {
+            connections.push(pool.acquire().await.unwrap());
+        }
+        let mut old_write =
+            Box::pin(storage.persist_connection_observation(&old, 1, &old_observation));
+        assert!(futures::poll!(&mut old_write).is_pending());
+        storage.bind_managed_runtime_state(user_id, machine_id, Some(uuid::Uuid::new_v4()), 2);
+        storage.update_session_client(newest.clone(), 2, true, 2);
+        let mut new_write =
+            Box::pin(storage.persist_connection_observation(&newest, 2, &new_observation));
+        assert!(futures::poll!(&mut new_write).is_pending());
+        // Session::stop aborts the validation caller. Its submitted SQL and
+        // owned write lock must outlive that cancellation, otherwise the new
+        // write could finish first and be overwritten by the old SQLite worker.
+        drop(old_write);
+        let write_lock = storage
+            .0
+            .managed_runtime_states
+            .get(&(user_id, machine_id))
+            .unwrap()
+            .observation_write_lock
+            .clone();
+        assert!(write_lock.try_lock().is_err());
+        drop(connections);
+        assert!(new_write.await.unwrap());
+        assert_eq!(
+            storage
+                .db()
+                .get_device((user_id, machine_id))
+                .await
+                .unwrap()
+                .unwrap()
+                .connection_ip
+                .as_deref(),
+            Some("192.0.2.2")
+        );
+
+        // An even later completion from the older authenticated session cannot
+        // overwrite the new snapshot, even after the new session disconnects.
+        assert!(storage.remove_session_client(&newest, 2));
+        assert!(
+            !storage
+                .persist_connection_observation(&old, 1, &old_observation)
+                .await
+                .unwrap()
+        );
+        storage.update_session_client(old.clone(), 100, true, 1);
+        assert!(
+            !storage
+                .persist_connection_observation(&old, 1, &old_observation)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            storage
+                .db()
+                .get_device((user_id, machine_id))
+                .await
+                .unwrap()
+                .unwrap()
+                .connection_ip
+                .as_deref(),
+            Some("192.0.2.2")
+        );
+    }
+
+    #[tokio::test]
+    async fn connection_observation_rechecks_ownership_after_queued_writer() {
+        use crate::db::IpLocationStatus;
+
+        let storage = Storage::new(Db::memory_db().await);
+        let machine_id = uuid::Uuid::new_v4();
+        let old = make_storage_token(1, machine_id, "tcp://192.0.2.1:1001");
+        let newest = make_storage_token(1, machine_id, "tcp://192.0.2.2:1002");
+        storage.update_session_client(old.clone(), 1, true, 1);
+        let lock = storage
+            .0
+            .managed_runtime_states
+            .get(&(1, machine_id))
+            .unwrap()
+            .observation_write_lock
+            .clone();
+        let guard = lock.lock().await;
+        let observation = DeviceConnectionObservation {
+            connection_ip: "192.0.2.1".into(),
+            ip_country: None,
+            ip_region: None,
+            ip_city: None,
+            ip_location_status: IpLocationStatus::NotFound,
+            ip_observed_at: chrono::Utc::now().fixed_offset(),
+        };
+        let mut delayed_write =
+            Box::pin(storage.persist_connection_observation(&old, 1, &observation));
+        assert!(futures::poll!(&mut delayed_write).is_pending());
+        storage.update_session_client(newest, 2, true, 2);
+        // Closing the DB proves the stale writer returns before attempting SQL.
+        storage.db().orm_db().clone().close().await.unwrap();
+        drop(guard);
+        assert!(!delayed_write.await.unwrap());
+    }
 
     fn make_storage_token(
         user_id: UserIdInDb,

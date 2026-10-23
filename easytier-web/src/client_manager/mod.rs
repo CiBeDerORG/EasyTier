@@ -1,3 +1,4 @@
+mod ip_location;
 #[cfg(test)]
 mod listener_tests;
 mod managed_config;
@@ -25,7 +26,6 @@ use easytier_core::{
     socket::SocketListener,
     tunnel::{Tunnel, web_security},
 };
-use maxminddb::geoip2;
 use session::{Location, ManagedConfigPersistedChange, Session};
 use storage::{Storage, StorageToken};
 
@@ -236,7 +236,16 @@ impl ClientManager {
                     };
                     let info = tunnel.info().unwrap();
                     let client_url: url::Url = info.remote_addr.unwrap().into();
-                    let location = Self::lookup_location(&client_url, geoip_db.clone());
+                    let observation = ip_location::lookup_connection_observation(
+                        &client_url,
+                        geoip_db.as_ref(),
+                    );
+                    let location = observation.as_ref().and_then(ip_location::legacy_location);
+                    // Persist only direct TCP/UDP observations. Proxy provenance for
+                    // WebSocket connections is outside the node registry contract.
+                    let observation = observation.filter(|_| {
+                        matches!(client_url.scheme(), "tcp" | "udp")
+                    });
                     tracing::info!(
                         "New session from {:?}, secure: {}, location: {:?}",
                         client_url,
@@ -252,6 +261,7 @@ impl ClientManager {
                         webhook_config.clone(),
                         next_session_epoch.fetch_add(1, Ordering::Relaxed) + 1,
                     );
+                    session.set_connection_observation(observation).await;
                     session.serve(tunnel).await;
                     let session = Arc::new(session);
                     sessions.insert(client_url, session.clone());
@@ -309,6 +319,79 @@ impl ClientManager {
         };
         session.stop().await;
         true
+    }
+
+    /// Stop only the remote runtime, keeping every persisted configuration.
+    /// The caller has already committed account deletion and disabled configs.
+    pub(crate) async fn stop_networks_for_deleted_user(
+        &self,
+        user_id: UserIdInDb,
+        machine_id: uuid::Uuid,
+    ) -> bool {
+        let Some(session) = self.get_session_by_machine_id(user_id, &machine_id) else {
+            // An offline node's persisted intent is disabled, but its physical
+            // runtime cannot be confirmed from this management connection.
+            return false;
+        };
+        let Some(token) = session.get_token().await else {
+            return false;
+        };
+        // The route and Session map are separate snapshots. A reused transport
+        // URL must never let this operation stop another account's runtime.
+        if token.user_id != user_id || token.machine_id != machine_id {
+            return false;
+        }
+        session.pause_background_tasks_for_user_deletion();
+        self.invalidate_applied_config_revision(user_id, machine_id)
+            .await;
+        let rpc = session.scoped_rpc_client();
+        let stopped = tokio::time::timeout(Duration::from_secs(8), async move {
+            use easytier::proto::api::manage::{
+                DeleteNetworkInstanceRequest, ListNetworkInstanceRequest,
+            };
+            let running = rpc
+                .list_network_instance(
+                    BaseController::default(),
+                    ListNetworkInstanceRequest::default(),
+                )
+                .await?;
+            if !running.inst_ids.is_empty() {
+                rpc.delete_network_instance(
+                    BaseController::default(),
+                    DeleteNetworkInstanceRequest {
+                        inst_ids: running.inst_ids,
+                    },
+                )
+                .await?;
+            }
+            let remaining = rpc
+                .list_network_instance(
+                    BaseController::default(),
+                    ListNetworkInstanceRequest::default(),
+                )
+                .await?;
+            Ok::<bool, anyhow::Error>(remaining.inst_ids.is_empty())
+        })
+        .await;
+        // Remove only the captured Session. Resolving the machine route again
+        // could close a replacement while retaining the old RPC's stop result.
+        let removed = self
+            .client_sessions
+            .remove_if(&token.client_url, |_, current| Arc::ptr_eq(current, &session))
+            .is_some();
+        let closed = tokio::time::timeout(Duration::from_secs(2), session.stop())
+            .await
+            .is_ok();
+        // The epoch survives disconnects, so a replacement that already went
+        // offline still prevents the old Session from confirming this node.
+        let superseded = session.is_superseded().await;
+        let confirmed = matches!(stopped, Ok(Ok(true))) && removed && closed && !superseded;
+        if !confirmed {
+            tracing::warn!(user_id, %machine_id, removed, closed, superseded, "deleted account configuration disabled; remote stop remains unconfirmed");
+        }
+        // Closing the management channel alone is not evidence that a remote
+        // network stopped. Only the successful list/delete/list above is.
+        confirmed
     }
 
     pub async fn list_machine_by_user_id(&self, user_id: UserIdInDb) -> Vec<url::Url> {
@@ -441,103 +524,6 @@ impl ClientManager {
 
     fn db(&self) -> &Db {
         self.storage.db()
-    }
-
-    fn lookup_location(
-        client_url: &url::Url,
-        geoip_db: Arc<Option<maxminddb::Reader<Vec<u8>>>>,
-    ) -> Option<Location> {
-        let host = client_url.host_str()?;
-        let ip: std::net::IpAddr = if let Ok(ip) = host.parse() {
-            ip
-        } else {
-            tracing::debug!("Failed to parse host as IP address: {}", host);
-            return None;
-        };
-
-        // Skip lookup for private/special IPs
-        let is_private = match ip {
-            std::net::IpAddr::V4(ipv4) => {
-                ipv4.is_private() || ipv4.is_loopback() || ipv4.is_unspecified()
-            }
-            std::net::IpAddr::V6(ipv6) => ipv6.is_loopback() || ipv6.is_unspecified(),
-        };
-
-        if is_private {
-            tracing::debug!("Skipping GeoIP lookup for special IP: {}", ip);
-            let location = Location {
-                country: "本地网络".to_string(),
-                city: None,
-                region: None,
-            };
-            return Some(location);
-        }
-
-        let location = if let Some(db) = &*geoip_db {
-            match db
-                .lookup(ip)
-                .and_then(|result| result.decode::<geoip2::City>())
-            {
-                Ok(Some(city)) => {
-                    let country = city
-                        .country
-                        .names
-                        .simplified_chinese
-                        .or(city.country.names.english)
-                        .unwrap_or("海外")
-                        .to_string();
-                    let city_name = city
-                        .city
-                        .names
-                        .simplified_chinese
-                        .or(city.city.names.english)
-                        .map(str::to_string);
-                    let region = (!city.subdivisions.is_empty()).then(|| {
-                        city.subdivisions
-                            .iter()
-                            .filter_map(|subdivision| {
-                                subdivision
-                                    .names
-                                    .simplified_chinese
-                                    .or(subdivision.names.english)
-                            })
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    });
-
-                    Location {
-                        country,
-                        city: city_name,
-                        region,
-                    }
-                }
-                Ok(None) => Location {
-                    country: "海外".to_string(),
-                    city: None,
-                    region: None,
-                },
-                Err(err) => {
-                    tracing::debug!("GeoIP lookup failed for {}: {}", ip, err);
-                    Location {
-                        country: "海外".to_string(),
-                        city: None,
-                        region: None,
-                    }
-                }
-            }
-        } else {
-            tracing::debug!(
-                "GeoIP database not available, using default location for {}",
-                ip
-            );
-            Location {
-                country: "海外".to_string(),
-                city: None,
-                region: None,
-            }
-        };
-
-        Some(location)
     }
 }
 

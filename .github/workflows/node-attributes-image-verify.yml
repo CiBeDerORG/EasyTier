@@ -1,0 +1,167 @@
+name: Verify published EasyTier GHCR image
+run-name: "Verify GHCR image - ${{ github.ref_name }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Original build run containing ghcr-publication-report
+        required: true
+        default: '39903466090'
+      build_revision:
+        description: Source revision recorded in the published image
+        required: true
+        default: '9eb9e8aced76776c59668d8686affc2a8f302317'
+  push:
+    branches: ["feat/node-attributes-main"]
+    paths: [".github/workflows/node-attributes-image-verify.yml"]
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+jobs:
+  verify:
+    name: Verify existing image without rebuilding or pushing
+    if: github.repository == 'CiBeDerORG/EasyTier' && github.ref == 'refs/heads/feat/node-attributes-main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      digest: ${{ steps.verified_digest.outputs.digest }}
+    env:
+      REGISTRY_IMAGE: ghcr.io/cibederorg/easytier
+      IMAGE_TAG: feat-node-attributes-main
+      IMAGE_REVISION: ${{ inputs.build_revision || '9eb9e8aced76776c59668d8686affc2a8f302317' }}
+      SOURCE_RUN_ID: ${{ inputs.build_run_id || '39903466090' }}
+      VERIFY_ONLY: 'true'
+      REPORT_DIR: process/test/ghcr-reverify
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Download the original publication digest evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ghcr-publication-report
+          path: process/test/ghcr-reverify/
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify manifests and authenticated and anonymous pulls
+        shell: bash
+        run: bash .github/scripts/ghcr-publish.sh unused "$REPORT_DIR"
+
+      - name: Expose the verified index digest
+        id: verified_digest
+        shell: bash
+        run: |
+          IFS= read -r digest < "$REPORT_DIR/digest.txt"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ghcr-reverification-report-attempt-${{ github.run_attempt }}
+          path: process/test/ghcr-reverify/
+          if-no-files-found: warn
+          retention-days: 14
+
+  anonymous_pull:
+    name: Anonymous pull on a fresh runner (${{ matrix.arch }})
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+      REGISTRY_IMAGE: ghcr.io/cibederorg/easytier
+      IMAGE_TAG: feat-node-attributes-main
+      IMAGE_REVISION: ${{ inputs.build_revision || '9eb9e8aced76776c59668d8686affc2a8f302317' }}
+      EXPECTED_DIGEST: ${{ needs.verify.outputs.digest }}
+      REPORT_DIR: process/test/ghcr-anonymous-${{ matrix.arch }}
+    steps:
+      # Each matrix job has its own runner and image store. No source checkout,
+      # archive import, registry login, or authenticated pull runs in this job.
+      - name: Pull the deployment tag anonymously with no cached image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR"
+          printf 'Image: %s:%s\nPlatform: linux/%s\nExpected index: %s\nSource revision: %s\n' \
+            "$REGISTRY_IMAGE" "$IMAGE_TAG" "$ARCH" "$EXPECTED_DIGEST" "$IMAGE_REVISION" \
+            > "$REPORT_DIR/context.txt"
+          [[ "$EXPECTED_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker version > "$REPORT_DIR/docker-version.txt"
+          docker image ls --digests --no-trunc > "$REPORT_DIR/images-before-pull.txt"
+          cached_images=$(docker image ls --quiet "$REGISTRY_IMAGE")
+          if [ -n "$cached_images" ]; then
+            echo 'Expected a fresh runner without an EasyTier image in its local store.' >&2
+            exit 1
+          fi
+          DOCKER_CONFIG=$(mktemp -d "$RUNNER_TEMP/ghcr-anonymous-${ARCH}.XXXXXX")
+          export DOCKER_CONFIG
+          trap 'rm -rf -- "$DOCKER_CONFIG"' EXIT
+          docker pull --platform "linux/$ARCH" "$REGISTRY_IMAGE:$IMAGE_TAG" \
+            2>&1 | tee "$REPORT_DIR/pull.log"
+          docker image inspect "$REGISTRY_IMAGE:$IMAGE_TAG" > "$REPORT_DIR/image-inspect.json"
+          python3 - "$REPORT_DIR" <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          image = json.loads((root / 'image-inspect.json').read_text())[0]
+          expected_reference = f"{os.environ['REGISTRY_IMAGE']}@{os.environ['EXPECTED_DIGEST']}"
+          assert image['Os'] == 'linux', image['Os']
+          assert image['Architecture'] == os.environ['ARCH'], image['Architecture']
+          assert image['Config']['Labels']['org.opencontainers.image.revision'] == os.environ['IMAGE_REVISION']
+          assert image['Config']['Entrypoint'] == ['/sbin/tini', '--', 'easytier-core']
+          assert expected_reference in (image.get('RepoDigests') or []), image.get('RepoDigests')
+          record = {
+              'image': f"{os.environ['REGISTRY_IMAGE']}:{os.environ['IMAGE_TAG']}",
+              'platform': f"linux/{os.environ['ARCH']}",
+              'digest': os.environ['EXPECTED_DIGEST'],
+              'revision': os.environ['IMAGE_REVISION'],
+              'image_id': image['Id'],
+              'anonymous_pull_verified': True,
+              'local_repository_cache_empty_before_pull': True,
+              'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+          }
+          (root / 'anonymous-pull.json').write_text(json.dumps(record, indent=2) + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
+              stream.write(
+                  f"## Anonymous pull verified: {record['platform']}\n\n"
+                  f"- Deployment tag: `{record['image']}`\n"
+                  f"- Verified index: `{record['digest']}`\n"
+                  f"- Source revision: `{record['revision']}`\n"
+                  "- Fresh runner, no existing EasyTier image, empty Docker credential configuration.\n"
+                  "- Platform, revision, registry digest, and official entrypoint matched.\n"
+              )
+          print(json.dumps(record, indent=2))
+          PY
+
+      - name: Upload anonymous pull evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ghcr-anonymous-${{ matrix.arch }}-attempt-${{ github.run_attempt }}
+          path: process/test/ghcr-anonymous-${{ matrix.arch }}/
+          if-no-files-found: warn
+          retention-days: 14

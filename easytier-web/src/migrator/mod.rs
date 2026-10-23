@@ -9,7 +9,16 @@ mod m20260920_000007_device_registry;
 mod m20260920_000009_central_network_intent;
 
 mod m20261001_000010_member_ip_allocation;
+mod m20261022_000011_node_attributes;
+mod m20261023_000012_node_assets;
+mod m20261023_000013_asset_instance_bindings;
+mod m20261023_000014_user_soft_delete;
+mod m20261023_000015_service_publications;
+mod m20261023_000016_node_geo_locations;
 mod m20261024_000011_network_space;
+
+#[cfg(test)]
+mod merge_upgrade_tests;
 
 pub struct Migrator;
 
@@ -25,6 +34,12 @@ impl MigratorTrait for Migrator {
             Box::new(m20260920_000007_device_registry::Migration),
             Box::new(m20260920_000009_central_network_intent::Migration),
             Box::new(m20261001_000010_member_ip_allocation::Migration),
+            Box::new(m20261022_000011_node_attributes::Migration),
+            Box::new(m20261023_000012_node_assets::Migration),
+            Box::new(m20261023_000013_asset_instance_bindings::Migration),
+            Box::new(m20261023_000014_user_soft_delete::Migration),
+            Box::new(m20261023_000015_service_publications::Migration),
+            Box::new(m20261023_000016_node_geo_locations::Migration),
             Box::new(m20261024_000011_network_space::Migration),
         ]
     }

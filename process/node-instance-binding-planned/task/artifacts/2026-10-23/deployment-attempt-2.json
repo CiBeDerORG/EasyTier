@@ -1,0 +1,57 @@
+{
+  "started_at": "20261023T024241Z",
+  "target": "/workspace/.easytier-node-attributes-preview",
+  "web_url": "http://127.0.0.1:11221",
+  "config_server": "tcp://127.0.0.1:22030",
+  "backup_dir": "/workspace/.easytier-node-binding-verification/backups/20261023T024241Z",
+  "old_binary_sha256": "97278e8f401f6aee0004979664b0443057a222abb1b36207e63277e54146511c",
+  "new_binary_sha256": "5d7c0653745d12e88e1cd1d2c6cb329ebaa224a23cd0aba7ba21c8d8d6294a5f",
+  "status": "rolled_back",
+  "checks": {
+    "login": true,
+    "config_server_parameters_preserved": true,
+    "original_accounts_nodes_and_metadata_preserved": true,
+    "asset_read_endpoints": true,
+    "foreign_keys": true,
+    "sqlite_integrity": true
+  },
+  "migrations_before": [
+    "m20241029_000001_init",
+    "m20260403_000002_scope_network_config_unique",
+    "m20260421_000003_add_network_config_source",
+    "m20260514_000004_rename_web_config_source",
+    "m20260619_000005_managed_config_revisions",
+    "m20260920_000007_device_registry",
+    "m20260920_000009_central_network_intent",
+    "m20261001_000010_member_ip_allocation",
+    "m20261022_000011_node_attributes"
+  ],
+  "original_table_counts": {
+    "blocked_devices": 0,
+    "devices": 1,
+    "groups": 2,
+    "groups_permissions": 3,
+    "managed_config_revisions": 1,
+    "network_credentials": 0,
+    "network_members": 0,
+    "networks": 0,
+    "permissions": 2,
+    "user_running_network_configs": 0,
+    "users": 2,
+    "users_groups": 2
+  },
+  "migrations_after": [
+    "m20241029_000001_init",
+    "m20260403_000002_scope_network_config_unique",
+    "m20260421_000003_add_network_config_source",
+    "m20260514_000004_rename_web_config_source",
+    "m20260619_000005_managed_config_revisions",
+    "m20260920_000007_device_registry",
+    "m20260920_000009_central_network_intent",
+    "m20261001_000010_member_ip_allocation",
+    "m20261022_000011_node_attributes",
+    "m20261023_000012_node_assets",
+    "m20261023_000013_asset_instance_bindings"
+  ],
+  "failure": "AttributeError: 'NoneType' object has no attribute 'group'"
+}

@@ -94,6 +94,10 @@ async function open(t, route = '/h', options = {}, configure = () => {}) {
         else if (path === '/console-info') result = { username: 'test-user', config_server_protocol: 'udp', config_server_port: 22020, webhook_auth: state.externalConsole ?? false };
         else if (path === '/machines') result = { machines: state.machines };
         else if (path === '/blocked-devices') result = { blocked: [] };
+        else if (path === '/admin/users/context') result = { actor: { id: 1, username: 'test-user' }, available: !state.externalConsole, can_manage_users: state.canManageUsers ?? false };
+        else if (path === '/admin/users') result = { items: [] };
+        else if (path === '/assets/context') result = { actor: { id: 1, username: 'test-user' }, available: !state.externalConsole, can_manage_others: false };
+        else if (path === '/assets/nodes') result = { items: state.machines.map(machine => ({ owner_user_id: 1, machine_id: id(machine.info.machine_id.part4), hostname: machine.info.hostname, alias: '', site_location: null, device_model: null, geo_location: null, is_public_server: false, device_count: 0 })) };
         else if (path === '/networks/gateway-info') {
             await delay(state.gatewayDelay);
             result = { enabled: state.gatewayEnabled, peer_url: 'tcp://192.0.2.1:11010', relay_data: true };
@@ -306,6 +310,7 @@ for (const action of ['creation', 'settings']) {
             await options.getByRole('option', { name: protocol, exact: true }).click();
             await row.locator('input.grow').first().fill(url.hostname);
             if (url.pathname) await row.getByPlaceholder('/mypath').fill(url.pathname);
+            await row.getByRole('spinbutton').waitFor({ state: ['txt', 'srv'].includes(protocol) ? 'detached' : 'visible' });
             assert.equal(await row.getByRole('spinbutton').count(), ['txt', 'srv'].includes(protocol) ? 0 : 1);
         }
 
@@ -759,8 +764,8 @@ test('responsive layouts, localization, dark mode and mobile drawer', async t =>
     await page.keyboard.press('ArrowDown'); // Device List
     await page.keyboard.press('Enter');
     await page.waitForURL('**/#/h/deviceList');
-    await workspaceMenu.locator('[aria-current="page"]', { hasText: 'Device List' }).waitFor();
-    assert.equal(await workspaceMenu.locator('[aria-current="page"]').textContent(), 'Device List');
+    await workspaceMenu.locator('[aria-current="page"]', { hasText: 'Network Nodes' }).waitFor();
+    assert.equal(await workspaceMenu.locator('[aria-current="page"]').textContent(), 'Network Nodes');
     const networkMenu = page.locator('.console-sidebar').getByRole('menu', { name: 'Networks' });
     await networkMenu.focus();
     await page.keyboard.press('ArrowDown'); // Networks overview -> Engineering (first nav-child)
@@ -806,7 +811,7 @@ test('responsive layouts, localization, dark mode and mobile drawer', async t =>
     await page.keyboard.press('Escape');
     await page.locator('.mobile-nav-toggle').click();
     await page.locator('.console-mobile-nav').getByRole('menu', { name: '导航' }).waitFor();
-    await page.locator('.console-mobile-nav').getByRole('link', { name: '设备列表', exact: true }).click();
+    await page.locator('.console-mobile-nav').getByRole('link', { name: '网络节点', exact: true }).click();
     await page.locator('.console-mobile-nav').waitFor({ state: 'detached' });
     await page.locator('.mobile-nav-toggle').click();
     await page.locator('.console-mobile-nav').getByRole('link').first().click();
@@ -824,6 +829,44 @@ test('external Console keeps the device dashboard without central requests or na
     assert.equal(state.requests.some(request => request.path.startsWith('/networks')), false);
     assert.equal(await page.locator('a[href*="/networks"]').count(), 0);
     assert.equal(await page.locator('.p-message-warn').count(), 0);
+});
+
+test('merged workspace keeps map and service navigation, honors user administration permissions, and persists polling preference', async t => {
+    const { page, state } = await open(t, '/h/deviceList', {}, state => { state.canManageUsers = true; });
+    const menu = page.locator('.console-sidebar').getByRole('menu', { name: 'Navigation', exact: true });
+    for (const label of ['Service navigation', 'Network map', 'Network Nodes', 'Device list', 'User Management']) {
+        await menu.getByRole('link', { name: label, exact: true }).waitFor();
+    }
+    const refreshSwitch = page.getByRole('switch', { name: 'Auto refresh', exact: true });
+    assert.ok(await refreshSwitch.isChecked());
+    await refreshSwitch.uncheck();
+    await page.clock.install();
+    const reads = () => state.requests.filter(request => request.path === '/machines').length;
+    await page.locator('.desktop-list tbody .preview-name').first().waitFor();
+    const pausedReads = reads();
+    await page.clock.fastForward(12_000);
+    assert.equal(reads(), pausedReads, 'pausing stops scheduled device requests');
+    await refresh(page);
+    assert.ok(reads() > pausedReads, 'manual refresh remains usable');
+    await page.reload();
+    await refreshSwitch.waitFor();
+    assert.equal(await refreshSwitch.isChecked(), false);
+    assert.equal(await page.evaluate(() => localStorage.getItem('webConsole.autoRefresh')), 'false');
+    await refreshSwitch.check();
+    const resumedReads = reads();
+    const resumedResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/machines');
+    await page.clock.fastForward(2_000);
+    await resumedResponse;
+    assert.ok(reads() > resumedReads, 'resuming restores periodic device requests');
+    await menu.getByRole('link', { name: 'User Management', exact: true }).click();
+    await page.waitForURL('**/#/h/users');
+    await page.getByRole('heading', { name: 'User Management', exact: true }).waitFor();
+    state.canManageUsers = false;
+    const adminReads = state.requests.filter(request => request.path === '/admin/users').length;
+    await page.reload();
+    await page.getByText('Your account cannot manage users. Sign in as an administrator.', { exact: true }).waitFor();
+    assert.equal(await menu.getByRole('link', { name: 'User Management', exact: true }).count(), 0);
+    assert.equal(state.requests.filter(request => request.path === '/admin/users').length, adminReads, 'forbidden context prevents the user-list request');
 });
 
 

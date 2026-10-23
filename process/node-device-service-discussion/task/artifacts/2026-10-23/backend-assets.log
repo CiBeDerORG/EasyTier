@@ -1,0 +1,25 @@
+   Compiling easytier-web v2.7.0 (/workspace/EasyTier-main-node-attributes/easytier-web)
+    Finished `test` profile [unoptimized] target(s) in 12.35s
+     Running unittests src/main.rs (/workspace/.easytier-env/target/debug/deps/easytier_web-ff27d711437808b8)
+
+running 17 tests
+test db::assets::tests::creation_replay_survives_database_reopen_and_does_not_resurrect_deleted_resources ... ok
+test db::assets::tests::gateway_self_and_fixed_placement_survive_edits ... ok
+test db::assets::tests::cidr_host_bits_are_rejected_and_mapped_addresses_share_one_representation ... ok
+test db::assets::tests::deleting_device_cascades_current_services_but_nodes_and_used_parents_are_restricted ... ok
+test db::assets::tests::lan_uniqueness_uses_canonical_ips_and_is_limited_to_one_owner_node ... ok
+test db::assets::tests::migrated_foreign_keys_and_repository_queries_isolate_owner_and_node ... ok
+test db::assets::tests::multi_protocol_failure_rolls_back_service_bindings_and_idempotency_record ... ok
+test db::assets::tests::search_is_literal_case_insensitive_and_location_uses_the_filtered_page ... ok
+test db::assets::tests::protocol_port_conflicts_are_per_device_and_updates_preserve_previous_bindings ... ok
+test db::assets::tests::type_initialization_is_explicit_owner_scoped_and_does_not_revive_deleted_seeds ... ok
+test restful::assets::tests::anonymous_asset_requests_return_json_authentication_error ... ok
+test db::assets::tests::simultaneous_retries_create_once_and_changed_scope_or_payload_cannot_reuse_key ... ok
+test db::assets::tests::service_links_and_icons_cannot_introduce_active_content ... ok
+test restful::assets::tests::administrator_writes_to_target_owner_and_revocation_applies_on_next_request ... ok
+test restful::assets::tests::deleting_node_with_children_is_rejected_before_blocking_the_node ... ok
+test restful::assets::tests::external_webhook_mode_reports_unavailable_and_does_not_initialize_assets ... ok
+test restful::assets::tests::ordinary_user_does_not_inherit_another_users_admin_membership ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 296 filtered out; finished in 5.08s
+

@@ -361,6 +361,7 @@ pub async fn handle_proxy_rpc(
     } else {
         None
     };
+    super::network::ensure_active_network_owner(&network_service, user_id).await?;
     let session = client_mgr
         .get_session_by_machine_id(user_id, &machine_id)
         .ok_or((
@@ -393,9 +394,16 @@ pub fn router() -> Router<super::AppStateInner> {
 /// Internal proxy-rpc handler: no AuthSession, resolves the active session by machine_id.
 pub async fn handle_proxy_rpc_internal(
     State(client_mgr): AppState,
+    Extension(network_service): Extension<Arc<CentralNetworkService>>,
     Path((user_id, machine_id)): Path<(UserIdInDb, uuid::Uuid)>,
     Json(req): Json<ProxyRpcRequest>,
 ) -> Result<Json<serde_json::Value>, HttpHandleError> {
+    let _mutation = if proxy_rpc_mutates_runtime_config(&req.service_name, &req.method_name) {
+        Some(network_service.lock_mutations().await)
+    } else {
+        None
+    };
+    super::network::ensure_active_network_owner(&network_service, user_id).await?;
     let session = client_mgr
         .get_session_by_machine_id(user_id, &machine_id)
         .ok_or((

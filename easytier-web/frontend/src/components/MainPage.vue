@@ -15,9 +15,9 @@ const cycleThemeMode = () => {
     applyThemeMode(next);
 };
 
-import { I18nUtils } from 'easytier-frontend-lib'
+import { I18nUtils, Polling } from 'easytier-frontend-lib'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { Button, Drawer, Menu, OverlayBadge, Popover, TieredMenu, useToast } from 'primevue';
+import { Button, Drawer, InputSwitch, Menu, OverlayBadge, Popover, TieredMenu, useToast } from 'primevue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDialog } from 'primevue/usedialog';
 import ChangePassword from './ChangePassword.vue';
@@ -26,9 +26,11 @@ import { useI18n } from 'vue-i18n'
 import ApiClient, { type BlockedDevice, type CentralNetworkSummary } from '../modules/api';
 import { getApiBase } from '../modules/api-host';
 import { shellMessages } from '../modules/shell-messages';
+import type { UserAdminContext } from '../types/user-admin';
 
 const { t } = useI18n()
 const { t: ui } = useI18n({ useScope: 'local', messages: shellMessages });
+const autoRefreshEnabled = Polling.provideAutoRefresh();
 const router = useRouter();
 const toast = useToast();
 const route = useRoute();
@@ -41,6 +43,33 @@ const toggleSidebar = () => {
     try { localStorage.setItem(sidebarStorageKey, String(sidebarCollapsed.value)); } catch { /* Session-only preference. */ }
 };
 const api = new ApiClient(getApiBase(), () => router.push({ name: 'login' }));
+const userAdminContext = ref<UserAdminContext | null>(null);
+const canManageUsers = computed(() => userAdminContext.value?.available === true
+    && userAdminContext.value.can_manage_users === true);
+let userAdminRequest = 0;
+let navigationDisposed = false;
+
+// This permission lookup is independent of the existing navigation timer.
+const applyUserAdminContext = (context: UserAdminContext | null) => {
+    ++userAdminRequest;
+    if (!navigationDisposed) userAdminContext.value = context;
+};
+const loadUserAdminAccess = async () => {
+    const request = ++userAdminRequest;
+    try {
+        const context = await api.userAdminContext();
+        if (!navigationDisposed && request === userAdminRequest) userAdminContext.value = context;
+    } catch (cause) {
+        if (navigationDisposed || request !== userAdminRequest) return;
+        const status = (cause as { response?: { status?: number } })?.response?.status;
+        if (status === 401 || status === 403) userAdminContext.value = null;
+    }
+};
+watch(() => route.name, name => {
+    // Recover an initially failed lookup on a user navigation, never on a timer.
+    // The users page checks and emits its own context when entered directly.
+    if (name !== 'userManagement' && userAdminContext.value === null) void loadUserAdminAccess();
+});
 const dialog = useDialog();
 const userMenu = ref();
 const userMenuItems = computed(() => [
@@ -87,8 +116,7 @@ const loadBlockedDevices = async () => {
         // Notifications are best-effort.
     }
 };
-let networkTimer: number | undefined;
-const loadNavigation = async () => {
+const loadNavigation = async (canContinue = () => true) => {
     if (!enrollInfo.value) {
         try {
             enrollInfo.value = await api.get_console_info();
@@ -97,13 +125,17 @@ const loadNavigation = async () => {
             return;
         }
     }
-    await Promise.all([loadNetworks(), loadBlockedDevices()]);
+    if (canContinue()) await Promise.all([loadNetworks(), loadBlockedDevices()]);
 };
+Polling.useAutoRefreshTask(loadNavigation, 10_000, { enabled: autoRefreshEnabled });
 onMounted(() => {
-    loadNavigation();
-    networkTimer = window.setInterval(loadNavigation, 10_000);
+    // The users page performs and reports its own permission check on entry.
+    if (route.name !== 'userManagement') void loadUserAdminAccess();
 });
-onUnmounted(() => window.clearInterval(networkTimer));
+onUnmounted(() => {
+    navigationDisposed = true;
+    ++userAdminRequest;
+});
 
 // Device enrollment info: the config-server command devices run to join
 // this console. Also identifies whether central management is available.
@@ -174,7 +206,9 @@ const workspaceNavigation = computed<NavItem[]>(() => [
     { key: 'dashboard', label: t('web.main.dashboard'), icon: 'pi pi-chart-pie', to: { name: 'dashboard' } },
     ...(centralEnabled.value ? [{ key: 'networkMap', label: t('web.console.network_map'), icon: 'pi pi-globe', to: { name: 'networkMap' } }] : []),
     { key: 'deviceList', label: t('web.main.device_list'), icon: 'pi pi-server', to: { name: 'deviceList' } },
+    ...(centralEnabled.value ? [{ key: 'nodeAssets', label: t('assets.page.title'), icon: 'pi pi-list', to: { name: 'nodeAssets' }, child: true }] : []),
     ...(centralEnabled.value ? [{ key: 'serviceManagement', label: t('web.console.service_management'), icon: 'pi pi-sliders-h', to: { name: 'serviceManagement' } }] : []),
+    ...(canManageUsers.value ? [{ key: 'userManagement', label: t('user_admin.title'), icon: 'pi pi-users', to: { name: 'userManagement' } }] : []),
 ]);
 const networkNavigation = computed<NavItem[]>(() => [
     { key: 'networkList', label: t('web.main.network_list'), icon: 'pi pi-globe', to: { name: 'networkList' } },
@@ -195,6 +229,7 @@ const activeKey = computed(() => {
     return '';
 });
 const pageTitle = computed(() => {
+    if (route.name === 'userManagement') return t('user_admin.title');
     if (route.name === 'networkDetail') {
         const network = networks.value.find(item => `network:${item.network_id}` === activeKey.value);
         if (network) return network.display_name || network.network_name;
@@ -223,7 +258,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <template #item="{ item, props }">
                         <RouterLink :to="item.to" custom v-slot="{ href, navigate }">
                             <a v-bind="props.action" :href="href" @click="navigate" :aria-label="String(item.label)" :title="sidebarCollapsed ? String(item.label) : undefined"
-                                :class="{ 'is-active': activeKey === item.key }" :aria-current="activeKey === item.key ? 'page' : undefined">
+                                :class="{ 'is-active': activeKey === item.key, 'nav-child': item.child }" :aria-current="activeKey === item.key ? 'page' : undefined">
                                 <span v-bind="props.icon" aria-hidden="true"></span><span v-bind="props.label">{{ item.label }}</span>
                             </a>
                         </RouterLink>
@@ -262,7 +297,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <template #item="{ item, props }">
                         <RouterLink :to="item.to" custom v-slot="{ href, navigate }">
                             <a v-bind="props.action" :href="href" @click="navigate($event); forceShowSideBar = false"
-                                :class="{ 'is-active': activeKey === item.key }" :aria-current="activeKey === item.key ? 'page' : undefined">
+                                :class="{ 'is-active': activeKey === item.key, 'nav-child': item.child }" :aria-current="activeKey === item.key ? 'page' : undefined">
                                 <span v-bind="props.icon" aria-hidden="true"></span><span v-bind="props.label">{{ item.label }}</span>
                             </a>
                         </RouterLink>
@@ -291,6 +326,11 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <i class="pi pi-angle-right topbar-brand" aria-hidden="true"></i><span class="console-current-page">{{ pageTitle }}</span>
                 </div>
                 <div class="console-topbar-actions">
+                    <div class="console-auto-refresh flex items-center gap-2" :title="t('web.console.auto_refresh_hint')">
+                        <InputSwitch inputId="console-auto-refresh" v-model="autoRefreshEnabled"
+                            :aria-label="t('web.console.auto_refresh')" />
+                        <label for="console-auto-refresh" class="text-sm whitespace-nowrap">{{ t('web.console.auto_refresh') }}</label>
+                    </div>
                     <Button icon="pi pi-objects-column" :label="t('web.console.enroll_title')"
                         severity="secondary" outlined size="small" class="enroll-button"
                         :aria-label="t('web.console.enroll_title')"
@@ -351,7 +391,8 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
             </header>
             <main ref="mainContent" id="main-content" class="console-content" tabindex="-1">
                 <RouterView v-slot="{ Component }">
-                    <component :is="Component" :api="api" :central-enabled="centralEnabled" :key="route.name === 'networkDetail' ? String(route.params.networkId) : undefined" />
+                    <component :is="Component" :api="api" :central-enabled="centralEnabled" :key="route.name === 'networkDetail' ? String(route.params.networkId) : undefined"
+                        @user-admin-context="applyUserAdminContext" />
                 </RouterView>
             </main>
         </div>

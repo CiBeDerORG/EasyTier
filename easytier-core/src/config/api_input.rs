@@ -25,6 +25,16 @@ fn parse_mapped_listener_urls(mapped_listeners: &[String]) -> Result<Vec<url::Ur
         .parse_urls(mapped_listeners)
 }
 
+fn parse_port_forward_address(ip: &str, port: u32) -> Option<SocketAddr> {
+    // Runtime readback returns bare IPv6, while existing saved Web configs can
+    // use brackets. Parse the address separately so both forms reconcile.
+    if let Ok(address) = format!("{ip}:{port}").parse::<SocketAddr>() {
+        return Some(address);
+    }
+    let ip = ip.strip_prefix('[').and_then(|value| value.strip_suffix(']')).unwrap_or(ip);
+    Some(SocketAddr::new(ip.parse().ok()?, u16::try_from(port).ok()?))
+}
+
 pub fn add_proxy_network_to_config(
     proxy_network: &str,
     cfg: &TomlConfigLoader,
@@ -355,19 +365,11 @@ impl NetworkConfigExt for NetworkConfig {
                     .iter()
                     .filter(|pf| !pf.bind_ip.is_empty() && !pf.dst_ip.is_empty())
                     .filter_map(|pf| {
-                        let bind_addr =
-                            format!("{}:{}", pf.bind_ip, pf.bind_port).parse::<SocketAddr>();
-                        let dst_addr =
-                            format!("{}:{}", pf.dst_ip, pf.dst_port).parse::<SocketAddr>();
-
-                        match (bind_addr, dst_addr) {
-                            (Ok(bind_addr), Ok(dst_addr)) => Some(PortForwardConfig {
-                                bind_addr,
-                                dst_addr,
-                                proto: pf.proto.clone(),
-                            }),
-                            _ => None,
-                        }
+                        Some(PortForwardConfig {
+                            bind_addr: parse_port_forward_address(&pf.bind_ip, pf.bind_port)?,
+                            dst_addr: parse_port_forward_address(&pf.dst_ip, pf.dst_port)?,
+                            proto: pf.proto.clone(),
+                        })
                     })
                     .collect::<Vec<_>>(),
             );

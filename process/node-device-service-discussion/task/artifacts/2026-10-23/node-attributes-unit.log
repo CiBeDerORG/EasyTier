@@ -1,0 +1,11 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v2.1.9 /workspace/EasyTier-main-node-attributes/easytier-web/frontend-lib
+
+ ✓ tests/node-attributes.spec.ts (2 tests) 4ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  23:43:02
+   Duration  976ms (transform 86ms, setup 41ms, collect 58ms, tests 4ms, environment 317ms, prepare 110ms)
+

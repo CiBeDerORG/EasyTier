@@ -1,0 +1,22 @@
+▶ instance binding HTTP contract, legacy conversion and configuration lifecycle
+  ✔ V02/V03/V16 catalog roles, disabled offline candidates and tenant secrecy (81.444083ms)
+  ✔ V04/V07 unique gateway instance, duplicate direct instance and scoped guards (152.415342ms)
+  ✔ V05/V15 proxy and mapped hosts, gateway self and metadata protections (103.140879ms)
+  ✔ V05 non-/24 offsets, /31 and /32 plus invalid boundaries (173.422111ms)
+  ✔ V06 stale preview rejects create and fresh preview creates with current data (173.243283ms)
+  ✔ V08/V11 create replay survives source changes and unrelated changes preserve previews (473.401808ms)
+  ✔ V09/V10 legacy IPv6 remains editable and explicit binding never rewrites children (181.337341ms)
+  ✔ V11/V12 parent refresh leaves child IPs untouched and self requires confirmation (384.54359ms)
+  ✔ V12 missing rules require explicit address correction without deleting services (142.439864ms)
+  ✔ V13 same-ID recreation keeps children replaced until their own confirmation (215.975372ms)
+  ✔ V13/V14 missing, changed role and unavailable source still allow metadata/services/deletion (986.916458ms)
+  ✔ V08 address replay returns gone after deletion instead of resurrecting a device (87.926035ms)
+✔ instance binding HTTP contract, legacy conversion and configuration lifecycle (4740.932468ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4865.306978

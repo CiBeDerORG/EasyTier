@@ -95,7 +95,9 @@ thunk-rs = { workspace = true, features = [
 
 [features]
 default = []
-embed = ["dep:axum-embed"]
+embed = ["dep:axum-embed", "web-static"]
+# Serve separately packaged UI assets without reading frontend/dist at compile time.
+web-static = ["tower-http/fs"]
 
 [package.metadata.cargo-machete]
 ignored = [

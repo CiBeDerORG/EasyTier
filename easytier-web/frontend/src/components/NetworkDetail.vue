@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Button, Column, ConfirmDialog, DataTable, Dialog, Drawer, InputSwitch, InputText, Message, ProgressSpinner, ScrollPanel, Select, SelectButton, Skeleton, Tab, TabList, TabPanel, TabPanels, Tabs, Tag, useConfirm, useToast } from 'primevue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { Config, NetworkTypes, UrlListInput, Utils } from 'easytier-frontend-lib';
+import { Config, NetworkTypes, Polling, UrlListInput, Utils } from 'easytier-frontend-lib';
 import AclPolicyTab from './AclPolicyTab.vue';
 import ApiClient, { type CentralNetworkDetail, type CentralNetworkMember, type NetworkCredential, type NodeAclRuleStat, type NodePeerInfo, type NodeRouteInfo, type TemporaryPeer } from '../modules/api';
 import { normalizeVirtualSubnet } from '../modules/virtual-subnet';
@@ -42,9 +42,11 @@ const networkingLabel = computed(() => {
 
 const activeTab = ref('members');
 
-const loadAll = async () => {
+const loadAll = async (canContinue = () => true) => {
     try {
-        network.value = await api?.get_network(networkId.value);
+        const detail = await api?.get_network(networkId.value);
+        if (!canContinue()) return;
+        network.value = detail;
         loadError.value = undefined;
     } catch (e: any) {
         loadError.value = e?.response?.data?.message ?? String(e);
@@ -52,20 +54,19 @@ const loadAll = async () => {
     }
     try {
         const view = await api?.list_network_members(networkId.value);
+        if (!canContinue()) return;
         members.value = view?.members;
         temporaryPeers.value = view?.temporary_peers ?? [];
     } catch (e) {
         loadError.value = String(e);
         console.error(e);
     }
-    if (network.value?.secure_mode && credentials.value !== undefined) {
-        loadCredentials();
+    if (canContinue() && network.value?.secure_mode && credentials.value !== undefined) {
+        await loadCredentials();
     }
 };
 
-const periodFunc = new Utils.PeriodicTask(async () => {
-    await loadAll();
-}, 2000);
+Polling.useAutoRefreshTask(loadAll, 2000);
 
 const loadGatewayInfo = async () => {
     if (gatewayInfo.value !== undefined) {
@@ -78,16 +79,13 @@ const loadGatewayInfo = async () => {
     }
 };
 
-onMounted(async () => {
+onMounted(() => {
     // Load both in parallel; the settings form must not read a Gateway
     // network before the gateway info is available.
-    await Promise.all([loadAll(), loadGatewayInfo()]);
-    periodFunc.start();
+    void loadGatewayInfo();
 });
 
 onUnmounted(() => {
-    periodFunc.stop();
-    window.clearInterval(nodeDetailTimer);
     configRequest++;
 });
 
@@ -541,7 +539,7 @@ const ipv4ToString = (addr?: { address?: { addr?: number } } | null) => {
         : '';
 };
 
-const loadNodeDetail = async () => {
+const loadNodeDetail = async (canContinue = () => true) => {
     if (!nodeDetailMember.value) return;
     const machine_id = nodeDetailMember.value.device_id;
     const inst_id = networkId.value;
@@ -551,6 +549,7 @@ const loadNodeDetail = async () => {
         api?.get_node_peers(machine_id, inst_id),
         api?.get_node_acl_stats(machine_id, inst_id),
     ]);
+    if (!canContinue() || !nodeDetailVisible.value || nodeDetailMember.value?.device_id !== machine_id) return;
     if (results[0].status === 'fulfilled') nodeRoutes.value = results[0].value ?? [];
     if (results[1].status === 'fulfilled') nodePeers.value = results[1].value ?? [];
     if (results[2].status === 'fulfilled') nodeAclStats.value = results[2].value ?? [];
@@ -560,7 +559,10 @@ const loadNodeDetail = async () => {
         : undefined;
 };
 
-let nodeDetailTimer: number | undefined;
+Polling.useAutoRefreshTask(loadNodeDetail, 5_000, {
+    active: () => nodeDetailVisible.value,
+    key: () => nodeDetailMember.value?.device_id,
+});
 const openNodeDetail = (member: CentralNetworkMember) => {
     nodeDetailMember.value = member;
     nodeRoutes.value = undefined;
@@ -568,14 +570,9 @@ const openNodeDetail = (member: CentralNetworkMember) => {
     nodeAclStats.value = undefined;
     nodeDetailVisible.value = true;
     nodeLoggerLevel.value = undefined;
-    loadNodeDetail();
     loadNodeGeneral();
-    window.clearInterval(nodeDetailTimer);
-    nodeDetailTimer = window.setInterval(loadNodeDetail, 5_000);
 };
 const closeNodeDetail = () => {
-    window.clearInterval(nodeDetailTimer);
-    nodeDetailTimer = undefined;
     nodeDetailVisible.value = false;
 };
 
@@ -897,7 +894,7 @@ const switchTab = async (tab: string) => {
         </section>
 
         <div v-if="loadError !== undefined">
-            <Message severity="warn" :closable="false">{{ t('web.console.load_failed') }} <Button :label="t('web.console.retry')" text size="small" @click="loadAll" /></Message>
+            <Message severity="warn" :closable="false">{{ t('web.console.load_failed') }} <Button :label="t('web.console.retry')" text size="small" @click="loadAll()" /></Message>
         </div>
 
         <div v-if="network === undefined && !loadError" class="console-panel loading-rows">

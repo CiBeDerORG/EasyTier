@@ -380,11 +380,11 @@ web:
     delete_device_confirm: "Delete device {device}? It will be removed from its networks and its managed configs withdrawn."
     block_device: "Also block this device"
     block_device_hint: "A blocked device cannot re-register; unblock it from the bell menu."
-    no_block_device_hint: "Without blocking, the device re-registers itself automatically on its next connection."
+    no_block_device_hint: "Without blocking, the device returns to Network Nodes automatically on its next connection."
     enroll_title: "Device Enrollment"
     enroll_hint: "Run this command on a device to enroll it with this console:"
     enroll_copy: "Copy enrollment command"
-    enroll_token_note: "The path at the end is the enrollment token (your username). Enrolled devices show up in the device list."
+    enroll_token_note: "The path at the end is the enrollment token (your username). Enrolled devices show up under Network Nodes."
     enroll_webhook_note: "This console issues enrollment tokens through an external auth system; replace the username at the end with the token it assigned."
     blocked_devices: "Blocked Devices"
     blocked_empty: "No blocked devices."
@@ -410,12 +410,15 @@ web:
     more_details: "More details"
     items: "{count} items"
     automatic_refresh: "Updates automatically every 2 seconds"
+    auto_refresh: "Auto refresh"
+    auto_refresh_hint: "Controls scheduled data requests across the console and remembers this browser's choice. Initial loads and manual actions still work."
+    auto_refresh_paused: "Auto refresh is paused. Refresh data manually when needed."
     online_members: "Online / total members"
     back_networks: "Back to networks"
     all_details: "Expand all details"
     ascending: "Ascending"
     descending: "Descending"
-    device_missing: "This device is no longer in the device list."
+    device_missing: "This device is no longer shown under Network Nodes."
     loading: "Loading"
     instances: "instances"
     view_table: "Table view"
@@ -442,7 +445,8 @@ web:
   
   main:
     dashboard: Dashboard
-    device_list: Device List
+    network_topology: Network Topology
+    device_list: Network Nodes
     device_management: Device Management
     login_page: Login Page
     settings: Settings
@@ -452,7 +456,7 @@ web:
     network_list: Networks
 
   device:
-    list: Device List
+    list: Network Nodes
     management: Device Management
     add: Add Device
     delete: Delete Device
@@ -470,7 +474,61 @@ web:
     machine_id: Machine ID
     unknown_location: Unknown Location
     central_networks: Joined Networks
-    
+    edit_attributes: Edit attributes
+    alias: Alias
+    site_location: Location
+    device_model: Device model
+    attributes_hint: Edit the alias, installation location, device model and geographic location. Save an empty field to clear it.
+    attributes_partial_saved: Some changes were saved. Unsaved changes remain in the form; retry to save them. Cancel will not undo saved changes.
+    site_location_hint: "For example, home cabinet or office. Up to 256 characters."
+    device_model_hint: "For example, NanoPi R4S. Up to 128 characters."
+    attributes_too_long: "Use no more than {limit} characters."
+    attributes_invalid_control: Control characters are not allowed.
+    attributes_saved: Device attributes saved
+    attributes_save_failed: Could not save attributes. Your input is kept; please try again.
+    attributes_not_found: This device was removed or is no longer accessible. Your input is kept.
+    connection_ip: Connection source IP
+    ip_location: IP location
+    ip_observed_at: IP recorded at
+    attributes_not_recorded: Not recorded
+    ip_location_non_public: Non-public IP; location unavailable
+    ip_location_not_found: No location found for this IP
+    ip_location_unavailable: IP location lookup unavailable
+
+  node_location:
+    title: Geographic location
+    hint: Used to position the node on maps. Address fields may be set without coordinates. Coordinates use WGS84. Changes take effect when you save the node attributes.
+    country: Country
+    region: State / province / region
+    city: City
+    district: District / county
+    longitude: Longitude (WGS84)
+    latitude: Latitude (WGS84)
+    coordinates: Coordinates (latitude, longitude)
+    longitude_hint: From -180 to 180, with up to 6 decimal places.
+    latitude_hint: From -90 to 90, with up to 6 decimal places.
+    coordinate_pair: Enter both longitude and latitude, or leave both empty.
+    longitude_invalid: Longitude must be a valid number between -180 and 180.
+    latitude_invalid: Latitude must be a valid number between -90 and 90.
+    clear: Clear location
+    choose_map: Choose on map
+    hide_map: Hide map
+    resolve_address: Look up address
+    looking_up: Looking up the address for the selected coordinates…
+    lookup_complete: Address filled in. You can correct it before saving.
+    lookup_busy: Address lookup is busy. Your input is kept. Try again later or enter the address manually and save.
+    lookup_disabled: Automatic address lookup is disabled. You can enter the address manually and save.
+    lookup_no_result: No address was found at these coordinates. Existing text is kept; please review and enter the address manually.
+    lookup_failed: Address lookup is unavailable. Your input is kept. Enter the address manually and save, or try again later.
+    address_data: "Address data:"
+    map_hint: Click the map to select coordinates and look up the address. Drag or zoom to explore.
+    map_label: Node geographic location picker
+    center_point: Show entered coordinates
+    loading_map: Loading map…
+    map_failed: The map could not load. You can continue entering the location manually or retry.
+    tiles_failed: Some map tiles could not load. Your selected coordinates and address are kept; manual entry remains available.
+    retry_map: Reload map
+
   device_management:
     edit_network: Edit Network
     export_config: Export Config
@@ -483,6 +541,8 @@ web:
     edit_as_file: Edit as File
     save_config: Save Config
     config_saved: Config Saved
+    config_save_failed: Failed to save configuration
+    config_selection_changed: The selected network instance changed. Select it again before saving.
     import_config: Import Config
     create_new: Create New Network
     network_status: Network Status
@@ -812,3 +872,421 @@ disable_relay_data: Disable Data Relay
 disable_relay_data_help: Do not relay data packets for other peers, so this node carries no traffic it did not originate.
 prefer_peer_relay: Prefer Peer Relay
 prefer_peer_relay_help: Prefer a credential peer that already relays to a destination over advertising another direct edge to the same destination.
+
+assets:
+  groups:
+    title: "Manage gateway groups"
+    node_context: "Network node: "
+    scope_hint: "Manage all gateway groups on the current network node, including empty groups."
+    add: "Add gateway group"
+    edit: "Edit gateway group"
+    name: "Group name"
+    name_required: "Enter a gateway group name."
+    subnets: "LAN subnets"
+    subnets_hint: "Enter one standard IPv4 or IPv6 CIDR per row. At least one subnet is required."
+    subnet_number: "LAN subnet {number}"
+    remove_subnet: "Remove subnet {number}"
+    add_subnet: "Add subnet"
+    preview: "Check subnets"
+    preview_failed: "Subnet checks are temporarily unavailable. Saving will validate the data again."
+    remarks: "Notes"
+    uncertain: "The last save result is unknown. Retrying sends the original values. If you close this form, refresh to check whether the group was created."
+    request_failed: "Unable to complete the gateway group operation. Please retry."
+    save_failed: "Unable to save the group. Your input has been kept."
+    cancel: "Cancel"
+    retry_save: "Retry last save"
+    save: "Save"
+    delete: "Delete permanently"
+    delete_prompt: "Permanently delete gateway group “{name}”?"
+    delete_hint: "This cannot be restored in the interface. Groups containing devices cannot be deleted; delete their devices first."
+    loading: "Loading gateway groups…"
+    retry: "Reload"
+    empty: "This node has no gateway groups yet. Add a group to get started."
+    edit_named: "Edit gateway group {name}"
+    delete_named: "Delete gateway group {name}"
+    close: "Close"
+  types:
+    title: "Manage device types"
+    owner_context: "Asset owner: "
+    scope_hint: "Manage types for the current asset owner. Renaming preserves device references; types in use cannot be deleted."
+    add: "Add type"
+    edit: "Edit type"
+    name: "Type name"
+    name_required: "Enter a type name."
+    request_failed: "Unable to complete the device type operation. Please retry."
+    save_failed: "Unable to save the type. Your input has been kept."
+    uncertain: "The last save result is unknown. Retrying sends the original name. If you close this form, refresh to check whether the type was created."
+    retry_save: "Retry last save"
+    save: "Save"
+    cancel: "Cancel"
+    delete: "Delete permanently"
+    delete_prompt: "Permanently delete device type “{name}”?"
+    delete_hint: "This cannot be restored in the interface. Types referenced by devices cannot be deleted; change those devices’ types first."
+    loading: "Loading device types…"
+    retry: "Reload"
+    empty: "This account has no device types. You can add one or leave a device’s type empty."
+    edit_named: "Edit type {name}"
+    delete_named: "Delete type {name}"
+    close: "Close"
+  deviceList: "Devices"
+  deviceTotal: "{count} devices"
+  deviceEmpty: "No devices match the current filters"
+  deviceName: "Device name"
+  deviceModel: "Model"
+  deviceType: "Device type"
+  deviceGroup: "Gateway group"
+  deviceDirectNode: "Directly under this node"
+  deviceUnclassified: "Unclassified"
+  deviceOverlayIp: "Overlay IP"
+  deviceLanIp: "LAN IP"
+  deviceLanWarning: "Outside registered subnets"
+  deviceLanMismatch: "The LAN IP is outside this group's registered subnets. You can still save it."
+  deviceGatewaySelf: "Gateway itself"
+  deviceGatewaySelfHelp: "Register the gateway's own services here. Each gateway group can have at most one such device."
+  deviceRemarks: "Notes"
+  deviceCreatedAt: "Registered"
+  deviceActions: "Actions"
+  deviceAddService: "Add service"
+  deviceAddServiceFor: "Add a service to {name}"
+  deviceEdit: "Edit device"
+  deviceEditNamed: "Edit device {name}"
+  deviceDelete: "Delete device"
+  deviceDeleteNamed: "Delete device {name}"
+  deviceCreate: "Add device"
+  deviceContext: "Account {owner} · Network node {node}"
+  deviceOwnershipFixed: "The node and gateway group cannot be changed after the device is created."
+  deviceGroupHelp: "Leave empty to attach directly to this node. Ownership cannot be changed after the first save."
+  deviceIpHelp: "Enter a single IPv4 or IPv6 address, without a port, URL, or CIDR prefix. Overlay IP is required; LAN IP is optional."
+  deviceCheckAddresses: "Check addresses"
+  devicePreviewFailed: "Address validation failed. Retry, or save to receive the final validation result."
+  deviceNameRequired: "Enter a device name"
+  deviceOverlayRequired: "Enter an overlay IP"
+  deviceTextTooLong: "Use at most {limit} characters"
+  deviceSaveFailed: "Could not save the device. Review the values and retry."
+  deviceSaveUncertain: "The previous save result is unknown. Fields are locked; Retry save repeats the same operation."
+  deviceRetrySave: "Retry save"
+  deviceCancel: "Cancel"
+  deviceSave: "Save"
+  services:
+    title: "Services"
+    panelFor: "Services on {name}"
+    deviceContext: "Device: {name}"
+    addressHint: "Overlay and LAN IPs follow the device and are read-only here. To change them, edit the device address."
+    addressMissing: "Not set"
+    addressLoading: "Loading device addresses…"
+    addressLoadFailed: "Could not load the device addresses. The last known values are shown. Please retry."
+    add: "Add service"
+    addTitle: "Add service"
+    edit: "Edit"
+    editTitle: "Edit service"
+    delete: "Delete"
+    deleteTitle: "Delete service"
+    deleteConfirm: "Permanently delete the service “{name}”? It cannot be restored from this page."
+    cancel: "Cancel"
+    save: "Save"
+    refresh: "Refresh"
+    retry: "Retry"
+    retryOriginal: "Retry original save"
+    name: "Service name"
+    protocols: "Transport protocols"
+    protocolHint: "You can select both TCP and UDP."
+    port: "Service port"
+    accessUrl: "Access link"
+    urlHint: "Optional complete HTTP/HTTPS web address, including a path if needed."
+    icon: "Service icon"
+    defaultIcon: "Default icon"
+    remarks: "Notes"
+    actions: "Actions"
+    open: "Open link"
+    openNamed: "Open the link for “{name}” in a new tab"
+    loading: "Loading services…"
+    empty: "No services have been registered on this device."
+    saved: "Service saved."
+    deleted: "Service deleted."
+    alreadyRemoved: "This service no longer exists. The list has been refreshed."
+    loadFailed: "Could not load services. Please retry."
+    saveFailed: "Could not save the service. Review the fields and retry."
+    deleteFailed: "Could not delete the service. Please retry."
+    contextChanged: "The device context changed. Select the node again or refresh the device list."
+    unknownOutcome: "The save result could not be confirmed. Your values are preserved; retry the original save to confirm the result."
+    nameRequired: "Enter a service name."
+    nameTooLong: "Use no more than 128 characters for the service name."
+    protocolRequired: "Select at least one transport protocol."
+    portInvalid: "Enter an integer port between 1 and 65535."
+    remarksTooLong: "Notes must not exceed 2000 characters."
+    urlInvalid: "Enter a complete web address starting with http:// or https://."
+    urlTooLong: "The access link must not exceed 2048 characters."
+  publication:
+    label: "Publish service"
+    column: "Publication"
+    title: "Publication settings"
+    configure: "Configure publication"
+    configured: "Configured"
+    notPublished: "Not published"
+    draftHint: "Confirm these settings, then save the service to write the port mappings."
+    applyHint: "Saving writes the port mappings to the selected running network for application."
+    disableHint: "Saving removes the public mappings managed by this service."
+    saved: "The service and publication settings have been saved."
+    removed: "The service has been saved and its public mappings removed."
+    deleteHint: "This also removes the public mappings managed by this service."
+    server: "Public server"
+    network: "Running network"
+    chooseServer: "Select a public server"
+    chooseNetwork: "Select a running network"
+    serversLoading: "Loading public servers…"
+    networksLoading: "Loading running networks…"
+    serversLoadFailed: "Could not load public servers. Refresh to retry."
+    networksLoadFailed: "Could not load running networks. Refresh to retry."
+    noServers: "This account has no nodes marked as public servers. Set this in the node properties first."
+    noNetworks: "This server has no running networks. Start a network, then refresh."
+    serverRequired: "Select an available public server belonging to this account."
+    networkRequired: "Select a running network that supports publication."
+    selectionUnavailable: "Currently unavailable"
+    serverUnavailable: "The previous public server is unavailable. Select another, or cancel and turn off publication."
+    networkUnavailable: "The previous network is unavailable for publication. Refresh or select another, or cancel and turn off publication."
+    bindIp: "Bind IP"
+    bindPort: "Bind port"
+    targetIp: "Target IP"
+    targetPort: "Target port"
+    bindIpInvalid: "Enter a single bind IP without a port or subnet prefix."
+    targetMissing: "The device overlay IP is missing. Return to the service form and retry loading its addresses."
+    protocolHint: "Uses the service protocols. Selecting both TCP and UDP creates a mapping for each."
+    targetHint: "The target follows the device overlay IP and is read-only here."
+    configurationRequired: "Select a public server and running network, then confirm the publication settings."
+    confirm: "Confirm settings"
+    reasons:
+      unavailable: "This running network cannot publish services. Check its configuration ownership and saved state."
+      centrallyManaged: "This network is centrally managed. Update its central network configuration instead."
+      configNotSaved: "Save this running network configuration in the Web console first."
+      savedConfigNotWeb: "The saved network configuration is not managed by the Web console."
+      savedConfigInvalid: "The saved network configuration is invalid. Correct and save it again."
+      instanceIdMismatch: "The saved instance ID does not match this running network. Correct and save it again."
+      savedConfigStopped: "This network is saved as stopped. Start and save it first."
+      runtimeMetadataMissing: "The running network's configuration ownership could not be confirmed. Refresh and retry."
+      runtimeConfigNotWeb: "This running network is not managed by the Web console."
+      runtimeConfigReadOnly: "This running network configuration is read-only and cannot accept public mappings."
+  serviceIcons:
+    server: "Server"
+    globe: "Website"
+    database: "Database"
+    mobile: "Phone"
+    desktop: "Computer"
+    home: "Home"
+    cloud: "Cloud"
+    cog: "Settings"
+    play: "Media"
+    link: "Link"
+    shield: "Security"
+    wifi: "Wi-Fi"
+  page:
+    title: "Node details"
+    subtitle: "Manage gateway groups, devices and services belonging to a network node."
+    back: "Back to network nodes"
+    unavailable: "Asset management is unavailable in this authentication mode."
+    retry: "Retry"
+    invalid_node: "The previous account or node is no longer available. Please select again."
+    account: "Managed account"
+    select_account: "Select an account"
+    node: "Network node"
+    select_node: "Select a network node"
+    managing: "Managing account: {account}"
+    public_node: "Public server"
+    no_location: "No location"
+    no_model: "No model"
+    edit_node: "Edit node properties"
+    delete_node: "Delete node"
+    group: "Gateway group"
+    manage_groups: "Manage gateway groups"
+    type: "Device type"
+    manage_types: "Manage device types"
+    keyword: "Keyword"
+    keyword_hint: "Device name, model or IP"
+    query: "Search"
+    devices: "Devices"
+    refresh: "Refresh current data"
+    add_device: "Add device"
+    choose_node: "Select a network node to view its devices."
+    location: "Location"
+    model: "Device model"
+    public_hint: "Record this node as a public server. Service publishing will be available in a later phase."
+    cancel: "Cancel"
+    save: "Save"
+    confirm_delete: "Confirm deletion"
+    delete_device_hint: "Permanently delete device “{name}” and all services present when deletion is processed? This cannot be undone."
+    delete_node_hint: "Delete network node “{name}”? Remove its gateway groups and devices first."
+    delete: "Delete"
+    operation_failed: "The operation failed. Please retry."
+    all_devices: "All devices"
+    all_types: "All types"
+    device_count: "Devices {count}"
+    count_failed: "Device counts could not be loaded. Refresh to retry."
+    stale_results: "The query failed. Previous results are displayed; please retry."
+  errors:
+    mutationPending: "A save is already in progress."
+    unknownOutcome: "The previous save may have succeeded. Retry its original values before changing them."
+    contextChanged: "The account or node changed. Reopen the form before continuing."
+    noPendingAttempt: "There is no unresolved save to retry."
+  binding:
+    configIdentity: "Configuration record"
+    role: "Device role"
+    gateway: "Gateway"
+    ordinary: "Ordinary device"
+    roleHint: "Choose a device role, then select an available instance from all configurations saved on this node."
+    instance: "Network instance"
+    chooseInstance: "Select a network instance"
+    refresh: "Refresh instances"
+    loading: "Loading instance configurations…"
+    savedInstancesHint: "All saved network instances on this node are shown below, with reasons for any that are unavailable."
+    empty: "This node has no saved network instances. Save a configuration in Network Nodes, then refresh this list."
+    fixedEmpty: "The bound network instance has no saved configuration."
+    noSelectable: "No instance is currently available for the selected device role. Review the reasons below."
+    requestFailed: "Unable to load instances. Please retry manually."
+    online: "Online"
+    offline: "Offline"
+    unknownOnline: "Online status unknown"
+    disabled: "Disabled"
+    configured: "Configured address"
+    allocated: "Allocated address"
+    runtime: "Reported address"
+    missingIp: "No usable IPv4 address yet"
+    rules: "Subnet rules"
+    noRules: "No subnet forwarding"
+    proxy: "Subnet proxy · original addresses"
+    mapping: "Subnet mapping · translated addresses"
+    instanceIp: "Instance overlay IP"
+    available: "Available"
+    notAvailable: "Unavailable"
+    gatewayInstanceOnly: "This instance has subnet proxy or mapping rules. Choose Gateway to use it."
+    ordinaryInstanceOnly: "This instance has no subnet forwarding rules. Choose Ordinary device to use it."
+    unavailable: "Not selectable"
+    inUse: "Bound to gateway"
+    legacyHint: "This existing record is not bound. Its addresses are preserved; review the old and new values before binding."
+    fixedHint: "The saved node, gateway and instance remain fixed. Review adopts the current configuration of the same instance."
+    inherited: "Using the parent gateway's network instance"
+    parentRequired: "The parent gateway needs a valid binding. Bind or review it in gateway management first."
+    metadata: "General information"
+    attach: "Add binding"
+    review: "Review instance configuration"
+    address: "Review device addresses"
+    preview: "Preview changes"
+    previewRequired: "Preview the current selection before saving."
+    previewFailed: "Unable to preview. Review your selection and retry."
+    apply: "Confirm and save"
+    applyFailed: "Unable to save. Your input is preserved for retry."
+    previous: "Saved information"
+    proposed: "Information to confirm"
+    generationChanged: "The instance was recreated. Confirming adopts its new configuration source; child devices still require individual review."
+    childrenHint: "Saving gateway configuration does not overwrite child device addresses."
+    changedChildren: "Child devices to review: {count}"
+    newIpv4Only: "New bindings and derived addresses use IPv4. Existing IPv6 records remain unchanged until converted."
+    rule: "Subnet rule"
+    chooseRule: "Select a rule"
+    host: "Host number"
+    lastOctet: "Last IP octet"
+    hostRange: "Allowed range: 0–{max}"
+    hostHint: "Enter the host part for the selected subnet. The preview shows the complete addresses."
+    selfLan: "Record the gateway's own LAN IP (optional)"
+    selfHint: "The gateway uses the instance overlay IP. Its optional LAN address uses the real subnet only."
+    addressSource: "Addresses come from the bound instance and selected rule"
+    noValue: "Not determined"
+    state:
+      legacy_unbound: "Existing record · not bound"
+      current: "Binding current"
+      changed: "Configuration changed · review needed"
+      missing: "Instance missing"
+      replaced: "Instance recreated · review needed"
+      unavailable: "Unable to review now"
+    readonlyAddresses: "These addresses come from the instance and rules. Use the separate address review action to change them."
+    scopeChanged: "The current account or node changed. Reopen this window."
+    retry: "Retry original operation"
+    reasons:
+      instance_already_bound: "This instance is already bound to another gateway on this node."
+      unknown: "The binding cannot be reviewed right now. Refresh and retry."
+      binding_snapshot_incomplete: "The saved binding is incomplete. Existing device information is retained."
+      binding_snapshot_role_invalid: "The saved binding role is inconsistent. Review the existing record."
+      instance_source_unavailable: "The instance configuration is temporarily unavailable. Retry manually."
+      instance_missing: "The original instance configuration is missing. Device information and services are retained."
+      instance_identity_invalid: "The instance source does not match the saved record. The binding cannot be confirmed."
+      instance_replaced: "The same instance was recreated. Confirm its new configuration source."
+      instance_configuration_unavailable: "The current instance configuration or IPv4 address is unavailable. Check the instance first."
+      binding_role_mismatch: "The instance subnet forwarding rules no longer match this device role."
+      instance_ipv4_changed: "The instance overlay IP changed. Review the old and new addresses."
+      instance_config_changed: "The instance address configuration or subnet rules changed. Review before confirming."
+      binding_address_mode_invalid: "The device address source is incomplete. Saved addresses are retained."
+      gateway_not_bound: "The parent gateway is not bound. Bind the gateway first."
+      binding_rule_missing: "The original subnet rule is missing. Choose a rule when reviewing addresses."
+      binding_rule_changed: "The selected subnet rule changed. Review the device addresses."
+    sources:
+      user: "User configuration"
+      web: "Web configuration"
+      unknown: "Instance configuration"
+  binding_page:
+    source: "Instance and address source"
+    attach: "Attach"
+    attach_address: "Set source"
+    review: "Review"
+    review_address: "Review address"
+    view: "View binding"
+    view_address: "View source"
+    review_named: "View or review the instance and address source for {name}"
+    edit_address: "Edit address details"
+    edit_address_named: "Edit address details for {name}"
+    saved_snapshot: "Saved addresses are retained without automatic updates"
+    states:
+      legacy_unbound: "Unbound"
+      current: "Source unchanged"
+      changed: "Configuration changed"
+      missing: "Instance missing"
+      replaced: "Instance recreated"
+      unavailable: "Review unavailable"
+    modes:
+      legacy_manual: "Legacy manual addresses"
+      direct_instance: "Direct instance address"
+      gateway_rule: "Addresses from gateway rule"
+      gateway_self: "Gateway's own address"
+
+user_admin:
+  title: "User Management"
+  subtitle: "Manage all accounts. Deleting an account disables its networks and retains its nodes, devices, and services."
+  refresh: "Refresh users"
+  count: "{count} users, including {deleted} deleted"
+  manual_refresh: "Updates on page entry, manual refresh, or after an operation."
+  id: "User ID"
+  username: "Username"
+  role: "Role"
+  administrator: "Administrator"
+  regular_user: "User"
+  current_user: "Your account"
+  status: "Account status"
+  active: "Active"
+  deleted: "Deleted"
+  nodes: "Network nodes"
+  instances: "Instances (disabled / total)"
+  actions: "Actions"
+  delete: "Delete user"
+  delete_title: "Confirm user deletion"
+  confirm_delete: "Confirm deletion"
+  delete_description: "The account will be marked as deleted. This page does not offer account recovery. Confirm the following effects:"
+  effect_login: "Disable Web sign-in and node access for this account. Its username stays reserved."
+  effect_networks: "Disable all network configurations owned by this account and attempt to stop instances on connected nodes."
+  data_retained: "Network nodes, devices, services, and existing network records are retained."
+  offline_note: "Offline nodes or timed-out requests prevent immediate confirmation that remote networks have stopped. Configuration changes and runtime results are shown separately."
+  retry_disable: "Retry disabling networks"
+  retry_title: "Retry disabling user networks"
+  retry_description: "This account is already deleted. Retry disabling its networks without restoring the account or removing retained records."
+  cancel: "Cancel"
+  delete_success: "User {username} has been deleted."
+  retry_success: "User {username} remains deleted. Network disabling was attempted again."
+  configurations_disabled: "{count} network instance configurations are disabled."
+  runtime_summary: "Stop confirmed: {confirmed} nodes; unconfirmed: {pending} nodes."
+  runtime_pending: "Not all remote stops have been confirmed. Network configurations are disabled; you can retry from this user's row."
+  delete_uncertain: "The deletion result is not confirmed. Retry this operation, or close this window and refresh the list. Retrying does not remove retained nodes, devices, or services."
+  unavailable: "Local user management is unavailable with the current authentication mode."
+  forbidden: "Your account cannot manage users. Sign in as an administrator."
+  cannot_delete_self: "You cannot delete your current account."
+  cannot_delete_last_admin: "The last active administrator cannot be deleted."
+  user_not_found: "This user no longer exists. Refresh the user list."
+  operation_failed: "The operation did not complete. Please retry later."
+  load_failed: "Unable to load users. Refresh to retry."
+  retained_rows: "The last successfully loaded list is retained."
+  no_users: "No users."

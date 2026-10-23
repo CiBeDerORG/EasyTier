@@ -1,0 +1,162 @@
+name: EasyTier Web Regression
+# Revalidate the Send fix together with the active-user runtime revision fixture.
+run-name: "Web regression - ${{ github.ref_name }} - ${{ github.sha }}"
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feat/node-attributes-main"]
+    # Ordinary development and report-only pushes remain in debug mode.
+    paths: [".github/workflows/node-attributes-validation.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  backend:
+    name: Web backend regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Initialize test report
+        run: |
+          mkdir -p process/test
+          printf 'Commit: %s\nRun: %s/%s/actions/runs/%s\n' \
+            "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            > process/test/backend-context.txt
+
+      - name: Prepare Rust and protoc
+        uses: ./.github/actions/prepare-build
+        with:
+          gui: 'false'
+          pnpm: 'false'
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: web-regression
+
+      - name: Run web backend tests
+        id: tests
+        run: cargo test --locked -p easytier-web --no-fail-fast 2>&1 | tee process/test/backend-tests.log
+
+      - name: Record backend result
+        if: always()
+        env:
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          mkdir -p process/test
+          printf '# Web backend regression\n\nCommit: `%s`\n\nTest outcome: **%s**\n\nCommand: `cargo test --locked -p easytier-web --no-fail-fast`\n' \
+            "$GITHUB_SHA" "$TEST_OUTCOME" | tee process/test/backend-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload backend test report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: web-backend-test-report
+          path: process/test/backend-*
+          retention-days: 14
+
+  frontend:
+    name: Web frontend regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Initialize test report
+        run: |
+          mkdir -p process/test
+          printf 'Commit: %s\nRun: %s/%s/actions/runs/%s\n' \
+            "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            > process/test/frontend-context.txt
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+          run_install: false
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: '35.1'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install frontend dependencies
+        id: install
+        run: pnpm install --frozen-lockfile 2>&1 | tee process/test/frontend-install.log
+
+      - name: Run frontend library unit tests
+        id: unit
+        run: pnpm --dir easytier-web/frontend-lib test:config-ui 2>&1 | tee process/test/frontend-unit-tests.log
+
+      - name: Check frontend types and build
+        id: build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --dir easytier-web/frontend build 2>&1 | tee process/test/frontend-build.log
+
+      - name: Test network configuration mapping
+        id: mapping
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: node easytier-web/frontend-lib/scripts/test-network-config.mjs 2>&1 | tee process/test/frontend-network-config.log
+
+      - name: Install Chromium for existing browser regression
+        id: browser_install
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm --dir easytier-web/frontend exec playwright install --with-deps chromium
+
+      - name: Run node attributes browser tests
+        id: browser
+        if: ${{ !cancelled() && steps.browser_install.outcome == 'success' }}
+        working-directory: easytier-web/frontend
+        run: node --test tests/node-attributes.test.mjs 2>&1 | tee ../../process/test/frontend-node-attributes.log
+
+      - name: Record frontend results
+        if: always()
+        env:
+          UNIT_OUTCOME: ${{ steps.unit.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          MAPPING_OUTCOME: ${{ steps.mapping.outcome }}
+          BROWSER_OUTCOME: ${{ steps.browser.outcome }}
+        run: |
+          mkdir -p process/test
+          {
+            printf '# Web frontend regression\n\nCommit: `%s`\n\n' "$GITHUB_SHA"
+            printf '| Check | Outcome |\n| --- | --- |\n'
+            printf '| Library unit tests | %s |\n' "$UNIT_OUTCOME"
+            printf '| Type check and build | %s |\n' "$BUILD_OUTCOME"
+            printf '| Network configuration mapping | %s |\n' "$MAPPING_OUTCOME"
+            printf '| Node attributes browser tests | %s |\n' "$BROWSER_OUTCOME"
+            printf '\nThese existing regressions do not replace user-management-specific acceptance tests.\n'
+          } | tee process/test/frontend-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload frontend test report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: web-frontend-test-report
+          path: process/test/frontend-*
+          retention-days: 14

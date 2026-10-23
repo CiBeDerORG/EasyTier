@@ -5,6 +5,10 @@ inputs:
   target:
     description: 'The target to build for'
     required: false
+  rust-toolchain:
+    description: 'Rust toolchain to install; reusable native artifacts pin an exact release'
+    required: false
+    default: '1.95'
   pnpm:
     description: 'Whether to run pnpm build'
     required: true
@@ -66,7 +70,7 @@ runs:
 
     - uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
-        toolchain: 1.95
+        toolchain: ${{ inputs.rust-toolchain }}
         target: ${{ !contains(inputs.target, 'mips') && inputs.target || '' }}
         components: ${{ contains(inputs.target, 'mips') && 'rust-src' || '' }}
         cache: false

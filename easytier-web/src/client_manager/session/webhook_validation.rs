@@ -392,6 +392,21 @@ pub(super) async fn apply_success(
     user_id: i32,
     validation_change_epoch: u64,
 ) {
+    // A previously successful local or external validation must not revive a
+    // locally deleted identity while its response was in flight. Unknown
+    // external identities still follow the existing provisioning path.
+    match input.storage.db().is_user_active(user_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            apply_rejected(session_data, &input, validation_change_epoch).await;
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(user_id, %error, "could not confirm active user for webhook validation");
+            return;
+        }
+    }
+
     let WebhookHeartbeatValidation {
         config_revision,
         binding_version,
@@ -409,6 +424,7 @@ pub(super) async fn apply_success(
         runtime_req,
         session_epoch,
         notify_runtime,
+        connection_observation,
     ) = {
         let mut data = session_data.write().await;
         let Some(runtime_req) = data.req.clone() else {
@@ -443,6 +459,12 @@ pub(super) async fn apply_success(
         let previous_connected_binding_version = data.webhook_connected_binding_version;
         let client_url = data.client_url.clone();
         let is_new_storage_token = data.storage_token.is_none();
+        let connection_observation =
+            if is_new_storage_token && !data.webhook_config.has_external_endpoint() {
+                data.connection_observation.take()
+            } else {
+                None
+            };
         let mut restored_runtime_revision = false;
         if is_new_storage_token {
             data.managed_runtime = input.storage.bind_managed_runtime_state(
@@ -530,13 +552,14 @@ pub(super) async fn apply_success(
             runtime_req,
             data.session_epoch,
             notify_runtime,
+            connection_observation,
         )
     };
 
     let report_time = SessionRpcService::heartbeat_report_timestamp(&runtime_req);
     input
         .storage
-        .update_session_client(storage_token, report_time, true, session_epoch);
+        .update_session_client(storage_token.clone(), report_time, true, session_epoch);
 
     if let Some(validation_notify) = validation_notify {
         validation_notify.notify_one();
@@ -553,6 +576,16 @@ pub(super) async fn apply_success(
 
     if notify_runtime {
         let _ = notifier.send(());
+    }
+
+    // Best-effort metadata, once per newly authenticated connection. Config
+    // reconciliation has already been notified and does not wait on this write.
+    // A failed write is retried only by a future connection, never a new timer.
+    if let Some(observation) = connection_observation {
+        let _ = input
+            .storage
+            .persist_connection_observation(&storage_token, session_epoch, &observation)
+            .await;
     }
 }
 

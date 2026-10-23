@@ -1,0 +1,39 @@
+✖ real backend: node asset management, offline nodes, and Chinese responsive screenshots (18746.243532ms)
+ℹ Administrator selects another account and a registered node
+ℹ Gateway group supports manual IPv4/IPv6 subnet rows and editing
+ℹ Custom device type can be created and renamed
+ℹ Search is explicit; creating outside current filters resets them and expands the new direct device
+ℹ Grouped device accepts a subnet mismatch with visible warning; multiple service lists stay expanded
+ℹ Service CRUD uses real API; dual protocols, HTTP link, icon, and conflict handling
+ℹ Device editing preserves ownership; reopening a collapsed service panel does not reopen an old add dialog
+ℹ Referenced groups and types cannot be deleted
+ℹ Chinese desktop and 390px screenshots show the saved data and service form
+ℹ An offline registered node accepts manual device and service management
+ℹ Service delete and device cascade delete persist; empty group and unused type can then be deleted
+ℹ Responsive layout has no document-wide horizontal overflow
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 19241.324814
+
+✖ failing tests:
+
+test at tests/node-assets-e2e.test.mjs:162:1
+✖ real backend: node asset management, offline nodes, and Chinese responsive screenshots (18746.243532ms)
+  Error: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + [
+  +   'Mobile document overflows horizontally (1427px / 390px); tables must scroll internally.'
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (file:///workspace/EasyTier-main-node-attributes/easytier-web/frontend/tests/node-assets-e2e.test.mjs:461:15)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    [cause]: undefined
+  }

@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch 
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { Button, Dialog, Drawer, Message, Skeleton, useToast } from 'primevue';
+import { Polling } from 'easytier-frontend-lib';
 import { v4 as uuidv4 } from 'uuid';
 import type ApiClient from '../modules/api';
 import type { CentralNetworkMember, CentralNetworkSummary } from '../modules/api';
@@ -17,6 +18,7 @@ const { t, locale } = useI18n({ useScope: 'local', messages: mapMessages });
 const route = useRoute();
 const router = useRouter();
 const toast = useToast();
+const autoRefreshEnabled = Polling.useAutoRefresh();
 const networks = ref<CentralNetworkSummary[]>([]);
 const networkId = ref('');
 const members = ref<CentralNetworkMember[]>([]);
@@ -125,7 +127,10 @@ function expireTelemetry(force = false) {
 function visibilityChanged() {
     expireTelemetry(true);
     counters.clear();
-    if (!document.hidden) void collectRuntime();
+    if (canRefreshAutomatically()) void collectRuntime(generation, canRefreshAutomatically);
+}
+function canRefreshAutomatically() {
+    return mounted && autoRefreshEnabled.value && !document.hidden && props.centralEnabled;
 }
 
 async function loadNetworks() {
@@ -184,8 +189,8 @@ async function loadNetwork() {
     if (memberResult.status === 'fulfilled') void collectRuntime(current);
 }
 
-async function collectRuntime(current = generation) {
-    if (!networkId.value || !props.centralEnabled || loading.value || runtimeGeneration === current || document.hidden) return;
+async function collectRuntime(current = generation, canContinue = () => true) {
+    if (!canContinue() || !networkId.value || !props.centralEnabled || loading.value || runtimeGeneration === current || document.hidden) return;
     runtimeGeneration = current;
     collecting.value = true;
     try {
@@ -195,14 +200,14 @@ async function collectRuntime(current = generation) {
         let failed = false;
         let cursor = 0;
         const worker = async () => {
-            while (cursor < queue.length && current === generation && mounted) {
+            while (cursor < queue.length && current === generation && mounted && canContinue()) {
                 const member = queue[cursor++];
                 const results = await Promise.allSettled([
                     props.api.get_node_info(member.device_id, id),
                     props.api.get_node_routes(member.device_id, id),
                     props.api.get_node_peers(member.device_id, id),
                 ]);
-                if (current !== generation || !mounted) return;
+                if (current !== generation || !mounted || !canContinue()) return;
                 const [info, routes, peers] = results;
                 const previous = samples.get(member.device_id);
                 const partial = results.some(result => result.status === 'rejected');
@@ -218,7 +223,7 @@ async function collectRuntime(current = generation) {
             }
         };
         await Promise.all(Array.from({ length: Math.min(3, queue.length) }, worker));
-        if (!mounted || current !== generation) return;
+        if (!mounted || current !== generation || !canContinue()) return;
         for (const member of members.value.filter(member => !member.online || member.running === false)) {
             const previous = samples.get(member.device_id);
             if (previous) next.set(member.device_id, { ...previous, failed: true });
@@ -233,7 +238,7 @@ async function collectRuntime(current = generation) {
         lastUpdate.value = queue.length && !failed ? Date.now() : lastUpdate.value;
         if (document.hidden) expireTelemetry(true);
     } catch {
-        if (mounted && current === generation) { runtimeError.value = true; expireTelemetry(true); }
+        if (mounted && current === generation && canContinue()) { runtimeError.value = true; expireTelemetry(true); }
     } finally {
         if (runtimeGeneration === current) {
             runtimeGeneration = null;
@@ -286,12 +291,12 @@ onMounted(() => {
     document.addEventListener('visibilitychange', visibilityChanged);
     polling = window.setInterval(async () => {
         expireTelemetry();
-        if (!mounted || document.hidden || !props.centralEnabled || !networkId.value || loading.value || runtimeGeneration === generation || pollInFlight) return;
+        if (!canRefreshAutomatically() || !networkId.value || loading.value || runtimeGeneration === generation || pollInFlight) return;
         pollInFlight = true;
         const current = generation;
         try {
             const result = await props.api.list_network_members(networkId.value);
-            if (current !== generation || !mounted) return;
+            if (current !== generation || !canRefreshAutomatically()) return;
             members.value = result.members;
             membersStale.value = false;
             if (selectedId.value && !result.members.some(member => member.device_id === selectedId.value)) {
@@ -302,9 +307,9 @@ onMounted(() => {
                 mode.value = 'globe';
                 syncQuery();
             }
-        } catch { if (current === generation) { runtimeError.value = true; membersStale.value = true; } }
+        } catch { if (current === generation && canRefreshAutomatically()) { runtimeError.value = true; membersStale.value = true; } }
         finally { pollInFlight = false; }
-        if (current === generation) await collectRuntime(current);
+        if (current === generation && canRefreshAutomatically()) await collectRuntime(current, canRefreshAutomatically);
     }, 15_000);
 });
 onBeforeUnmount(() => { mounted = false; generation++; networkListGeneration++; window.clearInterval(polling); document.removeEventListener('visibilitychange', visibilityChanged); });

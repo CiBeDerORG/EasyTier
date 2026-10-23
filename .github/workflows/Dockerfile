@@ -43,6 +43,6 @@ EXPOSE 11011/tcp
 EXPOSE 11012/tcp
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
-    CMD ["/usr/local/bin/easytier-cli", "--rpc-portal", "127.0.0.1:15888", "--output", "json", "node", "info"]
+    CMD /usr/local/bin/easytier-cli --rpc-portal "127.0.0.1:${EASYTIER_RPC_PORT:-15888}" --output json logger get
 
 ENTRYPOINT ["/sbin/tini", "--", "easytier-core"]

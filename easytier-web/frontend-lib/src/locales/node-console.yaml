@@ -1,0 +1,17 @@
+# Focused copy shared by the node list, its attribute editor and device-list navigation.
+cn:
+  page:
+    title: 设备列表
+    subtitle: 管理所选网络节点下的设备与服务。
+  device:
+    public_badge: 公网
+    attributes_hint: 维护别名、设备型号、公网服务器标识和地理位置；连接 IP 归属地由系统自动记录。
+    asset_metadata_failed: 设备数量和公网标识读取失败，请刷新重试。
+en:
+  page:
+    title: Device list
+    subtitle: Manage devices and services under the selected network node.
+  device:
+    public_badge: Public
+    attributes_hint: Edit the alias, device model, public-server role and geographic location. Connection IP geolocation is recorded automatically.
+    asset_metadata_failed: Device counts and public-server roles could not be loaded. Refresh to retry.

@@ -70,7 +70,7 @@ function fixture() {
 async function open(t, route = '/h/services', options = {}, configure = () => {}) {
     const state = fixture();
     configure(state);
-    const { language = 'en', noWebGL = false, ...contextOptions } = options;
+    const { language = 'en', noWebGL = false, clock = false, ...contextOptions } = options;
     const context = await browser.newContext({ viewport: { width: 1440, height: 1024 }, colorScheme: 'dark', reducedMotion: 'reduce', ...contextOptions });
     t.after(() => context.close());
     await context.addInitScript(({ language, noWebGL }) => {
@@ -84,6 +84,7 @@ async function open(t, route = '/h/services', options = {}, configure = () => {}
     }, { language, noWebGL });
     await context.route(/^https:\/\/[^/]+\.example\.test\//, route => route.fulfill({ contentType: 'text/html', body: '<h1>Fixture service reached</h1>' }));
     const page = await context.newPage();
+    if (clock) await page.clock.install();
     page.setDefaultTimeout(15000);
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -153,7 +154,11 @@ async function selectOption(page, label, option, scope = page) {
 }
 
 async function capture(page, name) {
-    if (screenshotDir) await page.screenshot({ path: `${screenshotDir}/${name}.png`, fullPage: true, animations: 'disabled' });
+    if (!screenshotDir) return;
+    await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.screenshot({ path: `${screenshotDir}/${name}.png`, fullPage: true, animations: 'disabled' });
+    if (page.viewportSize().width === 390) await page.screenshot({ path: `${screenshotDir}/${name}-viewport.png`, animations: 'disabled' });
 }
 
 async function assertNoOverflow(page) {
@@ -421,6 +426,29 @@ test('WebGL failure keeps node configuration usable', async t => {
     await page.locator('.map-edit-drawer:visible').getByLabel('Longitude', { exact: true }).fill('100');
     await page.locator('.map-edit-drawer:visible').getByRole('button', { name: 'Save changes', exact: true }).click();
     await page.locator('.map-coordinate-line').getByText('45.0000°, 100.0000°', { exact: true }).waitFor();
+});
+
+test('merged auto-refresh preference pauses map polling while manual refresh and later resumption remain usable', async t => {
+    const { page, state } = await open(t, `/h/map?network=${networkId}`, { noWebGL: true, clock: true });
+    await page.locator('.map-link-row').first().waitFor();
+    await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
+    const refreshSwitch = page.getByRole('switch', { name: 'Auto refresh', exact: true });
+    await refreshSwitch.uncheck();
+    const samples = () => state.requests.filter(request => request.path.endsWith('/proxy-rpc') || request.path.endsWith('/members')).length;
+    const paused = samples();
+    await page.clock.fastForward(30_000);
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    assert.equal(samples(), paused, 'paused map does not sample on timer or visibility recovery');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
+    assert.ok(samples() > paused, 'manual refresh samples while polling is paused');
+    const beforeResume = samples();
+    await refreshSwitch.check();
+    const nextMembers = page.waitForResponse(response => new URL(response.url()).pathname === `/api/v1/networks/${networkId}/members`);
+    await page.clock.fastForward(15_000);
+    await nextMembers;
+    await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
+    assert.ok(samples() > beforeResume, 're-enabled map resumes sampling');
 });
 
 test('Chinese dark desktop and mobile flows stay within the viewport', async t => {

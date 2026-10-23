@@ -1,0 +1,16 @@
+✔ instance binding: source conflicts and R02–R05 regressions against the isolated backend (9317.634602ms)
+ℹ R02: duplicate instance and type names expose distinct stable short IDs
+ℹ V06: changing the saved instance after preview returns a real conflict and preserves draft input
+ℹ R05: Unicode code-point limits match the server; control characters and over-limit values cannot submit
+ℹ R03: a deleted device reports a resource error without clearing the valid node
+ℹ R03 transient network failure keeps the last successful rows and manual retry recovers
+ℹ R04: returning from a scrolled detail page resets the node-list scroll position
+ℹ R03: revoking a separate administrator in the real database clears cross-account forms and data
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 9927.867279

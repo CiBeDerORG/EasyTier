@@ -2,6 +2,16 @@
 
 pub mod prelude;
 
+pub mod node_asset_metadata;
+pub mod asset_catalog_state;
+pub mod asset_device_types;
+pub mod asset_gateway_groups;
+pub mod asset_gateway_subnets;
+pub mod asset_devices;
+pub mod asset_services;
+pub mod asset_service_bindings;
+pub mod asset_operations;
+
 pub mod blocked_devices;
 pub mod devices;
 pub mod groups;

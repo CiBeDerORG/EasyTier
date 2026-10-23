@@ -14,16 +14,42 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - name: Compute config-generator WASM inputs
+      if: ${{ inputs.build-filter == './easytier-web/*' }}
+      id: wasm-inputs
+      shell: bash
+      run: |
+        python3 .github/scripts/web-build-inputs.py \
+          --rust-toolchain 1.95.0 --protoc-version 35.1 --wasm-pack-version 0.15.0
+
+    - name: Restore complete config-generator WASM output
+      if: ${{ inputs.build-filter == './easytier-web/*' }}
+      id: wasm-output
+      uses: actions/cache/restore@v5
       with:
-        toolchain: 1.95
+        path: easytier-web/config-generator/src/generated/config-wasm/
+        key: config-wasm-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.wasm-inputs.outputs.key }}
+
+    - name: Validate restored config-generator WASM
+      if: ${{ inputs.build-filter == './easytier-web/*' && steps.wasm-output.outputs.cache-hit == 'true' }}
+      id: wasm-validation
+      shell: bash
+      env:
+        WASM_INPUT_KEY: ${{ steps.wasm-inputs.outputs.key }}
+      run: python3 .github/scripts/web-build-inputs.py validate --key "$WASM_INPUT_KEY"
+
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+      if: ${{ inputs.build-filter != './easytier-web/*' || steps.wasm-validation.outputs.valid != 'true' }}
+      with:
+        toolchain: ${{ inputs.build-filter == './easytier-web/*' && '1.95.0' || '1.95' }}
         target: wasm32-unknown-unknown
         cache: false
         rustflags: ''
 
     - uses: taiki-e/install-action@v2
+      if: ${{ inputs.build-filter != './easytier-web/*' || steps.wasm-validation.outputs.valid != 'true' }}
       with:
-        tool: wasm-pack
+        tool: wasm-pack@0.15.0
 
     - uses: arduino/setup-protoc@v3
       with:
@@ -54,10 +80,57 @@ runs:
         restore-keys: |
           ${{ runner.os }}-pnpm-store-
 
-    - name: Install and build
+    - name: Install frontend dependencies
       shell: bash
       run: |
         pnpm -r install
+
+    - name: Restore config-generator Rust compilation cache
+      if: ${{ inputs.build-filter == './easytier-web/*' && steps.wasm-validation.outputs.valid != 'true' }}
+      uses: Swatinem/rust-cache@v2
+      env:
+        CARGO_TARGET_DIR: ${{ github.workspace }}/target/config-wasm
+      with:
+        shared-key: web-config-wasm-rust1.95.0-protoc35.1-wasm-pack0.15.0
+        workspaces: '. -> target/config-wasm'
+        cache-workspace-crates: true
+        cache-bin: false
+
+    - name: Build config-generator WASM when its inputs changed
+      if: ${{ inputs.build-filter == './easytier-web/*' && steps.wasm-validation.outputs.valid != 'true' }}
+      shell: bash
+      env:
+        CARGO_TARGET_DIR: ${{ github.workspace }}/target/config-wasm
+      run: |
+        rm -rf -- easytier-web/config-generator/src/generated/config-wasm
+        pnpm --dir easytier-web/config-generator build:config-wasm --locked
+
+    - name: Record complete config-generator WASM output
+      if: ${{ inputs.build-filter == './easytier-web/*' && steps.wasm-validation.outputs.valid != 'true' }}
+      shell: bash
+      env:
+        WASM_INPUT_KEY: ${{ steps.wasm-inputs.outputs.key }}
+      run: python3 .github/scripts/web-build-inputs.py record --key "$WASM_INPUT_KEY"
+
+    - name: Save complete config-generator WASM output
+      if: ${{ inputs.build-filter == './easytier-web/*' && steps.wasm-output.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v5
+      with:
+        path: easytier-web/config-generator/src/generated/config-wasm/
+        key: ${{ steps.wasm-output.outputs.cache-primary-key }}
+
+    - name: Build the shared library once and its web consumers
+      if: ${{ inputs.build-filter == './easytier-web/*' }}
+      shell: bash
+      run: |
+        pnpm --dir easytier-web/frontend-lib build
+        pnpm --dir easytier-web/frontend build:ci
+        pnpm --dir easytier-web/config-generator build:ci
+
+    - name: Build other workspace selections
+      if: ${{ inputs.build-filter != './easytier-web/*' }}
+      shell: bash
+      run: |
         if [ -n "${{ inputs.build-filter }}" ]; then
           echo "Building with filter: ${{ inputs.build-filter }}"
           pnpm -r --workspace-concurrency=1 --filter "${{ inputs.build-filter }}" build

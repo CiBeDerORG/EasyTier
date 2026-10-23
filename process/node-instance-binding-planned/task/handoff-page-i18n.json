@@ -1,0 +1,64 @@
+{
+  "cn": {
+    "assets": {
+      "binding_page": {
+        "source": "实例与地址来源",
+        "attach": "补充绑定",
+        "attach_address": "登记来源",
+        "review": "核对绑定",
+        "review_address": "核对地址",
+        "view": "查看绑定",
+        "view_address": "查看来源",
+        "review_named": "查看或核对 {name} 的实例与地址来源",
+        "edit_address": "修改地址资料",
+        "edit_address_named": "修改 {name} 的地址资料",
+        "saved_snapshot": "保留已保存地址，需手动核对",
+        "states": {
+          "legacy_unbound": "未绑定",
+          "current": "来源一致",
+          "changed": "配置已变化",
+          "missing": "实例不存在",
+          "replaced": "实例已重建",
+          "unavailable": "暂不可核对"
+        },
+        "modes": {
+          "legacy_manual": "历史手填地址",
+          "direct_instance": "直属实例地址",
+          "gateway_rule": "网关规则派生地址",
+          "gateway_self": "网关自身地址"
+        }
+      }
+    }
+  },
+  "en": {
+    "assets": {
+      "binding_page": {
+        "source": "Instance and address source",
+        "attach": "Attach",
+        "attach_address": "Set source",
+        "review": "Review",
+        "review_address": "Review address",
+        "view": "View binding",
+        "view_address": "View source",
+        "review_named": "View or review the instance and address source for {name}",
+        "edit_address": "Edit address details",
+        "edit_address_named": "Edit address details for {name}",
+        "saved_snapshot": "Saved addresses are retained without automatic updates",
+        "states": {
+          "legacy_unbound": "Unbound",
+          "current": "Source unchanged",
+          "changed": "Configuration changed",
+          "missing": "Instance missing",
+          "replaced": "Instance recreated",
+          "unavailable": "Review unavailable"
+        },
+        "modes": {
+          "legacy_manual": "Legacy manual addresses",
+          "direct_instance": "Direct instance address",
+          "gateway_rule": "Addresses from gateway rule",
+          "gateway_self": "Gateway's own address"
+        }
+      }
+    }
+  }
+}

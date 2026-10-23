@@ -1,11 +1,14 @@
 mod auth;
+mod assets;
 pub(crate) mod captcha;
 mod central_network;
+mod geocoding;
 mod network;
 mod network_space;
 pub(crate) mod oidc;
 mod rpc;
 mod users;
+mod user_admin;
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -36,12 +39,6 @@ use crate::client_manager::ClientManager;
 use crate::client_manager::storage::StorageToken;
 use crate::db::{Db, UserIdInDb};
 use crate::webhook::SharedWebhookConfig;
-
-/// Embed assets for web dashboard, build frontend first
-#[cfg(feature = "embed")]
-#[derive(rust_embed::RustEmbed, Clone)]
-#[folder = "frontend/dist/"]
-struct Assets;
 
 pub struct RestfulServer {
     bind_addr: SocketAddr,
@@ -327,6 +324,7 @@ impl RestfulServer {
                 .merge(NetworkApi::build_route_internal())
                 .merge(rpc::router_internal())
                 .with_state(self.client_mgr.clone())
+                .layer(Extension(self.central_service.clone()))
                 .layer(axum_mw::from_fn(move |req, next| {
                     let token = internal_token.clone();
                     internal_auth_middleware(token, req, next)
@@ -348,7 +346,12 @@ impl RestfulServer {
             .merge(central_routes)
             .merge(NetworkApi::build_route())
             .merge(rpc::router())
+            .merge(geocoding::router())
             .route_layer(login_required!(Backend))
+            // Asset handlers authenticate the session themselves so errors use
+            // their JSON contract, including unauthenticated requests.
+            .merge(assets::router())
+            .merge(user_admin::router())
             .merge(auth::router().layer(Extension(self.feature_flags.clone())))
             .merge(oidc::router())
             .with_state(self.client_mgr.clone())
@@ -373,7 +376,7 @@ impl RestfulServer {
             app = app.merge(internal_routes);
         }
 
-        #[cfg(feature = "embed")]
+        #[cfg(any(feature = "embed", feature = "web-static"))]
         let app = if let Some(web_router) = self.web_router.take() {
             app.merge(web_router)
         } else {

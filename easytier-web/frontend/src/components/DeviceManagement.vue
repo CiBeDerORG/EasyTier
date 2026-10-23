@@ -55,8 +55,8 @@ const newConfigGenerator = () => {
             <span v-if="deviceInfo.easytier_version"><i class="pi pi-code" aria-hidden="true"></i>{{ deviceInfo.easytier_version }}</span>
             <span><i class="pi pi-share-alt" aria-hidden="true"></i>{{ t('web.console.instances') }}<strong>{{ deviceInfo.running_network_count }}</strong></span>
         </div>
-        <RemoteManagement :api="remoteClient" v-model:instance-id="selectedInstanceId"
-            :new-config-generator="newConfigGenerator" />
+        <RemoteManagement :key="deviceId" :api="remoteClient" v-model:instance-id="selectedInstanceId"
+            :new-config-generator="newConfigGenerator" @update="emits('update')" />
     </section>
 </template>
 
