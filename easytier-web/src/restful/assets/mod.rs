@@ -1,6 +1,7 @@
 //! Session-authenticated management of manually registered node assets.
 //! Existing machine registration and network instance routes remain separate.
 mod publication;
+mod publication_apply;
 mod runtime;
 
 use std::sync::Arc;
@@ -110,13 +111,17 @@ fn publication_write_error(error: AssetError, runtime_error: Option<HttpError>) 
 
 async fn notify_service_publication(
     manager: &AppStateInner,
+    service: &CentralNetworkService,
     owner: i32,
     mut previous_targets: Vec<String>,
-    response: &Value,
+    plan: publication_apply::ApplyPlan,
+    response: &mut Value,
 ) {
     if let Some(machine) = response["publication"]["machine_id"].as_str() {
         previous_targets.push(machine.to_owned());
     }
+    let report = publication_apply::apply(manager, service, owner, plan, Some(response)).await;
+    response["publication_sync"] = report;
     publication::notify_targets(manager, owner, &previous_targets).await;
 }
 
@@ -515,7 +520,9 @@ async fn update_device(
     let _mutation = service.lock_mutations().await;
     let store = AssetsStore::new(service.db.clone());
     let targets = store.publication_targets_for_node(owner, &node).await.map_err(asset_error)?;
-    let result = store.update_device(owner, &node, &id, body).await.map_err(asset_error)?;
+    let plan = publication_apply::snapshot(&service, owner, &node, None).await?;
+    let mut result = store.update_device(owner, &node, &id, body).await.map_err(asset_error)?;
+    result["publication_sync"] = publication_apply::apply(&manager, &service, owner, plan, None).await;
     publication::notify_targets(&manager, owner, &targets).await;
     Ok(Json(result))
 }
@@ -532,7 +539,9 @@ async fn delete_device(
     let _mutation = service.lock_mutations().await;
     let store = AssetsStore::new(service.db.clone());
     let targets = store.publication_targets_for_node(owner, &node).await.map_err(asset_error)?;
+    let plan = publication_apply::snapshot(&service, owner, &node, None).await?;
     store.delete_device(owner, &node, &id).await.map_err(asset_error)?;
+    let _report = publication_apply::apply(&manager, &service, owner, plan, None).await;
     publication::notify_targets(&manager, owner, &targets).await;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -564,9 +573,10 @@ async fn create_service(
     let _mutation = service.lock_mutations().await;
     let (store, runtime_error) = publication_store(&manager, &service, owner, &body).await;
     let targets = store.publication_targets_for_node(owner, &node).await.map_err(asset_error)?;
-    let result = store.create_service(actor_id, owner, &node, &id, body).await
+    let plan = publication_apply::snapshot(&service, owner, &node, body.get("publication")).await?;
+    let mut result = store.create_service(actor_id, owner, &node, &id, body).await
         .map_err(|error| publication_write_error(error, runtime_error))?;
-    notify_service_publication(&manager, owner, targets, &result).await;
+    notify_service_publication(&manager, &service, owner, targets, plan, &mut result).await;
     Ok(Json(result))
 }
 
@@ -584,9 +594,10 @@ async fn update_service(
     let _mutation = service.lock_mutations().await;
     let (store, runtime_error) = publication_store(&manager, &service, owner, &body).await;
     let targets = store.publication_targets_for_node(owner, &node).await.map_err(asset_error)?;
-    let result = store.update_service(owner, &node, &id, body).await
+    let plan = publication_apply::snapshot(&service, owner, &node, body.get("publication")).await?;
+    let mut result = store.update_service(owner, &node, &id, body).await
         .map_err(|error| publication_write_error(error, runtime_error))?;
-    notify_service_publication(&manager, owner, targets, &result).await;
+    notify_service_publication(&manager, &service, owner, targets, plan, &mut result).await;
     Ok(Json(result))
 }
 
@@ -597,14 +608,16 @@ async fn delete_service(
     Extension(config): Config,
     Path(id): Path<String>,
     query: ScopeInput,
-) -> HttpResult<StatusCode> {
+) -> HttpResult<Json<Value>> {
     let (_, owner, node) = scoped_context(&auth, &config, &service, query).await?;
     let _mutation = service.lock_mutations().await;
     let store = AssetsStore::new(service.db.clone());
     let targets = store.publication_targets_for_node(owner, &node).await.map_err(asset_error)?;
+    let plan = publication_apply::snapshot(&service, owner, &node, None).await?;
     store.delete_service(owner, &node, &id).await.map_err(asset_error)?;
+    let report = publication_apply::apply(&manager, &service, owner, plan, None).await;
     publication::notify_targets(&manager, owner, &targets).await;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(json!({"deleted":true,"publication_sync":report})))
 }
 
 async fn preview_subnets(
@@ -812,7 +825,9 @@ async fn apply_gateway_binding(
     let store = observed_store(&manager, &service, owner, &node).await;
     let _mutation = service.lock_mutations().await;
     let targets = store.publication_targets_for_node(owner, &node).await.map_err(asset_error)?;
-    let result = store.apply_binding(actor, owner, &node, "gateway", &id, body).await.map_err(asset_error)?;
+    let plan = publication_apply::snapshot(&service, owner, &node, None).await?;
+    let mut result = store.apply_binding(actor, owner, &node, "gateway", &id, body).await.map_err(asset_error)?;
+    result["publication_sync"] = publication_apply::apply(&manager, &service, owner, plan, None).await;
     publication::notify_targets(&manager, owner, &targets).await;
     Ok(Json(result))
 }
@@ -831,7 +846,9 @@ async fn apply_device_binding(
     let store = observed_store(&manager, &service, owner, &node).await;
     let _mutation = service.lock_mutations().await;
     let targets = store.publication_targets_for_node(owner, &node).await.map_err(asset_error)?;
-    let result = store.apply_binding(actor, owner, &node, "device", &id, body).await.map_err(asset_error)?;
+    let plan = publication_apply::snapshot(&service, owner, &node, None).await?;
+    let mut result = store.apply_binding(actor, owner, &node, "device", &id, body).await.map_err(asset_error)?;
+    result["publication_sync"] = publication_apply::apply(&manager, &service, owner, plan, None).await;
     publication::notify_targets(&manager, owner, &targets).await;
     Ok(Json(result))
 }
@@ -850,7 +867,9 @@ async fn apply_device_address(
     let store = observed_store(&manager, &service, owner, &node).await;
     let _mutation = service.lock_mutations().await;
     let targets = store.publication_targets_for_node(owner, &node).await.map_err(asset_error)?;
-    let result = store.apply_address(actor, owner, &node, &id, body).await.map_err(asset_error)?;
+    let plan = publication_apply::snapshot(&service, owner, &node, None).await?;
+    let mut result = store.apply_address(actor, owner, &node, &id, body).await.map_err(asset_error)?;
+    result["publication_sync"] = publication_apply::apply(&manager, &service, owner, plan, None).await;
     publication::notify_targets(&manager, owner, &targets).await;
     Ok(Json(result))
 }
@@ -885,4 +904,3 @@ pub(crate) fn router() -> Router<AppStateInner> {
 
 #[cfg(test)]
 mod tests;
-

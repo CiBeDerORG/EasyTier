@@ -2,6 +2,7 @@ import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestCo
 import { type Api, NetworkTypes, Utils } from 'easytier-frontend-lib';
 import { Md5 } from 'ts-md5';
 import type { DeleteManagedUserResult, ManagedUserList, UserAdminContext } from '../types/user-admin';
+import type { PublicationMutationResult } from './publication-sync';
 import type {
     AddressPreviewInput, ApplyAddressInput, ApplyBindingInput, AssetAccount, AssetContextResponse,
     AssetDevice, AssetDeviceCount, AssetDeviceQuery, AssetDeviceUpdateInput, AssetListResponse,
@@ -413,8 +414,10 @@ export class ApiClient {
         return this.client.put<unknown, AssetService>(`/assets/services/${encodeURIComponent(id)}`, input, { params: scope });
     }
 
-    public async assetsDeleteService(scope: AssetScope, id: string): Promise<void> {
-        await this.client.delete(`/assets/services/${encodeURIComponent(id)}`, { params: scope });
+    public async assetsDeleteService(scope: AssetScope, id: string): Promise<PublicationMutationResult | undefined> {
+        return this.client.delete<unknown, PublicationMutationResult | undefined>(
+            `/assets/services/${encodeURIComponent(id)}`, { params: scope },
+        );
     }
 
     public async assetsPreviewSubnets(scope: AssetScope, input: GatewaySubnetsPreviewInput): Promise<AssetPreview> {
@@ -493,7 +496,7 @@ export class ApiClient {
                     return { success: false, message: 'Unknown error, status code: ' + error.response?.status, };
                 }
             }
-            return { success: false, message: 'Unknown error, error: ' + error, };
+            return { success: false, message: 'Unknown error: ' + error, };
         }
     }
 
@@ -607,7 +610,7 @@ export class ApiClient {
     }
 
     public async get_network_acl_policy(network_id: string): Promise<AclPolicyInfo> {
-        const response = await this.client.get<any, AclPolicyInfo>(`/networks/${network_id}/acl-policy`);
+        const response = await this.client.get<any, AclPolicyInfo>(`/networks/${network_id}/acl-policy`, {});
         return response;
     }
 

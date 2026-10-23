@@ -6,6 +6,7 @@ import type ApiClient from '../../modules/api';
 import type { AssetDevice, AssetScope, AssetService } from '../../types/node-assets';
 import { formatAssetError, getAssetError } from '../../composables/useAssetMutation';
 import { assetServiceIconClass } from '../../constants/asset-service-icons';
+import { publicationFeedback } from '../../modules/publication-sync';
 import AssetServiceDialog from './AssetServiceDialog.vue';
 
 const props = withDefaults(defineProps<{
@@ -15,11 +16,12 @@ const props = withDefaults(defineProps<{
     addRequest?: number;
 }>(), { addRequest: 0 });
 const emit = defineEmits<{ changed: []; 'add-request-consumed': []; 'context-error': [error: unknown] }>();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const rows = ref<AssetService[]>([]);
 const loading = ref(false);
 const loadError = ref('');
 const feedback = ref('');
+const feedbackWarning = ref(false);
 const unavailable = ref(false);
 const editorVisible = ref(false);
 const editingService = ref<AssetService | null>(null);
@@ -72,6 +74,7 @@ watch(contextKey, () => {
     rows.value = [];
     unavailable.value = false;
     feedback.value = '';
+    feedbackWarning.value = false;
     editorVisible.value = false;
     editingService.value = null;
     deleteTarget.value = null;
@@ -107,7 +110,11 @@ function saved(service: AssetService) {
     const wasPublished = !!editingService.value?.publication;
     editorVisible.value = false;
     editingService.value = null;
-    feedback.value = t(service.publication ? 'assets.publication.saved' : wasPublished ? 'assets.publication.removed' : 'assets.services.saved');
+    const result = publicationFeedback(service, locale.value,
+        t(service.publication ? 'assets.publication.saved' : wasPublished ? 'assets.publication.removed' : 'assets.services.saved'),
+        service.publication ? 'save' : 'remove');
+    feedback.value = result.message;
+    feedbackWarning.value = result.warning;
     emit('changed');
     void loadServices();
 }
@@ -126,10 +133,12 @@ async function confirmDelete() {
     deleting.value = true;
     deleteError.value = '';
     try {
-        await props.api.assetsDeleteService(scope, service.id);
+        const response = await props.api.assetsDeleteService(scope, service.id);
         if (currentContext !== contextEpoch) return;
         deleteTarget.value = null;
-        feedback.value = t('assets.services.deleted');
+        const result = publicationFeedback(response, locale.value, t('assets.services.deleted'), 'delete');
+        feedback.value = result.message;
+        feedbackWarning.value = result.warning;
         emit('changed');
         await loadServices();
     } catch (error: unknown) {
@@ -138,6 +147,7 @@ async function confirmDelete() {
         if (getAssetError(error).status === 404) {
             deleteTarget.value = null;
             feedback.value = t('assets.services.alreadyRemoved');
+            feedbackWarning.value = false;
             emit('changed');
             await loadServices();
         } else {
@@ -170,7 +180,8 @@ function safeAccessUrl(value: string | null): string | null {
                     :disabled="unavailable || !contextValid" @click="openCreate" />
             </div>
         </header>
-        <p v-if="feedback" class="service-feedback" role="status">{{ feedback }}</p>
+        <p v-if="feedback" class="service-feedback" :class="{ 'service-sync-warning': feedbackWarning }"
+            :role="feedbackWarning ? 'alert' : 'status'">{{ feedback }}</p>
         <div v-if="loadError" class="service-error-row" role="alert">
             <span>{{ loadError }}</span>
             <Button :label="t('assets.services.retry')" severity="secondary" size="small" :disabled="loading" @click="loadServices" />
@@ -265,6 +276,7 @@ function safeAccessUrl(value: string | null): string | null {
 .service-placeholder, .service-muted, .service-feedback { color: var(--console-muted, var(--p-text-muted-color)); }
 .service-placeholder { margin: 0; padding-block: 0.75rem; font-size: 0.875rem; }
 .service-feedback { font-size: 0.875rem; margin: 0.4rem 0; }
+.service-feedback.service-sync-warning { color: var(--p-orange-700, #c2410c); }
 .service-error-row { justify-content: space-between; flex-wrap: wrap; padding: 0.6rem 0; }
 .service-error-row, .service-error { color: var(--p-red-600, #dc2626); }
 .delete-description { overflow-wrap: anywhere; }
