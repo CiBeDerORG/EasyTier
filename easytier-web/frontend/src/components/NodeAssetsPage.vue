@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { Button, Checkbox, Dialog, InputText, Message, RadioButton, Select, Skeleton } from 'primevue';
+import { Button, Checkbox, Dialog, InputText, Message, Select, Skeleton } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import ApiClient from '../modules/api';
-import type { AssetDevice, AssetDeviceRow, AssetNode, AssetSavedResource, GatewayGroup } from '../types/node-assets';
+import type { AssetDevice, AssetNode, AssetSavedResource } from '../types/node-assets';
 import { useNodeAssetsPage } from '../composables/useNodeAssetsPage';
+import GatewayGroupDialog from './node-assets/GatewayGroupDialog.vue';
 import DeviceTypeDialog from './node-assets/DeviceTypeDialog.vue';
 import AssetDeviceTable from './node-assets/AssetDeviceTable.vue';
 import AssetDeviceDialog from './node-assets/AssetDeviceDialog.vue';
@@ -18,12 +19,12 @@ const { context, accounts, ownerId, nodeId, ownerName, nodes, selectedNode, grou
     total, page, pageSize, expandedIds, draft, contextVersion, booting, loading, error, invalidNode, scope,
     listError, hasLoadedDevices, retry, refreshPage, selectOwner, selectNode, query, loadDevices, refreshCatalogs, refreshNodes,
     afterDeviceSaved, afterDeviceDeleted, expand, handleContextFailure } = useNodeAssetsPage(props.api);
-const showTypes = ref(false), showDevice = ref(false), showNode = ref(false);
+const showGroups = ref(false), showTypes = ref(false), showDevice = ref(false), showNode = ref(false);
 const pageElement = ref<HTMLElement | null>(null);
+const gatewayFocusId = ref<string | null>(null);
 const deviceInitialMode = ref<'metadata' | 'binding' | 'address'>('metadata');
 const editingDevice = ref<AssetDevice | null>(null);
-const editingGateway = ref<GatewayGroup | null>(null);
-const deleteDevice = ref<AssetDeviceRow | null>(null), deleteNode = ref<AssetNode | null>(null);
+const deleteDevice = ref<AssetDevice | null>(null), deleteNode = ref<AssetNode | null>(null);
 const deleting = ref(false), actionError = ref(''), nodeSaving = ref(false);
 const nodeLocation = ref(''), nodeModel = ref(''), nodePublic = ref(false);
 const nodeFieldError = (value: string, limit: number) => {
@@ -41,39 +42,39 @@ const errorMessage = (cause: unknown) => (cause as { response?: { data?: { messa
     || (cause as { message?: string })?.message || t('assets.page.operation_failed');
 const nodeOptions = computed(() => nodes.value.map(node => ({ ...node,
     label: `${node.alias || node.hostname || node.machine_id} · ${node.machine_id.slice(0, 8)}` })));
-const roleOptions = [
-    { value: 'all', label: 'assets.page.gateway_all' },
-    { value: 'gateway', label: 'assets.page.gateway_yes' },
-    { value: 'ordinary', label: 'assets.page.gateway_no' },
-] as const;
+const groupOptions = computed(() => [{ id: null, name: t('assets.page.all_devices') }, ...groups.value.map(group => ({
+    id: group.id,
+    name: [group.name, group.id.slice(0, 8), group.binding.snapshot?.display_name,
+        group.binding.instance_id?.slice(0, 8), group.subnets.join(', ')].filter(Boolean).join(' · '),
+}))]);
 const typeOptions = computed(() => [{ id: null, name: t('assets.page.all_types') },
     ...types.value.map(type => ({ id: type.id, name: `${type.name} · ${type.id.slice(0, 8)}` }))]);
 watch(contextVersion, () => {
-    showTypes.value = false; showDevice.value = false; showNode.value = false;
-    deleteDevice.value = null; deleteNode.value = null; editingDevice.value = null; editingGateway.value = null;
-    deviceInitialMode.value = 'metadata';
+    showGroups.value = false; showTypes.value = false; showDevice.value = false; showNode.value = false;
+    deleteDevice.value = null; deleteNode.value = null; editingDevice.value = null;
+    gatewayFocusId.value = null; deviceInitialMode.value = 'metadata';
     serviceRequests.value = {}; actionError.value = ''; deleting.value = false; nodeSaving.value = false;
 });
-function editDevice(device: AssetDeviceRow | null, mode: 'metadata' | 'binding' | 'address' = 'metadata') {
-    editingGateway.value = device?.resource_kind === 'gateway' ? device : null;
-    editingDevice.value = device?.resource_kind === 'device' ? device : null;
-    deviceInitialMode.value = mode; showDevice.value = true;
+function editDevice(device: AssetDevice | null, mode: 'metadata' | 'binding' | 'address' = 'metadata') {
+    editingDevice.value = device; deviceInitialMode.value = mode; showDevice.value = true;
 }
-function openDeviceBinding(device: AssetDeviceRow) {
-    editDevice(device, device.resource_kind === 'device' && device.gateway_group_id ? 'address' : 'binding');
-}
-function openDeviceAddress(device: AssetDevice) {
-    editDevice({ ...device, resource_kind: 'device' }, 'address');
+function openDeviceBinding(device: AssetDevice) {
+    editDevice(device, device.gateway_group_id ? 'address' : 'binding');
 }
 async function savedDevice(result: AssetSavedResource) {
-    const current = scope.value;
+    const current = scope.value, version = contextVersion.value;
     if (!current || result.record.owner_user_id !== current.owner_user_id || result.record.machine_id !== current.machine_id) return;
-    const created = !editingDevice.value && !editingGateway.value;
-    showDevice.value = false; editingDevice.value = null; editingGateway.value = null;
-    const row: AssetDeviceRow = result.resource_kind === 'gateway'
-        ? { ...result.record, resource_kind: 'gateway' }
-        : { ...result.record, resource_kind: 'device' };
-    await afterDeviceSaved(row, created);
+    const created = !editingDevice.value;
+    showDevice.value = false; editingDevice.value = null;
+    if (result.resource_kind === 'gateway') {
+        await refreshCatalogs();
+        if (version !== contextVersion.value) return;
+        // A gateway has its own management result; it is never a device row.
+        gatewayFocusId.value = result.record.id;
+        showGroups.value = true;
+    } else {
+        await afterDeviceSaved(result.record, created);
+    }
 }
 function scrollAncestors() {
     const ancestors: HTMLElement[] = [];
@@ -127,15 +128,14 @@ async function saveNode() {
 async function confirmDelete() {
     if (!scope.value || deleting.value) return;
     const current = { ...scope.value }, version = contextVersion.value, dialogVersion = deleteDialogVersion;
-    const device = deleteDevice.value, node = deleteNode.value;
+    const deviceId = deleteDevice.value?.id, node = deleteNode.value;
     const active = () => version === contextVersion.value && dialogVersion === deleteDialogVersion;
     deleting.value = true; actionError.value = '';
     try {
-        if (device) {
-            if (device.resource_kind === 'gateway') await props.api.assetsDeleteGroup(current, device.id);
-            else await props.api.assetsDeleteDevice(current, device.id);
+        if (deviceId) {
+            await props.api.assetsDeleteDevice(current, deviceId);
             if (!active()) return;
-            await afterDeviceDeleted(device);
+            await afterDeviceDeleted();
             if (active()) deleteDevice.value = null;
         } else if (node) {
             await props.api.assetsDeleteNode(current);
@@ -187,15 +187,10 @@ async function confirmDelete() {
                     </div>
                 </div>
                 <form v-if="scope" class="assets-query-grid" @submit.prevent="query">
-                    <fieldset class="assets-field assets-role-filter">
-                        <legend>{{ t('assets.page.is_gateway') }}</legend>
-                        <div class="assets-role-options">
-                            <div v-for="option in roleOptions" :key="option.value" class="assets-role-option">
-                                <RadioButton v-model="draft.role" :inputId="`asset-role-${option.value}`" name="asset-gateway-role" :value="option.value" />
-                                <label :for="`asset-role-${option.value}`">{{ t(option.label) }}</label>
-                            </div>
-                        </div>
-                    </fieldset>
+                    <div class="assets-field"><label for="asset-group">{{ t('assets.page.group') }}</label>
+                        <div class="assets-input-action"><Select inputId="asset-group" v-model="draft.group_id" :options="groupOptions" optionLabel="name" optionValue="id" :aria-label="t('assets.page.group')" :placeholder="t('assets.page.all_devices')" />
+                            <Button icon="pi pi-cog" :label="t('assets.page.manage_groups')" size="small" :aria-label="t('assets.page.manage_groups')" :title="t('assets.page.manage_groups')" outlined severity="secondary" @click="gatewayFocusId = null; showGroups = true" /></div>
+                    </div>
                     <div class="assets-field"><label for="asset-type">{{ t('assets.page.type') }}</label>
                         <div class="assets-input-action"><Select inputId="asset-type" v-model="draft.type_id" :options="typeOptions" optionLabel="name" optionValue="id" :aria-label="t('assets.page.type')" :placeholder="t('assets.page.all_types')" />
                             <Button icon="pi pi-cog" :label="t('assets.page.manage_types')" size="small" :aria-label="t('assets.page.manage_types')" :title="t('assets.page.manage_types')" outlined severity="secondary" @click="showTypes = true" /></div>
@@ -214,7 +209,7 @@ async function confirmDelete() {
                 <Message v-if="listError && hasLoadedDevices" severity="warn" :closable="false">{{ t('assets.page.stale_results') }}</Message>
                 <AssetDeviceTable v-if="!listError || hasLoadedDevices" :rows="rows" :loading="loading" :total="total" :page="page" :page-size="pageSize" :expanded-ids="expandedIds"
                     :groups="groups" :types="types" @page="loadDevices" @expand="expand" @edit="editDevice"
-                    @delete="deleteDevice = $event; actionError = ''" @add-service="addService" @binding="openDeviceBinding" @address="openDeviceAddress">
+                    @delete="deleteDevice = $event; actionError = ''" @add-service="addService" @binding="openDeviceBinding" @address="editDevice($event, 'address')">
                     <template #services="{ device }"><AssetServicePanel :key="`${scope.owner_user_id}/${scope.machine_id}/${device.id}`"
                         :api="api" :scope="scope" :device="device" :add-request="serviceRequests[device.id] ?? 0"
                         @add-request-consumed="serviceRequests[device.id] = 0" @context-error="handleContextFailure" /></template>
@@ -224,9 +219,10 @@ async function confirmDelete() {
         </template>
 
         <template v-if="scope">
+            <GatewayGroupDialog v-if="showGroups" :visible="true" :api="api" :scope="scope" :focus-id="gatewayFocusId" :owner-label="ownerName" :node-label="selectedNode?.alias || selectedNode?.hostname || nodeId || ''" @close="showGroups = false" @changed="refreshCatalogs" @context-error="handleContextFailure" />
             <DeviceTypeDialog v-if="showTypes" :visible="true" :api="api" :owner-user-id="scope.owner_user_id" :owner-label="ownerName" @close="showTypes = false" @changed="refreshCatalogs" @context-error="handleContextFailure" />
-            <AssetDeviceDialog v-if="showDevice" :visible="true" :api="api" :scope="scope" :groups="groups" :types="types" :device="editingDevice" :gateway="editingGateway" :initial-mode="deviceInitialMode"
-                @close="showDevice = false; editingDevice = null; editingGateway = null" @saved="savedDevice" @context-error="handleContextFailure" />
+            <AssetDeviceDialog v-if="showDevice" :visible="true" :api="api" :scope="scope" :groups="groups" :types="types" :device="editingDevice" :initial-mode="deviceInitialMode"
+                @close="showDevice = false; editingDevice = null" @saved="savedDevice" @context-error="handleContextFailure" />
         </template>
         <Dialog v-model:visible="showNode" modal :header="t('assets.page.edit_node')" :style="{ width: '30rem', maxWidth: 'calc(100vw - 2rem)' }">
             <form id="asset-node-metadata" class="assets-node-form" @submit.prevent="saveNode">
@@ -245,7 +241,7 @@ async function confirmDelete() {
         </Dialog>
         <Dialog :visible="!!deleteDevice || !!deleteNode" modal :header="t('assets.page.confirm_delete')" :style="{ width: '29rem', maxWidth: 'calc(100vw - 2rem)' }"
             @update:visible="value => { if (!value) { deleteDevice = null; deleteNode = null; } }">
-            <p>{{ deleteDevice ? t(deleteDevice.resource_kind === 'gateway' ? 'assets.page.delete_gateway_hint' : 'assets.page.delete_device_hint', { name: deleteDevice.name }) : t('assets.page.delete_node_hint', { name: deleteNode?.alias || deleteNode?.hostname }) }}</p>
+            <p>{{ deleteDevice ? t('assets.page.delete_device_hint', { name: deleteDevice.name }) : t('assets.page.delete_node_hint', { name: deleteNode?.alias || deleteNode?.hostname }) }}</p>
             <Message v-if="actionError" severity="error" :closable="false">{{ actionError }}</Message>
             <template #footer><Button :label="t('assets.page.cancel')" severity="secondary" text @click="deleteDevice = null; deleteNode = null" /><Button :label="t('assets.page.delete')" severity="danger" :loading="deleting" @click="confirmDelete" /></template>
         </Dialog>
@@ -261,11 +257,6 @@ async function confirmDelete() {
 .assets-filter-card,.assets-list-card { min-width: 0; max-width: 100%; border: 1px solid var(--console-border, var(--p-content-border-color)); border-radius: .75rem; padding: 1rem; background: var(--console-surface, var(--p-content-background)); }
 .assets-context-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr); gap: 1rem; }.assets-node-field:last-child:first-child { grid-column: 1 / -1; }
 .assets-field { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }.assets-field label { font-size: .875rem; font-weight: 600; }
-.assets-role-filter { margin: 0; padding: 0; border: 0; }
-.assets-role-filter legend { padding: 0; margin-bottom: .4rem; font-size: .875rem; font-weight: 600; }
-.assets-role-options { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; min-height: 2.5rem; }
-.assets-role-option { display: inline-flex; align-items: center; gap: .4rem; }
-.assets-role-option label { font-weight: 400; cursor: pointer; }
 .assets-owner-context { margin-top: .65rem; font-size: .85rem; color: var(--console-muted); }
 .assets-node-summary { padding: .9rem 0; border-bottom: 1px solid var(--console-border, var(--p-content-border-color)); }.assets-node-summary p { margin: .4rem 0; font-size: .875rem; }.assets-node-summary code { overflow-wrap: anywhere; font-size: .75rem; }
 .assets-public-tag { display: inline-flex; gap: .3rem; margin-left: .6rem; color: var(--p-primary-color); font-size: .8rem; }

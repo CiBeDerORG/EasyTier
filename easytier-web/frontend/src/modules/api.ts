@@ -4,12 +4,12 @@ import { Md5 } from 'ts-md5';
 import type { DeleteManagedUserResult, ManagedUserList, UserAdminContext } from '../types/user-admin';
 import type {
     AddressPreviewInput, ApplyAddressInput, ApplyBindingInput, AssetAccount, AssetContextResponse,
-    AssetDevice, AssetDeviceCount, AssetDeviceQuery, AssetDeviceRowQuery, AssetDeviceUpdateInput, AssetListResponse,
+    AssetDevice, AssetDeviceCount, AssetDeviceQuery, AssetDeviceUpdateInput, AssetListResponse,
     AssetNode, AssetNodeUpdate, AssetPreview, AssetScope, AssetService, AssetServiceInput,
     BindingPreviewInput, CandidateQuery, CreateAssetRequest, DeviceAddressPreviewInput,
     DeviceCreateInput, DeviceType, DeviceTypeInput, GatewayCreateInput, GatewayGroup,
     GatewayGroupUpdateInput, GatewaySubnetsPreviewInput, InstanceCandidate, InstancePreview,
-    PagedDevices, PagedDeviceRows, Subject,
+    PagedDevices, Subject,
 } from '../types/node-assets';
 
 export interface ValidateConfigResponse {
@@ -362,10 +362,6 @@ export class ApiClient {
     public async assetsDevices(scope: AssetScope, query: AssetDeviceQuery = {}): Promise<PagedDevices> {
         // Explicit scope wins even if a caller accidentally includes extra fields in query.
         return this.client.get<unknown, PagedDevices>('/assets/devices', { params: { ...query, ...scope } });
-    }
-
-    public async assetsDeviceRows(scope: AssetScope, query: AssetDeviceRowQuery): Promise<PagedDeviceRows> {
-        return this.client.get<unknown, PagedDeviceRows>('/assets/devices', { params: { ...query, ...scope } });
     }
 
     public async assetsDevice(scope: AssetScope, id: string): Promise<AssetDevice> {

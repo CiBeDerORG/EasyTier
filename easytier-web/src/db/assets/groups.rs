@@ -71,7 +71,7 @@ impl AssetsStore {
         ensure_group(&mut transaction, owner, node, id).await?;
         let used: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM asset_devices WHERE owner_user_id = ? AND machine_id = ? AND gateway_group_id = ?)")
             .bind(owner).bind(node).bind(id).fetch_one(&mut *transaction).await?;
-        if used != 0 { return Err(AssetError::conflict("gateway_group_not_empty", "Delete the attached devices before deleting this gateway device.")); }
+        if used != 0 { return Err(AssetError::conflict("gateway_group_not_empty", "Delete the devices in this group before deleting the group.")); }
         sqlx::query("DELETE FROM asset_gateway_groups WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
         transaction.commit().await?;

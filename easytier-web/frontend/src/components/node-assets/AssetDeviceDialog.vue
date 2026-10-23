@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
-import { Button, Checkbox, Dialog, InputText, RadioButton, Select, Textarea } from 'primevue';
+import { Button, Checkbox, Dialog, InputText, Select, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { useAssetBindingLabels } from '../../composables/useAssetBindingLabels';
 import type ApiClient from '../../modules/api';
@@ -15,7 +15,7 @@ import AssetAddressFields from './AssetAddressFields.vue';
 type EditMode = 'metadata' | 'binding' | 'address';
 const props = defineProps<{
     visible: boolean; api: ApiClient; scope: AssetScope; groups: GatewayGroup[]; types: DeviceType[];
-    device?: AssetDevice | null; gateway?: GatewayGroup | null; initialMode?: EditMode;
+    device?: AssetDevice | null; initialMode?: EditMode;
 }>();
 const emit = defineEmits<{
     close: []; saved: [event: { resource_kind: 'device'; record: AssetDevice } | { resource_kind: 'gateway'; record: GatewayGroup }];
@@ -47,7 +47,7 @@ const addressAttempt = useAssetMutation<Omit<ApplyAddressInput, 'request_id'>, A
 const uncertain = computed(() => createAttempt.uncertain.value || bindingAttempt.uncertain.value
     || addressAttempt.uncertain.value || uncertainMetadata.value !== null);
 const locked = computed(() => saving.value || uncertain.value);
-const editing = computed(() => !!props.device || !!props.gateway);
+const editing = computed(() => !!props.device);
 const legacy = computed(() => props.device?.address_mode === 'legacy_manual');
 const selectedGroup = computed(() => props.groups.find(group => group.id === form.gateway_group_id) ?? null);
 const groupOptions = computed(() => props.groups.map(group => ({ ...group,
@@ -70,7 +70,7 @@ const bindingChangedGeneration = computed(() => {
 let generation = 0;
 let previewGeneration = 0;
 let disposed = false;
-const contextKey = computed(() => JSON.stringify([props.visible, props.scope, props.device?.id, props.gateway?.id, props.initialMode]));
+const contextKey = computed(() => JSON.stringify([props.visible, props.scope, props.device?.id, props.initialMode]));
 const nullable = (value: string) => value.trim() || null;
 function invalidatePreview() {
     previewGeneration += 1;
@@ -102,7 +102,7 @@ function reset() {
     Object.assign(form, { name: source?.name ?? '', model: source?.model ?? '', overlay_ip: source?.overlay_ip ?? '',
         lan_ip: source?.lan_ip ?? '', remarks: source?.remarks ?? '', gateway_group_id: source?.gateway_group_id ?? null,
         device_type_id: source?.device_type_id ?? null, is_gateway_self: source?.is_gateway_self ?? false });
-    role.value = props.gateway ? 'gateway' : 'ordinary'; gatewayBusy.value = false;
+    role.value = 'ordinary'; gatewayBusy.value = false;
     mode.value = source?.gateway_group_id && props.initialMode === 'binding' ? 'address' : props.initialMode ?? 'metadata';
     // A legacy direct record must first use binding preview, including its existing LAN value.
     if (source?.address_mode === 'legacy_manual' && !source.gateway_group_id && mode.value === 'address') mode.value = 'binding';
@@ -266,25 +266,15 @@ onBeforeUnmount(() => { disposed = true; generation += 1; previewGeneration += 1
         :style="{ width: '46rem', maxWidth: 'calc(100vw - 2rem)' }" :dismissableMask="false"
         @update:visible="value => { if (!value) close(); }">
         <p class="device-context">{{ t('assets.deviceContext', { owner: scope.owner_user_id, node: scope.machine_id }) }}</p>
-        <fieldset v-if="!editing" class="role-picker">
-            <legend>{{ t('assets.binding.isGateway') }}</legend>
-            <div class="role-options">
-                <div class="role-option">
-                    <RadioButton inputId="asset-device-role-gateway" name="asset-device-role" :modelValue="role" value="gateway"
-                        :disabled="locked || gatewayBusy" @update:modelValue="changeRole('gateway')" />
-                    <label for="asset-device-role-gateway">{{ t('assets.binding.yes') }}</label>
-                </div>
-                <div class="role-option">
-                    <RadioButton inputId="asset-device-role-ordinary" name="asset-device-role" :modelValue="role" value="ordinary"
-                        :disabled="locked || gatewayBusy" @update:modelValue="changeRole('ordinary')" />
-                    <label for="asset-device-role-ordinary">{{ t('assets.binding.no') }}</label>
-                </div>
+        <div v-if="!editing" class="role-picker">
+            <strong>{{ t('assets.binding.role') }}</strong>
+            <div class="mode-actions">
+                <Button :label="t('assets.binding.ordinary')" :outlined="role !== 'ordinary'" :disabled="locked || gatewayBusy" @click="changeRole('ordinary')" />
+                <Button :label="t('assets.binding.gateway')" :outlined="role !== 'gateway'" :disabled="locked || gatewayBusy" @click="changeRole('gateway')" />
             </div>
             <small class="device-help">{{ t('assets.binding.roleHint') }}</small>
-        </fieldset>
-        <p v-else class="device-help role-summary">{{ t('assets.page.device_role') }}: {{ t(role === 'gateway' ? 'assets.binding.gateway' : 'assets.binding.ordinary') }}</p>
-        <GatewayBindingEditor v-if="visible && role === 'gateway'" :api="api" :scope="scope" :group="gateway"
-            :initial-mode="initialMode === 'binding' ? 'binding' : 'metadata'"
+        </div>
+        <GatewayBindingEditor v-if="visible && role === 'gateway'" :api="api" :scope="scope"
             @cancel="close" @saved="emit('saved', $event)" @context-error="emit('context-error', $event)" @busy="gatewayBusy = $event" />
         <template v-else>
             <div v-if="device" class="mode-actions">
@@ -405,11 +395,7 @@ onBeforeUnmount(() => { disposed = true; generation += 1; previewGeneration += 1
 .device-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem 1rem; }
 .full-width { grid-column:1/-1; }
 .device-context { margin:0 0 1rem; overflow-wrap:anywhere; color:var(--p-text-muted-color,#64748b); font-size:.8125rem; }
-.role-picker { display:grid; gap:.6rem; min-width:0; border:0; padding:0; margin:0 0 1rem; }
-.role-picker legend { font-weight:600; margin-bottom:.6rem; }
-.role-options { display:flex; gap:1.25rem; flex-wrap:wrap; }
-.role-option { display:flex; gap:.45rem; align-items:center; }
-.role-summary { margin-bottom:1rem; }
+.role-picker { display:grid; gap:.6rem; margin-bottom:1rem; }
 .mode-actions { display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.5rem; }
 .device-field { display:flex; flex-direction:column; gap:.35rem; min-width:0; }
 .device-field label { font-weight:500; }

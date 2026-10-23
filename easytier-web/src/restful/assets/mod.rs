@@ -57,7 +57,6 @@ struct DevicesQuery {
     machine_id: String,
     page: Option<u32>,
     page_size: Option<u32>,
-    role: Option<String>,
     group_id: Option<String>,
     type_id: Option<String>,
     keyword: Option<String>,
@@ -205,8 +204,7 @@ async fn accounts(
 const NODE_COLUMNS: &str = "SELECT d.user_id AS owner_user_id, d.machine_id, d.hostname, d.alias, \
     d.site_location, d.device_model, d.connection_ip, d.ip_country, d.ip_region, d.ip_city, \
     COALESCE(m.is_public_server, 0) AS is_public_server, \
-    ((SELECT COUNT(*) FROM asset_devices a WHERE a.owner_user_id = d.user_id AND a.machine_id = d.machine_id) + \
-    (SELECT COUNT(*) FROM asset_gateway_groups g WHERE g.owner_user_id = d.user_id AND g.machine_id = d.machine_id)) AS device_count \
+    (SELECT COUNT(*) FROM asset_devices a WHERE a.owner_user_id = d.user_id AND a.machine_id = d.machine_id) AS device_count \
     FROM devices d LEFT JOIN node_asset_metadata m ON m.owner_user_id = d.user_id AND m.machine_id = d.machine_id";
 
 fn node_json(row: SqliteRow) -> HttpResult<Value> {
@@ -250,10 +248,9 @@ async fn device_counts(
     let Query(query) = query.map_err(query_error)?;
     authorize(&auth, &config, &service, query.owner_user_id).await?;
     let rows = sqlx::query(
-        "SELECT d.machine_id, \
-         ((SELECT COUNT(*) FROM asset_devices a WHERE a.owner_user_id = d.user_id AND a.machine_id = d.machine_id) + \
-         (SELECT COUNT(*) FROM asset_gateway_groups g WHERE g.owner_user_id = d.user_id AND g.machine_id = d.machine_id)) AS device_count \
-         FROM devices d WHERE d.user_id = ? ORDER BY d.machine_id",
+        "SELECT d.machine_id, COUNT(a.id) AS device_count FROM devices d \
+         LEFT JOIN asset_devices a ON a.owner_user_id = d.user_id AND a.machine_id = d.machine_id \
+         WHERE d.user_id = ? GROUP BY d.machine_id ORDER BY d.machine_id",
     )
     .bind(query.owner_user_id).fetch_all(&service.db.inner()).await.map_err(database_error)?;
     let items = rows.into_iter().map(|row| {
@@ -583,7 +580,6 @@ async fn list_devices(
     let filter = DeviceListQuery {
         page: query.page,
         page_size: query.page_size,
-        role: query.role,
         group_id: query.group_id,
         type_id: query.type_id,
         keyword: query.keyword,
@@ -799,3 +795,4 @@ pub(crate) fn router() -> Router<AppStateInner> {
 
 #[cfg(test)]
 mod tests;
+

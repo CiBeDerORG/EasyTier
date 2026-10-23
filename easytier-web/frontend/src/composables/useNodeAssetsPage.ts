@@ -2,9 +2,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router';
 import ApiClient from '../modules/api';
 import { getAssetError } from './useAssetMutation';
-import type { AssetAccount, AssetContextResponse, AssetDeviceRow, AssetDeviceFilters, AssetNode, AssetScope, DeviceType, GatewayGroup } from '../types/node-assets';
+import type { AssetAccount, AssetContextResponse, AssetDevice, AssetDeviceFilters, AssetNode, AssetScope, DeviceType, GatewayGroup } from '../types/node-assets';
 
-const blankFilters = (): AssetDeviceFilters => ({ role: 'all', type_id: null, keyword: '' });
+const blankFilters = (): AssetDeviceFilters => ({ group_id: null, type_id: null, keyword: '' });
 const message = (error: unknown) => (error as { response?: { data?: { message?: string } }; message?: string })?.response?.data?.message
     || (error as { message?: string })?.message || 'Unable to load assets';
 type RetryTarget = { kind: 'initialize' } | { kind: 'route'; useMemory: boolean }
@@ -21,7 +21,7 @@ export function useNodeAssetsPage(api: ApiClient) {
     const nodes = ref<AssetNode[]>([]);
     const groups = ref<GatewayGroup[]>([]);
     const types = ref<DeviceType[]>([]);
-    const rows = ref<AssetDeviceRow[]>([]);
+    const rows = ref<AssetDevice[]>([]);
     const total = ref(0);
     const page = ref(1);
     const pageSize = ref(20);
@@ -151,9 +151,9 @@ export function useNodeAssetsPage(api: ApiClient) {
         listError.value = false;
         clearError();
         try {
-            const result = await api.assetsDeviceRows(current, {
+            const result = await api.assetsDevices(current, {
                 page: targetPage, page_size: pageSize.value,
-                role: applied.value.role,
+                group_id: applied.value.group_id ?? undefined,
                 type_id: applied.value.type_id ?? undefined,
                 keyword: applied.value.keyword.trim() || undefined,
                 locate_id: locateId,
@@ -164,10 +164,9 @@ export function useNodeAssetsPage(api: ApiClient) {
             page.value = result.page;
             pageSize.value = result.page_size;
             hasLoadedDevices.value = true;
-            expandedIds.value = expandedIds.value.filter(id => result.items.some(device => device.id === id && device.resource_kind === 'device'));
+            expandedIds.value = expandedIds.value.filter(id => result.items.some(device => device.id === id));
             if (locateId && result.items.some(device => device.id === locateId)) {
-                if (result.items.some(device => device.id === locateId && device.resource_kind === 'device')
-                    && !expandedIds.value.includes(locateId)) expandedIds.value.push(locateId);
+                if (!expandedIds.value.includes(locateId)) expandedIds.value.push(locateId);
                 await nextTick();
                 if (!disposed && generation === contextVersion.value && request === listRequest) {
                     document.querySelector(`[data-asset-device-id="${locateId}"]`)?.scrollIntoView({ block: 'nearest' });
@@ -284,16 +283,12 @@ export function useNodeAssetsPage(api: ApiClient) {
     const query = async () => {
         applied.value = { ...draft }; expandedIds.value = []; await loadDevices(1);
     };
-    const matches = (device: AssetDeviceRow) => {
+    const matches = (device: AssetDevice) => {
         const filter = applied.value;
         const word = filter.keyword.trim().toLowerCase();
-        const role = device.resource_kind === 'gateway' ? 'gateway' : 'ordinary';
-        const fields = device.resource_kind === 'gateway'
-            ? [device.name, device.overlay_ip]
-            : [device.name, device.model, device.overlay_ip, device.lan_ip];
-        return (filter.role === 'all' || filter.role === role)
-            && (!filter.type_id || (device.resource_kind === 'device' && device.device_type_id === filter.type_id))
-            && (!word || fields.some(value => value?.toLowerCase().includes(word)));
+        return (!filter.group_id || device.gateway_group_id === filter.group_id)
+            && (!filter.type_id || device.device_type_id === filter.type_id)
+            && (!word || [device.name, device.model, device.overlay_ip, device.lan_ip].some(value => value?.toLowerCase().includes(word)));
     };
     async function refreshNodes() {
         const owner = ownerId.value, generation = contextVersion.value;
@@ -322,6 +317,7 @@ export function useNodeAssetsPage(api: ApiClient) {
             if (disposed || generation !== contextVersion.value || request !== catalogRequest) return;
             groups.value = groupResult.items; types.value = typeResult.items;
             for (const filter of [draft, applied.value]) {
+                if (filter.group_id && !groups.value.some(group => group.id === filter.group_id)) filter.group_id = null;
                 if (filter.type_id && !types.value.some(type => type.id === filter.type_id)) filter.type_id = null;
             }
             await loadDevices();
@@ -353,12 +349,8 @@ export function useNodeAssetsPage(api: ApiClient) {
             case 'refresh': await refreshPage(); break;
         }
     }
-    async function afterDeviceSaved(device: AssetDeviceRow, created: boolean) {
+    async function afterDeviceSaved(device: AssetDevice, created: boolean) {
         if (!scope.value || device.owner_user_id !== scope.value.owner_user_id || device.machine_id !== scope.value.machine_id) return;
-        if (device.resource_kind === 'gateway') {
-            const index = groups.value.findIndex(gateway => gateway.id === device.id);
-            if (index < 0) groups.value.unshift(device); else groups.value[index] = device;
-        }
         if (created && !matches(device)) { Object.assign(draft, blankFilters()); applied.value = blankFilters(); }
         await loadDevices(created ? 1 : page.value, created ? device.id : undefined);
         try { await refreshNodes(); } catch { /* List operation remains successful; retry counters on refresh. */ }
@@ -366,8 +358,7 @@ export function useNodeAssetsPage(api: ApiClient) {
     function expand(event: { id: string; expanded: boolean }) {
         expandedIds.value = event.expanded ? Array.from(new Set([...expandedIds.value, event.id])) : expandedIds.value.filter(id => id !== event.id);
     }
-    async function afterDeviceDeleted(device?: AssetDeviceRow) {
-        if (device?.resource_kind === 'gateway') groups.value = groups.value.filter(gateway => gateway.id !== device.id);
+    async function afterDeviceDeleted() {
         const target = rows.value.length === 1 && page.value > 1 ? page.value - 1 : page.value;
         await loadDevices(target);
         try { await refreshNodes(); } catch { /* no fabricated count */ }
