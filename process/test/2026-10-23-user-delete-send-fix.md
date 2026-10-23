@@ -1,4 +1,6 @@
-# 用户删除接口编译失败修复与复测
+# 用户删除接口编译及运行时测试数据修复与复测
+
+最终结论：两处修复已推送至 `feat/node-attributes-main`。提交 `f24a9c7aad2ce8233045e8a1b43800ddf5999dd8` 的 [GitHub Actions #39900467503](https://github.com/CiBeDerORG/EasyTier/actions/runs/39900467503) 已全部通过：后端 339 通过、0 失败、2 个原有 ignored；前端 57 个单元测试、10 组映射断言、13 个浏览器回归及类型检查/构建通过。
 
 ## 范围
 
@@ -58,10 +60,38 @@ RPC client 所有权进入异步块，而非跨 await 借用。该变量在 time
 
 ## 第二次修复验证
 
-测试数据修复准备提交。本轮新运行尚未开始，不能宣称修复后全部通过。将对包含两处修复的提交重新执行上表全部检查，并在完成后记录提交、run、日志与统计。
+测试数据修复提交：`f24a9c7aad2ce8233045e8a1b43800ddf5999dd8`，`test(web): create active user in runtime revision fixture`。该提交包含前一提交的 `async move` 修复。
+
+运行：<https://github.com/CiBeDerORG/EasyTier/actions/runs/39900467503>，2026-10-23 12:28:02–12:34:05（Asia/Shanghai），最终结论 **success**。GitHub 返回的 `head_sha` 与上述测试数据修复提交完全一致。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| Web 后端编译及测试 | 通过；339 passed、0 failed、2 ignored；测试耗时 37.23 秒 |
+| 之前失败的 runtime mutation 用例 | `managed_runtime_mutation_preserves_base_only_for_patch_scope` 明确显示 `ok` |
+| 前端单元测试 | 通过；10 个文件、57 个测试 |
+| 前端类型检查及生产构建 | frontend-lib 与 Web 的 Vue 类型检查、Vite 构建通过 |
+| 网络配置映射 | 10 组断言全部输出 `ok` |
+| 节点属性浏览器回归 | 13 passed、0 failed、0 cancelled、0 skipped；约 13.00 秒 |
+
+最终 job 与原始日志：
+
+- 后端 job：<https://github.com/CiBeDerORG/EasyTier/actions/runs/39900467503/job/120240638488>。
+- 后端 artifact `web-backend-test-report`：<https://github.com/CiBeDerORG/EasyTier/actions/runs/39900467503/artifacts/12478389190>。
+- 前端 job：<https://github.com/CiBeDerORG/EasyTier/actions/runs/39900467503/job/120240638517>。
+- 前端 artifact `web-frontend-test-report`：<https://github.com/CiBeDerORG/EasyTier/actions/runs/39900467503/artifacts/12478842596>。
+- artifact 保留 14 天，到期时间为 2026-11-06；本报告长期保留运行链接与关键统计。
+
+两个 ignored 均是代码中已有的显式压力测试限制，本轮没有新增或修改忽略标记：
+
+| 用例 | 原有忽略原因 |
+| --- | --- |
+| `client_manager::listener_tests::pending_handshakes_are_bounded_and_release_capacity` | 打开 4097 条 TCP 连接，需要显式执行并提高文件描述符上限 |
+| `client_manager::tests::receiver_takeover_wave_allows_an_independent_mount` | 建立 1000 条真实管理连接，需要显式执行并提高文件描述符上限 |
+
+本轮日志仍有 Vite 大 chunk、Browserslist 数据过期、工具运行时弃用提示；相关步骤最终通过，未将这些提示作为测试失败。前端的 `temporarily offline` 文本来自预期失败后重试场景，该用例通过。
 
 ## 验证边界
 
-本轮修复删除用户调用链的编译阻塞，以及由新增账号有效性检查暴露的旧测试数据遗漏。现有回归不替代新增用户管理全部业务专项验收，真实设备停网、离线/超时反馈、OIDC/旧会话拒绝及删除与并发写入等场景仍按原需求记录管理。
+本轮修复删除用户调用链的编译阻塞，以及由新增账号有效性检查暴露的旧测试数据遗漏。本次通过的是现有自动化回归。日志中没有逻辑删除账号专项用例，不能据此认定新增用户管理全部业务专项验收完成；真实设备停网、离线/超时反馈、OIDC/旧会话拒绝及删除与并发写入等场景仍按原需求记录管理。
 
 原始失败证据继续保留在 `process/test/2026-10-23-node-attributes-main-github-actions.md`。本轮没有部署服务或操作实际用户数据。
