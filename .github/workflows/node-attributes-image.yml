@@ -1,13 +1,17 @@
 name: EasyTier GHCR Image
-# Publication request: 2026-10-23 saved instances, state-preserving save, and node properties.
 run-name: "GHCR image - ${{ github.ref_name }} - ${{ github.sha }}"
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["feat/node-attributes-main"]
-    # Publishing is explicit; ordinary source and report pushes do not publish.
-    paths: [".github/workflows/node-attributes-image.yml"]
+    inputs:
+      architecture:
+        description: 'Architecture deployed on your server'
+        type: choice
+        required: true
+        default: amd64
+        options:
+          - amd64
+          - arm64
 
 permissions:
   contents: read
@@ -71,6 +75,7 @@ jobs:
             target: aarch64-unknown-linux-musl
             artifact_arch: aarch64
             features: mimalloc
+    if: matrix.arch == inputs.architecture
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     env:
@@ -163,7 +168,7 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Publish and verify the multi-platform GHCR image
+    name: Publish and verify the selected GHCR image
     needs: build_images
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -174,6 +179,7 @@ jobs:
       REGISTRY_IMAGE: ghcr.io/cibederorg/easytier
       IMAGE_TAG: feat-node-attributes-main
       REPORT_DIR: process/test/ghcr-publish
+      SELECTED_ARCH: ${{ inputs.architecture }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -181,9 +187,8 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: ghcr-image-*
+          name: ghcr-image-${{ inputs.architecture }}
           path: image-artifacts/
-          merge-multiple: true
 
       - uses: docker/setup-buildx-action@v3
 
