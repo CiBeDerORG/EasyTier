@@ -11,7 +11,7 @@ mkdir -p "$report_dir"
 if [ "${VERIFY_ONLY:-false}" != true ]; then
 : > "$report_dir/platform-digests.tsv"
 refs=()
-for arch in amd64 arm64; do
+for arch in "${SELECTED_ARCH:?SELECTED_ARCH is required}"; do
     gzip -dc "$archive_dir/easytier-$arch.tar.gz" | docker load
     local_image="easytier-ghcr:$arch"
     docker image inspect "$local_image" > "$report_dir/image-$arch.json"
@@ -42,7 +42,7 @@ docker buildx imagetools create \
     --metadata-file "$report_dir/create-metadata.json" \
     --annotation "index:org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
     --annotation "index:org.opencontainers.image.revision=$revision" \
-    --annotation 'index:org.opencontainers.image.description=EasyTier core, CLI, Web and embedded dashboard; linux/amd64 and linux/arm64' \
+    --annotation "index:org.opencontainers.image.description=EasyTier selected architecture linux/$SELECTED_ARCH" \
     --tag "$image:sha-$revision" \
     --tag "$image:$tag" \
     "${refs[@]}"
@@ -60,10 +60,10 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 manifest = json.loads((root / 'manifest.json').read_text())
-expected = {'linux/amd64', 'linux/arm64'}
+expected = {'linux/' + __import__('os').environ['SELECTED_ARCH']}
 actual = {f"{item['platform']['os']}/{item['platform']['architecture']}" for item in manifest['manifests']}
 assert actual == expected, actual
-assert len(manifest['manifests']) == 2
+assert len(manifest['manifests']) == 1
 tested = {}
 for line in (root / 'platform-digests.tsv').read_text().splitlines():
     arch, reference = line.split('\t')
@@ -117,7 +117,7 @@ verified = json.loads((root / 'manifest.json').read_text())
 # The immutable index request and its platform-to-child mapping are what matter.
 def children(manifest):
     assert manifest['schemaVersion'] == 2
-    assert len(manifest['manifests']) == 2
+    assert len(manifest['manifests']) == 1
     return {
         (item['platform']['os'], item['platform']['architecture']): item['digest']
         for item in manifest['manifests']
@@ -152,7 +152,7 @@ record = {
     'commit_tag': f'sha-{revision}',
     'revision': revision,
     'digest': digest,
-    'platforms': ['linux/amd64', 'linux/arm64'],
+    'platforms': [f"linux/{os.environ['SELECTED_ARCH']}"],
     'anonymous_pull_verified': anonymous,
     'build_run_id': os.environ.get('SOURCE_RUN_ID', os.environ['GITHUB_RUN_ID']),
     'verification_revision': os.environ['GITHUB_SHA'],
@@ -164,11 +164,11 @@ summary = f'''# EasyTier GHCR publication
 - Image: `{image}:{tag}`
 - Commit tag: `{image}:sha-{revision}`
 - Digest: `{digest}`
-- Platforms: linux/amd64, linux/arm64
-- Both native images passed binary and container startup smoke tests before upload.
-- Both architectures were pulled from GHCR by their child digests, each checked against the verified index digest.
+- Platforms: linux/{os.environ['SELECTED_ARCH']}
+- The selected architecture passed binary and container startup smoke tests before upload.
+- The selected architecture was pulled from GHCR by its child digest and checked against the verified index digest.
 - Pulled image platform, source revision and official entrypoint were checked.
-- Anonymous pull of both platforms verified: **{str(anonymous).lower()}**
+- Anonymous pull of selected platform verified: **{str(anonymous).lower()}**
 - Run: {record['run_url']}
 
 The deploy integration check uses equivalent CLI parameters and temporary data;
