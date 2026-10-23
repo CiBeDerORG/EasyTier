@@ -37,13 +37,13 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 前一轮 Web 自动化回归 | 已通过，仅代表 f24a9c7 的既有回归；[运行 #39900467503](https://github.com/CiBeDerORG/EasyTier/actions/runs/39900467503) |
-| Bash 脚本语法及工作流 YAML 解析 | 已通过；尚未执行容器 |
+| Bash 脚本语法及工作流 YAML 解析 | 已通过 |
 | 完整生产前端及 config generator | 已通过；包含 WASM 编译与前端生产包 |
 | amd64 四程序 release 构建与镜像冒烟 | 已通过；8 项 PASS，含 3 个 JS 资源检查 |
 | arm64 四程序 release 构建与镜像冒烟 | 已通过；8 项 PASS，含 3 个 JS 资源检查 |
 | GHCR 推送及双平台 manifest 验证 | 已通过；分支标签与固定 SHA 标签指向同一 index |
-| 认证拉取两个平台 | amd64 已成功；arm64 触发 Runner 本地 digest 引用冲突，修复后待重验证 |
-| 匿名拉取两个平台 | 待重验证；首轮在认证拉取阶段停止 |
+| 认证拉取两个平台 | 修复后均通过；同时验证实际平台、源码 revision 和默认入口 |
+| 匿名访问 | 总 manifest 匿名读取返回 unauthorized；免登录使用尚未达成 |
 
 容器检查包含四程序加载、默认入口与零实例健康状态、现有 deploy 的 RPC/Web/数据库参数接口、Web 首页和 API metadata、config generator 页面及引用的 JS 资源。全部使用临时数据和 `--network none`，不访问真实设备或生产数据库。
 
@@ -72,4 +72,31 @@
 - [arm64 构建与容器日志](https://github.com/CiBeDerORG/EasyTier/actions/runs/39903466090/artifacts/12480627831)。
 - [首轮发布和 manifest 证据](https://github.com/CiBeDerORG/EasyTier/actions/runs/39903466090/artifacts/12480233285)。
 
-只读重验证尚未执行，匿名拉取结果待确认。
+## 只读重验证结果
+
+- 修复提交：`ce3d8fde1fbf9fcdbf765f5d84e186805ca2f6f2`。
+- [只读重验证 #39906421259](https://github.com/CiBeDerORG/EasyTier/actions/runs/39906421259) 已完成，job 为 success。
+- amd64 与 arm64 子镜像实际认证拉取成功；平台、revision `9eb9e8a`、官方入口均通过。
+- 总 index 与两个标签继续匹配原发布 digest。
+- publication.json 明确记录 `anonymous_pull_verified: false`。匿名总 manifest 返回 `unauthorized`。后续 child pull 使用了同一 daemon 的已有镜像缓存，输出 Image is up to date，不能据此判定匿名访问成功。
+- [重验证证据](https://github.com/CiBeDerORG/EasyTier/actions/runs/39906421259/artifacts/12481225860)。
+- 正在补充两个全新 Runner 的匿名拉取，使用空 Docker 配置、无登录步骤，直接验证分支标签的实际拉取权限。
+
+## 可用性剩余事项
+
+镜像内容和认证拉取已可用，但“deploy 只替换地址、无需登录”的条件仍被匿名访问拒绝阻塞。GHCR 首次发布默认 private；关联公开源仓库不等于包公开。公开可见性应在组织 Packages → easytier → Package settings → Danger Zone → Change visibility → Public 设置。
+
+当前 GitHub 连接器没有包可见性修改能力；Browser 返回缺少发起会话的浏览器上下文，无法进入包设置。尚未改动包的可见性，也未修改 deploy 或重启任何部署。需要由有包管理权限的用户设置 Public，或提供可用的已登录浏览器连接后继续。设置完成后可复用现有镜像重新执行匿名验证，无需重编译。
+
+依据：[GitHub 包访问权限与可见性](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)。
+
+## deploy 的单行替换
+
+在 `CiBeDerORG/deploy` 仓库中的 `easytier/deploy/docker-compose.yaml`，将 image 字段改为：
+
+```yaml
+image: ghcr.io/cibederorg/easytier:feat-node-attributes-main
+```
+
+匿名访问确认后，在 deploy 仓库根目录执行 `sudo bash deploy.sh easytier update`。需要修改仓库里的 Compose；仅改安装目录副本会被更新流程同步覆盖。现有 cloud 和 intranet 的入口、端口、数据挂载可沿用。OpenWrt 原生安装及未包含在本轮的 CPU 架构不受本 Docker 镜像更新。
+

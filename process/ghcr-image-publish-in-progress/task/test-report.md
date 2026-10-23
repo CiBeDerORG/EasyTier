@@ -20,3 +20,13 @@
 - 修复认证与匿名拉取均使用已经核对到总 index 的各平台子 digest；补充实际架构、源码 revision、入口断言。
 - 新增只读镜像验证工作流，仅有 contents/actions/packages read 权限，复用原运行的 publication artifact；制品源码仍为 `9eb9e8a`，不把验证提交标成制品版本。
 - 修改后的 Bash 语法和两个工作流 YAML 解析均通过。重验证及匿名访问仍待实际运行。
+
+## 2026-10-23 认证拉取通过，补充冷缓存匿名验证
+
+- 修复提交 `ce3d8fde1fbf9fcdbf765f5d84e186805ca2f6f2` 的只读验证运行 [#39906421259](https://github.com/CiBeDerORG/EasyTier/actions/runs/39906421259) 已完成，job success。
+- 两个平台按对应子 digest 实际认证拉取成功；平台、源码 revision、默认入口、index 与标签均一致。
+- 匿名读取总 manifest 返回 unauthorized；同 daemon 已有子镜像缓存的 pull 显示 Image is up to date，不能判定匿名可用。
+- 新增两个独立 Runner 的匿名拉取 job，permissions 为 {}，不 checkout/login/import，不共享认证镜像缓存；直接拉部署标签，失败会使 job 失败。
+- 新 job 核对实际平台、原制品 revision、总 index digest 和默认入口，所有验证证据名称按 run_attempt 区分，可在可见性更新后单独重跑。
+- 修改后的 YAML、3 个 Bash 块和 1 个 Python 块静态检查通过，实际匿名拉取待运行。
+- GitHub 连接器无包可见性修改能力；Browser 连接返回缺少发起会话的浏览器上下文，因此当前未能进入包设置，尚未修改可见性。
