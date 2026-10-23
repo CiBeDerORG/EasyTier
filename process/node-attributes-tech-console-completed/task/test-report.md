@@ -70,4 +70,25 @@
 - 不触发旧的独立重复验证工作流；主发布流程已包含镜像验证。
 - 本轮不重跑未修改的应用回归；仅验证工作流配置，随后观察远端构建和发布结果。
 
-执行状态：工作流配置已完成，等待静态检查、推送及远端执行结果。当前 GitHub API 直连被环境网络限制拒绝，Git 远端仍可访问；将通过已配置凭据和可用访问方式完成推送及状态核对。
+执行结果：
+
+- 工作流 YAML 解析、两个分支的触发和执行条件、标签继承、发布权限及默认平台检查通过。
+- 发布、容器启动测试和原生构建脚本的 `bash -n` 检查通过；`git diff --check` 通过。
+- 已推送 `feat/node-attributes-tech-console`，远端提交核对为 `bc7922240df6840392bae3f9d8da1c9c69032932`。
+- 远端构建：[Actions 40015519054](https://github.com/CiBeDerORG/EasyTier/actions/runs/40015519054) 成功。Web 构建、原生程序构建及发布相关后端测试、镜像打包、程序版本/核心健康/容器启动验证、GHCR 发布和 registry manifest 核验全部通过；发布任务于 20:37:22 UTC 完成。
+- 独立使用空 Docker 配置匿名拉取成功；核对平台、镜像/前后端源码提交、默认入口及 `EASYTIER_WEB_DIR`，均符合预期。
+- 使用无网络临时容器确认仪表盘、配置生成器、3D 地图、节点空间、服务导航与服务管理的前端产物均存在。
+
+发布产物：
+
+- 分支标签：`ghcr.io/cibederorg/easytier:feat-node-attributes-tech-console`。
+- 固定提交标签：`ghcr.io/cibederorg/easytier:sha-bc7922240df6840392bae3f9d8da1c9c69032932`。
+- 拉取确认的 digest：`sha256:eb9abac970f37b5c70a28c55d038dfb03415a5f21601956c236998d6e033fa43`。
+- 平台：`linux/amd64`；匿名拉取：通过。
+- 镜像及前后端源码提交：`bc7922240df6840392bae3f9d8da1c9c69032932`。
+
+远端步骤证据及本机拉取记录位于 `/workspace/scratch/easytier-image-publish/`，包括 `public-final-summary.json`、`anonymous-pull.log` 和 `verified-release.json`。最后回填发布结果的提交只修改文档；未重跑应用测试、构建或 CI，镜像继续对应上述源码提交。未部署线上服务。
+
+最终状态：分支已推送，镜像已发布，验证通过。
+
+环境说明：GitHub API 被当前环境网络策略拒绝；通过 Git 完成推送，通过 GitHub 公开构建页面核对执行状态。未绕过网络限制。
