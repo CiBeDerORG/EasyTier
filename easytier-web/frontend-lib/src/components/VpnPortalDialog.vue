@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button, Dialog, InputNumber, InputText, MultiSelect, Tag } from 'primevue'
 import QRCode from 'qrcode'
 import { v4 as uuidv4 } from 'uuid'
 import type { RemoteClient } from '../modules/api'
-import { PeriodicTask } from '../modules/utils'
+import { useAutoRefreshTask } from '../modules/polling'
 import {
   normalizeVpnPortalEndpoint, suggestVpnPortalAddress, validVpnPortalAddress,
   vpnPortalClientConfig, vpnPortalEndpoint, vpnPortalListener, vpnPortalUsedIps,
@@ -73,7 +73,7 @@ async function refresh() {
   }
 }
 
-const refreshTask = new PeriodicTask(async () => {
+useAutoRefreshTask(async () => {
   if (busy.value) return
   try {
     await refresh()
@@ -85,11 +85,9 @@ const refreshTask = new PeriodicTask(async () => {
   }
 }, 3000)
 
-onMounted(() => refreshTask.start())
 onUnmounted(() => {
   disposed = true
   refreshVersion++
-  refreshTask.stop()
 })
 
 function addDevice() {

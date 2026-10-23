@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { Button, Message, Skeleton } from 'primevue';
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Utils } from 'easytier-frontend-lib';
+import { Polling, Utils } from 'easytier-frontend-lib';
 import ApiClient, { type Summary, type CentralNetworkSummary } from '../modules/api';
 
 const props = defineProps<{ api: ApiClient; centralEnabled: boolean }>();
@@ -32,9 +32,8 @@ const loadSummary = async (manual = false) => {
     }
 };
 watch(() => props.centralEnabled, () => loadSummary());
-const periodFunc = new Utils.PeriodicTask(loadSummary, 2000);
-onMounted(() => periodFunc.start());
-onUnmounted(() => periodFunc.stop());
+const autoRefreshEnabled = Polling.useAutoRefresh();
+Polling.useAutoRefreshTask(() => loadSummary(), 2000);
 
 const devicePreview = computed(() => [...(devices.value ?? [])]
     .sort((a, b) => ((a.alias || a.hostname) ?? '').localeCompare((b.alias || b.hostname) ?? '')).slice(0, 5));
@@ -96,6 +95,6 @@ const stats = computed(() => [
                 </RouterLink>
             </section>
         </div>
-        <p class="page-footnote"><i class="pi pi-sync" aria-hidden="true"></i>{{ t('web.console.automatic_refresh') }}</p>
+        <p class="page-footnote"><i :class="autoRefreshEnabled ? 'pi pi-sync' : 'pi pi-pause'" aria-hidden="true"></i>{{ t(autoRefreshEnabled ? 'web.console.automatic_refresh' : 'web.console.auto_refresh_paused') }}</p>
     </div>
 </template>

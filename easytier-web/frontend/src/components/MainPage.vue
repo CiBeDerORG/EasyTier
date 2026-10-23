@@ -15,9 +15,9 @@ const cycleThemeMode = () => {
     applyThemeMode(next);
 };
 
-import { I18nUtils } from 'easytier-frontend-lib'
+import { I18nUtils, Polling } from 'easytier-frontend-lib'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { Button, Drawer, Menu, OverlayBadge, Popover, TieredMenu, useToast } from 'primevue';
+import { Button, Drawer, InputSwitch, Menu, OverlayBadge, Popover, TieredMenu, useToast } from 'primevue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDialog } from 'primevue/usedialog';
 import ChangePassword from './ChangePassword.vue';
@@ -28,6 +28,7 @@ import { getApiBase } from '../modules/api-host';
 import type { UserAdminContext } from '../types/user-admin';
 
 const { t } = useI18n()
+const autoRefreshEnabled = Polling.provideAutoRefresh();
 const router = useRouter();
 const toast = useToast();
 const route = useRoute();
@@ -105,8 +106,7 @@ const loadBlockedDevices = async () => {
         // Notifications are best-effort.
     }
 };
-let networkTimer: number | undefined;
-const loadNavigation = async () => {
+const loadNavigation = async (canContinue = () => true) => {
     if (!enrollInfo.value) {
         try {
             enrollInfo.value = await api.get_console_info();
@@ -115,16 +115,14 @@ const loadNavigation = async () => {
             return;
         }
     }
-    await Promise.all([loadNetworks(), loadBlockedDevices()]);
+    if (canContinue()) await Promise.all([loadNetworks(), loadBlockedDevices()]);
 };
+Polling.useAutoRefreshTask(loadNavigation, 10_000, { enabled: autoRefreshEnabled });
 onMounted(() => {
-    loadNavigation();
     // The users page performs and reports its own permission check on entry.
     if (route.name !== 'userManagement') void loadUserAdminAccess();
-    networkTimer = window.setInterval(loadNavigation, 10_000);
 });
 onUnmounted(() => {
-    window.clearInterval(networkTimer);
     navigationDisposed = true;
     ++userAdminRequest;
 });
@@ -306,7 +304,12 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <span class="topbar-brand">{{ t('web.console.workspace') }}</span>
                     <i class="pi pi-angle-right topbar-brand" aria-hidden="true"></i><span>{{ pageTitle }}</span>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="console-topbar-actions flex items-center gap-2">
+                    <div class="console-auto-refresh flex items-center gap-2" :title="t('web.console.auto_refresh_hint')">
+                        <InputSwitch inputId="console-auto-refresh" v-model="autoRefreshEnabled"
+                            :aria-label="t('web.console.auto_refresh')" />
+                        <label for="console-auto-refresh" class="text-sm whitespace-nowrap">{{ t('web.console.auto_refresh') }}</label>
+                    </div>
                     <Button icon="pi pi-objects-column" :label="t('web.console.enroll_title')"
                         severity="secondary" outlined size="small" class="enroll-button"
                         :aria-label="t('web.console.enroll_title')"

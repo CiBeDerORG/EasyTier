@@ -405,6 +405,9 @@ web:
     more_details: "More details"
     items: "{count} items"
     automatic_refresh: "Updates automatically every 2 seconds"
+    auto_refresh: "Auto refresh"
+    auto_refresh_hint: "Controls scheduled data requests across the console and remembers this browser's choice. Initial loads and manual actions still work."
+    auto_refresh_paused: "Auto refresh is paused. Refresh data manually when needed."
     online_members: "Online / total members"
     back_networks: "Back to networks"
     all_details: "Expand all details"
@@ -500,6 +503,7 @@ web:
     save_config: Save Config
     config_saved: Config Saved
     config_save_failed: Failed to save configuration
+    config_selection_changed: The selected network instance changed. Select it again before saving.
     import_config: Import Config
     create_new: Create New Network
     network_status: Network Status

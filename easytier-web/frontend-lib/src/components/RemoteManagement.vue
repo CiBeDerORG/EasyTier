@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, Ref, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import * as Api from '../modules/api';
 import * as Utils from '../modules/utils';
+import { useAutoRefreshTask } from '../modules/polling';
 import * as NetworkTypes from '../types/network';
 import { type MenuItem } from 'primevue/menuitem';
 
@@ -32,6 +33,8 @@ const showConfigEditDialog = ref(false);
 const isEditingNetwork = ref(false); // Flag to indicate if we're in network editing mode
 const currentNetworkConfig = ref<NetworkTypes.NetworkConfig | undefined>(undefined);
 const savingNetworkConfig = ref(false);
+let configRequest = 0;
+let disposed = false;
 
 const listInstanceIdResponse = ref<Api.ListNetworkInstanceIdResponse | undefined>(undefined);
 
@@ -41,13 +44,14 @@ const isRunning = (instanceId: string) => {
 
 const networkMetaCache = ref<Record<string, Api.NetworkMeta>>({});
 const loadNetworkMetas = async (instanceIds: string[]) => {
+    if (disposed) return;
     const missingIds = instanceIds.filter(id => !networkMetaCache.value[id]);
 
     if (missingIds.length === 0) return;
 
     try {
         const response = await props.api.get_network_metas(missingIds);
-        Object.assign(networkMetaCache.value, response.metas ?? {});
+        if (!disposed) Object.assign(networkMetaCache.value, response.metas ?? {});
     } catch (e) {
         console.error("Failed to load network metas", e);
     }
@@ -119,13 +123,18 @@ const selectedInstanceId = computed({
     }
 });
 watch(selectedInstanceId, async (newVal, oldVal) => {
+    if (disposed) return;
+    if (newVal?.uuid !== oldVal?.uuid) {
+        ++configRequest;
+        currentNetworkConfig.value = undefined;
+    }
     if (newVal?.uuid !== oldVal?.uuid && (networkIsDisabled.value || isEditingNetwork.value)) {
         await loadCurrentNetworkConfig();
     } else {
         await loadCurrentNetworkInfo();
     }
 
-    if (newVal?.uuid && !networkMetaCache.value[newVal.uuid]) {
+    if (!disposed && newVal?.uuid && !networkMetaCache.value[newVal.uuid]) {
         await loadNetworkMetas([newVal.uuid]);
     }
 });
@@ -159,14 +168,19 @@ watch(networkIsDisabled, async (newVal, oldVal) => {
 });
 
 const loadCurrentNetworkConfig = async () => {
+    if (disposed) return;
+    const request = ++configRequest;
+    const selected = selectedInstanceId.value?.uuid;
     currentNetworkConfig.value = undefined;
 
-    if (!selectedInstanceId.value) {
+    if (!selected) {
         return;
     }
 
-    let ret = await props.api.get_network_config(selectedInstanceId.value!.uuid);
-    currentNetworkConfig.value = ret;
+    const config = await props.api.get_network_config(selected);
+    if (!disposed && request === configRequest && selectedInstanceId.value?.uuid === selected) {
+        currentNetworkConfig.value = config;
+    }
 }
 
 const stopNetwork = async () => {
@@ -243,24 +257,42 @@ const saveAndRunNewNetwork = async (config?: NetworkTypes.NetworkConfig) => {
 }
 
 const saveNetworkConfig = async () => {
-    const config = currentNetworkConfig.value;
-    if (!config || savingNetworkConfig.value) {
+    const selected = selectedInstanceId.value?.uuid;
+    if (!selected || savingNetworkConfig.value) {
         return;
     }
 
+    const api = props.api;
+    const useDraft = isEditingNetwork.value || networkIsDisabled.value;
+    const draft = currentNetworkConfig.value;
     savingNetworkConfig.value = true;
     try {
-        await props.api.save_config(config);
+        // Running instances have no editor draft. Read their current configuration
+        // so an unchanged instance can still be persisted for the asset catalog.
+        const config = useDraft ? draft : await api.get_network_config(selected);
+        if (disposed) return;
+        if (!config || config.instance_id !== selected || selectedInstanceId.value?.uuid !== selected) {
+            throw new Error(t('web.device_management.config_selection_changed'));
+        }
+        await api.save_config(config);
+        if (disposed) return;
+
+        emits('update');
 
         delete networkMetaCache.value[config.instance_id];
         await loadNetworkMetas([config.instance_id]);
         await loadNetworkInstanceIds().catch(e => console.error('Failed to refresh network instances', e));
 
-        emits('update');
-        toast.add({ severity: 'success', summary: t("web.common.success"), detail: t("web.device_management.config_saved"), life: 2000 });
+        if (!disposed) toast.add({ severity: 'success', summary: t("web.common.success"), detail: t("web.device_management.config_saved"), life: 2000 });
     } catch (e: any) {
         console.error(e);
-        toast.add({ severity: 'error', summary: t('web.device_management.config_save_failed'), detail: JSON.stringify(e.response?.data ?? e), life: 5000 });
+        const response = e.response?.data;
+        if (!disposed) toast.add({
+            severity: 'error', summary: t('web.device_management.config_save_failed'),
+            detail: typeof response === 'string' ? response : response?.message
+                ?? (response ? JSON.stringify(response) : e.message ?? String(e)),
+            life: 5000,
+        });
     } finally {
         savingNetworkConfig.value = false;
     }
@@ -278,28 +310,34 @@ const cancelEditNetwork = () => {
 }
 
 const editNetwork = async () => {
-    if (!instanceId.value) {
+    const selected = instanceId.value;
+    if (!selected) {
         toast.add({ severity: 'error', summary: 'Error', detail: 'No network instance selected', life: 2000 });
         return;
     }
 
+    const request = ++configRequest;
     try {
-        let ret = await props.api.get_network_config(instanceId.value!);
-        console.debug("editNetwork", ret);
+        const ret = await props.api.get_network_config(selected);
+        if (disposed || request !== configRequest || instanceId.value !== selected) return;
         currentNetworkConfig.value = ret;
         isEditingNetwork.value = true; // Switch to editing mode instead
     } catch (e: any) {
         console.error(e);
+        if (disposed || request !== configRequest) return;
         toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to edit network, error: ' + JSON.stringify(e.response.data), life: 2000 });
         return;
     }
 }
 
-const loadNetworkInstanceIds = async () => {
-    listInstanceIdResponse.value = await props.api.list_network_instance_ids();
+const loadNetworkInstanceIds = async (canContinue = () => true) => {
+    if (disposed) return;
+    const response = await props.api.list_network_instance_ids();
+    if (!disposed && canContinue()) listInstanceIdResponse.value = response;
 }
 
-const loadCurrentNetworkInfo = async () => {
+const loadCurrentNetworkInfo = async (canContinue = () => true) => {
+    if (disposed) return;
     const selected = selectedInstanceId.value?.uuid;
     if (!selected) {
         curNetworkInfo.value = null;
@@ -314,7 +352,7 @@ const loadCurrentNetworkInfo = async () => {
     }
 
     let network_info = await props.api.get_network_info(selected);
-    if (selectedInstanceId.value?.uuid !== selected) {
+    if (disposed || !canContinue() || selectedInstanceId.value?.uuid !== selected) {
         return;
     }
 
@@ -450,27 +488,22 @@ const actionMenu: Ref<MenuItem[]> = ref([
     }
 ]);
 
-let periodFunc = new Utils.PeriodicTask(async () => {
-    if (props.pauseAutoRefresh) {
-        return;
-    }
+useAutoRefreshTask(async canContinue => {
     try {
-        await Promise.all([loadNetworkInstanceIds(), loadCurrentNetworkInfo()]);
+        await Promise.all([loadNetworkInstanceIds(canContinue), loadCurrentNetworkInfo(canContinue)]);
     } catch (e) {
         console.debug(e);
     }
-}, 1000);
+}, 1000, { active: () => !props.pauseAutoRefresh });
 
-onMounted(async () => {
-    periodFunc.start();
-
+onMounted(() => {
     // 添加屏幕尺寸监听
     window.addEventListener('resize', updateScreenWidth);
 });
 
 onUnmounted(() => {
-    periodFunc.stop();
-
+    disposed = true;
+    ++configRequest;
     // 移除屏幕尺寸监听
     window.removeEventListener('resize', updateScreenWidth);
 });
@@ -490,6 +523,7 @@ onUnmounted(() => {
                 <div class="flex-1 min-w-0">
                     <IftaLabel class="w-full">
                         <Select v-model="selectedInstanceId" :options="instanceList" optionLabel="uuid" class="w-full"
+                            :disabled="savingNetworkConfig"
                             inputId="dd-inst-id" :placeholder="t('web.device_management.select_network')"
                             :pt="{ root: { class: 'network-select-container' } }" :virtualScrollerOptions="{
                                 lazy: true,
@@ -542,8 +576,15 @@ onUnmounted(() => {
 
                 <!-- 简化的按钮区域 - 无论屏幕大小都显示 -->
                 <div class="flex gap-2 shrink-0 button-container items-center">
+                    <Button v-if="selectedInstanceId" @click="saveNetworkConfig" icon="pi pi-save"
+                        :label="screenWidth > 640 ? t('web.device_management.save_config') : undefined"
+                        :aria-label="t('web.device_management.save_config')"
+                        :title="t('web.device_management.save_config')" severity="success"
+                        :loading="savingNetworkConfig"
+                        :disabled="savingNetworkConfig || ((isEditingNetwork || networkIsDisabled) && currentNetworkConfig?.instance_id !== selectedInstanceId.uuid)" />
                     <!-- Create/Cancel button based on state -->
                     <Button v-if="!isEditingNetwork" @click="newNetwork" icon="pi pi-plus"
+                        :disabled="savingNetworkConfig"
                         :label="screenWidth > 640 ? t('web.device_management.create_new') : undefined"
                         :class="['create-button', screenWidth <= 640 ? 'p-button-icon-only' : '']"
                         :style="screenWidth <= 640 ? 'width: 3rem !important; height: 3rem !important; font-size: 1.2rem' : ''"
@@ -551,6 +592,7 @@ onUnmounted(() => {
                         tooltipOptions="{ position: 'bottom' }" severity="primary" />
 
                     <Button v-else @click="cancelEditNetwork" icon="pi pi-times"
+                        :disabled="savingNetworkConfig"
                         :label="screenWidth > 640 ? t('web.device_management.cancel_edit') : undefined"
                         :class="['cancel-button', screenWidth <= 640 ? 'p-button-icon-only' : '']"
                         :style="screenWidth <= 640 ? 'width: 3rem !important; height: 3rem !important; font-size: 1.2rem' : ''"
@@ -560,6 +602,7 @@ onUnmounted(() => {
                     <!-- More actions menu -->
                     <Menu ref="menuRef" :model="actionMenu" :popup="true" />
                     <Button v-if="!isEditingNetwork && selectedInstanceId" icon="pi pi-ellipsis-v"
+                        :disabled="savingNetworkConfig"
                         class="p-button-rounded flex items-center justify-center" severity="help"
                         style="width: 3rem !important; height: 3rem !important; font-size: 1.2rem"
                         @click="menuRef.toggle($event)" :aria-label="t('web.device_management.more_actions')"
@@ -582,9 +625,6 @@ onUnmounted(() => {
                         :label="t('web.device_management.edit_as_file')" iconPos="left" severity="secondary" />
                     <Button @click="importConfig" icon="pi pi-upload" :disabled="savingNetworkConfig" :label="t('web.device_management.import_config')"
                         iconPos="left" severity="help" />
-                    <Button @click="saveNetworkConfig" :disabled="!currentNetworkConfig" :loading="savingNetworkConfig"
-                        icon="pi pi-save" :label="t('web.device_management.save_config')" iconPos="left"
-                        severity="success" />
                 </div>
 
                 <Divider />
@@ -610,7 +650,7 @@ onUnmounted(() => {
                 </Message>
 
                 <div class="text-center mt-4">
-                    <Button @click="stopNetwork" :disabled="!currentNetworkControl.deletable.value"
+                    <Button @click="stopNetwork" :disabled="savingNetworkConfig || !currentNetworkControl.deletable.value"
                         :label="t('web.device_management.disable_network')" severity="danger" icon="pi pi-power-off"
                         iconPos="left" />
                 </div>

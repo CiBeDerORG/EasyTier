@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Button, Checkbox, Column, DataTable, Dialog, Drawer, InputText, SelectButton, Skeleton, useToast } from 'primevue';
 import Tooltip from 'primevue/tooltip';
 import { useRoute, useRouter } from 'vue-router';
-import { Utils } from 'easytier-frontend-lib';
+import { Polling, Utils } from 'easytier-frontend-lib';
 import DeviceDetails from './DeviceDetails.vue';
 import DeviceAttributesDialog from './DeviceAttributesDialog.vue';
 import { useI18n } from 'vue-i18n'
@@ -92,14 +92,19 @@ const loadDevices = async (manual = false) => {
     if (manual) void loadAssetCounts();
     // A manual refresh can show progress for an already running background request.
     if (manual) refreshing.value = true;
-    if (requestInFlight) return;
+    while (requestInFlight) {
+        await requestInFlight.catch(() => {});
+        if (!manual || disposed) return;
+    }
+    if (disposed) return;
     requestInFlight = api?.list_machines() ?? Promise.resolve([]);
     try {
         const resp = await requestInFlight;
+        if (disposed) return;
         deviceList.value = (resp || []).map(Utils.buildDeviceInfo);
         loadError.value = false;
     } catch (e) {
-        loadError.value = true;
+        if (!disposed) loadError.value = true;
         console.error(e);
     } finally {
         requestInFlight = undefined;
@@ -107,16 +112,9 @@ const loadDevices = async (manual = false) => {
     }
 };
 
-const periodFunc = new Utils.PeriodicTask(async () => {
-    try {
-        await loadDevices();
-    } catch (e) {
-        console.error(e);
-    }
-}, 1000);
+Polling.useAutoRefreshTask(() => loadDevices(), 1000);
 
 onMounted(() => {
-    periodFunc.start();
     void loadAssetCounts();
     api?.get_console_info().then(info => { enrollInfo.value = info; }).catch(() => {});
 });
@@ -124,7 +122,6 @@ onMounted(() => {
 onUnmounted(() => {
     disposed = true;
     ++assetCountRequest;
-    periodFunc.stop();
 });
 
 const selectedDeviceId = computed<string | undefined>(() => route.params.deviceId as string);
@@ -404,7 +401,7 @@ const locationText = (device: Utils.DeviceInfo) => {
                 </div>
             </template>
             <RouterView v-slot="{ Component }">
-                <component :is="Component" :api="api" :deviceList="deviceList" @update="loadDevices" />
+                <component :is="Component" :api="api" :deviceList="deviceList" @update="loadDevices(true)" />
             </RouterView>
         </Drawer>
     </div>

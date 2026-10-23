@@ -66,25 +66,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-24.04
-            target: x86_64-unknown-linux-musl
-            artifact_arch: x86_64
-            features: jemalloc
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-            artifact_arch: aarch64
-            features: mimalloc
-    if: matrix.arch == (github.event_name == 'push' && 'amd64' || inputs.architecture)
-    runs-on: ${{ matrix.runner }}
+        arch: ["${{ github.event_name == 'push' && 'amd64' || inputs.architecture }}"]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 120
     env:
-      TARGET: ${{ matrix.target }}
+      TARGET: ${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-musl' || 'x86_64-unknown-linux-musl' }}
       ARCH: ${{ matrix.arch }}
-      ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
-      FEATURES: ${{ matrix.features }}
+      ARTIFACT_ARCH: ${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}
+      FEATURES: ${{ matrix.arch == 'arm64' && 'mimalloc' || 'jemalloc' }}
       REPORT_DIR: process/test/ghcr-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v5
@@ -107,14 +96,14 @@ jobs:
       - name: Prepare native musl build
         uses: ./.github/actions/prepare-build
         with:
-          target: ${{ matrix.target }}
+          target: ${{ env.TARGET }}
           gui: 'false'
           pnpm: 'false'
           token: ${{ github.token }}
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ghcr-release-${{ matrix.target }}
+          shared-key: ghcr-release-${{ env.TARGET }}
 
       - name: Build all four official programs
         run: |

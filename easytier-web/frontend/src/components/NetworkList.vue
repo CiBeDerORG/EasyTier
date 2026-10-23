@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Button, Column, DataTable, Dialog, InputSwitch, InputText, Message, Skeleton, Tag, useToast } from 'primevue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { NetworkTypes, UrlListInput, Utils } from 'easytier-frontend-lib';
+import { NetworkTypes, Polling, UrlListInput } from 'easytier-frontend-lib';
 import ApiClient, { type CentralNetworkSettings, type CentralNetworkSummary, type GatewayInfo } from '../modules/api';
 import { normalizeVirtualSubnet } from '../modules/virtual-subnet';
 
@@ -70,25 +70,14 @@ const loadNetworks = async () => {
     }
 };
 
-const periodFunc = new Utils.PeriodicTask(async () => {
-    try {
-        await loadNetworks();
-    } catch (e) {
-        console.error(e);
-    }
-}, 2000);
+Polling.useAutoRefreshTask(loadNetworks, 2000);
 
 onMounted(async () => {
-    periodFunc.start();
     try {
         gatewayInfo.value = await api?.get_gateway_info();
     } catch (e) {
         gatewayInfo.value = { enabled: false, relay_data: false };
     }
-});
-
-onUnmounted(() => {
-    periodFunc.stop();
 });
 
 const openCreate = () => {

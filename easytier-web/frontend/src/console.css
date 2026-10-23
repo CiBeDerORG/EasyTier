@@ -199,7 +199,8 @@ html.app-dark .console-node-drawer.p-drawer { --node-soft: var(--p-surface-800);
   .console-workspace { margin-left: 0; }
   .web-console .mobile-nav-toggle { display: inline-flex; }
   .topbar-brand { display: none; }
-  .console-topbar { padding: max(10px, env(safe-area-inset-top)) 12px 10px; }
+  .console-topbar { padding: max(10px, env(safe-area-inset-top)) 12px 10px; flex-wrap: wrap; }
+  .console-topbar-actions { flex-wrap: wrap; }
   .console-content { padding: 24px 16px; }
   .console-page { gap: 20px; }
   .page-heading { align-items: flex-start; }

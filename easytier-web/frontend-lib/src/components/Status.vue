@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { ipv4InetToString, ipv4ToString, ipv6ToString } from '../modules/utils';
 import { latencyMs, lossRate, numericValue, peerConns, udpNatTypeName } from '../modules/statusDisplay';
+import { useAutoRefreshTask } from '../modules/polling';
 import { Badge, DataTable, Column, Tag, Chip, Button, Dialog, Timeline, Divider, Card, } from 'primevue';
 import NetworkChart from './NetworkChart.vue';
 import VpnPortalDialog from './VpnPortalDialog.vue';
@@ -305,28 +306,24 @@ const vpnPortalEnabled = computed(() => props.curNetworkInst?.running
   && networkConfig.value?.vpn_portal_config !== undefined
   && networkConfig.value.vpn_portal_config.enabled !== false)
 
-watch(() => props.curNetworkInst?.instance_id, async (instanceId, _, onCleanup) => {
-  let active = true
+watch(() => props.curNetworkInst?.instance_id, () => {
   vpnPortalVisible.value = false
   networkConfig.value = undefined
-  if (!instanceId) return
-  let refreshTimer: ReturnType<typeof setTimeout> | undefined
-  onCleanup(() => {
-    active = false
-    clearTimeout(refreshTimer)
-  })
-  const refresh = async () => {
-    try {
-      const config = await props.api.get_network_config(instanceId)
-      if (active) networkConfig.value = config
-    } catch (error) {
-      console.error('Failed to load WireGuard settings', error)
-    } finally {
-      if (active) refreshTimer = setTimeout(refresh, 10_000)
-    }
-  }
-  await refresh()
 }, { immediate: true })
+
+useAutoRefreshTask(async canContinue => {
+  const instanceId = props.curNetworkInst?.instance_id
+  if (!instanceId) return
+  try {
+    const config = await props.api.get_network_config(instanceId)
+    if (canContinue() && props.curNetworkInst?.instance_id === instanceId) networkConfig.value = config
+  } catch (error) {
+    console.error('Failed to load WireGuard settings', error)
+  }
+}, 10_000, {
+  active: () => !!props.curNetworkInst?.instance_id,
+  key: () => props.curNetworkInst?.instance_id,
+})
 
 function showEventLogs() {
   const detail = props.curNetworkInst?.detail
