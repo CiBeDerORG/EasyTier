@@ -59,6 +59,18 @@ Process completed with exit code 101.
 - 编译器建议使用 `#[axum::debug_handler]` 改善诊断；当前日志没有展开导致 trait 不匹配的具体内部类型，不能仅凭该消息断言某个锁或 future 是根因。
 - 本轮完成测试执行和故障定位记录，未修改用户管理业务实现，也未把未执行的后端用例计为通过。
 
+### 源码诊断与候选修复
+
+只读追踪发现与该编译错误吻合的非 `Send` future 来源：
+
+1. `delete_user` 等待 `disable_deleted_user_runtime`，后者进入 `ClientManager::stop_networks_for_deleted_user`。
+2. `easytier-web/src/client_manager/mod.rs:348` 的 `timeout(..., async { ... })` 借用局部 `rpc`，并跨多个 `.await` 保留这一共享引用。
+3. `easytier-web/src/client_manager/session.rs:991` 的 `SessionRpcClient` 是 `Box<dyn WebClientService<Controller = BaseController> + Send>`，没有 `Sync`；`easytier-proto/build/rpc.rs` 生成的 service trait 也没有 `Sync` supertrait。因此 `&SessionRpcClient` 不能保证 `Send`，与 Axum 对 handler future 的约束冲突。
+
+最小候选修复是将上述局部 `async { ... }` 改为 `async move { ... }`，把满足 `Send` 的 `rpc` 所有权移入 future；该变量在 timeout 后不再使用。无需删除业务协调锁或改变超时、停网确认与并发策略。
+
+这是基于源码的诊断。本轮没有应用该改动或重新编译，候选修复能否消除全部编译问题仍须实际验证。实际 CI 结论仍为上文记录的编译失败。
+
 ### 前端结果
 
 - 前端 job：<https://github.com/CiBeDerORG/EasyTier/actions/runs/39895399496/job/120224536506>。
