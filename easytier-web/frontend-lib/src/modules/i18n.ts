@@ -3,6 +3,7 @@ import type { Locale } from 'vue-i18n'
 
 import EnLocale from '../locales/en.yaml'
 import CnLocale from '../locales/cn.yaml'
+import NodeConsoleLocale from '../locales/node-console.yaml'
 
 // Import i18n resources
 // https://vitejs.dev/guide/features.html#glob-import
@@ -13,9 +14,22 @@ export const i18n = createI18n({
   messages: {},
 })
 
+// Keep the shared page title in one place so sidebar, breadcrumb and heading
+// change together. Merge before lazy loading; switching language keeps the copy.
+function withNodeConsoleMessages(
+  base: Record<string, any>,
+  copy: { page: Record<string, string>; device: Record<string, string> },
+) {
+  return {
+    ...base,
+    assets: { ...base.assets, page: { ...base.assets.page, ...copy.page } },
+    web: { ...base.web, device: { ...base.web.device, ...copy.device } },
+  }
+}
+
 const localesMap = {
-  "en": EnLocale,
-  "cn": CnLocale,
+  "en": withNodeConsoleMessages(EnLocale, NodeConsoleLocale.en),
+  "cn": withNodeConsoleMessages(CnLocale, NodeConsoleLocale.cn),
 } as Record<string, any>
 
 export const availableLocales = Object.keys(localesMap)

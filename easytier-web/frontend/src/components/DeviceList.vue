@@ -9,7 +9,7 @@ import DeviceAttributesDialog from './DeviceAttributesDialog.vue';
 import { useI18n } from 'vue-i18n'
 import ApiClient from '../modules/api';
 import { nodeLocationCoordinates, nodeLocationLabel } from '../modules/node-location';
-import type { AssetContextResponse } from '../types/node-assets';
+import type { AssetContextResponse, AssetNode } from '../types/node-assets';
 
 const { t } = useI18n()
 
@@ -34,6 +34,7 @@ let requestInFlight: Promise<Array<any>> | undefined;
 const expandedRows = ref({});
 const assetContext = ref<AssetContextResponse | null>(null);
 const assetCounts = ref<Record<string, number>>({});
+const assetNodes = ref<Record<string, AssetNode>>({});
 const assetCountsFailed = ref(false);
 let assetCountRequest = 0;
 let disposed = false;
@@ -44,16 +45,28 @@ const loadAssetCounts = async () => {
         const context = assetContext.value ?? await api.assetsContext();
         if (disposed || request !== assetCountRequest) return;
         assetContext.value = context;
-        if (!context.available) return;
-        const result = await api.assetsDeviceCounts(context.actor.id);
+        if (!context.available) {
+            assetNodes.value = {};
+            assetCounts.value = {};
+            return;
+        }
+        // This single owner-scoped read provides both counts and the explicit
+        // public-server role. Do not infer that role from an IP address.
+        const result = await api.assetsNodes(context.actor.id);
         if (disposed || request !== assetCountRequest) return;
+        assetNodes.value = Object.fromEntries(result.items.map(item => [item.machine_id, item]));
         assetCounts.value = Object.fromEntries(result.items.map(item => [item.machine_id, item.device_count]));
         assetCountsFailed.value = false;
     } catch {
-        if (!disposed && request === assetCountRequest) { assetCountsFailed.value = true; assetCounts.value = {}; }
+        if (!disposed && request === assetCountRequest) {
+            assetCountsFailed.value = true;
+            assetCounts.value = {};
+            assetNodes.value = {};
+        }
     }
 };
 const assetCountLabel = (machineId: string) => t('assets.page.device_count', { count: assetCounts.value[machineId] ?? '—' });
+const isPublicNode = (machineId: string) => assetNodes.value[machineId]?.is_public_server === true;
 const openAssets = (machineId: string) => {
     if (!assetContext.value?.available) return;
     router.push({ name: 'nodeAssets', query: { owner: String(assetContext.value.actor.id), node: machineId } });
@@ -88,8 +101,7 @@ const copyEnrollCommand = async () => {
 };
 
 const loadDevices = async (manual = false) => {
-    // Only the user's refresh reloads manual asset counts; the existing one-
-    // second instance poll never calls any asset API.
+    // Refresh owner-scoped asset metadata explicitly, not on every heartbeat poll.
     if (manual) void loadAssetCounts();
     // A manual refresh can show progress for an already running background request.
     if (manual) refreshing.value = true;
@@ -169,11 +181,33 @@ const handleDeleteDevice = (device: Utils.DeviceInfo) => {
 const deviceName = (device: Utils.DeviceInfo) => device.alias || device.hostname || device.machine_id;
 
 const attributesTarget = ref<Utils.DeviceInfo | null>(null);
-const handleEditAttributes = (device: Utils.DeviceInfo) => {
-    if (!attributesTarget.value) attributesTarget.value = { ...device };
+const attributesNode = ref<AssetNode | null>(null);
+const openingAttributes = ref(false);
+const handleEditAttributes = async (device: Utils.DeviceInfo) => {
+    if (attributesTarget.value || openingAttributes.value) return;
+    openingAttributes.value = true;
+    try {
+        // Load the saved public role before editing so an unknown value cannot
+        // silently clear a server's role when only its location/model changes.
+        await loadAssetCounts();
+        if (disposed) return;
+        const node = assetNodes.value[device.machine_id];
+        if (!node || !assetContext.value?.available) {
+            toast.add({ severity: 'error', summary: t('web.console.load_failed'), life: 4000 });
+            return;
+        }
+        attributesNode.value = { ...node };
+        attributesTarget.value = { ...device };
+    } finally {
+        if (!disposed) openingAttributes.value = false;
+    }
 };
-const handleAttributesUpdated = async (machineId: string, changes: Partial<Utils.DeviceAttributes> & { alias?: string }) => {
-    // Reflect each confirmed write even when another field fails or editing is cancelled.
+const closeAttributes = () => { attributesTarget.value = null; attributesNode.value = null; };
+const handleAttributesUpdated = async (machineId: string, changes: Partial<Utils.DeviceAttributes> & { alias?: string; is_public_server?: boolean }) => {
+    // Fence older asset reads before reflecting the confirmed write.
+    ++assetCountRequest;
+    if (assetNodes.value[machineId]) Object.assign(assetNodes.value[machineId], changes);
+    if (attributesNode.value?.machine_id === machineId) Object.assign(attributesNode.value, changes);
     if (attributesTarget.value?.machine_id === machineId) Object.assign(attributesTarget.value, changes);
     // Finish any pre-save list response before applying confirmed changes.
     await requestInFlight?.catch(() => {});
@@ -182,20 +216,20 @@ const handleAttributesUpdated = async (machineId: string, changes: Partial<Utils
     if (device) Object.assign(device, changes);
 };
 const handleAttributesSaved = async () => {
-    attributesTarget.value = null;
+    closeAttributes();
     await requestInFlight?.catch(() => {});
     if (disposed) return;
     toast.add({ severity: 'success', summary: t('web.device.attributes_saved'), life: 2000 });
-    await loadDevices();
+    await Promise.all([loadDevices(), loadAssetCounts()]);
 };
 
 const confirmDeleteDevice = async () => {
-    if (!deleteTarget.value) return;
+    if (!deleteTarget.value || deleting.value) return;
     deleting.value = true;
     try {
         await api?.delete_machine(deleteTarget.value.machine_id, deleteAlsoBlock.value);
         deleteVisible.value = false;
-        await loadDevices();
+        await loadDevices(true);
     } catch (e: any) {
         toast.add({ severity: 'error', summary: t('web.console.delete_device'), detail: e?.response?.data?.message ?? String(e), life: 5000 });
     } finally {
@@ -207,7 +241,7 @@ const confirmDeleteDevice = async () => {
 const sortedDeviceList = computed(() => {
     const query = search.value.trim().toLocaleLowerCase();
     return (deviceList.value ?? [])
-        .filter(device => `${device.alias ?? ''} ${device.hostname ?? ''} ${device.public_ip ?? ''}`.toLocaleLowerCase().includes(query))
+        .filter(device => `${device.alias ?? ''} ${device.hostname ?? ''} ${device.public_ip ?? ''} ${device.device_model ?? ''} ${nodeLocationLabel(device.geo_location)}`.toLocaleLowerCase().includes(query))
         .sort((a, b) => {
             const online = Number(b.online === true) - Number(a.online === true);
             if (online !== 0) return online;
@@ -215,10 +249,9 @@ const sortedDeviceList = computed(() => {
         });
 });
 
-const locationText = (device: Utils.DeviceInfo) => {
-    const parts = [device.location?.country, device.location?.region, device.location?.city].filter(Boolean);
-    return parts.length ? parts.join(' · ') : t('web.device.unknown_location');
-};
+// User-selected geography, never the connection IP's GeoIP result.
+const locationText = (device: Utils.DeviceInfo) => nodeLocationLabel(device.geo_location)
+    || nodeLocationCoordinates(device.geo_location) || t('web.device.unknown_location');
 </script>
 
 <template>
@@ -265,7 +298,7 @@ const locationText = (device: Utils.DeviceInfo) => {
                 </div>
             </div>
             <template v-else>
-                <p v-if="assetCountsFailed" class="muted" role="status">{{ t('assets.page.count_failed') }}</p>
+                <p v-if="assetCountsFailed" class="muted" role="status">{{ t('web.device.asset_metadata_failed') }}</p>
                 <DataTable v-if="viewMode === 'table'" :value="sortedDeviceList" class="console-table desktop-list" size="small"
                     v-model:expandedRows="expandedRows" dataKey="machine_id" scrollable
                     :paginator="sortedDeviceList.length > 20" :rows="20">
@@ -275,17 +308,21 @@ const locationText = (device: Utils.DeviceInfo) => {
                             <button class="entity-link" @click="handleDeviceManagement(data)">
                                 <span class="status-dot" :class="data.online ? 'online' : 'offline'"></span>
                                 <span class="min-w-0">
-                                    <span class="preview-name">{{ deviceName(data) }}</span>
+                                    <span class="node-name-line"><span class="preview-name">{{ deviceName(data) }}</span>
+                                        <span v-if="isPublicNode(data.machine_id)" class="node-public-badge" :title="t('assets.page.public_node')"><i class="pi pi-globe" aria-hidden="true"></i>{{ t('web.device.public_badge') }}</span></span>
                                     <span v-if="data.alias && data.hostname" class="preview-secondary mono-value">{{ data.hostname }}</span>
                                 </span>
                             </button>
                         </template>
                     </Column>
-                    <Column :header="t('web.console.location')">
-                        <template #body="{ data }">{{ locationText(data) }}</template>
+                    <Column :header="t('web.node_location.title')" style="min-width: 12rem">
+                        <template #body="{ data }"><span class="node-location-value" :title="[locationText(data), nodeLocationCoordinates(data.geo_location)].filter(Boolean).join(' / ')">{{ locationText(data) }}</span></template>
                     </Column>
-                    <Column v-if="assetContext?.available" :header="t('assets.page.devices')" style="width: 7rem">
-                        <template #body="{ data }"><Button :label="assetCountLabel(data.machine_id)" icon="pi pi-desktop" text size="small" @click="openAssets(data.machine_id)" /></template>
+                    <Column field="device_model" :header="t('web.device.device_model')" sortable style="min-width: 9rem">
+                        <template #body="{ data }"><span class="node-model-value" :title="data.device_model || undefined">{{ data.device_model || '—' }}</span></template>
+                    </Column>
+                    <Column v-if="assetContext?.available" :header="t('assets.page.devices')" style="min-width: 7rem">
+                        <template #body="{ data }"><Button class="asset-count-button" :label="assetCountLabel(data.machine_id)" icon="pi pi-desktop" text size="small" @click="openAssets(data.machine_id)" /></template>
                     </Column>
                     <Column field="running_network_count" :header="t('web.device.networks')" sortable style="width: 7rem" />
                     <Column field="easytier_version" :header="t('web.device.version')" sortable style="width: 7rem">
@@ -303,7 +340,7 @@ const locationText = (device: Utils.DeviceInfo) => {
                                     :aria-label="`${t('web.console.manage')} ${data.hostname}`"
                                     @click="handleDeviceManagement(data)" />
                                 <Button v-if="centralEnabled" v-tooltip.top="t('web.device.edit_attributes')" icon="pi pi-file-edit"
-                                    severity="secondary" text rounded :aria-label="t('web.device.edit_attributes')"
+                                    severity="secondary" text rounded :aria-label="t('web.device.edit_attributes')" :disabled="openingAttributes"
                                     @click="handleEditAttributes(data)" />
                             </div>
                         </template>
@@ -319,7 +356,8 @@ const locationText = (device: Utils.DeviceInfo) => {
                             <button class="entity-link" @click="handleDeviceManagement(device)">
                                 <span class="status-dot" :class="device.online ? 'online' : 'offline'"></span>
                                 <span class="min-w-0">
-                                    <span class="preview-name">{{ deviceName(device) }}</span>
+                                    <span class="node-name-line"><span class="preview-name">{{ deviceName(device) }}</span>
+                                        <span v-if="isPublicNode(device.machine_id)" class="node-public-badge" :title="t('assets.page.public_node')"><i class="pi pi-globe" aria-hidden="true"></i>{{ t('web.device.public_badge') }}</span></span>
                                     <span v-if="device.alias && device.hostname" class="preview-secondary mono-value">{{ device.hostname }}</span>
                                 </span>
                             </button>
@@ -333,7 +371,7 @@ const locationText = (device: Utils.DeviceInfo) => {
                             <div class="device-card-controls">
                                 <Button v-if="centralEnabled" v-tooltip.top="t('web.console.delete_device')" icon="pi pi-trash" severity="danger"
                                     text rounded class="w-8 h-8" :aria-label="t('web.console.delete_device')" @click="handleDeleteDevice(device)" />
-                                <Button v-if="assetContext?.available" :label="assetCountLabel(device.machine_id)" icon="pi pi-desktop"
+                                <Button v-if="assetContext?.available" class="asset-count-button" :label="assetCountLabel(device.machine_id)" icon="pi pi-desktop"
                                     text size="small" @click="openAssets(device.machine_id)" />
                                 <span class="device-network-count"
                                     :title="`${t('web.device.networks')}: ${device.running_network_count}`">{{ device.running_network_count }}</span>
@@ -341,15 +379,13 @@ const locationText = (device: Utils.DeviceInfo) => {
                                     :aria-label="`${t('web.console.manage')} ${device.hostname}`"
                                     @click="handleDeviceManagement(device)" />
                                 <Button v-if="centralEnabled" v-tooltip.top="t('web.device.edit_attributes')" icon="pi pi-file-edit"
-                                    severity="secondary" text rounded class="w-8 h-8" :aria-label="t('web.device.edit_attributes')"
+                                    severity="secondary" text rounded class="w-8 h-8" :aria-label="t('web.device.edit_attributes')" :disabled="openingAttributes"
                                     @click="handleEditAttributes(device)" />
                             </div>
                         </div>
                         <DeviceDetails :device="device" :card-view="true" />
-                        <dl v-if="device.site_location || device.device_model || device.geo_location" class="device-attributes-summary">
-                            <div v-if="device.site_location"><dt>{{ t('web.device.site_location') }}</dt><dd :title="device.site_location">{{ device.site_location }}</dd></div>
-                            <div v-if="device.device_model"><dt>{{ t('web.device.device_model') }}</dt><dd :title="device.device_model">{{ device.device_model }}</dd></div>
-                            <div v-if="nodeLocationLabel(device.geo_location)"><dt>{{ t('web.node_location.title') }}</dt><dd :title="nodeLocationLabel(device.geo_location)">{{ nodeLocationLabel(device.geo_location) }}</dd></div>
+                        <dl class="device-attributes-summary">
+                            <div><dt>{{ t('web.device.device_model') }}</dt><dd :title="device.device_model || undefined">{{ device.device_model || '—' }}</dd></div>
                             <div v-if="nodeLocationCoordinates(device.geo_location)"><dt>{{ t('web.node_location.coordinates') }}</dt><dd :title="nodeLocationCoordinates(device.geo_location)">{{ nodeLocationCoordinates(device.geo_location) }}</dd></div>
                         </dl>
                     </article>
@@ -359,44 +395,47 @@ const locationText = (device: Utils.DeviceInfo) => {
                         <div class="flex items-center justify-between gap-3">
                             <button class="entity-link" @click="handleDeviceManagement(device)">
                                 <span class="status-dot" :class="device.online ? 'online' : 'offline'"></span>
-                                <span class="preview-name">{{ deviceName(device) }}</span>
+                                <span class="node-name-line"><span class="preview-name">{{ deviceName(device) }}</span>
+                                    <span v-if="isPublicNode(device.machine_id)" class="node-public-badge" :title="t('assets.page.public_node')"><i class="pi pi-globe" aria-hidden="true"></i>{{ t('web.device.public_badge') }}</span></span>
                             </button>
                             <span class="mono-value muted">v{{ (device.easytier_version || '?').split('-')[0] }}</span>
                         </div>
                         <p class="preview-secondary">{{ locationText(device) }} · {{ device.running_network_count }} {{ t('web.console.instances') }}</p>
-                        <Button v-if="assetContext?.available" :label="assetCountLabel(device.machine_id)" icon="pi pi-desktop"
+                        <p class="preview-secondary">{{ t('web.device.device_model') }}：{{ device.device_model || '—' }}</p>
+                        <Button v-if="assetContext?.available" class="asset-count-button" :label="assetCountLabel(device.machine_id)" icon="pi pi-desktop"
                             text size="small" @click="openAssets(device.machine_id)" />
                         <details>
                             <summary>{{ t('web.console.details') }}</summary>
                             <DeviceDetails :device="device" :compact="true" />
                         </details>
-                        <Button v-if="centralEnabled" class="attributes-edit" :label="t('web.device.edit_attributes')"
+                        <Button v-if="centralEnabled" class="attributes-edit" :label="t('web.device.edit_attributes')" :disabled="openingAttributes"
                             icon="pi pi-file-edit" text size="small" severity="secondary" @click="handleEditAttributes(device)" />
                     </article>
                 </div>
             </template>
         </section>
 
-        <DeviceAttributesDialog v-if="attributesTarget" :device="attributesTarget" :api="api"
-            @close="attributesTarget = null" @updated="handleAttributesUpdated" @saved="handleAttributesSaved" />
+        <DeviceAttributesDialog v-if="attributesTarget && attributesNode" :device="attributesTarget" :node="attributesNode" :api="api"
+            @close="closeAttributes" @updated="handleAttributesUpdated" @saved="handleAttributesSaved" />
 
         <!-- 删除确认对话框 -->
-        <Dialog v-model:visible="deleteVisible" modal :header="t('web.console.delete_device')" :style="{ width: '26rem' }">
+        <Dialog v-model:visible="deleteVisible" modal :header="t('web.console.delete_device')" :style="{ width: '26rem' }"
+            :closable="!deleting" :closeOnEscape="!deleting" :dismissableMask="!deleting">
             <div class="flex flex-col gap-3">
                 <div>{{ t('web.console.delete_device_confirm', { device: deleteTarget?.hostname || deleteTarget?.machine_id }) }}</div>
                 <div class="flex items-center gap-2">
-                    <Checkbox inputId="delete-also-block" v-model="deleteAlsoBlock" :binary="true" />
+                    <Checkbox inputId="delete-also-block" v-model="deleteAlsoBlock" :binary="true" :disabled="deleting" />
                     <label for="delete-also-block">{{ t('web.console.block_device') }}</label>
                 </div>
                 <div class="text-xs text-500">{{ deleteAlsoBlock ? t('web.console.block_device_hint') : t('web.console.no_block_device_hint') }}</div>
             </div>
             <template #footer>
-                <Button :label="t('web.common.cancel')" icon="pi pi-times" text severity="secondary" @click="deleteVisible = false" />
+                <Button :label="t('web.common.cancel')" icon="pi pi-times" text severity="secondary" :disabled="deleting" @click="deleteVisible = false" />
                 <Button :label="t('web.common.confirm')" icon="pi pi-check" :loading="deleting" severity="danger" @click="confirmDeleteDevice" />
             </template>
         </Dialog>
 
-        <Drawer v-model:visible="deviceManageVisible" position="right" class="console-device-drawer" :baseZIndex="1000">
+        <Drawer v-model:visible="deviceManageVisible" position="right" class="console-device-drawer" :baseZIndex="1000" :dismissable="true">
             <template #header>
                 <div class="drawer-heading flex items-baseline gap-3 min-w-0">
                     <h2 class="truncate">{{ selectedDeviceHostname }}</h2>
@@ -504,6 +543,11 @@ const locationText = (device: Utils.DeviceInfo) => {
     font-weight: 500;
 }
 
+.node-name-line { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .45rem; min-width: 0; }
+.node-public-badge { display: inline-flex; align-items: center; gap: .25rem; flex-shrink: 0; padding: .1rem .45rem; border-radius: .35rem; font-size: .75rem; font-weight: 500; white-space: nowrap; color: var(--p-primary-700, #047857); background: var(--p-primary-50, #ecfdf5); }
+.node-public-badge i { font-size: .7rem; }
+.node-location-value, .node-model-value { display: block; max-width: 20rem; overflow-wrap: anywhere; }
+.asset-count-button, .asset-count-button :deep(.p-button-label) { white-space: nowrap; }
 .device-attributes-summary { margin: 0; padding-top: 10px; border-top: 1px solid var(--console-border); font-size: 0.875rem; }
 .device-attributes-summary > div { display: flex; gap: 0.5rem; min-width: 0; }
 .device-attributes-summary dt { color: var(--console-muted, #64748b); flex-shrink: 0; }

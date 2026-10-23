@@ -7,6 +7,7 @@ import EasytierFrontendLib from 'easytier-frontend-lib'
 import PrimeVue from 'primevue/config'
 import ConsoleTheme from './theme';
 import { initThemeMode } from './modules/theme';
+import { consoleDialogPassThrough } from './modules/dialog-dismiss';
 import ConfirmationService from 'primevue/confirmationservice';
 import { I18nUtils } from 'easytier-frontend-lib'
 
@@ -108,6 +109,7 @@ app.use(I18nUtils.i18n)
 // is the only one that takes effect.
 app.use(PrimeVue,
     {
+        pt: { dialog: consoleDialogPassThrough },
         theme: {
             preset: ConsoleTheme,
             options: {

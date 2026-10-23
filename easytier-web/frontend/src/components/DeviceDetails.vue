@@ -69,12 +69,8 @@ withDefaults(defineProps<{
       <div class="detail-value">{{ device.running_network_count }}</div>
     </div>
     <div class="detail-item location">
-      <div class="detail-label">{{ t('web.console.location') }}</div>
+      <div class="detail-label">{{ t('web.device.ip_location') }}</div>
       <div class="detail-value">{{ device.location ? [device.location.country, device.location.region, device.location.city].filter(Boolean).join(' · ') : t('web.device.unknown_location') }}</div>
-    </div>
-    <div v-if="device.site_location" class="detail-item site-location">
-      <div class="detail-label">{{ t('web.device.site_location') }}</div>
-      <div class="detail-value">{{ device.site_location }}</div>
     </div>
     <div v-if="device.device_model" class="detail-item device-model">
       <div class="detail-label">{{ t('web.device.device_model') }}</div>
