@@ -14,6 +14,11 @@ on:
           - arm64
   push:
     branches: ["feat/node-attributes-main"]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'doc/**'
+      - 'process/**'
 
 permissions:
   contents: read
@@ -30,10 +35,11 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_BUILD_JOBS: '2'
   CARGO_INCREMENTAL: '0'
+  NATIVE_RUST_TOOLCHAIN: '1.95.0'
 
 jobs:
   build_web:
-    name: Build embedded Web and config generator
+    name: Build Web and config generator
     if: github.repository == 'CiBeDerORG/EasyTier' && github.ref == 'refs/heads/feat/node-attributes-main'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -42,13 +48,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build the same frontend bundle as official releases
+      - name: Build Web assets with reusable config WASM
         uses: ./.github/actions/prepare-pnpm
         with:
           token: ${{ github.token }}
           build-filter: './easytier-web/*'
 
-      - name: Check embedded frontend inputs
+      - name: Check frontend inputs
         run: |
           test -s easytier-web/frontend/dist/index.html
           test -s easytier-web/frontend/dist/config-generator/index.html
@@ -60,76 +66,182 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  build_images:
-    name: Build and smoke test (${{ matrix.arch }})
-    needs: build_web
+  build_native:
+    name: Prepare native programs (${{ matrix.arch }})
+    if: github.repository == 'CiBeDerORG/EasyTier' && github.ref == 'refs/heads/feat/node-attributes-main'
     strategy:
       fail-fast: false
       matrix:
         arch: ["${{ github.event_name == 'push' && 'amd64' || inputs.architecture }}"]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 120
+    outputs:
+      native_key: ${{ steps.native_inputs.outputs.key }}
+      backend_revision: ${{ steps.native_metadata.outputs.backend_revision }}
     env:
       TARGET: ${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-musl' || 'x86_64-unknown-linux-musl' }}
       ARCH: ${{ matrix.arch }}
-      ARTIFACT_ARCH: ${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}
       FEATURES: ${{ matrix.arch == 'arm64' && 'mimalloc' || 'jemalloc' }}
-      REPORT_DIR: process/test/ghcr-${{ matrix.arch }}
+      REPORT_DIR: process/test/ghcr-native-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - name: Initialize build record
+      - name: Fingerprint native sources and build recipe
+        id: native_inputs
         run: |
           mkdir -p "$REPORT_DIR"
           printf 'Commit: %s\nPlatform: linux/%s\nRun: %s/%s/actions/runs/%s\n' \
             "$GITHUB_SHA" "$ARCH" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
             > "$REPORT_DIR/context.txt"
-          printf 'GIT_DESC=%s\n' "$(git log -1 --format=%cd.%h --date=format:%Y-%m-%d_%H:%M:%S)" >> "$GITHUB_ENV"
+          python3 .github/scripts/build-native-inputs.py key \
+            --arch "$ARCH" --target "$TARGET" --allocator "$FEATURES" \
+            --rust-toolchain "$NATIVE_RUST_TOOLCHAIN" \
+            --output "$REPORT_DIR/native-inputs.json"
 
-      - uses: actions/download-artifact@v4
+      - name: Restore exact native program bundle
+        id: native_cache
+        uses: actions/cache/restore@v5
         with:
-          name: ghcr-web-dashboard
-          path: easytier-web/frontend/dist/
+          path: native-artifacts/
+          key: ghcr-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.native_inputs.outputs.key }}
+
+      - name: Select a complete matching bundle
+        id: reuse_native
+        env:
+          EXACT_CACHE_HIT: ${{ steps.native_cache.outputs.cache-hit }}
+          NATIVE_INPUT_KEY: ${{ steps.native_inputs.outputs.key }}
+        run: |
+          if [ "$EXACT_CACHE_HIT" = true ]; then
+            python3 .github/scripts/build-native-inputs.py restore \
+              --directory native-artifacts --key "$NATIVE_INPUT_KEY" \
+              --arch "$ARCH" --target "$TARGET"
+          else
+            printf 'reusable=false\n' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Prepare native musl build
+        if: steps.reuse_native.outputs.reusable != 'true'
         uses: ./.github/actions/prepare-build
         with:
           target: ${{ env.TARGET }}
+          rust-toolchain: ${{ env.NATIVE_RUST_TOOLCHAIN }}
           gui: 'false'
           pnpm: 'false'
           token: ${{ github.token }}
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore Rust dependencies and workspace libraries
+        if: steps.reuse_native.outputs.reusable != 'true'
+        uses: Swatinem/rust-cache@v2
         with:
+          # Share dependency artifacts across native source revisions. Final
+          # executables use the separate, exact source-keyed bundle above.
           shared-key: ghcr-release-${{ env.TARGET }}
+          cache-workspace-crates: 'true'
+          cache-bin: 'false'
 
-      - name: Build all four official programs
+      - name: Build native programs without frontend inputs
+        if: steps.reuse_native.outputs.reusable != 'true'
+        run: bash .github/scripts/build-native.sh
+
+      - name: Record original native provenance
+        id: native_metadata
+        env:
+          NATIVE_INPUT_KEY: ${{ steps.native_inputs.outputs.key }}
+          REUSED_NATIVE: ${{ steps.reuse_native.outputs.reusable }}
         run: |
-          cargo build --locked --release --target "$TARGET" \
-            --package easytier-web --features embed 2>&1 | tee "$REPORT_DIR/build-embed.log"
-          mv "target/$TARGET/release/easytier-web" "target/$TARGET/release/easytier-web-embed"
-          cargo build --locked --release --target "$TARGET" \
-            --features "$FEATURES" 2>&1 | tee "$REPORT_DIR/build-programs.log"
-          mkdir -p "docker_context/easytier-linux-$ARTIFACT_ARCH"
+          python3 .github/scripts/build-native-inputs.py inspect \
+            --directory native-artifacts --key "$NATIVE_INPUT_KEY" \
+            --arch "$ARCH" --target "$TARGET"
+          cp native-artifacts/build-manifest.json "$REPORT_DIR/build-manifest.json"
+          printf '### Native programs (%s)\n\n- Reused exact bundle: %s\n- Input hash: %s\n' \
+            "$ARCH" "$REUSED_NATIVE" "$NATIVE_INPUT_KEY" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save complete native program bundle
+        if: steps.native_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: native-artifacts/
+          key: ${{ steps.native_cache.outputs.cache-primary-key }}
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ghcr-native-${{ matrix.arch }}
+          path: native-artifacts/
+          compression-level: 1
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload native build record
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ghcr-native-report-${{ matrix.arch }}
+          path: process/test/ghcr-native-${{ matrix.arch }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  build_images:
+    name: Package and smoke test (${{ matrix.arch }})
+    needs: [build_web, build_native]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["${{ github.event_name == 'push' && 'amd64' || inputs.architecture }}"]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 30
+    env:
+      TARGET: ${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-musl' || 'x86_64-unknown-linux-musl' }}
+      ARCH: ${{ matrix.arch }}
+      REPORT_DIR: process/test/ghcr-${{ matrix.arch }}
+      NATIVE_INPUT_KEY: ${{ needs.build_native.outputs.native_key }}
+      BACKEND_REVISION: ${{ needs.build_native.outputs.backend_revision }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ghcr-web-dashboard
+          path: docker_context/web/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ghcr-native-${{ matrix.arch }}
+          path: native-artifacts/
+
+      - name: Combine this run's frontend with matching native programs
+        run: |
+          mkdir -p "$REPORT_DIR" docker_context/bin
+          python3 .github/scripts/build-native-inputs.py inspect \
+            --directory native-artifacts --key "$NATIVE_INPUT_KEY" \
+            --arch "$ARCH" --target "$TARGET"
           for program in easytier-core easytier-cli easytier-web easytier-web-embed; do
-            test -s "target/$TARGET/release/$program"
-            install -m 755 "target/$TARGET/release/$program" "docker_context/easytier-linux-$ARTIFACT_ARCH/$program"
+            install -m 755 "native-artifacts/bin/$program" "docker_context/bin/$program"
           done
+          install -m 644 native-artifacts/build-manifest.json docker_context/build-manifest.json
+          cp native-artifacts/build-manifest.json "$REPORT_DIR/build-manifest.json"
+          test -s docker_context/web/index.html
+          test -s docker_context/web/config-generator/index.html
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Package with the official Dockerfile layout
+      - name: Package native programs and independent Web assets
         run: |
           docker buildx build --load --platform "linux/$ARCH" \
-            --file .github/workflows/Dockerfile \
+            --file .github/workflows/Dockerfile.node-attributes \
             --tag "easytier-ghcr:$ARCH" \
             --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --label "org.opencontainers.image.version=feat-node-attributes-main" \
             --label "org.opencontainers.image.licenses=LGPL-3.0" \
-            --label "org.opencontainers.image.description=EasyTier core, CLI, Web and embedded dashboard from feat/node-attributes-main" \
+            --label "org.opencontainers.image.description=EasyTier core, CLI, Web and dashboard from feat/node-attributes-main" \
+            --label "io.easytier.backend.revision=$BACKEND_REVISION" \
+            --label "io.easytier.backend.inputs=$NATIVE_INPUT_KEY" \
+            --label "io.easytier.frontend.revision=$GITHUB_SHA" \
+            --label "io.easytier.web.mode=directory" \
             docker_context 2>&1 | tee "$REPORT_DIR/docker-build.log"
 
       - name: Verify binaries, core health and deploy startup interface

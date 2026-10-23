@@ -17,6 +17,7 @@ for arch in "${SELECTED_ARCH:?SELECTED_ARCH is required}"; do
     docker image inspect "$local_image" > "$report_dir/image-$arch.json"
     python3 - "$report_dir/image-$arch.json" "$arch" "$revision" <<'PY'
 import json
+import re
 import sys
 
 with open(sys.argv[1]) as stream:
@@ -25,6 +26,12 @@ assert image['Os'] == 'linux', image['Os']
 assert image['Architecture'] == sys.argv[2], image['Architecture']
 assert image['Config']['Labels']['org.opencontainers.image.revision'] == sys.argv[3]
 assert image['Config']['Entrypoint'] == ['/sbin/tini', '--', 'easytier-core']
+labels = image['Config']['Labels']
+if labels.get('io.easytier.web.mode') == 'directory':
+    assert re.fullmatch(r'[0-9a-f]{40}', labels.get('io.easytier.backend.revision', ''))
+    assert re.fullmatch(r'[0-9a-f]{64}', labels.get('io.easytier.backend.inputs', ''))
+    assert labels.get('io.easytier.frontend.revision') == sys.argv[3]
+    assert 'EASYTIER_WEB_DIR=/usr/share/easytier/web' in image['Config']['Env']
 PY
     remote_image="$image:sha-$revision-$arch"
     docker tag "$local_image" "$remote_image"
@@ -146,11 +153,20 @@ root = pathlib.Path(sys.argv[1])
 image, tag, revision = sys.argv[2:5]
 anonymous = sys.argv[5] == 'true'
 digest = (root / 'digest.txt').read_text().strip()
+selected_arch = os.environ['SELECTED_ARCH']
+image_record = json.loads((root / f'image-{selected_arch}.json').read_text())[0]
+labels = image_record['Config'].get('Labels') or {}
 record = {
     'image': image,
     'branch_tag': tag,
     'commit_tag': f'sha-{revision}',
     'revision': revision,
+    # The image/frontend revision may advance while an unchanged native bundle
+    # retains the commit and toolchain it was originally built from.
+    'backend_source_sha': labels.get('io.easytier.backend.revision'),
+    'backend_input_hash': labels.get('io.easytier.backend.inputs'),
+    'frontend_revision': labels.get('io.easytier.frontend.revision'),
+    'web_asset_mode': labels.get('io.easytier.web.mode', 'embedded'),
     'digest': digest,
     'platforms': [f"linux/{os.environ['SELECTED_ARCH']}"],
     'anonymous_pull_verified': anonymous,
@@ -176,6 +192,15 @@ it does not copy or execute a private deployment repository's scripts.
 '''
 if not anonymous:
     summary += '\nAnonymous access is not confirmed. Inspect the package visibility and anonymous-pull-*.log before treating this as a login-free replacement.\n'
+if record['backend_source_sha']:
+    summary += (
+        '\n## Native program provenance\n\n'
+        f"- Image/frontend revision: {record['frontend_revision']}\n"
+        f"- Original native source revision: {record['backend_source_sha']}\n"
+        f"- Native input hash: {record['backend_input_hash']}\n"
+        f"- Web assets: {record['web_asset_mode']}\n"
+        '- The original native build manifest is included at /usr/share/easytier/build-manifest.json.\n'
+    )
 (root / 'summary.md').write_text(summary)
 with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
     stream.write(summary)

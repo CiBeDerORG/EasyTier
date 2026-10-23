@@ -34,7 +34,7 @@ mod migrator;
 mod restful;
 mod webhook;
 
-#[cfg(feature = "embed")]
+#[cfg(any(feature = "embed", feature = "web-static"))]
 mod web;
 
 #[global_allocator]
@@ -139,7 +139,7 @@ struct Cli {
     #[arg(long, env = "ET_GATEWAY_RELAY_DATA", default_value = "false")]
     gateway_relay_data: bool,
 
-    #[cfg(feature = "embed")]
+    #[cfg(any(feature = "embed", feature = "web-static"))]
     #[arg(
         long,
         short='l',
@@ -148,7 +148,7 @@ struct Cli {
     )]
     web_server_port: Option<u16>,
 
-    #[cfg(feature = "embed")]
+    #[cfg(any(feature = "embed", feature = "web-static"))]
     #[arg(
         long,
         env = "ET_WEB_SERVER_ADDR",
@@ -157,7 +157,7 @@ struct Cli {
     )]
     web_server_addr: IpAddr,
 
-    #[cfg(feature = "embed")]
+    #[cfg(any(feature = "embed", feature = "web-static"))]
     #[arg(
         long,
         env = "ET_NO_WEB",
@@ -166,13 +166,21 @@ struct Cli {
     )]
     no_web: bool,
 
-    #[cfg(feature = "embed")]
+    #[cfg(any(feature = "embed", feature = "web-static"))]
     #[arg(
         long,
         env = "ET_API_HOST",
         help = t!("cli.api_host").to_string()
     )]
     api_host: Option<url::Url>,
+
+    #[cfg(any(feature = "embed", feature = "web-static"))]
+    #[arg(
+        long,
+        env = "EASYTIER_WEB_DIR",
+        help = "Serve Web UI files from this directory instead of embedded assets"
+    )]
+    web_dir: Option<std::path::PathBuf>,
 
     #[command(flatten)]
     feature_flags: FeatureFlags,
@@ -310,13 +318,13 @@ async fn main() {
     // Basic OIDC parameter validation is handled in OidcConfig::from_params
     if cli.oidc.any_param_provided() {
         let is_split_deploy = {
-            #[cfg(feature = "embed")]
+            #[cfg(any(feature = "embed", feature = "web-static"))]
             {
-                let embed_split_by_port = cli.web_server_port.is_some()
+                let web_split_by_port = cli.web_server_port.is_some()
                     && cli.web_server_port != Some(cli.api_server_port);
-                cli.no_web || embed_split_by_port
+                cli.no_web || web_split_by_port
             }
-            #[cfg(not(feature = "embed"))]
+            #[cfg(not(any(feature = "embed", feature = "web-static")))]
             {
                 true
             }
@@ -331,6 +339,21 @@ async fn main() {
             std::process::exit(1);
         }
     }
+
+    // Resolve the packaged UI before opening the database or listeners so
+    // an incomplete image fails visibly rather than falling back to an old UI.
+    #[cfg(any(feature = "embed", feature = "web-static"))]
+    let web_router = if cli.no_web {
+        None
+    } else {
+        match web::build_router_with_dir(cli.api_host.clone(), cli.web_dir.as_deref()).await {
+            Ok(router) => Some(router),
+            Err(error) => {
+                eprintln!("Error: failed to initialize Web assets: {error:#}");
+                std::process::exit(1);
+            }
+        }
+    };
 
     // let db = db::Db::new(":memory:").await.unwrap();
     let db = db::Db::new(cli.db).await.unwrap();
@@ -425,11 +448,8 @@ async fn main() {
         central_service.start_reconciler();
     }
 
-    #[cfg(feature = "embed")]
-    let (web_router_restful, web_router_static) = if cli.no_web {
-        (None, None)
-    } else {
-        let web_router = web::build_router(cli.api_host.clone());
+    #[cfg(any(feature = "embed", feature = "web-static"))]
+    let (web_router_restful, web_router_static) = if let Some(web_router) = web_router {
         if cli.web_server_port.is_none()
             || (cli.web_server_port == Some(cli.api_server_port)
                 && cli.web_server_addr == cli.api_server_addr)
@@ -438,8 +458,10 @@ async fn main() {
         } else {
             (None, Some(web_router))
         }
+    } else {
+        (None, None)
     };
-    #[cfg(not(feature = "embed"))]
+    #[cfg(not(any(feature = "embed", feature = "web-static")))]
     let web_router_restful = None;
 
     let oidc_config = if cli.oidc.oidc_issuer_url.is_some() {
@@ -473,7 +495,7 @@ async fn main() {
     .await
     .unwrap();
 
-    #[cfg(feature = "embed")]
+    #[cfg(any(feature = "embed", feature = "web-static"))]
     let _web_server_task = if let Some(web_router) = web_router_static {
         Some(
             web::WebServer::new(

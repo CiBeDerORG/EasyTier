@@ -38,12 +38,6 @@ use crate::client_manager::storage::StorageToken;
 use crate::db::{Db, UserIdInDb};
 use crate::webhook::SharedWebhookConfig;
 
-/// Embed assets for web dashboard, build frontend first
-#[cfg(feature = "embed")]
-#[derive(rust_embed::RustEmbed, Clone)]
-#[folder = "frontend/dist/"]
-struct Assets;
-
 pub struct RestfulServer {
     bind_addr: SocketAddr,
     client_mgr: Arc<ClientManager>,
@@ -379,7 +373,7 @@ impl RestfulServer {
             app = app.merge(internal_routes);
         }
 
-        #[cfg(feature = "embed")]
+        #[cfg(any(feature = "embed", feature = "web-static"))]
         let app = if let Some(web_router) = self.web_router.take() {
             app.merge(web_router)
         } else {

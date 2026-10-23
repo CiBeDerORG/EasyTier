@@ -1,0 +1,24 @@
+# Branch image: native executables and Web assets are separate build inputs.
+# The generic release Dockerfile continues to support self-contained binaries.
+FROM alpine:latest
+
+RUN apk add --no-cache tzdata tini
+WORKDIR /app
+
+COPY --chmod=755 bin/easytier-core bin/easytier-cli bin/easytier-web bin/easytier-web-embed /usr/local/bin/
+COPY web/ /usr/share/easytier/web/
+COPY build-manifest.json /usr/share/easytier/build-manifest.json
+
+ENV TZ=Asia/Shanghai
+ENV EASYTIER_WEB_DIR=/usr/share/easytier/web
+
+EXPOSE 11010/tcp
+EXPOSE 11010/udp
+EXPOSE 11011/udp
+EXPOSE 11011/tcp
+EXPOSE 11012/tcp
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD /usr/local/bin/easytier-cli --rpc-portal "127.0.0.1:${EASYTIER_RPC_PORT:-15888}" --output json logger get
+
+ENTRYPOINT ["/sbin/tini", "--", "easytier-core"]
