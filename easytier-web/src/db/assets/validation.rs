@@ -118,7 +118,7 @@ pub(super) fn subnets(body: &Value) -> AssetResult<Vec<String>> {
         }
         canonical.parse::<cidr::IpCidr>().map_err(|_| AssetError::field(&field, "Invalid subnet."))?;
         if !seen.insert(canonical.clone()) {
-            return Err(AssetError::field(&field, "This subnet is already present in this gateway group."));
+            return Err(AssetError::field(&field, "This subnet is already present on this gateway device."));
         }
         normalized.push(canonical);
     }
@@ -168,7 +168,7 @@ pub(super) fn device_payload(body: &Value, creating: bool) -> AssetResult<Value>
         Some(Value::Bool(value)) => *value,
         _ => return Err(AssetError::field("is_gateway_self", "Expected true or false.")),
     };
-    if self_device && group.is_none() { return Err(AssetError::field("is_gateway_self", "A gateway self device must belong to a gateway group.")); }
+    if self_device && group.is_none() { return Err(AssetError::field("is_gateway_self", "A gateway self device must belong to a gateway device.")); }
     let overlay = canonical_ip(&required_string(body, "overlay_ip", 128)?, "overlay_ip")?;
     let lan = optional_string(body,"lan_ip",128)?.map(|value| canonical_ip(&value, "lan_ip")).transpose()?;
     Ok(json!({"gateway_group_id":group,"device_type_id":optional_id(body,"device_type_id")?,

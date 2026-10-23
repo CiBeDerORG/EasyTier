@@ -274,7 +274,14 @@ export interface AssetDevice extends AssetScope, AssetDeviceInput {
     warnings: AssetWarning[];
 }
 
-/** UI save events distinguish gateway catalog updates from device-list updates. */
+/** One device list, retaining each record's existing persistence and actions. */
+export type AssetDeviceRow =
+    | (AssetDevice & { resource_kind: 'device' })
+    | (GatewayGroup & { resource_kind: 'gateway' });
+
+export type AssetDeviceRoleFilter = 'all' | AssetRole;
+
+/** Save results identify the appropriate device-list record and API. */
 export type AssetSavedResource =
     | { resource_kind: 'gateway'; record: GatewayGroup }
     | { resource_kind: 'device'; record: AssetDevice };
@@ -322,6 +329,16 @@ export interface PagedDevices extends AssetListResponse<AssetDevice> {
     page_size: number;
 }
 
+export interface AssetDeviceRowQuery extends AssetDeviceQuery {
+    role: AssetDeviceRoleFilter;
+}
+
+export interface PagedDeviceRows extends AssetListResponse<AssetDeviceRow> {
+    total: number;
+    page: number;
+    page_size: number;
+}
+
 export interface AssetPreview {
     field_errors: Record<string, string>;
     warnings: AssetWarning[];
@@ -341,7 +358,7 @@ export interface DeviceAddressPreviewInput {
 
 /** UI-only filters. Never send unsubmitted draft filters as the applied query. */
 export interface AssetDeviceFilters {
-    group_id: string | null;
+    role: AssetDeviceRoleFilter;
     type_id: string | null;
     keyword: string;
 }

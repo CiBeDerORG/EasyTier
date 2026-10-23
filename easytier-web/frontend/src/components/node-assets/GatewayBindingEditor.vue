@@ -128,7 +128,7 @@ async function save() {
     error.value = '';
     fieldErrors.value = {};
     if (!name.value.trim() && (!props.group || mode.value === 'metadata')) {
-        fieldErrors.value.name = t('assets.groups.name_required'); return;
+        fieldErrors.value.name = t('assets.deviceNameRequired'); return;
     }
     const currentVersion = version;
     const scope = { ...props.scope };
@@ -183,9 +183,9 @@ onBeforeUnmount(() => { disposed = true; version += 1; invalidate(); createAttem
         <p v-if="legacy" class="notice">{{ t('assets.binding.legacyHint') }}</p>
         <form class="editor-fields" @submit.prevent="save">
             <template v-if="!group || mode === 'metadata'">
-                <label for="gateway-editor-name">{{ t('assets.groups.name') }} *</label>
+                <label for="gateway-editor-name">{{ t('assets.deviceName') }} *</label>
                 <InputText id="gateway-editor-name" v-model="name" :disabled="locked" autocomplete="off" :aria-invalid="!!fieldErrors.name" />
-                <label for="gateway-editor-remarks">{{ t('assets.groups.remarks') }}</label>
+                <label for="gateway-editor-remarks">{{ t('assets.deviceRemarks') }}</label>
                 <Textarea id="gateway-editor-remarks" v-model="remarks" :disabled="locked" rows="3" autoResize />
                 <fieldset v-if="group && legacy" class="subnets">
                     <legend>{{ t('assets.groups.subnets') }} *</legend>
@@ -238,11 +238,11 @@ onBeforeUnmount(() => { disposed = true; version += 1; invalidate(); createAttem
             </template>
             <p v-for="(message, field) in fieldErrors" :key="field" class="error" role="alert">{{ message }}</p>
             <p v-for="(warning, index) in warnings" :key="index" class="notice" role="status"><strong v-if="warning.device_name">{{ warning.device_name }} · </strong>{{ warning.message }} {{ warning.suggestion }}</p>
-            <p v-if="uncertain" class="notice" role="status">{{ t('assets.groups.uncertain') }}</p>
+            <p v-if="uncertain" class="notice" role="status">{{ t('assets.deviceSaveUncertain') }}</p>
             <p v-if="error" class="error" role="alert">{{ error }}</p>
             <div class="editor-actions">
-                <Button :label="t('assets.groups.cancel')" severity="secondary" @click="emit('cancel')" />
-                <Button :label="t(uncertain ? 'assets.binding.retry' : showBinding ? 'assets.binding.apply' : 'assets.groups.save')"
+                <Button :label="t('assets.deviceCancel')" severity="secondary" @click="emit('cancel')" />
+                <Button :label="t(uncertain ? 'assets.binding.retry' : showBinding ? 'assets.binding.apply' : 'assets.deviceSave')"
                     icon="pi pi-check" type="submit" :loading="saving" :disabled="saving" />
             </div>
         </form>

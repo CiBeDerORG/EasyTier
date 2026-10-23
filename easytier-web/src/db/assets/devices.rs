@@ -1,17 +1,54 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sqlx::{QueryBuilder, Row, Sqlite, SqliteConnection};
+use sqlx::{QueryBuilder, Row, Sqlite, SqliteConnection, sqlite::SqliteRow};
 
-use super::{AssetsStore, binding_ops, common::{AssetError, AssetResult, address_warning, device_json, ensure_device, ensure_group, ensure_node, ensure_type, group_subnets, now}, idempotency::Operation, validation};
+use super::{AssetsStore, binding_ops, common::{AssetError, AssetResult, address_warning, device_json, ensure_device, ensure_group, ensure_node, ensure_type, group_json, group_subnets, now}, idempotency::Operation, validation};
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct DeviceListQuery {
     pub(crate) page: Option<u32>,
     pub(crate) page_size: Option<u32>,
+    pub(crate) role: Option<String>,
     pub(crate) group_id: Option<String>,
     pub(crate) type_id: Option<String>,
     pub(crate) keyword: Option<String>,
     pub(crate) locate_id: Option<String>,
+}
+
+struct DeviceListResource {
+    kind: &'static str,
+    id: String,
+    created_at: String,
+    row: SqliteRow,
+}
+
+impl DeviceListResource {
+    fn new(kind: &'static str, row: SqliteRow) -> AssetResult<Self> {
+        Ok(Self {
+            kind,
+            id: row.try_get("id")?,
+            created_at: row.try_get("created_at")?,
+            row,
+        })
+    }
+
+    fn matches_keyword(&self, keyword: &str) -> AssetResult<bool> {
+        let mut fields = vec![self.row.try_get::<String, _>("name")?];
+        if self.kind == "gateway" {
+            // Match the accepted address exposed by group_json. An unreadable
+            // snapshot still leaves the gateway searchable by its name.
+            if let Some(snapshot) = binding_ops::stored_snapshot(&self.row).ok().flatten() {
+                fields.push(snapshot["ipv4"].as_str().unwrap_or_default().to_owned());
+            }
+        } else {
+            fields.extend([
+                self.row.try_get::<Option<String>, _>("model")?.unwrap_or_default(),
+                self.row.try_get::<String, _>("overlay_ip")?,
+                self.row.try_get::<Option<String>, _>("lan_ip")?.unwrap_or_default(),
+            ]);
+        }
+        Ok(fields.iter().any(|field| field.to_lowercase().contains(keyword)))
+    }
 }
 
 fn filter(query: &mut QueryBuilder<'_, Sqlite>, owner: i32, node: &str, options: &DeviceListQuery) {
@@ -40,8 +77,8 @@ pub(super) async fn validate_relations(connection: &mut SqliteConnection, owner:
         let duplicate: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM asset_devices WHERE owner_user_id = ? AND machine_id = ? AND gateway_group_id = ? AND is_gateway_self = 1 AND id <> ?)")
             .bind(owner).bind(node).bind(payload["gateway_group_id"].as_str()).bind(excluded_id).fetch_one(&mut *connection).await?;
         if duplicate != 0 {
-            let mut error = AssetError::conflict("gateway_self_in_use", "This gateway group already has a self device.");
-            error.field_errors.insert("is_gateway_self".into(), "Each gateway group can have at most one self device.".into());
+            let mut error = AssetError::conflict("gateway_self_in_use", "This gateway device already has a self-device record.");
+            error.field_errors.insert("is_gateway_self".into(), "Each gateway device can have at most one self-device record.".into());
             return Err(error);
         }
     }
@@ -54,6 +91,14 @@ impl AssetsStore {
         ensure_node(&mut connection, owner, node).await?;
         if let Some(id) = options.group_id.as_ref().filter(|id| !id.is_empty()) { ensure_group(&mut connection, owner, node, id).await?; }
         if let Some(id) = options.type_id.as_ref().filter(|id| !id.is_empty()) { ensure_type(&mut connection, owner, id).await?; }
+        if let Some(role) = options.role.as_deref() {
+            if !matches!(role, "all" | "gateway" | "ordinary") {
+                return Err(AssetError::field("role", "Choose all, gateway, or ordinary."));
+            }
+            return self.list_device_resources(&mut connection, owner, node, &options, role).await;
+        }
+        // Omitting role retains the original device-only response for callers
+        // that do not yet understand gateway resources.
         let page_size = options.page_size.unwrap_or(20).clamp(1, 100) as i64;
         let mut page = options.page.unwrap_or(1).max(1) as i64;
         if let Some(keyword) = options.keyword.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
@@ -123,6 +168,64 @@ impl AssetsStore {
         Ok(json!({"items":items,"total":total,"page":page,"page_size":page_size}))
     }
 
+    async fn list_device_resources(&self, connection: &mut SqliteConnection, owner: i32, node: &str,
+        options: &DeviceListQuery, role: &str) -> AssetResult<Value> {
+        let keyword = options.keyword.as_ref().map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty());
+        let mut resources = Vec::new();
+        if role != "gateway" {
+            let mut query = QueryBuilder::<Sqlite>::new("SELECT * FROM asset_devices WHERE ");
+            filter(&mut query, owner, node, options);
+            let rows = query.build().fetch_all(&mut *connection).await?;
+            for row in rows {
+                let resource = DeviceListResource::new("device", row)?;
+                if let Some(keyword) = keyword.as_deref() {
+                    if !resource.matches_keyword(keyword)? { continue; }
+                }
+                resources.push(resource);
+            }
+        }
+        // Device types belong to ordinary device records. A type filter must
+        // not include unrelated gateways that have no device_type_id.
+        if role != "ordinary" && options.type_id.as_ref().filter(|id| !id.is_empty()).is_none() {
+            let mut query = QueryBuilder::<Sqlite>::new("SELECT * FROM asset_gateway_groups WHERE owner_user_id = ");
+            query.push_bind(owner).push(" AND machine_id = ").push_bind(node.to_owned());
+            if let Some(id) = options.group_id.as_ref().filter(|id| !id.is_empty()) {
+                query.push(" AND id = ").push_bind(id.clone());
+            }
+            let rows = query.build().fetch_all(&mut *connection).await?;
+            for row in rows {
+                let resource = DeviceListResource::new("gateway", row)?;
+                if let Some(keyword) = keyword.as_deref() {
+                    if !resource.matches_keyword(keyword)? { continue; }
+                }
+                resources.push(resource);
+            }
+        }
+        // Scope and filter both resource types before locating or paging. Only
+        // the resulting page loads binding status, subnet warnings, and JSON.
+        resources.sort_by(|left, right| right.created_at.cmp(&left.created_at)
+            .then_with(|| right.id.cmp(&left.id)).then_with(|| right.kind.cmp(left.kind)));
+        let total = resources.len() as i64;
+        let page_size = options.page_size.unwrap_or(20).clamp(1, 100) as i64;
+        let page = if let Some(id) = options.locate_id.as_ref().filter(|id| !id.is_empty()) {
+            resources.iter().position(|resource| resource.id == *id).ok_or_else(AssetError::not_found)? as i64 / page_size + 1
+        } else {
+            (options.page.unwrap_or(1).max(1) as i64).min(((total + page_size - 1) / page_size).max(1))
+        };
+        let mut items = Vec::new();
+        for resource in resources.into_iter().skip(((page - 1) * page_size) as usize).take(page_size as usize) {
+            let mut item = if resource.kind == "gateway" {
+                group_json(connection, &resource.row, &self.runtime_observations).await?
+            } else {
+                device_json(connection, &resource.row, &self.runtime_observations).await?
+            };
+            item["resource_kind"] = json!(resource.kind);
+            items.push(item);
+        }
+        Ok(json!({"items":items,"total":total,"page":page,"page_size":page_size}))
+    }
+
     pub(crate) async fn get_device(&self, owner: i32, node: &str, id: &str) -> AssetResult<Value> {
         let mut connection = self.pool.acquire().await?;
         let row = sqlx::query("SELECT * FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
@@ -169,8 +272,8 @@ impl AssetsStore {
             .bind(id).bind(owner).bind(node).fetch_optional(&mut *transaction).await?.ok_or_else(AssetError::not_found)?;
         let original_group: Option<String> = old.try_get("gateway_group_id")?;
         if body.get("gateway_group_id").is_some() && original_group != validation::optional_id(&body, "gateway_group_id")? {
-            let mut error = AssetError::conflict("asset_ownership_fixed", "A device's network node and gateway group cannot be changed after creation.");
-            error.field_errors.insert("gateway_group_id".into(), "The gateway group is fixed after creation.".into());
+            let mut error = AssetError::conflict("asset_ownership_fixed", "A device's network node and gateway device cannot be changed after creation.");
+            error.field_errors.insert("gateway_group_id".into(), "The gateway device is fixed after creation.".into());
             return Err(error);
         }
         let original_self: bool = old.try_get("is_gateway_self")?;
