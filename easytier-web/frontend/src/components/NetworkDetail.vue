@@ -8,8 +8,10 @@ import { Config, NetworkTypes, UrlListInput, Utils } from 'easytier-frontend-lib
 import AclPolicyTab from './AclPolicyTab.vue';
 import ApiClient, { type CentralNetworkDetail, type CentralNetworkMember, type NetworkCredential, type NodeAclRuleStat, type NodePeerInfo, type NodeRouteInfo, type TemporaryPeer } from '../modules/api';
 import { normalizeVirtualSubnet } from '../modules/virtual-subnet';
+import { detailMessages } from '../modules/detail-messages';
 
 const { t } = useI18n()
+const { t: detailT } = useI18n({ useScope: 'local', messages: detailMessages });
 const route = useRoute();
 const router = useRouter();
 const toast = useToast();
@@ -27,6 +29,16 @@ const network = ref<CentralNetworkDetail | undefined>(undefined);
 const members = ref<CentralNetworkMember[] | undefined>(undefined);
 const temporaryPeers = ref<TemporaryPeer[]>([]);
 const loadError = ref<string | undefined>(undefined);
+const memberTotal = computed(() => members.value?.length ?? network.value?.member_count ?? 0);
+const memberOnline = computed(() => members.value?.filter(member => member.online).length ?? network.value?.online_member_count ?? 0);
+const networkingLabel = computed(() => {
+    const method = network.value?.networking_method;
+    if (method === 'Gateway') return t('web.network_list.gateway_mode');
+    if (method === 'Manual') return t('manual');
+    if (method === 'PublicServer') return t('public_server');
+    if (method === 'Standalone') return t('standalone');
+    return method || '—';
+});
 
 const activeTab = ref('members');
 
@@ -848,17 +860,41 @@ const switchTab = async (tab: string) => {
 </script>
 
 <template>
-    <div class="console-page">
+    <div class="console-page network-detail-page">
         <ConfirmDialog />
-        <header class="page-heading">
-          <div class="flex items-center gap-3 min-w-0">
+        <header class="page-heading network-detail-heading">
+          <div class="network-heading-identity">
             <Button icon="pi pi-arrow-left" text rounded severity="secondary"
                 :aria-label="t('web.console.back_networks')" @click="router.push({ name: 'networkList' })" />
             <div class="min-w-0">
+                <span class="network-eyebrow">{{ detailT('networkControl') }}</span>
                 <h1>{{ network?.display_name ?? networkId }}</h1>
+                <p class="page-description">{{ detailT('networkSubtitle') }}</p>
             </div>
           </div>
+          <RouterLink v-if="network" :to="{ name: 'networkMap', query: { network: networkId } }" class="network-map-link">
+            <i class="pi pi-globe" aria-hidden="true"></i>{{ t('web.console.network_map') }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i>
+          </RouterLink>
         </header>
+
+        <section v-if="network" class="network-signal-strip" :aria-label="detailT('networkOverview')">
+            <div class="network-signal-item">
+                <span class="network-signal-label"><i class="pi pi-share-alt" aria-hidden="true"></i>{{ detailT('onlineMembers') }}</span>
+                <strong class="network-signal-value network-signal-numeric">{{ memberOnline }}<span>/ {{ memberTotal }}</span></strong>
+            </div>
+            <div class="network-signal-item">
+                <span class="network-signal-label"><i class="pi pi-sitemap" aria-hidden="true"></i>{{ t('web.network_list.virtual_cidr') }}</span>
+                <strong class="network-signal-value mono-value">{{ network.virtual_cidr || t('virtual_ipv4_dhcp') }}</strong>
+            </div>
+            <div class="network-signal-item">
+                <span class="network-signal-label"><i class="pi pi-directions" aria-hidden="true"></i>{{ t('networking_method') }}</span>
+                <strong class="network-signal-value">{{ networkingLabel }}</strong>
+            </div>
+            <div class="network-signal-item">
+                <span class="network-signal-label"><i class="pi pi-shield" aria-hidden="true"></i>{{ t('web.network_list.secure_mode') }}</span>
+                <strong class="network-signal-value" :class="{ 'is-enabled': network.secure_mode }"><i :class="['pi', network.secure_mode ? 'pi-lock' : 'pi-lock-open']" aria-hidden="true"></i>{{ detailT(network.secure_mode ? 'securityEnabled' : 'securityDisabled') }}</strong>
+            </div>
+        </section>
 
         <div v-if="loadError !== undefined">
             <Message severity="warn" :closable="false">{{ t('web.console.load_failed') }} <Button :label="t('web.console.retry')" text size="small" @click="loadAll" /></Message>
@@ -870,15 +906,15 @@ const switchTab = async (tab: string) => {
 
         <Tabs v-if="network !== undefined" :value="activeTab" @update:value="switchTab(String($event))" lazy class="console-panel network-tabs">
             <TabList>
-                <Tab value="members">{{ t('web.network_detail.tab_members') }}</Tab>
-                <Tab value="acl">{{ t('web.acl.tab') }}</Tab>
-                <Tab v-if="network.secure_mode" value="credentials">{{ t('web.network_detail.tab_credentials') }}</Tab>
-                <Tab value="settings">{{ t('web.network_detail.tab_settings') }}</Tab>
+                <Tab value="members"><i class="pi pi-server" aria-hidden="true"></i>{{ t('web.network_detail.tab_members') }}</Tab>
+                <Tab value="acl"><i class="pi pi-shield" aria-hidden="true"></i>{{ t('web.acl.tab') }}</Tab>
+                <Tab v-if="network.secure_mode" value="credentials"><i class="pi pi-key" aria-hidden="true"></i>{{ t('web.network_detail.tab_credentials') }}</Tab>
+                <Tab value="settings"><i class="pi pi-sliders-h" aria-hidden="true"></i>{{ t('web.network_detail.tab_settings') }}</Tab>
             </TabList>
             <TabPanels>
             <!-- members -->
             <TabPanel value="members" class="flex flex-col gap-3">
-                <div class="flex flex-wrap justify-between items-center gap-3">
+                <div class="network-tab-toolbar flex flex-wrap justify-between items-center gap-3">
                     <div class="text-sm muted flex-1 min-w-48">{{ t('web.network_detail.members_hint') }}</div>
                     <div class="flex items-center gap-3 shrink-0">
                         <SelectButton v-model="viewMode" :options="viewModeOptions" optionValue="value"
@@ -892,7 +928,9 @@ const switchTab = async (tab: string) => {
                     </div>
                 </div>
                 <div v-if="members === undefined" class="w-full flex justify-center py-4"><ProgressSpinner /></div>
-                <div v-else-if="members.length === 0" class="text-center p-6 text-500">{{ t('web.console.no_results') }}</div>
+                <div v-else-if="members.length === 0" class="console-empty-state network-members-empty">
+                    <i class="pi pi-share-alt" aria-hidden="true"></i><h2>{{ detailT('memberEmpty') }}</h2><p>{{ detailT('memberEmptyHint') }}</p>
+                </div>
                 <template v-else>
                     <DataTable v-if="viewMode === 'table'" :value="members" dataKey="device_id" size="small" class="console-table desktop-list" scrollable>
                         <Column :header="t('web.device.hostname')">
@@ -1069,11 +1107,11 @@ const switchTab = async (tab: string) => {
 
             <!-- credentials -->
             <TabPanel value="acl" class="flex flex-col gap-3">
-                <p class="text-sm muted">{{ t('web.acl.trust_hint') }}</p>
+                <p class="network-trust-note"><i class="pi pi-info-circle" aria-hidden="true"></i>{{ t('web.acl.trust_hint') }}</p>
                 <AclPolicyTab v-if="api" :api="api" :network-id="networkId" :members="members" />
             </TabPanel>
             <TabPanel value="credentials" class="flex flex-col gap-3">
-                <div class="flex flex-wrap justify-between items-center gap-3">
+                <div class="network-tab-toolbar flex flex-wrap justify-between items-center gap-3">
                     <div class="text-sm muted flex-1 min-w-48">{{ t('web.network_detail.credentials_hint') }}</div>
                     <Button :label="t('web.network_detail.generate_credential')" icon="pi pi-key" size="small" class="shrink-0"
                         @click="openGenerateCredential" />
@@ -1128,7 +1166,9 @@ const switchTab = async (tab: string) => {
             <!-- settings -->
             <TabPanel value="settings">
               <div v-if="!settingsLoaded" class="loading-rows"><Skeleton v-for="i in 4" :key="i" height="2rem" /></div>
-              <div v-else class="settings-form">
+              <div v-else class="settings-form network-settings-form">
+                <section class="network-setting-section">
+                    <header class="network-setting-heading"><i class="pi pi-id-card" aria-hidden="true"></i><div><h3>{{ detailT('identity') }}</h3><p>{{ detailT('identityHint') }}</p></div></header>
                 <div class="flex flex-col gap-1">
                     <label for="settings-display-name">{{ t('web.network_list.display_name') }}</label>
                     <InputText id="settings-display-name" v-model="settingsForm.display_name" />
@@ -1137,16 +1177,10 @@ const switchTab = async (tab: string) => {
                     <label for="settings-network-name">{{ t('web.network_detail.mesh_name') }}</label>
                     <span id="settings-network-name" class="mono-value muted">{{ settingsForm.network_name }}</span>
                 </div>
-                <div class="flex flex-col gap-1">
-                    <div class="flex items-center">
-                        <label for="settings-virtual-cidr">{{ t('web.network_list.virtual_cidr') }}</label>
-                        <span class="pi pi-question-circle ml-2 self-center" v-tooltip="t('web.network_list.virtual_cidr_hint')"></span>
-                    </div>
-                    <InputText id="settings-virtual-cidr" v-model="settingsForm.virtual_cidr" class="font-mono"
-                        @blur="settingsForm.virtual_cidr = normalizeVirtualSubnet(settingsForm.virtual_cidr)"
-                        :placeholder="t('web.network_list.virtual_cidr_placeholder')" />
-                </div>
-                <div class="flex flex-col gap-1">
+                </section>
+                <section class="network-setting-section">
+                    <header class="network-setting-heading"><i class="pi pi-shield" aria-hidden="true"></i><div><h3>{{ detailT('security') }}</h3><p>{{ detailT('securityHint') }}</p></div></header>
+                <div class="network-setting-switch">
                     <div class="flex items-center">
                         <label for="settings-secure-mode">{{ t('web.network_list.secure_mode') }}</label>
                         <span class="pi pi-question-circle ml-2 self-center" v-tooltip="t('web.network_list.secure_mode_hint')"></span>
@@ -1163,7 +1197,19 @@ const switchTab = async (tab: string) => {
                         <label for="regenerate-secret" class="text-sm">{{ t('web.network_detail.regenerate_secret') }}</label>
                     </div>
                 </div>
-                <div v-if="gatewayFollowed()" class="flex items-start gap-2 p-3 surface-100 rounded-md">
+                </section>
+                <section class="network-setting-section network-setting-wide">
+                    <header class="network-setting-heading"><i class="pi pi-directions" aria-hidden="true"></i><div><h3>{{ detailT('connectivity') }}</h3><p>{{ detailT('connectivityHint') }}</p></div></header>
+                <div class="network-address-field flex flex-col gap-1">
+                    <div class="flex items-center">
+                        <label for="settings-virtual-cidr">{{ t('web.network_list.virtual_cidr') }}</label>
+                        <span class="pi pi-question-circle ml-2 self-center" v-tooltip="t('web.network_list.virtual_cidr_hint')"></span>
+                    </div>
+                    <InputText id="settings-virtual-cidr" v-model="settingsForm.virtual_cidr" class="font-mono"
+                        @blur="settingsForm.virtual_cidr = normalizeVirtualSubnet(settingsForm.virtual_cidr)"
+                        :placeholder="t('web.network_list.virtual_cidr_placeholder')" />
+                </div>
+                <div v-if="gatewayFollowed()" class="network-gateway-notice">
                     <i class="pi pi-check-circle text-green-500 mt-0.5"></i>
                     <div class="text-sm">{{ t('web.network_detail.gateway_followed') }}</div>
                 </div>
@@ -1176,11 +1222,12 @@ const switchTab = async (tab: string) => {
                         defaultUrl="tcp://:11010" :add-label="t('add_initial_node')"
                         :placeholder="t('initial_node_placeholder')" />
                 </div>
-                <div class="flex gap-2">
+                </section>
+                <div class="network-settings-save">
                     <Button :label="t('web.common.save')" icon="pi pi-check" :loading="savingSettings" @click="saveSettings" />
                 </div>
-                <div class="mt-6 pt-4 border-t border-red-200 flex flex-col gap-2">
-                    <div class="text-lg font-semibold text-red-500">{{ t('web.network_detail.danger_zone') }}</div>
+                <div class="network-danger-zone flex flex-col gap-2">
+                    <div class="font-semibold text-red-500"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>{{ t('web.network_detail.danger_zone') }}</div>
                     <div class="text-sm text-500">{{ t('web.network_detail.delete_hint') }}</div>
                     <div>
                         <Button :label="t('web.network_detail.delete')" icon="pi pi-trash" severity="danger" outlined
@@ -1562,6 +1609,48 @@ const switchTab = async (tab: string) => {
 </template>
 
 <style scoped>
+.network-detail-heading { gap: 24px; align-items: center; }
+.network-heading-identity { display: flex; gap: 14px; align-items: center; min-width: 0; }
+.network-heading-identity > :deep(.p-button) { flex: none; border: 1px solid var(--console-border); background: var(--console-panel); }
+.network-eyebrow { display: block; margin-bottom: 7px; font-size: 10px; font-weight: 650; letter-spacing: .15em; text-transform: uppercase; color: var(--p-primary-color); }
+.network-map-link { display: inline-flex; align-items: center; justify-content: center; gap: 10px; flex: none; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 9px; padding: 11px 15px; color: var(--p-primary-color); font-size: 12px; background: var(--console-accent-soft, var(--console-panel)); transition: border-color .18s, box-shadow .18s; }
+.network-map-link:hover { border-color: var(--p-primary-color); box-shadow: var(--console-glow, none); }
+.network-map-link .pi:last-child { font-size: 11px; }
+.network-signal-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--console-border); border-radius: 14px; background: var(--console-panel); box-shadow: var(--console-shadow, none); overflow: hidden; }
+.network-signal-item { display: flex; flex-direction: column; gap: 16px; padding: 22px 24px; border-right: 1px solid var(--console-border); min-width: 0; }
+.network-signal-item:last-child { border-right: 0; }
+.network-signal-label { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--console-muted); }
+.network-signal-label > .pi { color: var(--p-primary-color); font-size: 12px; }
+.network-signal-value { display: flex; align-items: center; gap: 9px; font-size: 17px; font-weight: 550; min-height: 30px; color: var(--p-text-color); overflow-wrap: anywhere; }
+.network-signal-numeric { font-size: 28px; font-weight: 600; line-height: 1.1; letter-spacing: -.04em; }
+.network-signal-numeric > span { font-size: 14px; font-weight: 450; letter-spacing: 0; color: var(--console-muted); align-self: end; padding-bottom: 2px; }
+.network-signal-value.mono-value { font-size: 15px; }
+.network-signal-value.is-enabled { color: var(--p-primary-color); }
+.network-signal-value > .pi { font-size: 15px; }
+.network-tabs :deep(.p-tab) { display: inline-flex; align-items: center; gap: 9px; }
+.network-tabs :deep(.p-tab > .pi) { font-size: 13px; }
+.network-tab-toolbar { padding-bottom: 16px; border-bottom: 1px solid var(--console-border); margin-bottom: 5px; }
+.network-trust-note { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; line-height: 1.8; padding: 14px 16px; border: 1px solid var(--console-border); border-radius: 10px; background: var(--console-panel-raised, var(--console-panel)); color: var(--console-muted); margin-bottom: 8px; }
+.network-trust-note > .pi { flex: none; color: var(--p-primary-color); margin-top: 4px; }
+.network-members-empty { border: 1px dashed var(--console-border-strong, var(--console-border)); border-radius: 12px; margin-top: 8px; }
+.network-settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: none; gap: 20px; align-items: start; }
+.network-setting-section { min-width: 0; display: flex; flex-direction: column; gap: 20px; padding: 22px; border: 1px solid var(--console-border); border-radius: 12px; background: var(--console-panel-raised, var(--console-panel)); height: 100%; }
+.network-setting-heading { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 17px; border-bottom: 1px solid var(--console-border); }
+.network-setting-heading > .pi { color: var(--p-primary-color); font-size: 17px; margin-top: 3px; }
+.network-setting-heading h3 { font-size: 14px; font-weight: 600; }
+.network-setting-heading p { color: var(--console-muted); font-size: 12px; line-height: 1.6; margin-top: 5px; }
+.network-setting-section label { font-size: 12px; font-weight: 550; }
+.network-setting-section > .flex { gap: 9px; }
+.network-setting-switch { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.network-address-field { width: 100%; max-width: 420px; }
+.network-setting-wide, .network-settings-save, .network-danger-zone { grid-column: 1 / -1; }
+.network-settings-save { display: flex; justify-content: flex-end; }
+.network-gateway-notice { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 8px; background: var(--console-accent-soft, var(--console-panel)); }
+.network-danger-zone { padding: 20px 22px; margin-top: 8px; border: 1px solid color-mix(in srgb, var(--p-red-500) 26%, var(--console-border)); border-radius: 12px; background: color-mix(in srgb, var(--p-red-500) 4%, var(--console-panel)); }
+.network-danger-zone > div:first-child { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--p-red-700); }
+html.app-dark .network-danger-zone > div:first-child { color: var(--p-red-300); }
+.network-danger-zone > div:nth-child(2) { color: var(--console-muted); font-size: 12px; line-height: 1.6; }
+.network-danger-zone :deep(.p-button) { margin-top: 6px; }
 .member-card-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -1570,13 +1659,13 @@ const switchTab = async (tab: string) => {
 
 .member-card {
     border: 1px solid var(--console-border);
-    border-radius: 0.75rem;
-    background: var(--surface-card);
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
+    border-radius: 12px;
+    background: var(--console-panel-raised, var(--console-panel));
+    box-shadow: var(--console-shadow, none);
     padding: 1rem 1.1rem;
     display: flex;
     flex-direction: column;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .mobile-list .member-card {
@@ -1600,13 +1689,39 @@ const switchTab = async (tab: string) => {
 /* 桌面卡片视图下恢复卡片的独立外观（移动端 .mobile-list 内仍是扁平列表项） */
 .member-card-grid .member-card.member-card {
     border: 1px solid var(--console-border);
-    border-radius: 0.75rem;
-    background: var(--surface-card);
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
+    border-radius: 12px;
+    background: var(--console-panel-raised, var(--console-panel));
+    box-shadow: none;
     padding: 1rem 1.1rem;
 }
 
+.member-card-grid .member-card.member-card:hover { border-color: var(--console-border-strong, var(--p-primary-color)); box-shadow: var(--console-shadow, none); }
+
+@media (max-width: 1100px) {
+    .network-signal-item { padding: 19px 16px; }
+    .network-signal-value { font-size: 15px; }
+    .network-signal-numeric { font-size: 26px; }
+    .network-signal-value.mono-value { font-size: 13px; }
+    .network-settings-form { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 767px) {
+    .network-detail-heading { align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+    .network-heading-identity { align-items: flex-start; gap: 9px; }
+    .network-heading-identity > :deep(.p-button) { margin-top: 16px; }
+    .network-map-link { margin-left: 47px; padding: 9px 12px; }
+    .network-signal-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .network-signal-item { gap: 11px; padding: 16px; }
+    .network-signal-item:nth-child(2) { border-right: 0; }
+    .network-signal-item:nth-child(-n+2) { border-bottom: 1px solid var(--console-border); }
+    .network-signal-value { font-size: 14px; }
+    .network-signal-numeric { font-size: 25px; }
+    .network-tabs :deep(.p-tab) { gap: 6px; }
+    .network-tabs :deep(.p-tab > .pi) { display: none; }
+    .network-setting-section { padding: 17px 15px; }
+    .network-tab-toolbar > .flex { flex-wrap: wrap; }
+    .network-settings-save :deep(.p-button) { width: 100%; }
+    .network-danger-zone { padding: 18px 16px; }
     .member-card-grid {
         display: block;
     }
@@ -1631,7 +1746,7 @@ const switchTab = async (tab: string) => {
 }
 
 .member-card.offline {
-    opacity: 0.72;
+    color: var(--console-muted);
 }
 
 .member-title-row {
@@ -1656,5 +1771,8 @@ const switchTab = async (tab: string) => {
     background-color: var(--p-highlight-background, rgba(59, 130, 246, 0.12));
     outline: 1px solid var(--p-primary-color, #3b82f6);
     outline-offset: -1px;
+}
+@media (prefers-reduced-motion: reduce) {
+    .network-map-link, .member-card { transition: none; }
 }
 </style>

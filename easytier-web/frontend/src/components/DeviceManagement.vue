@@ -2,6 +2,7 @@
 import { NetworkTypes, Utils, Api, RemoteManagement } from 'easytier-frontend-lib';
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 import ApiClient from '../modules/api';
 
 
@@ -14,6 +15,7 @@ const emits = defineEmits(['update']);
 
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
 
 const deviceId = computed<string>(() => {
     return route.params.deviceId as string;
@@ -32,7 +34,6 @@ const selectedInstanceId = computed({
         return instanceId.value;
     },
     set(value: string) {
-        console.log("selectedInstanceId", value);
         router.push({ name: 'deviceManagement', params: { deviceId: deviceId.value, instanceId: value } });
     }
 });
@@ -48,93 +49,42 @@ const newConfigGenerator = () => {
 </script>
 
 <template>
-    <RemoteManagement :api="remoteClient" v-model:instance-id="selectedInstanceId"
-        :new-config-generator="newConfigGenerator" />
+    <section class="managed-device-workspace">
+        <div v-if="deviceInfo" class="managed-device-context">
+            <span class="managed-device-presence" :class="{ online: deviceInfo.online }"><i class="pi pi-circle-fill" aria-hidden="true"></i>{{ deviceInfo.online ? t('web.device.online') : t('web.device.offline') }}</span>
+            <span v-if="deviceInfo.easytier_version"><i class="pi pi-code" aria-hidden="true"></i>{{ deviceInfo.easytier_version }}</span>
+            <span><i class="pi pi-share-alt" aria-hidden="true"></i>{{ t('web.console.instances') }}<strong>{{ deviceInfo.running_network_count }}</strong></span>
+        </div>
+        <RemoteManagement :api="remoteClient" v-model:instance-id="selectedInstanceId"
+            :new-config-generator="newConfigGenerator" />
+    </section>
 </template>
 
 <style scoped>
-.device-management {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-.network-content {
-    flex: 1;
-    overflow-y: auto;
-}
-
-/* 按钮样式 */
-.button-container {
-    gap: 0.5rem;
-}
-
-.create-button {
-    font-weight: 600;
-    min-width: 3rem;
-}
-
-/* 菜单样式定制 */
-:deep(.p-menu) {
-    min-width: 12rem;
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-    padding: 0.25rem;
-}
-
-:deep(.p-menu .p-menuitem) {
-    border-radius: 0.25rem;
-}
-
-:deep(.p-menu .p-menuitem-link) {
-    padding: 0.65rem 1rem;
-    font-size: 0.9rem;
-}
-
-:deep(.p-menu .p-menuitem-icon) {
-    margin-right: 0.75rem;
-}
-
-:deep(.p-menu .p-menuitem.p-error .p-menuitem-text,
-    .p-menu .p-menuitem.p-error .p-menuitem-icon) {
-    color: var(--red-500);
-}
-
-:deep(.p-menu .p-menuitem:hover.p-error .p-menuitem-link) {
-    background-color: var(--red-50);
-}
-
-/* 按钮图标样式 */
-:deep(.p-button-icon-only) {
-    width: 2.5rem !important;
-    padding: 0.5rem !important;
-}
-
-:deep(.p-button-icon-only .p-button-icon) {
-    font-size: 1rem;
-}
-
-/* 网络选择相关样式 */
-.network-label {
-    white-space: nowrap;
-}
-
-:deep(.network-select-container) {
-    max-width: 100%;
-}
-
-/* Responsive design for mobile devices */
-@media (max-width: 768px) {
-    .network-header {
-        padding: 0.75rem;
-    }
-
-    .network-content {
-        padding: 0.75rem;
-    }
-
-    /* 在小屏幕上缩短网络标签文本 */
-    .network-label {
-        font-size: 0.9rem;
-    }
+.managed-device-workspace { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.managed-device-context { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding: 13px 16px; border: 1px solid var(--console-border); border-radius: 10px; background: var(--console-panel-raised, var(--console-panel)); }
+.managed-device-context > span { display: inline-flex; align-items: center; gap: 8px; color: var(--console-muted); font-size: 11px; overflow-wrap: anywhere; }
+.managed-device-context > span > .pi { color: var(--p-primary-color); font-size: 12px; }
+.managed-device-context strong { color: var(--p-text-color); font-weight: 600; font-variant-numeric: tabular-nums; }
+.managed-device-context .managed-device-presence { font-weight: 550; }
+.managed-device-context .managed-device-presence > .pi { font-size: 6px; color: inherit; }
+.managed-device-context .managed-device-presence.online { color: var(--p-green-700); }
+html.app-dark .managed-device-context .managed-device-presence.online { color: var(--p-green-300); }
+:deep(.network-header) { padding: 0 0 18px; border-bottom: 1px solid var(--console-border); }
+:deep(.network-content) { min-width: 0; }
+:deep(.network-status-header), :deep(.network-creation-header) { padding: 4px 0 12px; }
+:deep(.network-status-header > h2), :deep(.network-creation-header > h2) { font-size: 16px; font-weight: 600; }
+:deep(.network-status-header > .pi), :deep(.network-creation-header > .pi) { color: var(--p-primary-color); font-size: 16px; }
+:deep(.p-card) { border: 1px solid var(--console-border); border-radius: 12px; background: var(--console-panel-raised, var(--console-panel)); box-shadow: none; }
+:deep(.p-card-title) { font-size: 14px; font-weight: 600; }
+:deep(.p-card-subtitle) { font-size: 12px; color: var(--console-muted); }
+:deep(.empty-state) { border: 1px dashed var(--console-border-strong, var(--console-border)); border-radius: 12px; background: var(--console-panel-raised, var(--console-panel)); padding-inline: 20px; }
+:deep(.empty-state > .pi) { color: var(--p-primary-color); font-size: 32px; opacity: .8; }
+:deep(.empty-state > .text-xl) { font-size: 16px; }
+:deep(.empty-state > p) { color: var(--console-muted); font-size: 13px; line-height: 1.7; }
+@media (max-width: 767px) {
+    .managed-device-context { padding: 12px; gap: 10px 14px; }
+    :deep(.network-header) { padding-bottom: 15px; }
+    :deep(.network-content) { padding: 0; }
 }
 </style>

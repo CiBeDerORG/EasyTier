@@ -32,6 +32,7 @@ let requestVersion = 0;
 let handledQuery = '';
 const networkNames = computed(() => new Map(networks.value.map(network => [network.network_id, network.display_name || network.network_name])));
 const networkOptions = computed(() => [{ label: t('allNetworks'), value: null }, ...networks.value.map(network => ({ label: network.display_name || network.network_name, value: network.network_id }))]);
+const navigationCount = computed(() => (services.value ?? []).filter(service => service.show_in_navigation).length);
 const filtered = computed(() => {
     const query = search.value.trim().toLocaleLowerCase();
     return sortServices((services.value ?? []).filter(service =>
@@ -132,12 +133,17 @@ function clearFilters() { search.value = ''; selectedNetwork.value = null; }
 
 <template>
     <div class="console-page service-management-page">
-        <header class="page-heading service-page-heading"><div><h1>{{ t('management') }}</h1><p class="page-description">{{ t('managementHint') }}</p></div><Button v-if="centralEnabled" :label="t('add')" icon="pi pi-plus" @click="openNew()" /></header>
+        <header class="page-heading service-page-heading"><div class="service-heading-identity"><span class="service-page-mark"><i class="pi pi-sliders-h" aria-hidden="true"></i></span><div><h1>{{ t('management') }}</h1><p class="page-description">{{ t('managementHint') }}</p></div></div><Button v-if="centralEnabled" :label="t('add')" icon="pi pi-plus" @click="openNew()" /></header>
         <Message v-if="!centralEnabled" severity="info" :closable="false">{{ t('external') }}</Message>
         <template v-else>
             <div class="service-management-back"><RouterLink :to="{ name: 'serviceNavigation' }"><i class="pi pi-arrow-left" aria-hidden="true"></i>{{ t('viewNavigation') }}</RouterLink><Button :aria-label="t('refresh')" icon="pi pi-refresh" text severity="secondary" :loading="loading" @click="load" /></div>
             <Message v-if="error" severity="error" :closable="false"><div class="service-message-content">{{ error }}<Button :label="t('retry')" text size="small" @click="load" /></div></Message>
             <Message v-if="lastSaved?.show_in_navigation" severity="success" :closable="true" @close="lastSaved = undefined"><div class="service-message-content"><span>{{ t('savedNav') }}</span><RouterLink :to="{ name: 'serviceNavigation' }">{{ t('viewNavigation') }} <i class="pi pi-arrow-up-right" aria-hidden="true"></i></RouterLink></div></Message>
+            <div v-if="services !== undefined && services.length" class="service-management-overview">
+                <span><i class="pi pi-box" aria-hidden="true"></i>{{ t('serviceCount') }}<strong>{{ services.length }}</strong></span>
+                <span><i class="pi pi-th-large" aria-hidden="true"></i>{{ t('entryCount') }}<strong>{{ navigationCount }}</strong></span>
+                <span><i class="pi pi-eye-slash" aria-hidden="true"></i>{{ t('hidden') }}<strong>{{ services.length - navigationCount }}</strong></span>
+            </div>
             <section class="console-panel service-list-panel">
                 <div class="list-toolbar service-list-toolbar"><div class="search-field"><i class="pi pi-search" aria-hidden="true"></i><InputText v-model="search" :placeholder="t('search')" :aria-label="t('search')" /></div><Select :placeholder="t('allNetworks')" v-model="selectedNetwork" :options="networkOptions" option-label="label" option-value="value" :aria-label="t('network')" class="service-management-filter" /><span class="table-count">{{ t('filterCount', { count: filtered.length }) }}</span></div>
                 <div v-if="loading && services === undefined" class="loading-rows" :aria-label="t('loading')"><Skeleton v-for="i in 4" :key="i" height="64px" /></div>
@@ -160,34 +166,48 @@ function clearFilters() { search.value = ''; selectedNetwork.value = null; }
 </template>
 
 <style scoped>
-.service-page-heading { align-items: flex-start; }
+.service-page-heading { align-items: center; }
+.service-heading-identity { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.service-page-mark { display: inline-flex; width: 48px; height: 48px; align-items: center; justify-content: center; flex: none; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 13px; color: var(--p-primary-color); background: var(--console-accent-soft, var(--p-highlight-background)); box-shadow: var(--console-glow, none); }
+.service-page-mark > .pi { font-size: 23px; }
 .service-page-heading > .p-button { flex: none; }
 .service-management-back { display: flex; align-items: center; justify-content: space-between; margin-top: -8px; }
-.service-management-back > a { display: inline-flex; align-items: center; gap: 9px; font-size: 13px; color: var(--p-primary-color); }
+.service-management-back > a { display: inline-flex; align-items: center; gap: 9px; font-size: 12px; color: var(--p-primary-color); }
 .service-message-content { display: flex; justify-content: space-between; align-items: center; gap: 18px; flex-wrap: wrap; }
 .service-message-content a { text-decoration: underline; font-size: 13px; }
-.service-management-filter { min-width: 180px; }
-.service-list-toolbar .search-field { max-width: 420px; }
-.service-list-toolbar .table-count { margin-left: auto; }
+.service-management-overview { display: flex; flex-wrap: wrap; align-items: center; gap: 20px 28px; padding: 17px 0; border-top: 1px solid var(--console-border); border-bottom: 1px solid var(--console-border); margin-top: -6px; }
+.service-management-overview > span { display: inline-flex; align-items: center; gap: 10px; color: var(--console-muted); font-size: 12px; }
+.service-management-overview > span > .pi { color: var(--p-primary-color); font-size: 12px; }
+.service-management-overview strong { color: var(--p-text-color); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.service-list-panel { border-radius: 13px; box-shadow: var(--console-shadow, none); }
+.service-list-toolbar { padding: 18px 20px; background: var(--console-panel-raised, var(--console-panel)); }
+.service-management-filter { min-width: 190px; }
+.service-list-toolbar .search-field { max-width: 480px; }
+.service-list-toolbar .table-count { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .service-management-list { margin: 0; padding: 0; list-style: none; }
-.service-management-row { display: flex; align-items: center; gap: 16px; padding: 20px; border-bottom: 1px solid var(--console-border); }
+.service-management-row { display: flex; align-items: center; gap: 18px; padding: 22px; border-bottom: 1px solid var(--console-border); transition: background .18s; }
+.service-management-row:hover { background: color-mix(in srgb, var(--console-panel-raised, var(--console-panel)) 70%, transparent); }
 .service-management-row:last-child { border-bottom: 0; }
-.service-management-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: none; border-radius: 10px; background: var(--p-highlight-background); color: var(--p-primary-color); }
-.service-management-icon .pi { font-size: 21px; }
-.service-management-identity { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.service-name-button { text-align: left; align-self: flex-start; font-size: 14px; font-weight: 600; background: transparent; color: var(--p-text-color); overflow-wrap: anywhere; }
+.service-management-icon { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; flex: none; border: 1px solid color-mix(in srgb, var(--p-primary-color) 20%, var(--console-border)); border-radius: 13px; background: var(--console-accent-soft, var(--p-highlight-background)); color: var(--p-primary-color); }
+.service-management-icon .pi { font-size: 22px; }
+.service-management-identity { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.service-name-button { text-align: left; align-self: flex-start; font-size: 15px; font-weight: 600; background: transparent; color: var(--p-text-color); overflow-wrap: anywhere; }
 .service-name-button:hover { color: var(--p-primary-color); }
 .service-name-button:focus-visible, .service-navigation-toggle:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 3px; border-radius: 3px; }
-.service-url { display: inline-flex; align-items: center; gap: 6px; color: var(--console-muted); font-size: 12px; overflow-wrap: anywhere; }
+.service-url { display: inline-flex; align-items: center; gap: 7px; color: var(--console-muted); font-size: 12px; overflow-wrap: anywhere; }
+.service-url:hover { color: var(--p-primary-color); }
 .service-url .pi { font-size: 10px; flex: none; }
 .service-network-name { color: var(--console-muted); font-size: 11px; overflow-wrap: anywhere; }
-.service-management-state { display: flex; flex-direction: column; gap: 7px; align-items: flex-end; flex: none; }
-.service-navigation-toggle { background: transparent; cursor: pointer; }
+.service-management-state { display: flex; flex-direction: column; gap: 9px; align-items: flex-end; flex: none; }
+.service-navigation-toggle { background: transparent; cursor: pointer; border-radius: 6px; }
+.service-navigation-toggle :deep(.p-tag) { padding: 5px 9px; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); font-size: 11px; font-weight: 500; }
+.service-navigation-toggle:hover { box-shadow: 0 0 0 3px var(--console-accent-soft, var(--p-highlight-background)); }
 .service-navigation-toggle:disabled { opacity: .6; cursor: wait; }
 .service-unchecked { font-size: 11px; color: var(--console-muted); }
-.service-management-empty { padding: 64px 24px; text-align: center; }
-.service-management-empty > .pi { font-size: 30px; color: var(--p-primary-color); margin-bottom: 20px; }
-.service-management-empty h2 { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
-.service-management-empty p { color: var(--console-muted); margin-bottom: 22px; line-height: 1.6; }
-@media (max-width: 650px) { .service-page-heading { flex-wrap: wrap; } .service-management-row { flex-wrap: wrap; gap: 12px; padding: 16px; } .service-management-identity { flex-basis: calc(100% - 105px); } .service-management-row > .p-button { order: 2; } .service-management-state { order: 3; flex-direction: row; align-items: center; width: 100%; padding-left: 56px; } .service-management-filter { width: 100%; } .service-list-toolbar .search-field { max-width: none; width: 100%; } .service-list-toolbar .table-count { margin-left: 0; } }
+.service-management-empty { padding: 68px 24px; text-align: center; }
+.service-management-empty > .pi { display: inline-flex; align-items: center; justify-content: center; width: 68px; height: 68px; font-size: 28px; color: var(--p-primary-color); margin-bottom: 24px; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 19px; background: var(--console-accent-soft, var(--p-highlight-background)); }
+.service-management-empty h2 { font-size: 19px; font-weight: 600; margin-bottom: 10px; }
+.service-management-empty p { color: var(--console-muted); margin-bottom: 24px; line-height: 1.7; }
+@media (max-width: 650px) { .service-page-heading { flex-wrap: wrap; align-items: flex-start; } .service-heading-identity { gap: 12px; } .service-page-mark { width: 42px; height: 42px; } .service-management-row { flex-wrap: wrap; gap: 12px; padding: 18px 16px; } .service-management-identity { flex-basis: calc(100% - 109px); } .service-management-row > .p-button { order: 2; } .service-management-state { order: 3; flex-direction: row; align-items: center; width: 100%; padding-left: 60px; } .service-management-filter { width: 100%; } .service-list-toolbar .search-field { max-width: none; width: 100%; } .service-list-toolbar .table-count { margin-left: 0; } .service-management-overview { gap: 13px 20px; } }
+@media (prefers-reduced-motion: reduce) { .service-management-row { transition: none; } }
 </style>

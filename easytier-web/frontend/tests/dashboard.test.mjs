@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
@@ -43,7 +44,7 @@ function fixture() {
         online_member_count: 1, member_count: 2, network_secret: 'test-secret', peer_urls: i === 0 ? [] : ['tcp://192.0.2.1:11010'],
     }));
     const members = [{ member_id: id(101), device_id: id(1), hostname: 'Amsterdam gateway', hostname_override: null, virtual_ipv4: '10.126.126.1', online: true, running: true, version: '2.4.5', error_msg: null, runtime_virtual_ipv4: '10.126.126.1' }];
-    return { machines, networks, members, memberConfig: {}, aclPolicy: { default_action: 'allow', rules: [] }, credentials: [], temporaryPeers: [], nodeRoutes: [], nodePeers: [], nodeAclStats: [], loggerConfig: { level: 'INFO' }, writes: [], requests: [], failures: new Set(), gatewayDelay: 0, gatewayEnabled: true };
+    return { machines, networks, members, memberConfig: {}, aclPolicy: { default_action: 'allow', rules: [] }, credentials: [], temporaryPeers: [], nodeRoutes: [], nodePeers: [], nodeAclStats: [], loggerConfig: { level: 'INFO' }, writes: [], requests: [], failures: new Set(), gatewayDelay: 0, gatewayEnabled: true, authDelay: 0, loginStatus: 200, registerStatus: 200, passwordStatus: 200, oidcEnabled: false };
 }
 
 async function open(t, route = '/h', options = {}, configure = () => {}) {
@@ -82,7 +83,14 @@ async function open(t, route = '/h', options = {}, configure = () => {}) {
         if (method !== 'GET') state.writes.push({ path, method, payload });
         if (state.failures.has(path)) return route.fulfill({ status: 503, json: { message: 'Test unavailable' } });
         let result = {};
-        if (path === '/summary') result = { device_count: state.machines.length };
+        if (path === '/auth/captcha') return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="48"><rect width="160" height="48" fill="#edf4ff"/><text x="18" y="32" font-size="25" fill="#1e293b">TEST</text></svg>' });
+        if (path === '/auth/oidc/config') result = { enabled: state.oidcEnabled };
+        else if (path === '/auth/oidc/login') return route.fulfill({ contentType: 'text/html', body: '<h1>Fixture identity provider</h1>' });
+        else if (path === '/auth/login' || path === '/auth/register' || path === '/auth/password') {
+            await delay(state.authDelay);
+            return route.fulfill({ status: path === '/auth/login' ? state.loginStatus : path === '/auth/register' ? state.registerStatus : state.passwordStatus, json: { message: 'Fixture authentication result' } });
+        }
+        else if (path === '/summary') result = { device_count: state.machines.length };
         else if (path === '/console-info') result = { username: 'test-user', config_server_protocol: 'udp', config_server_port: 22020, webhook_auth: state.externalConsole ?? false };
         else if (path === '/machines') result = { machines: state.machines };
         else if (path === '/blocked-devices') result = { blocked: [] };
@@ -132,7 +140,7 @@ async function open(t, route = '/h', options = {}, configure = () => {}) {
         ? page.waitForResponse(response => response.url().endsWith('/networks/gateway-info')).then(response => response.finished())
         : undefined;
     await page.goto(`${base}/#${route}`);
-    await page.locator('.console-page').waitFor();
+    await page.locator(route.startsWith('/auth') ? 'form' : '.console-page').waitFor();
     await gatewayReady;
     return { page, state, context };
 }
@@ -204,10 +212,22 @@ test('device search, sort, expansion and routed drawer survive reload and histor
 });
 
 test('device list card view toggle renders cards and persists across reload', async t => {
-    const { page } = await open(t, '/h/deviceList');
+    const { page } = await open(t, '/h/deviceList', {}, state => {
+        state.machines.forEach((machine, index) => { machine.online = index < 2; });
+    });
     const table = page.locator('.desktop-list');
     await table.getByRole('button', { name: 'Amsterdam gateway', exact: true }).waitFor();
     assert.equal(await page.locator('.device-card').count(), 0);
+    const statusFilters = page.locator('.inventory-status-tabs');
+    await statusFilters.getByRole('button', { name: /^Online\s*2$/ }).click();
+    assert.equal(await table.locator('tbody > tr').count(), 2);
+    await statusFilters.getByRole('button', { name: /^Offline\s*4$/ }).click();
+    assert.equal(await table.locator('tbody > tr').count(), 4);
+    await page.getByRole('textbox', { name: 'Search name or address' }).fill('Amsterdam');
+    await page.getByText('No devices match these filters.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+    assert.equal(await table.locator('tbody > tr').count(), 6);
+    assert.equal(await statusFilters.getByRole('button', { name: /^All devices\s*6$/ }).getAttribute('aria-pressed'), 'true');
     await page.locator('.view-toggle .pi-th-large').click();
     await page.locator('.device-card').first().waitFor();
     assert.equal(await page.locator('.device-card').count(), 6);
@@ -215,6 +235,10 @@ test('device list card view toggle renders cards and persists across reload', as
     await page.reload();
     await page.locator('.device-card').first().waitFor();
     assert.equal(await page.locator('.device-card').count(), 6);
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.locator('.device-card-grid').isVisible(), false, 'mobile must not duplicate the desktop cards');
+    assert.equal(await page.locator('.mobile-list-item:visible').count(), 6);
+    await page.setViewportSize({ width: 1440, height: 960 });
     await page.locator('.view-toggle .pi-table').click();
     await table.getByRole('button', { name: 'Amsterdam gateway', exact: true }).waitFor();
     assert.equal(await table.locator('tbody > tr').count(), 6);
@@ -724,7 +748,9 @@ test('empty and failed lists recover without presenting an empty result as succe
 });
 
 test('responsive layouts, localization, dark mode and mobile drawer', async t => {
-    const { page, state } = await open(t);
+    const { page, state } = await open(t, '/h', { reducedMotion: 'reduce' }, state => {
+        state.machines.forEach((machine, index) => { machine.online = [0, 2, 5].includes(index); });
+    });
     const workspaceMenu = page.locator('.console-sidebar').getByRole('menu', { name: 'Navigation' });
     await workspaceMenu.focus();
     await page.keyboard.press('Home'); // Service navigation is the first item.
@@ -746,14 +772,23 @@ test('responsive layouts, localization, dark mode and mobile drawer', async t =>
         for (const width of [1440, 1024, 390]) {
             await page.setViewportSize({ width, height: 960 });
             for (const language of ['en', 'cn']) {
-                for (const [name, route] of [['overview', '/h'], ['devices', '/h/deviceList'], ['networks', '/h/networks'], ['members', '/h/networks/network-0']]) {
+                for (const [name, route] of [['overview', '/h'], ['devices', '/h/deviceList'], ['networks', '/h/networks'], ['members', '/h/networks/network-0'], ['network-settings', '/h/networks/network-0'], ['network-acl', '/h/networks/network-0']]) {
                     await page.goto(`${base}/#${route}`);
                     await page.locator('.console-page').waitFor();
                     if (await page.evaluate(() => localStorage.getItem('lang')) !== language) {
                         await page.getByRole('button', { name: /Switch language|切换语言/ }).click();
                     }
                     await page.locator('.p-skeleton').first().waitFor({ state: 'detached' });
-                    assert.equal(await page.locator('.web-console').evaluate(el => getComputedStyle(el).backgroundColor), colorScheme === 'light' ? 'rgb(247, 248, 249)' : 'rgb(16, 23, 30)');
+                    if (name === 'members') await page.getByRole('tab', { name: language === 'cn' ? '成员设备' : 'Members', exact: true }).click();
+                    if (name === 'network-settings') await page.getByRole('tab', { name: language === 'cn' ? '网络设置' : 'Settings', exact: true }).click();
+                    if (name === 'network-acl') await page.getByRole('tab', { name: language === 'cn' ? '访问控制' : 'Access Control', exact: true }).click();
+                    assert.equal(await page.locator('.web-console').evaluate(el => getComputedStyle(el).backgroundColor), colorScheme === 'light' ? 'rgb(243, 247, 252)' : 'rgb(7, 13, 25)');
+                    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${name} ${width} ${colorScheme} must not overflow`);
+                    if (screenshotDir) await page.screenshot({ path: `${screenshotDir}/${name}-${language}-${colorScheme}-${width}.png`, fullPage: true, animations: 'disabled' });
+                }
+                for (const [name, route] of [['login', '/auth'], ['register', '/auth/register']]) {
+                    await page.goto(`${base}/#${route}`);
+                    await page.locator('form').waitFor();
                     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${name} ${width} ${colorScheme} must not overflow`);
                     if (screenshotDir) await page.screenshot({ path: `${screenshotDir}/${name}-${language}-${colorScheme}-${width}.png`, fullPage: true, animations: 'disabled' });
                 }
@@ -789,4 +824,96 @@ test('external Console keeps the device dashboard without central requests or na
     assert.equal(state.requests.some(request => request.path.startsWith('/networks')), false);
     assert.equal(await page.locator('a[href*="/networks"]').count(), 0);
     assert.equal(await page.locator('.p-message-warn').count(), 0);
+});
+
+
+test('local login remains usable without SSO discovery and preserves input through failed and pending requests', async t => {
+    const { page, state } = await open(t, '/auth', { reducedMotion: 'reduce' }, state => {
+        state.failures.add('/auth/oidc/config');
+        state.loginStatus = 401;
+        state.authDelay = 600;
+    });
+    const form = page.locator('form');
+    const submit = form.getByRole('button', { name: 'Login', exact: true });
+    await submit.click();
+    assert.equal(state.writes.filter(write => write.path === '/auth/login').length, 0, 'native required fields prevent empty login');
+    await form.getByLabel('Username', { exact: true }).fill('fixture-user');
+    await form.getByLabel('Password', { exact: true }).fill('fixture-password');
+    await submit.click();
+    assert.equal(await submit.isDisabled(), true, 'pending login disables the submit button');
+    await page.keyboard.press('Enter');
+    await page.getByRole('alert').filter({ hasText: /Invalid username or password/ }).waitFor();
+    assert.equal(state.writes.filter(write => write.path === '/auth/login').length, 1, 'pending Enter must not create a duplicate request');
+    assert.equal(await form.getByLabel('Username', { exact: true }).inputValue(), 'fixture-user');
+    assert.equal(await form.getByLabel('Password', { exact: true }).inputValue(), 'fixture-password');
+    assert.deepEqual(state.writes.find(write => write.path === '/auth/login').payload, { username: 'fixture-user', password: createHash('md5').update('fixture-password').digest('hex') });
+    assert.equal(await page.getByRole('button', { name: 'SSO Login', exact: true }).count(), 0);
+    state.loginStatus = 200;
+    await submit.click();
+    await page.waitForURL('**/#/h');
+    await page.locator('.summary-value').first().waitFor();
+    assert.equal(state.writes.filter(write => write.path === '/auth/login').length, 2);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.getByRole('button', { name: 'Account', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Change Password', exact: true }).click();
+    const passwordDialog = page.getByRole('dialog', { name: 'Change Password', exact: true });
+    const updatePassword = passwordDialog.getByRole('button', { name: 'Update password', exact: true });
+    assert.equal(await updatePassword.isDisabled(), true);
+    state.passwordStatus = 503;
+    await passwordDialog.getByLabel('New password', { exact: true }).fill('changed-fixture-password');
+    await updatePassword.click();
+    assert.equal(await updatePassword.isDisabled(), true);
+    await page.keyboard.press('Enter');
+    await passwordDialog.getByRole('alert').getByText('Could not update the password. Please try again.', { exact: true }).waitFor();
+    assert.equal(state.writes.filter(write => write.path === '/auth/password').length, 1);
+    assert.equal(await passwordDialog.getByLabel('New password', { exact: true }).inputValue(), 'changed-fixture-password');
+    assert.deepEqual(state.writes.find(write => write.path === '/auth/password').payload, { new_password: createHash('md5').update('changed-fixture-password').digest('hex') });
+    assert.ok(await passwordDialog.evaluate(element => element.getBoundingClientRect().width <= innerWidth), 'account form fits the phone viewport');
+    if (screenshotDir) await page.screenshot({ path: `${screenshotDir}/account-password-en-dark-390.png`, animations: 'disabled' });
+    state.passwordStatus = 200;
+    await updatePassword.click();
+    await passwordDialog.waitFor({ state: 'hidden' });
+    assert.equal(state.writes.filter(write => write.path === '/auth/password').length, 2);
+    await page.getByRole('button', { name: 'Account', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Logout', exact: true }).click();
+    await page.waitForURL('**/#/auth');
+    assert.ok(state.requests.some(request => request.path === '/auth/logout'));
+});
+
+test('registration keeps its request contract, refreshes captcha, and returns to the enabled SSO login', async t => {
+    const { page, state } = await open(t, '/auth', {}, state => {
+        state.oidcEnabled = true;
+        state.registerStatus = 400;
+        state.authDelay = 600;
+    });
+    await page.getByRole('button', { name: 'Register', exact: true }).click();
+    await page.waitForURL('**/#/auth/register');
+    const form = page.locator('form');
+    const captchaRequests = () => state.requests.filter(request => request.path === '/auth/captcha').length;
+    await page.getByRole('img', { name: 'Registration CAPTCHA', exact: true }).waitFor();
+    const initialCaptchaRequests = captchaRequests();
+    const refreshedCaptcha = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/auth/captcha'));
+    await page.getByRole('button', { name: 'Refresh CAPTCHA', exact: true }).first().click();
+    await refreshedCaptcha;
+    assert.ok(captchaRequests() > initialCaptchaRequests, 'refreshing captcha requests a fresh image');
+    await form.getByLabel('Username', { exact: true }).fill('new-fixture-user');
+    await form.getByLabel('Password', { exact: true }).fill('registration-password');
+    await form.getByLabel('Captcha', { exact: true }).fill('TEST');
+    const submit = form.getByRole('button', { name: 'Register', exact: true });
+    await submit.click();
+    assert.equal(await submit.isDisabled(), true);
+    await page.keyboard.press('Enter');
+    await page.getByRole('alert').filter({ hasText: /Failed to register/ }).waitFor();
+    assert.equal(state.writes.filter(write => write.path === '/auth/register').length, 1);
+    assert.equal(await form.getByLabel('Username', { exact: true }).inputValue(), 'new-fixture-user');
+    assert.equal(await form.getByLabel('Password', { exact: true }).inputValue(), 'registration-password');
+    assert.deepEqual(state.writes.find(write => write.path === '/auth/register').payload, { credentials: { username: 'new-fixture-user', password: createHash('md5').update('registration-password').digest('hex') }, captcha: 'TEST' });
+    state.registerStatus = 200;
+    await form.getByLabel('Captcha', { exact: true }).fill('TEST');
+    await submit.click();
+    await page.waitForURL('**/#/auth');
+    await page.getByRole('button', { name: 'SSO Login', exact: true }).click();
+    await page.waitForURL('**/api/v1/auth/oidc/login');
+    await page.getByRole('heading', { name: 'Fixture identity provider', exact: true }).waitFor();
 });

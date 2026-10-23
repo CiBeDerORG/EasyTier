@@ -25,8 +25,10 @@ import Icon from '../assets/easytier.png'
 import { useI18n } from 'vue-i18n'
 import ApiClient, { type BlockedDevice, type CentralNetworkSummary } from '../modules/api';
 import { getApiBase } from '../modules/api-host';
+import { shellMessages } from '../modules/shell-messages';
 
 const { t } = useI18n()
+const { t: ui } = useI18n({ useScope: 'local', messages: shellMessages });
 const router = useRouter();
 const toast = useToast();
 const route = useRoute();
@@ -46,7 +48,7 @@ const userMenuItems = computed(() => [
         label: t('web.main.change_password'),
         icon: 'pi pi-key',
         command: () => dialog.open(ChangePassword, {
-            props: { modal: true, header: t('web.main.change_password') },
+            props: { modal: true, header: t('web.main.change_password'), style: { width: '420px', maxWidth: 'calc(100vw - 24px)' } },
             data: { api },
         }),
     },
@@ -141,7 +143,7 @@ const copyEnrollCommand = async () => {
         await navigator.clipboard.writeText(enrollCommand.value);
         toast.add({ severity: 'success', summary: t('web.common.confirm'), life: 1500 });
     } catch (e) {
-        console.error(e);
+        toast.add({ severity: 'warn', summary: ui('clipboardFailed'), life: 4000 });
     }
 };
 
@@ -240,6 +242,10 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                         </template>
                 </Menu>
             </nav>
+            <div class="console-sidebar-context">
+                <div class="sidebar-context-label">{{ ui('workspace') }}</div>
+                <div class="sidebar-context-value"><i class="pi pi-shield" aria-hidden="true"></i><span>{{ enrollInfo ? ui(centralEnabled ? 'central' : 'external') : ui('discovering') }}</span></div>
+            </div>
             <a href="https://easytier.cn" target="_blank" rel="noopener noreferrer" class="console-docs" :aria-label="t('web.console.documentation')" :title="sidebarCollapsed ? t('web.console.documentation') : undefined">
                 <i class="pi pi-book" aria-hidden="true"></i><span>{{ t('web.console.documentation') }}</span><i class="pi pi-arrow-up-right" aria-hidden="true"></i>
             </a>
@@ -278,18 +284,18 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
         </Drawer>
         <div class="console-workspace">
             <header class="console-topbar">
-                <div class="flex items-center gap-3 min-w-0">
+                <div class="console-breadcrumb">
                     <Button icon="pi pi-bars" text severity="secondary" class="mobile-nav-toggle"
                         :aria-label="t('web.console.navigation')" @click="forceShowSideBar = true" />
                     <span class="topbar-brand">{{ t('web.console.workspace') }}</span>
-                    <i class="pi pi-angle-right topbar-brand" aria-hidden="true"></i><span>{{ pageTitle }}</span>
+                    <i class="pi pi-angle-right topbar-brand" aria-hidden="true"></i><span class="console-current-page">{{ pageTitle }}</span>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="console-topbar-actions">
                     <Button icon="pi pi-objects-column" :label="t('web.console.enroll_title')"
                         severity="secondary" outlined size="small" class="enroll-button"
                         :aria-label="t('web.console.enroll_title')"
                         @click="toggleEnrollBell" />
-                    <Popover ref="enrollBell" appendTo="body" style="min-width: 34rem">
+                    <Popover ref="enrollBell" appendTo="body" class="console-popover">
                         <div class="flex flex-col gap-2">
                             <span class="font-semibold">{{ t('web.console.enroll_title') }}</span>
                             <p class="text-sm muted m-0">{{ t('web.console.enroll_hint') }}</p>
@@ -310,7 +316,7 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <OverlayBadge v-if="centralEnabled" :value="blockedAttemptCount > 0 ? String(blockedAttemptCount) : undefined">
                         <Button icon="pi pi-bell" text severity="secondary" :aria-label="t('web.console.blocked_devices')" @click="toggleBlockBell" />
                     </OverlayBadge>
-                    <Popover ref="blockBell" appendTo="body" style="min-width: 22rem">
+                    <Popover ref="blockBell" appendTo="body" class="console-popover console-notifications">
                         <div class="flex items-center justify-between mb-2">
                             <span class="font-semibold">{{ t('web.console.blocked_devices') }}</span>
                         </div>
@@ -336,7 +342,10 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
                     <Button icon="pi pi-language" text severity="secondary" :aria-label="t('web.console.language')" @click="I18nUtils.toggleLanguage" />
                     <span class="topbar-divider"></span>
                     <Button type="button" @click="userMenu.toggle($event)" aria-haspopup="true" aria-controls="user-menu"
-                        :aria-label="t('web.console.account')" icon="pi pi-user" text severity="secondary" />
+                        :aria-label="t('web.console.account')" class="console-account" text severity="secondary">
+                        <span class="account-initial" aria-hidden="true">{{ enrollInfo?.username?.slice(0, 1).toUpperCase() || 'E' }}</span>
+                        <span class="account-name">{{ enrollInfo?.username || 'EasyTier' }}</span><i class="pi pi-angle-down" aria-hidden="true"></i>
+                    </Button>
                     <TieredMenu ref="userMenu" id="user-menu" :model="userMenuItems" popup />
                 </div>
             </header>

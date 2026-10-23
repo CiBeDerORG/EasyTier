@@ -6,8 +6,10 @@ import { useI18n } from 'vue-i18n';
 import { NetworkTypes, UrlListInput, Utils } from 'easytier-frontend-lib';
 import ApiClient, { type CentralNetworkSettings, type CentralNetworkSummary, type GatewayInfo } from '../modules/api';
 import { normalizeVirtualSubnet } from '../modules/virtual-subnet';
+import { overviewMessages } from '../modules/overview-messages';
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const copy = computed(() => overviewMessages[locale.value === 'cn' ? 'cn' : 'en']);
 const route = useRoute();
 const router = useRouter();
 const toast = useToast();
@@ -32,6 +34,8 @@ const filteredNetworks = computed(() => {
 });
 
 const gatewayEnabled = computed(() => gatewayInfo.value?.enabled === true);
+const memberCount = computed(() => networks.value?.reduce((sum, network) => sum + network.member_count, 0));
+const onlineMemberCount = computed(() => networks.value?.reduce((sum, network) => sum + network.online_member_count, 0));
 
 const protos = NetworkTypes.PEER_PROTOCOLS;
 
@@ -163,13 +167,18 @@ const openNetwork = (network: CentralNetworkSummary) => {
 </script>
 
 <template>
-    <div class="console-page">
+    <div class="console-page network-list-page">
         <header class="page-heading">
-            <div><h1>{{ t('web.network_list.title') }}</h1></div>
-            <Button :label="t('web.network_list.create')" icon="pi pi-plus" @click="openCreate" />
+            <div><p class="network-eyebrow">{{ copy.networkEyebrow }}</p><h1>{{ t('web.network_list.title') }}</h1><p class="page-description">{{ copy.networkDescription }}</p></div>
+            <div class="network-heading-actions"><RouterLink :to="{ name: 'networkMap' }" class="network-map-link"><i class="pi pi-globe" aria-hidden="true"></i>{{ copy.openMap }}</RouterLink><Button :label="t('web.network_list.create')" icon="pi pi-plus" @click="openCreate" /></div>
         </header>
         <Message v-if="loadError" severity="warn" :closable="false">{{ t('web.console.load_failed') }}</Message>
-        <section class="console-panel">
+        <section class="network-summary" :aria-label="copy.networkOverview">
+            <div><span class="network-summary-icon"><i class="pi pi-globe" aria-hidden="true"></i></span><div><span>{{ copy.totalNetworks }}</span><strong>{{ networks?.length ?? '—' }}</strong></div></div>
+            <div :title="copy.networkMembershipHint"><span class="network-summary-icon"><i class="pi pi-sitemap" aria-hidden="true"></i></span><div><span>{{ copy.networkMembers }}</span><strong>{{ memberCount ?? '—' }}</strong></div></div>
+            <div><span class="network-summary-icon is-online"><i class="pi pi-check-circle" aria-hidden="true"></i></span><div><span>{{ copy.onlineMembers }}</span><strong>{{ onlineMemberCount ?? '—' }}</strong></div></div>
+        </section>
+        <section class="console-panel network-inventory-panel">
             <div class="list-toolbar">
                 <div class="search-field"><i class="pi pi-search" aria-hidden="true"></i><InputText v-model="search" :placeholder="t('web.console.search_networks')" :aria-label="t('web.console.search_networks')" /></div>
                 <div class="flex items-center gap-3"><span v-if="networks" class="table-count">{{ t('web.console.items', { count: filteredNetworks.length }) }}</span><Button icon="pi pi-refresh" text severity="secondary" :aria-label="t('web.console.refresh')" :loading="refreshing" @click="loadNetworks" /></div>
@@ -180,15 +189,16 @@ const openNetwork = (network: CentralNetworkSummary) => {
             <div v-else-if="filteredNetworks.length === 0" class="console-empty-state"><h2>{{ t('web.console.no_results') }}</h2><Button :label="t('web.console.clear_search')" text @click="search = ''" /></div>
             <template v-else>
                 <DataTable :value="filteredNetworks" dataKey="network_id" class="console-table desktop-list" size="small" scrollable :paginator="filteredNetworks.length > 20" :rows="20">
-                    <Column field="display_name" :header="t('web.network_list.display_name')" sortable><template #body="{ data }"><button class="entity-link" @click="openNetwork(data)"><i class="pi pi-globe entity-icon" aria-hidden="true"></i>{{ data.display_name }}</button></template></Column>
+                    <Column field="display_name" :header="t('web.network_list.display_name')" sortable><template #body="{ data }"><div class="network-table-identity"><i class="pi pi-globe entity-icon" aria-hidden="true"></i><div><button class="entity-link" @click="openNetwork(data)">{{ data.display_name }}</button><p class="preview-secondary mono-value">{{ data.network_name }}</p></div></div></template></Column>
                     <Column field="networking_method" :header="t('networking_method')"><template #body="{ data }"><Tag :value="networkingMethodLabel(data.networking_method)" severity="secondary" /></template></Column>
-                    <Column field="online_member_count" :header="t('web.console.online_members')" sortable><template #body="{ data }">{{ data.online_member_count }} <span class="muted">/ {{ data.member_count }}</span></template></Column>
-                    <Column :header="t('web.console.manage')"><template #body="{ data }"><Button icon="pi pi-arrow-up-right" text severity="secondary" :aria-label="`${t('web.console.manage')} ${data.display_name}`" @click="openNetwork(data)" /></template></Column>
+                    <Column field="online_member_count" :header="t('web.console.online_members')" sortable><template #body="{ data }"><div class="network-member-presence"><span>{{ data.online_member_count }} <span class="muted">/ {{ data.member_count }}</span></span><progress :value="data.online_member_count" :max="data.member_count || 1" :aria-label="copy.onlineMembers"></progress></div></template></Column>
+                    <Column :header="t('web.console.manage')"><template #body="{ data }"><div class="network-row-actions"><RouterLink :to="{ name: 'networkMap', query: { network: data.network_id } }" :aria-label="`${copy.viewOnMap}: ${data.display_name}`" :title="copy.viewOnMap" class="network-row-map"><i class="pi pi-map-marker" aria-hidden="true"></i></RouterLink><Button icon="pi pi-arrow-up-right" text severity="secondary" :aria-label="`${t('web.console.manage')} ${data.display_name}`" @click="openNetwork(data)" /></div></template></Column>
                 </DataTable>
                 <div class="mobile-list">
                     <article v-for="network in filteredNetworks" :key="network.network_id" class="mobile-list-item">
                         <div class="flex items-center justify-between gap-3"><button class="entity-link" @click="openNetwork(network)"><i class="pi pi-globe entity-icon" aria-hidden="true"></i>{{ network.display_name }}</button><Tag :value="networkingMethodLabel(network.networking_method)" severity="secondary" /></div>
-                        <p class="preview-secondary">{{ t('web.console.online_members') }} · {{ network.online_member_count }} / {{ network.member_count }}</p>
+                        <div class="network-mobile-presence"><p class="preview-secondary">{{ t('web.console.online_members') }} · {{ network.online_member_count }} / {{ network.member_count }}</p><RouterLink :to="{ name: 'networkMap', query: { network: network.network_id } }" :aria-label="`${copy.viewOnMap}: ${network.display_name}`"><i class="pi pi-map-marker" aria-hidden="true"></i>{{ copy.viewOnMap }}</RouterLink></div>
+                        <progress class="network-mobile-progress" :value="network.online_member_count" :max="network.member_count || 1" :aria-label="copy.onlineMembers"></progress>
                         <details><summary>{{ t('web.console.details') }}</summary><p class="mono-value mt-2">{{ network.network_name }}</p></details>
                     </article>
                 </div>
@@ -247,3 +257,36 @@ const openNetwork = (network: CentralNetworkSummary) => {
         </Dialog>
     </div>
 </template>
+
+<style scoped>
+.network-eyebrow { margin: 0 0 8px; color: var(--p-primary-color); font-size: 10px; font-weight: 650; letter-spacing: .14em; }
+.network-heading-actions { display: flex; align-items: center; gap: 12px; flex: none; }
+.network-map-link { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 9px 12px; border: 1px solid var(--console-border); border-radius: 8px; color: var(--console-muted); background: var(--console-panel); font-size: 12px; transition: color .15s, border-color .15s; }
+.network-map-link:hover { color: var(--p-primary-color); border-color: var(--p-primary-color); }
+.network-map-link:focus-visible, .network-row-map:focus-visible, .network-mobile-presence > a:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 3px; }
+.network-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.network-summary > div { display: flex; align-items: center; gap: 16px; padding: 20px 22px; border: 1px solid var(--console-border); border-radius: 12px; background: var(--console-panel); min-width: 0; }
+.network-summary-icon { display: inline-flex; width: 42px; height: 42px; align-items: center; justify-content: center; flex: none; border: 1px solid color-mix(in srgb, var(--p-primary-color) 20%, var(--console-border)); background: var(--console-accent-soft); border-radius: 11px; color: var(--p-primary-color); }
+.network-summary-icon.is-online { color: var(--p-green-500); background: color-mix(in srgb, var(--p-green-500) 8%, var(--console-panel)); border-color: color-mix(in srgb, var(--p-green-500) 20%, var(--console-border)); }
+.network-summary > div > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.network-summary span:not(.network-summary-icon) { font-size: 12px; color: var(--console-muted); }
+.network-summary strong { font-size: 27px; font-weight: 550; line-height: 1.2; letter-spacing: -.035em; }
+.network-table-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.network-table-identity .entity-icon { width: 38px; height: 38px; border-radius: 10px; color: var(--p-primary-color); background: var(--console-accent-soft); }
+.network-table-identity .preview-secondary { font-size: 10px; margin-top: 4px; }
+.network-member-presence { max-width: 100px; min-width: 70px; display: flex; flex-direction: column; gap: 8px; font-variant-numeric: tabular-nums; }
+progress { display: block; width: 100%; height: 4px; border: 0; border-radius: 8px; overflow: hidden; appearance: none; background: var(--console-border); }
+progress::-webkit-progress-bar { background: var(--console-border); border-radius: 8px; }
+progress::-webkit-progress-value { background: var(--p-primary-color); border-radius: 8px; }
+progress::-moz-progress-bar { background: var(--p-primary-color); border-radius: 8px; }
+.network-row-actions { display: flex; align-items: center; gap: 4px; }
+.network-row-map { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 7px; color: var(--console-muted); }
+.network-row-map:hover { background: var(--console-accent-soft); color: var(--p-primary-color); }
+.network-mobile-presence { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.network-mobile-presence .preview-secondary { margin: 0; }
+.network-mobile-presence > a { display: inline-flex; gap: 6px; align-items: center; color: var(--p-primary-color); font-size: 11px; min-height: 32px; }
+.network-mobile-progress { margin-top: 8px; height: 3px; }
+@media (max-width: 1100px) { .network-list-page .page-heading { align-items: flex-start; } .network-heading-actions { flex-direction: column-reverse; align-items: stretch; } }
+@media (max-width: 767px) { .network-list-page .page-heading { flex-direction: column; } .network-heading-actions { flex-direction: row; align-items: center; width: 100%; } .network-heading-actions > * { flex: 1; } .network-map-link { font-size: 11px; white-space: nowrap; } .network-summary { gap: 8px; } .network-summary > div { padding: 14px 12px; gap: 8px; flex-direction: column; align-items: flex-start; } .network-summary-icon { width: 28px; height: 28px; border-radius: 7px; font-size: 12px; } .network-summary strong { font-size: 24px; } .network-summary span:not(.network-summary-icon) { font-size: 11px; } }
+@media (prefers-reduced-motion: reduce) { .network-map-link { transition: none; } }
+</style>

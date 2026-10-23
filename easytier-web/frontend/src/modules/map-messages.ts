@@ -1,5 +1,6 @@
 export const mapMessages = {
     en: {
+        locatedNodes: 'Located nodes', visibleConnections: 'Mapped connections', networkOverview: 'Network overview',
         title: 'Network map', subtitle: 'From global connections to every device.', network: 'Network', chooseNetwork: 'Choose a network',
         globe: 'Globe', space: 'Node space', back: 'Back to globe', refresh: 'Refresh', loading: 'Loading network…',
         centralOnly: 'Network maps are available in central network management mode.', noNetworks: 'Create a network to explore your nodes.', createNetwork: 'Manage networks',
@@ -35,6 +36,7 @@ export const mapMessages = {
         noLocated: 'No located nodes', locationHint: 'Use the node list below to set their coordinates.', manageServices: 'Manage associated services',
     },
     cn: {
+        locatedNodes: '已定位节点', visibleConnections: '地图连接', networkOverview: '网络概览',
         title: '网络地图', subtitle: '连接世界，也连接每一台设备。', network: '所属网络', chooseNetwork: '选择网络',
         globe: '地球', space: '节点空间', back: '返回地球', refresh: '刷新', loading: '正在加载网络…',
         centralOnly: '网络地图适用于集中式网络管理模式。', noNetworks: '创建网络后，即可在地图中查看节点。', createNetwork: '管理网络',

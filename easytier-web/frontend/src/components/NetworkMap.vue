@@ -435,7 +435,7 @@ const serviceQuery = computed(() => ({ network: networkId.value, node: selectedI
 <template>
     <div class="console-page network-map-page">
         <header class="page-heading map-heading">
-            <div><h1>{{ t('title') }}</h1><p class="page-description">{{ t('subtitle') }}</p></div>
+            <div class="map-heading-identity"><span class="map-heading-mark"><i class="pi pi-globe" aria-hidden="true"></i></span><div><h1>{{ t('title') }}</h1><p class="page-description">{{ t('subtitle') }}</p></div></div>
             <div class="map-header-actions">
                 <label class="sr-only" for="map-network">{{ t('network') }}</label>
                 <select v-if="centralEnabled" id="map-network" v-model="networkId" :disabled="loadingNetworks || saving" class="map-native-select">
@@ -456,6 +456,11 @@ const serviceQuery = computed(() => ({ network: networkId.value, node: selectedI
                 <RouterLink :to="{ name: 'networkList' }" class="entity-link">{{ t('createNetwork') }}<i class="pi pi-arrow-right" aria-hidden="true"></i></RouterLink>
             </section>
             <template v-else-if="networkId">
+                <div class="map-network-summary" :aria-label="t('networkOverview')">
+                    <span><i class="pi pi-map-marker" aria-hidden="true"></i>{{ t('locatedNodes') }}<strong>{{ sceneNodes.length }}<small>/ {{ members.length }}</small></strong></span>
+                    <span><i class="pi pi-share-alt" aria-hidden="true"></i>{{ t('visibleConnections') }}<strong>{{ sceneLinks.length }}</strong></span>
+                    <span v-if="unlocatedCount" class="map-unlocated-summary"><i class="pi pi-compass" aria-hidden="true"></i>{{ t('unlocated') }}<strong>{{ unlocatedCount }}</strong></span>
+                </div>
                 <div class="map-workbench">
                     <section class="map-stage" :aria-label="mode === 'globe' ? t('globe') : t('space')">
                         <div class="map-scene-toolbar">
@@ -478,16 +483,16 @@ const serviceQuery = computed(() => ({ network: networkId.value, node: selectedI
 
                     <aside class="map-inspector" :aria-label="t('selectNode')">
                         <template v-if="selectedMember && selectedConfig">
-                            <header class="map-inspector-heading"><div><span class="map-eyebrow">{{ isGateway ? t('gateway') : t('node') }}</span><h2>{{ nameOf(selectedMember.device_id) }}</h2></div><span class="map-presence" :class="{ online: selectedMember.online && selectedMember.running !== false }"><i class="pi pi-circle-fill" aria-hidden="true"></i>{{ selectedMember.online && selectedMember.running !== false ? t('online') : t('offline') }}</span></header>
+                            <header class="map-inspector-heading"><span class="map-node-avatar"><i :class="['pi', isGateway ? 'pi-wifi' : 'pi-server']" aria-hidden="true"></i></span><div class="map-node-identity"><span class="map-eyebrow">{{ isGateway ? t('gateway') : t('node') }}</span><h2>{{ nameOf(selectedMember.device_id) }}</h2></div><span class="map-presence" :class="{ online: selectedMember.online && selectedMember.running !== false }"><i class="pi pi-circle-fill" aria-hidden="true"></i>{{ selectedMember.online && selectedMember.running !== false ? t('online') : t('offline') }}</span></header>
                             <div class="map-coordinate-line"><i class="pi pi-map-marker" aria-hidden="true"></i><span v-if="hasPosition(selectedConfig)">{{ selectedConfig.latitude?.toFixed(4) }}°, {{ selectedConfig.longitude?.toFixed(4) }}°</span><span v-else>{{ t('unset') }}</span><button :disabled="!configurationReady" :title="t('editNode')" :aria-label="t('editNode')" @click="editNode()"><i class="pi pi-pencil" aria-hidden="true"></i></button></div>
+                            <dl class="map-node-facts"><div><dt>{{ t('virtualIp') }}</dt><dd>{{ selectedMember.runtime_virtual_ipv4 || selectedMember.virtual_ipv4 || selectedMember.allocated_ipv4 || '—' }}</dd></div></dl>
                             <template v-if="isGateway">
                                 <div v-if="mode === 'globe'" class="map-space-preview"><NodeSpace :devices="localDevices" :gateway-name="nameOf(selectedMember.device_id)" :selected-device-id="selectedDeviceId" :layout="selectedConfig.layout" :locale="locale" @select-device="selectDevice" /></div>
                                 <Button v-if="mode === 'globe'" :label="t('viewSpace')" icon="pi pi-arrow-up-right" severity="secondary" outlined fluid @click="mode = 'space'" />
                                 <Button v-else :label="t('back')" icon="pi pi-arrow-left" severity="secondary" outlined fluid @click="mode = 'globe'" />
                             </template>
-                            <dl class="map-node-facts"><div><dt>{{ t('virtualIp') }}</dt><dd>{{ selectedMember.runtime_virtual_ipv4 || selectedMember.virtual_ipv4 || selectedMember.allocated_ipv4 || '—' }}</dd></div></dl>
                             <section v-if="isGateway" class="map-detail-section">
-                                <header><h3>{{ t('devices') }}</h3><button :disabled="!configurationReady" :aria-label="t('addDevice')" :title="t('addDevice')" @click="editDevice()"><i class="pi pi-plus" aria-hidden="true"></i></button></header>
+                                <header><h3><i class="pi pi-sitemap" aria-hidden="true"></i>{{ t('devices') }}</h3><button :disabled="!configurationReady" :aria-label="t('addDevice')" :title="t('addDevice')" @click="editDevice()"><i class="pi pi-plus" aria-hidden="true"></i></button></header>
                                 <p class="map-section-note">{{ t('configuredRelation') }}</p>
                                 <p v-if="!localDevices.length" class="map-empty-note">{{ t('noDevices') }}</p>
                                 <div v-for="device in localDevices" :key="device.id" class="map-device-row" :class="{ selected: device.id === selectedDeviceId }">
@@ -498,14 +503,14 @@ const serviceQuery = computed(() => ({ network: networkId.value, node: selectedI
                                 <button v-if="selectedDevice" class="map-text-link" @click="selectedDeviceId = null; syncQuery()">{{ t('backToGateway') }}</button>
                             </section>
                             <section class="map-detail-section">
-                                <header><h3>{{ selectedDevice ? `${selectedDevice.name} · ${t('services')}` : t('services') }}</h3><RouterLink :to="{ name: 'serviceNavigation' }" :aria-label="t('allServices')"><i class="pi pi-arrow-up-right" aria-hidden="true"></i></RouterLink></header>
+                                <header><h3><i class="pi pi-th-large" aria-hidden="true"></i>{{ selectedDevice ? `${selectedDevice.name} · ${t('services')}` : t('services') }}</h3><RouterLink :to="{ name: 'serviceNavigation' }" :aria-label="t('allServices')"><i class="pi pi-arrow-up-right" aria-hidden="true"></i></RouterLink></header>
                                 <Message v-if="serviceError" severity="warn" :closable="false">{{ t('servicesFailed') }}</Message>
                                 <p v-else-if="!associatedServices.length" class="map-empty-note">{{ t('noServices') }}</p>
                                 <div class="map-service-grid"><button v-for="service in associatedServices" :key="service.id" class="map-service-card" @click="openService(service)"><i :class="['pi', serviceIcon(service.icon), 'map-service-icon']" aria-hidden="true"></i><i class="pi pi-arrow-up-right map-service-arrow" aria-hidden="true"></i><strong>{{ service.name }}</strong><small>{{ t('unknown') }}</small></button></div>
                                 <RouterLink :to="{ name: 'serviceManagement', query: serviceQuery }" class="map-text-link"><i class="pi pi-plus" aria-hidden="true"></i>{{ t('addService') }}</RouterLink>
                             </section>
                             <section class="map-detail-section">
-                                <header><h3>{{ t('links') }}</h3><span class="map-section-count">{{ nodeLinks.length }}</span></header>
+                                <header><h3><i class="pi pi-share-alt" aria-hidden="true"></i>{{ t('links') }}</h3><span class="map-section-count">{{ nodeLinks.length }}</span></header>
                                 <p v-if="!nodeLinks.length" class="map-empty-note">{{ collecting ? t('collecting') : t('noLinks') }}</p>
                                 <button v-for="link in nodeLinks" :key="link.id" class="map-link-row" :class="{ selected: selectedLinkId === link.id }" @click="selectLink(link.id)"><span><i class="pi pi-share-alt" aria-hidden="true"></i>{{ nameOf(link.source === selectedId ? link.target : link.source) }}</span><small>{{ link.stale ? t('stale') : formatLatency(link.latency_ms) }}</small></button>
                                 <template v-if="nodePaths.length"><h4 class="map-route-heading">{{ t('routes') }}</h4><button v-for="path in nodePaths" :key="path.id" class="map-link-row" :class="{ selected: selectedRouteId === path.id }" @click="selectedRouteId = path.id; selectedLinkId = null"><span><i class="pi pi-directions" aria-hidden="true"></i>{{ nameOf(path.target) }}</span><small>{{ path.stale ? t('stale') : formatLatency(path.latency_ms) }}</small></button></template>
@@ -611,4 +616,93 @@ const serviceQuery = computed(() => ({ network: networkId.value, node: selectedI
 @media (max-width: 1200px) { .map-workbench { grid-template-columns: minmax(0, 1fr) 300px; }.map-inspector { padding: 20px 16px; }.map-space-preview { margin-inline: -16px; height: 210px; }.map-live-label { display: none; }.map-node-list-items { grid-template-columns: repeat(3, minmax(0, 1fr)); }.map-inspector-heading { align-items: flex-start; flex-direction: column; gap: 5px; } }
 @media (max-width: 900px) { .map-workbench { grid-template-columns: minmax(0, 1fr); }.map-stage { min-height: 510px; }.map-inspector { border-left: 0; border-top: 1px solid var(--console-border); max-height: none; }.map-inspector-heading { flex-direction: row; align-items: center; }.map-space-preview { height: 300px; }.map-node-list-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }.map-inspector-actions { flex-direction: row; align-items: center; justify-content: space-between; }.map-service-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .map-heading { padding: 16px 16px 0; }.map-workbench,.map-path-details,.map-node-list,.map-loading,.network-map-page > .console-empty-state,.network-map-page > .p-message { margin-inline: 16px; }.map-page-footnote { margin: 0 16px 16px; }.map-heading { flex-direction: column; align-items: stretch; }.map-header-actions { justify-content: space-between; }.map-native-select { max-width: none; min-width: 0; width: 100%; }.map-stage { min-height: 430px; }.map-scene-toolbar { left: 12px; top: 12px; right: 12px; }.map-canvas-footer { left: 12px; right: 12px; bottom: 12px; }.map-legend { max-width: 220px; gap: 8px; font-size: 10px; }.map-view-tabs button { padding: 7px 10px; }.map-node-list-toolbar { align-items: stretch; flex-direction: column; }.map-search input { width: 100%; }.map-node-list-items { grid-template-columns: minmax(0, 1fr); }.map-service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.map-inspector-actions { align-items: stretch; flex-direction: column; }.map-path-details { padding: 14px; } }
+
+/* Shared console surfaces frame the real-time scene without changing renderer data. */
+.map-heading { padding-top: 28px; }
+.map-heading-identity { display: flex; align-items: center; gap: 15px; min-width: 0; }
+.map-heading-mark { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; flex: none; border-radius: 13px; border: 1px solid var(--console-border-strong, var(--console-border)); color: var(--p-primary-color); background: var(--console-accent-soft, var(--p-highlight-background)); box-shadow: var(--console-glow, none); }
+.map-heading-mark > .pi { font-size: 24px; }
+.map-header-actions { gap: 12px; }
+.map-native-select { border-color: var(--console-border-strong, var(--console-border)); border-radius: 9px; background: var(--console-panel-raised, var(--console-panel)); min-height: 40px; font-size: 13px; }
+.map-network-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 22px; margin: 0 24px; padding: 0 2px 1px; }
+.map-network-summary > span { display: inline-flex; align-items: center; gap: 8px; color: var(--console-muted); font-size: 11px; }
+.map-network-summary > span > .pi { font-size: 11px; color: var(--p-primary-color); }
+.map-network-summary strong { color: var(--p-text-color); font-weight: 600; font-size: 16px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.map-network-summary strong small { color: var(--console-muted); font-size: 11px; font-weight: 400; margin-left: 5px; }
+.map-network-summary .map-unlocated-summary { margin-left: auto; }
+.map-workbench { grid-template-columns: minmax(0, 1fr) 360px; border-radius: 15px; border-color: var(--console-border-strong, var(--console-border)); box-shadow: var(--console-shadow, none); }
+.map-scene-toolbar { top: 18px; left: 18px; right: 18px; }
+.map-view-tabs { padding: 5px; border-color: #29435b; border-radius: 10px; background: #101d2ded; box-shadow: 0 6px 20px rgb(0 0 0 / 16%); }
+.map-view-tabs button { border: 1px solid transparent; border-radius: 6px; padding: 7px 12px; color: #aabed4; transition: border-color .18s, background .18s, color .18s; }
+.map-view-tabs button.active { color: #88e9f3; border-color: #2c6874; background: #153c49; }
+.map-live-label { padding: 7px 10px; border: 1px solid #29435b; border-radius: 7px; background: #101d2dcc; color: #aabed4; }
+.map-legend { border: 1px solid #29435b; background: #101d2dcc; border-radius: 8px; padding: 10px 12px; }
+.map-inspector { background: var(--console-panel); gap: 16px; padding: 23px 20px 20px; border-left-color: var(--console-border-strong, var(--console-border)); scrollbar-width: thin; scrollbar-color: var(--console-border-strong, var(--console-border)) transparent; }
+.map-inspector-heading { gap: 11px; align-items: center; justify-content: flex-start; }
+.map-node-avatar { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 39px; height: 39px; border-radius: 11px; color: var(--p-primary-color); background: var(--console-accent-soft, var(--p-highlight-background)); border: 1px solid var(--console-border-strong, var(--console-border)); }
+.map-node-avatar > .pi { font-size: 19px; }
+.map-node-identity { min-width: 0; flex: 1; }
+.map-eyebrow { font-size: 10px; letter-spacing: .03em; }
+.map-inspector-heading h2 { font-size: 18px; font-weight: 600; line-height: 1.35; margin-top: 4px; }
+.map-presence { border: 1px solid var(--console-border); border-radius: 5px; padding: 3px 6px; background: var(--console-panel-raised, var(--console-panel)); font-size: 10px; }
+.map-presence.online { color: var(--p-green-700); background: color-mix(in srgb, var(--p-green-500) 8%, var(--console-panel)); border-color: color-mix(in srgb, var(--p-green-500) 23%, var(--console-border)); }
+html.app-dark .map-presence.online { color: var(--p-green-300); }
+.map-coordinate-line { padding: 0 1px; font-size: 11px; }
+.map-coordinate-line > .pi { color: var(--p-primary-color); }
+.map-coordinate-line button { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 6px; }
+.map-coordinate-line button:hover { color: var(--p-primary-color); background: var(--console-accent-soft, var(--p-highlight-background)); }
+.map-node-facts { padding: 11px 12px; border: 1px solid var(--console-border); border-radius: 8px; background: var(--console-panel-raised, var(--console-panel)); margin-top: -4px; }
+.map-node-facts div { font-size: 11px; }
+.map-node-facts dd { color: var(--p-text-color); font-size: 12px; }
+.map-space-preview { margin-top: 2px; border-top: 1px solid var(--console-border); border-bottom: 1px solid var(--console-border); }
+.map-detail-section { padding-top: 18px; }
+.map-detail-section > header { margin-bottom: 12px; }
+.map-detail-section h3 { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
+.map-detail-section h3 > .pi { font-size: 12px; color: var(--p-primary-color); }
+.map-detail-section header button, .map-detail-section header a { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: none; border: 1px solid var(--console-border); border-radius: 6px; background: var(--console-panel-raised, var(--console-panel)); }
+.map-detail-section header button:hover, .map-detail-section header a:hover { border-color: var(--p-primary-color); }
+.map-section-note { font-size: 11px; line-height: 1.6; }
+.map-empty-note { padding: 12px 0; font-size: 12px; line-height: 1.7; }
+.map-device-row { padding: 9px 0; }
+.map-device-select > .pi { display: inline-flex; justify-content: center; align-items: center; width: 31px; height: 34px; flex: none; border-radius: 8px; background: var(--console-panel-raised, var(--console-panel)); color: var(--console-muted); border: 1px solid var(--console-border); font-size: 16px; }
+.map-device-row.selected .map-device-select > .pi { color: var(--p-primary-color); background: var(--console-accent-soft, var(--p-highlight-background)); border-color: color-mix(in srgb, var(--p-primary-color) 35%, var(--console-border)); }
+.map-device-select small { font-size: 10px; line-height: 1.5; margin-top: 4px; }
+.map-icon-button { border: 1px solid transparent; width: 28px; height: 30px; }
+.map-icon-button:hover { background: var(--console-accent-soft, var(--p-highlight-background)); border-color: var(--console-border-strong, var(--console-border)); }
+.map-service-grid { gap: 10px; }
+.map-service-card { padding: 13px; border-radius: 10px; background: var(--console-panel-raised, var(--console-panel)); gap: 7px; transition: border-color .18s, box-shadow .18s, transform .18s; }
+.map-service-card:hover { border-color: var(--p-primary-color); background: var(--console-panel-raised, var(--console-panel)); box-shadow: var(--console-glow, none); transform: translateY(-1px); }
+.map-service-icon { display: inline-flex; align-items: center; justify-content: center; width: 35px; height: 35px; border-radius: 9px; background: var(--console-accent-soft, var(--p-highlight-background)); border: 1px solid var(--console-border-strong, var(--console-border)); font-size: 18px; padding: 0; margin-bottom: 5px; }
+.map-service-card strong { font-size: 12px; line-height: 1.4; }
+.map-service-card small { font-size: 10px; }
+.map-link-row { padding: 10px 8px; border: 1px solid transparent; border-radius: 7px; }
+.map-link-row:hover, .map-link-row.selected { background: var(--console-panel-raised, var(--console-panel)); border-color: var(--console-border); }
+.map-link-row.selected { border-color: color-mix(in srgb, var(--p-primary-color) 35%, var(--console-border)); }
+.map-link-row > span > .pi { font-size: 11px; color: var(--p-primary-color); }
+.map-path-details { border-radius: 12px; border-color: var(--console-border-strong, var(--console-border)); box-shadow: var(--console-glow, none); padding: 20px; }
+.map-path-details dd { font-size: 14px; font-weight: 550; }
+.map-node-list { border-radius: 12px; }
+.map-node-list-toolbar { padding: 14px 16px; background: var(--console-panel-raised, var(--console-panel)); }
+.map-node-filters { gap: 8px; }
+.map-node-filters button { padding: 6px 9px; border: 1px solid transparent; border-radius: 6px; }
+.map-node-filters button.active { background: var(--console-accent-soft, var(--p-highlight-background)); border-color: color-mix(in srgb, var(--p-primary-color) 25%, var(--console-border)); }
+.map-node-filters span { background: var(--console-panel); }
+.map-search { padding: 3px 9px; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 7px; background: var(--console-panel); }
+.map-search > .pi { font-size: 12px; }
+.map-node-list-item { padding: 12px; border-radius: 9px; gap: 11px; }
+.map-node-list-item:hover { background: var(--console-panel-raised, var(--console-panel)); border-color: var(--console-border); }
+.map-node-list-item.selected { background: var(--console-accent-soft, var(--p-highlight-background)); border-color: color-mix(in srgb, var(--p-primary-color) 50%, var(--console-border)); }
+.map-node-list-item.selected > .pi { color: var(--p-primary-color); }
+.map-node-list-item small { font-size: 11px; }
+.map-node-state.online { background: var(--p-green-400); box-shadow: 0 0 0 3px color-mix(in srgb, var(--p-green-400) 12%, transparent); }
+.map-page-footnote { font-size: 11px; }
+:global(.map-edit-drawer.p-drawer) { background: var(--console-panel, var(--p-content-background)); border-left-color: var(--console-border-strong, var(--p-content-border-color)); }
+:global(.map-edit-drawer .p-drawer-header) { background: var(--console-panel-raised, var(--p-content-background)); border-bottom: 1px solid var(--console-border, var(--p-content-border-color)); }
+.map-form input, .map-form select { background: var(--console-ground, var(--p-content-background)); border-color: var(--console-border-strong, var(--p-content-border-color)); border-radius: 8px; }
+.map-form-actions { padding-top: 18px; border-top: 1px solid var(--console-border, var(--p-content-border-color)); }
+@media (min-width: 1600px) { .map-workbench { grid-template-columns: minmax(0, 1fr) 390px; } }
+@media (max-width: 1200px) { .map-workbench { grid-template-columns: minmax(0, 1fr) 310px; } .map-inspector { padding-inline: 16px; } .map-inspector-heading { flex-direction: row; align-items: flex-start; flex-wrap: wrap; } .map-node-avatar { width: 33px; height: 33px; border-radius: 9px; } .map-node-identity { min-width: 150px; } .map-presence { margin-left: 44px; } }
+@media (max-width: 900px) { .map-workbench { grid-template-columns: minmax(0, 1fr); } .map-inspector { border-top-color: var(--console-border-strong, var(--console-border)); } .map-inspector-heading { align-items: center; } .map-node-identity { min-width: 0; } .map-presence { margin-left: 0; } }
+@media (max-width: 600px) { .map-heading { padding-top: 20px; } .map-heading-mark { width: 42px; height: 42px; } .map-heading-identity { gap: 12px; } .map-network-summary { margin-inline: 16px; gap: 10px 18px; } .map-network-summary > span { gap: 6px; font-size: 10px; } .map-network-summary strong { font-size: 14px; } .map-network-summary .map-unlocated-summary { margin-left: 0; } .map-native-select { width: 100%; } .map-header-actions { width: 100%; } .map-inspector-heading h2 { font-size: 18px; } .map-path-details { padding: 16px; } }
+@media (prefers-reduced-motion: reduce) { .map-view-tabs button, .map-service-card { transition: none; } .map-service-card:hover { transform: none; } }
 </style>

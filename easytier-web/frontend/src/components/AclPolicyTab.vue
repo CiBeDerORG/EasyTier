@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Button, Drawer, InputNumber, InputText, InputSwitch, Message, MultiSelect, Select, SelectButton, useToast } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import ApiClient, { type AclPolicy, type AclPolicyRule, type AclProtocolTarget, type AclSelector, type CentralNetworkMember } from '../modules/api';
+import { detailMessages } from '../modules/detail-messages';
 
 const props = defineProps<{
     api: ApiClient;
@@ -12,6 +13,7 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
+const { t: detailT } = useI18n({ useScope: 'local', messages: detailMessages });
 const toast = useToast();
 
 // ---- policy state -------------------------------------------------------------
@@ -299,18 +301,25 @@ const defaultActionOptions = [
 </script>
 
 <template>
-    <div class="flex flex-col gap-3">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex items-center gap-3 flex-wrap">
-                <span class="text-sm font-medium">{{ t('web.acl.default_action') }}</span>
+    <div class="acl-workspace">
+        <section class="acl-default-policy" :aria-label="t('web.acl.default_action')">
+            <div class="acl-policy-identity">
+                <i class="pi pi-shield" aria-hidden="true"></i>
+                <div><h3>{{ t('web.acl.default_action') }}</h3><p>{{ policy.default_action === 'deny'
+                    ? t('web.acl.default_deny_hint') : t('web.acl.default_allow_hint') }}</p></div>
+            </div>
+            <div class="acl-policy-choice">
                 <SelectButton v-model="policy.default_action" :options="defaultActionOptions"
                     optionLabel="label" optionValue="value" size="small" @update:model-value="markDirty" />
-                <span class="text-xs muted">{{ policy.default_action === 'deny'
-                    ? t('web.acl.default_deny_hint') : t('web.acl.default_allow_hint') }}</span>
             </div>
-            <div class="flex items-center gap-2">
-                <span class="table-count">{{ t('web.acl.rule_summary', { total: policy.rules.length, enabled: enabledCount }) }}</span>
-                <span v-if="dirty" class="text-xs" style="color: var(--p-orange-400)">{{ t('web.acl.unsaved') }}</span>
+        </section>
+        <div class="acl-action-bar">
+            <div class="acl-policy-summary">
+                <strong>{{ t('web.acl.rule_summary', { total: policy.rules.length, enabled: enabledCount }) }}</strong>
+                <span>{{ detailT('policyHint') }}</span>
+            </div>
+            <div class="acl-policy-actions">
+                <span v-if="dirty" class="acl-unsaved"><i class="pi pi-circle-fill" aria-hidden="true"></i>{{ t('web.acl.unsaved') }}</span>
                 <Button icon="pi pi-plus" :label="t('web.acl.add_rule')" size="small" @click="openCreateRule" />
                 <Button icon="pi pi-check" :label="t('web.acl.save')" size="small" severity="primary"
                     :loading="saving" :disabled="!dirty" @click="save" />
@@ -319,14 +328,16 @@ const defaultActionOptions = [
 
         <Message v-if="loadError" severity="error">{{ loadError }}</Message>
 
-        <div class="console-panel">
+        <div class="console-panel acl-rules-panel">
             <div v-if="policy.rules.length === 0" class="console-empty-state">
                 <i class="pi pi-shield" aria-hidden="true"></i>
                 <h2>{{ t('web.acl.empty_title') }}</h2>
                 <p>{{ policy.default_action === 'deny' ? t('web.acl.empty_deny') : t('web.acl.empty_allow') }}</p>
             </div>
-            <div v-else class="acl-rule-list">
+            <div v-else class="acl-rule-list" role="list" :aria-label="detailT('policyOrder')">
+                <div class="acl-list-heading" aria-hidden="true"><i class="pi pi-sort-amount-down" aria-hidden="true"></i>{{ detailT('policyOrder') }}</div>
                 <div v-for="(rule, index) in policy.rules" :key="rule.id" class="acl-rule-row"
+                    role="listitem"
                     :class="{ 'acl-rule-row--dragging': dragIndex === index, 'acl-rule-row--over': dragOverIndex === index && dragIndex !== index }"
                     draggable="true" @dragstart="onDragStart(index)" @dragover="onDragOver(index, $event)"
                     @drop="onDrop(index)" @dragend="dragIndex = null; dragOverIndex = null">
@@ -348,23 +359,23 @@ const defaultActionOptions = [
                         <div class="flex items-center gap-2 flex-wrap text-xs mt-1">
                             <span class="muted">{{ t('web.acl.source') }}</span>
                             <span v-for="source in rule.sources" :key="`s-${rule.id}-${selectorLabel(source)}`"
-                                class="acl-chip">{{ selectorLabel(source) }}</span>
+                                class="acl-chip" :title="selectorLabel(source)">{{ selectorLabel(source) }}</span>
                             <i class="pi pi-arrow-right muted" aria-hidden="true"></i>
                             <span class="muted">{{ t('web.acl.target') }}</span>
                             <span v-for="target in rule.destinations" :key="`d-${rule.id}-${selectorLabel(target)}`"
-                                class="acl-chip">{{ selectorLabel(target) }}</span>
+                                class="acl-chip" :title="selectorLabel(target)">{{ selectorLabel(target) }}</span>
                             <span class="muted">·</span>
                             <span v-for="target in rule.protocols" :key="`p-${rule.id}-${target.protocol}`"
-                                class="acl-chip proto">{{ protocolLabel(target) }}</span>
+                                class="acl-chip proto" :title="protocolLabel(target)">{{ protocolLabel(target) }}</span>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <Drawer v-model:visible="editorVisible" position="right" :style="{ width: 'min(46rem, 96vw)' }"
+        <Drawer v-model:visible="editorVisible" position="right" :style="{ width: 'min(46rem, 100vw)' }" class="acl-editor-drawer"
             :header="editingIndex === null ? t('web.acl.add_rule') : t('web.acl.edit_rule')">
-            <div class="flex flex-col gap-4">
+            <div class="acl-editor-fields flex flex-col gap-4">
                 <div class="flex items-center gap-3 flex-wrap">
                     <div class="flex-1 min-w-[14rem]">
                         <label class="text-sm font-medium" for="acl-rule-name">{{ t('web.acl.rule_name') }}</label>
@@ -373,7 +384,7 @@ const defaultActionOptions = [
                     </div>
                     <div>
                         <label class="text-sm font-medium" for="acl-rule-action">{{ t('web.acl.action') }}</label>
-                        <Select inputId="acl-rule-action" v-model="editor.action" class="w-36 mt-1"
+                        <Select inputId="acl-rule-action" :aria-label="t('web.acl.action')" v-model="editor.action" class="w-36 mt-1"
                             :options="[{ label: t('web.acl.allow'), value: 'allow' }, { label: t('web.acl.deny'), value: 'deny' }]"
                             optionLabel="label" optionValue="value" />
                     </div>
@@ -468,14 +479,31 @@ const defaultActionOptions = [
 </template>
 
 <style scoped>
+.acl-workspace { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.acl-default-policy { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; padding: 22px; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 12px; background: var(--console-panel-raised, var(--console-panel)); }
+.acl-policy-identity { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.acl-policy-identity > .pi { flex: none; font-size: 21px; color: var(--p-primary-color); }
+.acl-policy-identity h3 { font-size: 14px; font-weight: 600; }
+.acl-policy-identity p { font-size: 12px; color: var(--console-muted); margin-top: 5px; }
+.acl-action-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+.acl-policy-summary { display: flex; flex-direction: column; gap: 5px; }
+.acl-policy-summary strong { font-size: 13px; font-weight: 550; }
+.acl-policy-summary > span { font-size: 12px; color: var(--console-muted); }
+.acl-policy-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.acl-unsaved { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--p-orange-700); padding-right: 7px; }
+html.app-dark .acl-unsaved { color: var(--p-orange-300); }
+.acl-unsaved > .pi { font-size: 5px; }
+.acl-rules-panel { box-shadow: none; }
+.acl-list-heading { display: flex; align-items: center; gap: 9px; padding: 12px 18px; border-bottom: 1px solid var(--console-border); color: var(--console-muted); background: var(--console-panel-raised, var(--console-panel)); font-size: 11px; }
+.acl-list-heading > .pi { color: var(--p-primary-color); font-size: 11px; }
 .acl-rule-list { display: flex; flex-direction: column; }
-.acl-rule-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-bottom: 1px solid var(--console-border); cursor: pointer; }
+.acl-rule-row { display: flex; gap: 12px; align-items: flex-start; padding: 17px 18px; border-bottom: 1px solid var(--console-border); }
 .acl-rule-row:last-child { border-bottom: 0; }
 .acl-rule-row:hover { background: var(--p-content-hover-background); }
 .acl-rule-row--dragging { opacity: 0.4; }
 .acl-rule-row--over { box-shadow: inset 0 2px 0 var(--p-primary-color); }
 .acl-rule-drag { cursor: grab; color: var(--console-muted); font-size: 13px; padding-top: 6px; }
-.acl-rule-index { display: inline-flex; width: 26px; height: 26px; border-radius: 6px; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
+.acl-rule-index { display: inline-flex; width: 30px; height: 30px; border-radius: 8px; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); }
 .acl-rule-index.allow { background: var(--p-green-100); color: var(--p-green-700); }
 .acl-rule-index.deny { background: var(--p-red-100); color: var(--p-red-700); }
 html.app-dark .acl-rule-index.allow { background: color-mix(in srgb, var(--p-green-500) 22%, transparent); color: var(--p-green-300); }
@@ -488,7 +516,25 @@ html.app-dark .acl-badge.deny { background: color-mix(in srgb, var(--p-red-500) 
 .acl-badge.muted { background: var(--p-content-border); color: var(--p-text-muted-color); }
 .acl-badge.warn { background: var(--p-orange-100); color: var(--p-orange-700); }
 html.app-dark .acl-badge.warn { background: color-mix(in srgb, var(--p-orange-500) 22%, transparent); color: var(--p-orange-300); }
-.acl-chip { background: var(--p-content-border); border-radius: 999px; padding: 1px 8px; color: var(--p-text-color); white-space: nowrap; }
+.acl-chip { background: var(--console-panel-raised, var(--p-content-border)); border: 1px solid var(--console-border); border-radius: 5px; padding: 2px 7px; color: var(--p-text-color); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .acl-chip.proto { background: color-mix(in srgb, var(--p-primary-color) 14%, transparent); color: var(--p-primary-color); }
-.acl-port-block { border: 1px solid var(--console-border); border-radius: 8px; padding: 12px 16px; }
+.acl-port-block { border: 1px solid var(--console-border); border-radius: 10px; padding: 16px; background: var(--console-panel-raised, var(--console-panel)); }
+.acl-editor-fields { gap: 24px; }
+.acl-editor-fields > .flex + .flex { padding-top: 22px; border-top: 1px solid var(--console-border); }
+.acl-editor-fields :deep(.p-multiselect) { width: 100%; }
+@media (max-width: 767px) {
+    .acl-default-policy { padding: 17px 15px; gap: 16px; }
+    .acl-policy-choice { width: 100%; }
+    .acl-policy-choice :deep(.p-selectbutton) { display: flex; }
+    .acl-policy-choice :deep(.p-togglebutton) { flex: 1; }
+    .acl-policy-actions { width: 100%; }
+    .acl-policy-actions :deep(.p-button) { flex: 1; }
+    .acl-unsaved { width: 100%; }
+    .acl-rule-row { padding: 15px 12px; gap: 8px; }
+    .acl-rule-row > .shrink-0 { flex-direction: column-reverse; gap: 5px; }
+    .acl-rule-drag { padding: 4px; }
+    .acl-rule-index { width: 26px; height: 26px; }
+    .acl-chip { max-width: min(100%, 210px); }
+    .acl-port-block { padding: 14px 12px; }
+}
 </style>

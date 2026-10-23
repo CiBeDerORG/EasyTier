@@ -7,8 +7,10 @@ import { Utils } from 'easytier-frontend-lib';
 import DeviceDetails from './DeviceDetails.vue';
 import { useI18n } from 'vue-i18n'
 import ApiClient from '../modules/api';
+import { overviewMessages } from '../modules/overview-messages';
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const copy = computed(() => overviewMessages[locale.value === 'cn' ? 'cn' : 'en']);
 
 // 注册 Tooltip 指令
 const vTooltip = Tooltip;
@@ -25,6 +27,15 @@ const toast = useToast();
 
 const deviceList = ref<Array<Utils.DeviceInfo> | undefined>(undefined);
 const search = ref('');
+const statusFilter = ref<'all' | 'online' | 'offline'>('all');
+const onlineCount = computed(() => deviceList.value?.filter(device => device.online).length);
+const offlineCount = computed(() => deviceList.value ? deviceList.value.length - (onlineCount.value ?? 0) : undefined);
+const instanceCount = computed(() => deviceList.value?.reduce((sum, device) => sum + device.running_network_count, 0));
+const statusOptions = computed(() => [
+    { value: 'all' as const, label: copy.value.allDevices, count: deviceList.value?.length },
+    { value: 'online' as const, label: copy.value.online, count: onlineCount.value },
+    { value: 'offline' as const, label: copy.value.offline, count: offlineCount.value },
+]);
 const loadError = ref(false);
 const refreshing = ref(false);
 let requestInFlight = false;
@@ -182,7 +193,8 @@ const confirmDeleteDevice = async () => {
 const sortedDeviceList = computed(() => {
     const query = search.value.trim().toLocaleLowerCase();
     return (deviceList.value ?? [])
-        .filter(device => `${device.alias ?? ''} ${device.hostname ?? ''} ${device.public_ip ?? ''}`.toLocaleLowerCase().includes(query))
+        .filter(device => `${device.alias ?? ''} ${device.hostname ?? ''} ${device.public_ip ?? ''}`.toLocaleLowerCase().includes(query) &&
+            (statusFilter.value === 'all' || (statusFilter.value === 'online' ? device.online : !device.online)))
         .sort((a, b) => {
             const online = Number(b.online === true) - Number(a.online === true);
             if (online !== 0) return online;
@@ -197,13 +209,24 @@ const locationText = (device: Utils.DeviceInfo) => {
 </script>
 
 <template>
-    <div class="console-page">
+    <div class="console-page device-list-page">
         <header class="page-heading">
             <div>
-                <h1>{{ t('web.device.list') }}</h1>
+                <p class="inventory-eyebrow">{{ copy.deviceEyebrow }}</p><h1>{{ t('web.device.list') }}</h1>
+                <p class="page-description">{{ copy.deviceDescription }}</p>
             </div>
         </header>
-        <section class="console-panel">
+        <section class="inventory-summary" :aria-label="copy.deviceOverview">
+            <div><span class="inventory-summary-icon"><i class="pi pi-server" aria-hidden="true"></i></span><div><span>{{ copy.registered }}</span><strong>{{ deviceList?.length ?? '—' }}</strong></div></div>
+            <div><span class="inventory-summary-icon is-online"><i class="pi pi-check-circle" aria-hidden="true"></i></span><div><span>{{ copy.online }}</span><strong>{{ onlineCount ?? '—' }}</strong></div></div>
+            <div><span class="inventory-summary-icon"><i class="pi pi-share-alt" aria-hidden="true"></i></span><div><span>{{ copy.runningInstances }}</span><strong>{{ instanceCount ?? '—' }}</strong></div></div>
+        </section>
+        <section class="console-panel inventory-panel">
+            <div class="inventory-status-tabs" :aria-label="copy.matchingDevices">
+                <button v-for="option in statusOptions" :key="option.value" type="button" :aria-pressed="statusFilter === option.value" :class="{ 'is-selected': statusFilter === option.value }" @click="statusFilter = option.value">
+                    <i v-if="option.value !== 'all'" class="pi pi-circle-fill" :class="{ 'is-online': option.value === 'online' }" aria-hidden="true"></i>{{ option.label }}<span>{{ option.count ?? '—' }}</span>
+                </button>
+            </div>
             <div class="list-toolbar">
                 <span class="search-field"><i class="pi pi-search" aria-hidden="true" /><InputText v-model="search"
                         :placeholder="t('web.console.search_devices')"
@@ -231,9 +254,10 @@ const locationText = (device: Utils.DeviceInfo) => {
             </div>
             <div v-else-if="sortedDeviceList.length === 0" class="console-empty-state">
                 <i class="pi pi-server" aria-hidden="true"></i>
-                <h2>{{ search ? t('web.console.no_results') : t('web.console.devices_empty') }}</h2>
-                <p v-if="!search">{{ t('web.console.devices_empty_hint') }}</p>
-                <div v-if="!search && enrollCommand" class="flex items-center gap-2 justify-center mt-2 flex-wrap">
+                <h2>{{ search || statusFilter !== 'all' ? copy.noFilterResults : t('web.console.devices_empty') }}</h2>
+                <p v-if="!search && statusFilter === 'all'">{{ t('web.console.devices_empty_hint') }}</p>
+                <Button v-if="search || statusFilter !== 'all'" :label="copy.clearFilters" text @click="search = ''; statusFilter = 'all'" />
+                <div v-if="!search && statusFilter === 'all' && enrollCommand" class="flex items-center gap-2 justify-center mt-2 flex-wrap">
                     <code class="mono-value p-2 rounded" style="background: var(--console-ground); word-break: break-all">{{ enrollCommand }}</code>
                     <Button icon="pi pi-copy" severity="secondary" outlined size="small"
                         :aria-label="t('web.console.enroll_copy')" @click="copyEnrollCommand" />
@@ -295,7 +319,8 @@ const locationText = (device: Utils.DeviceInfo) => {
                             </button>
                             <span class="mono-value muted shrink-0">v{{ (device.easytier_version || '?').split('-')[0] }}</span>
                         </div>
-                        <p class="preview-secondary">{{ locationText(device) }}</p>
+                        <div class="device-card-presence"><span :class="{ 'is-online': device.online }">{{ device.online ? copy.online : copy.offline }}</span><span>{{ locationText(device) }}</span></div>
+                        <p class="device-card-address mono-value" :title="device.public_ip"><i class="pi pi-link" aria-hidden="true"></i>{{ device.public_ip || '—' }}</p>
                         <div class="device-card-actions">
                             <span class="muted"><i class="pi pi-sitemap" aria-hidden="true"></i> {{ device.running_network_count }} {{ t('web.console.instances') }}</span>
                             <div class="flex items-center gap-1">
@@ -374,6 +399,32 @@ const locationText = (device: Utils.DeviceInfo) => {
 </template>
 
 <style scoped>
+.inventory-eyebrow { margin: 0 0 8px; color: var(--p-primary-color); font-size: 10px; font-weight: 650; letter-spacing: .14em; }
+.inventory-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.inventory-summary > div { display: flex; align-items: center; gap: 16px; padding: 20px 22px; border: 1px solid var(--console-border); border-radius: 12px; background: var(--console-panel); min-width: 0; }
+.inventory-summary-icon { display: inline-flex; width: 42px; height: 42px; align-items: center; justify-content: center; flex: none; border: 1px solid color-mix(in srgb, var(--p-primary-color) 20%, var(--console-border)); background: var(--console-accent-soft); border-radius: 11px; color: var(--p-primary-color); }
+.inventory-summary-icon.is-online { color: var(--p-green-500); background: color-mix(in srgb, var(--p-green-500) 8%, var(--console-panel)); border-color: color-mix(in srgb, var(--p-green-500) 20%, var(--console-border)); }
+.inventory-summary > div > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.inventory-summary span:not(.inventory-summary-icon) { font-size: 12px; color: var(--console-muted); }
+.inventory-summary strong { font-size: 27px; font-weight: 550; line-height: 1.2; letter-spacing: -.035em; }
+.inventory-status-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 16px 18px 0; }
+.inventory-status-tabs > button { display: inline-flex; align-items: center; gap: 8px; padding: 8px 13px; font-size: 12px; min-height: 36px; border-radius: 7px; color: var(--console-muted); border: 1px solid transparent; transition: color .15s, background-color .15s; }
+.inventory-status-tabs > button:hover { color: var(--p-text-color); background: var(--p-content-hover-background); }
+.inventory-status-tabs > button.is-selected { color: var(--p-primary-color); border-color: color-mix(in srgb, var(--p-primary-color) 22%, var(--console-border)); background: var(--console-accent-soft); }
+.inventory-status-tabs > button:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 3px; }
+.inventory-status-tabs button > span { font-size: 10px; min-width: 18px; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--p-text-color) 6%, transparent); font-variant-numeric: tabular-nums; }
+.inventory-status-tabs .pi { font-size: 6px; }
+.inventory-status-tabs .is-online { color: var(--p-green-500); }
+.device-list-page .list-toolbar { border-top: 0; padding-top: 14px; }
+.device-card-presence { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 4px; font-size: 11px; color: var(--console-muted); }
+.device-card-presence > span:first-child { padding: 2px 7px; border: 1px solid var(--console-border); border-radius: 5px; flex: none; }
+.device-card-presence > span.is-online { color: var(--p-green-700); border-color: color-mix(in srgb, var(--p-green-500) 24%, var(--console-border)); background: color-mix(in srgb, var(--p-green-500) 7%, transparent); }
+html.app-dark .device-card-presence > span.is-online { color: var(--p-green-300); }
+.device-card-address { display: flex; align-items: center; gap: 9px; color: var(--console-muted); margin: 8px 0 4px; overflow-wrap: anywhere; }
+.device-card-address .pi { font-size: 12px; flex: none; }
+@media (max-width: 767px) { .inventory-summary { gap: 8px; } .inventory-summary > div { padding: 14px 12px; gap: 8px; flex-direction: column; align-items: flex-start; } .inventory-summary-icon { width: 28px; height: 28px; border-radius: 7px; font-size: 12px; } .inventory-summary strong { font-size: 24px; } .inventory-summary span:not(.inventory-summary-icon) { font-size: 11px; } .inventory-status-tabs { padding: 12px 12px 0; gap: 4px; } .inventory-status-tabs > button { padding: 7px 9px; gap: 6px; } .device-card-grid { display: none; } }
+@media (prefers-reduced-motion: reduce) { .inventory-status-tabs > button, .device-card { transition: none; } }
+
 .device-card-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
@@ -384,16 +435,16 @@ const locationText = (device: Utils.DeviceInfo) => {
 .device-card {
     background: var(--console-panel);
     border: 1px solid var(--console-border);
-    border-radius: 8px;
-    padding: 16px 18px;
+    border-radius: 12px;
+    padding: 20px;
+    transition: border-color .16s, box-shadow .16s;
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
 
-.device-card.offline {
-    opacity: .72;
-}
+.device-card:hover { border-color: var(--console-border-strong); box-shadow: var(--console-shadow); }
+.device-card.offline { border-style: dashed; }
 
 .device-card-title {
     display: flex;
@@ -412,4 +463,5 @@ const locationText = (device: Utils.DeviceInfo) => {
     padding-top: 10px;
     border-top: 1px solid var(--console-border);
 }
+@media (max-width: 767px) { .device-card-grid { display: none; } }
 </style>

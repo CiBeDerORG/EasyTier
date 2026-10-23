@@ -1,5 +1,6 @@
 export const serviceMessages = {
     en: {
+        entryCount: 'Navigation shortcuts', serviceCount: 'Configured services', linkedNetworks: 'Linked networks', customGroups: 'Service groups', accessSettings: 'Access settings', appearanceSettings: 'Navigation appearance', associationSettings: 'Device association',
         navigation: 'Service navigation', navigationHint: 'Your services, one click away.', management: 'Service management',
         managementHint: 'Connect your applications to network nodes and choose which appear in navigation.',
         add: 'Add service', edit: 'Edit service', save: 'Save service', cancel: 'Cancel', delete: 'Delete',
@@ -31,6 +32,7 @@ export const serviceMessages = {
         serviceMissing: 'This service no longer exists. Refresh the list or add a service.', loading: 'Loading…', destination: 'Destination', selectedMissing: 'The selected node is no longer available. Please select another node.',
     },
     cn: {
+        entryCount: '导航入口', serviceCount: '已配置服务', linkedNetworks: '关联网络', customGroups: '服务分组', accessSettings: '访问设置', appearanceSettings: '导航外观', associationSettings: '设备关联',
         navigation: '服务导航', navigationHint: '你的服务，一步直达。', management: '服务管理',
         managementHint: '将应用关联到网络节点，选择需要展示在导航中的服务。',
         add: '添加服务', edit: '编辑服务', save: '保存服务', cancel: '取消', delete: '删除',

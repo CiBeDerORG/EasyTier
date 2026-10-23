@@ -19,42 +19,42 @@ defineProps<{
 <template>
   <div :class="['device-details', containerClass, { 'compact': compact }]">
     <div class="detail-item hostname">
-      <div class="detail-label">{{ t('web.device.hostname') }}</div>
-      <div class="detail-value">{{ device.hostname }}</div>
+      <div class="detail-label"><i class="pi pi-desktop" aria-hidden="true"></i>{{ t('web.device.hostname') }}</div>
+      <div class="detail-value">{{ device.hostname || '—' }}</div>
     </div>
     <div class="detail-item status">
-      <div class="detail-label">{{ t('web.device.status') }}</div>
-      <div class="detail-value">{{ device.online ? t('web.device.online') : t('web.device.offline') }}</div>
+      <div class="detail-label"><i class="pi pi-wave-pulse" aria-hidden="true"></i>{{ t('web.device.status') }}</div>
+      <div class="detail-value"><span class="device-presence" :class="{ online: device.online }"><i class="pi pi-circle-fill" aria-hidden="true"></i>{{ device.online ? t('web.device.online') : t('web.device.offline') }}</span></div>
     </div>
     <div v-if="!device.online && device.last_seen" class="detail-item last-seen">
-      <div class="detail-label">{{ t('web.device.last_seen') }}</div>
+      <div class="detail-label"><i class="pi pi-clock" aria-hidden="true"></i>{{ t('web.device.last_seen') }}</div>
       <div class="detail-value">{{ device.last_seen }}</div>
     </div>
     <div class="detail-item public-ip">
-      <div class="detail-label">{{ t('web.device.public_ip') }}</div>
-      <div class="detail-value">{{ device.public_ip }}</div>
+      <div class="detail-label"><i class="pi pi-globe" aria-hidden="true"></i>{{ t('web.device.public_ip') }}</div>
+      <div class="detail-value mono-value">{{ device.public_ip || '—' }}</div>
     </div>
     <div class="detail-item running-networks">
-      <div class="detail-label">{{ t('web.device.networks') }}</div>
-      <div class="detail-value">{{ device.running_network_count }}</div>
+      <div class="detail-label"><i class="pi pi-share-alt" aria-hidden="true"></i>{{ t('web.device.networks') }}</div>
+      <div class="detail-value detail-number">{{ device.running_network_count }}</div>
     </div>
     <div class="detail-item location">
-      <div class="detail-label">{{ t('web.console.location') }}</div>
+      <div class="detail-label"><i class="pi pi-map-marker" aria-hidden="true"></i>{{ t('web.console.location') }}</div>
       <div class="detail-value">{{ device.location ? [device.location.country, device.location.region, device.location.city].filter(Boolean).join(' · ') : t('web.device.unknown_location') }}</div>
     </div>
     <div v-if="(device.networks?.length ?? 0) > 0" class="detail-item central-networks">
-      <div class="detail-label">{{ t('web.device.central_networks') }}</div>
+      <div class="detail-label"><i class="pi pi-sitemap" aria-hidden="true"></i>{{ t('web.device.central_networks') }}</div>
       <div class="detail-value">
         <span v-for="network in device.networks" :key="network.network_id" class="central-network-name"
           :title="network.network_name">{{ network.display_name }}</span>
       </div>
     </div>
     <div class="detail-item version">
-      <div class="detail-label">{{ t('web.device.version') }}</div>
-      <div class="detail-value">{{ device.easytier_version }}</div>
+      <div class="detail-label"><i class="pi pi-code" aria-hidden="true"></i>{{ t('web.device.version') }}</div>
+      <div class="detail-value mono-value">{{ device.easytier_version || '—' }}</div>
     </div>
     <details class="more-details">
-      <summary>{{ t('web.console.more_details') }}</summary>
+      <summary>{{ t('web.console.more_details') }}<i class="pi pi-chevron-down" aria-hidden="true"></i></summary>
       <div class="detail-item last-report">
         <div class="detail-label">{{ t('web.device.last_report') }}</div>
         <div class="detail-value">{{ device.report_time }}</div>
@@ -70,87 +70,34 @@ defineProps<{
 </template>
 
 <style scoped>
-/* 紧凑布局样式 */
-.device-details.compact {
-  gap: 0.4rem;
+.device-details { gap: 12px; }
+.detail-item { min-width: 0; padding: 14px 16px; border: 1px solid var(--console-border); border-radius: 9px; background: var(--console-panel-raised, var(--console-panel)); }
+.detail-label { display: flex; align-items: center; gap: 8px; color: var(--console-muted); font-size: 11px; font-weight: 500; margin-bottom: 9px; }
+.detail-label > .pi { color: var(--p-primary-color); font-size: 11px; opacity: .85; }
+.detail-value { color: var(--p-text-color); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.detail-value.detail-number { font-weight: 650; font-variant-numeric: tabular-nums; }
+.device-presence { display: inline-flex; align-items: center; gap: 7px; color: var(--console-muted); font-size: 12px; }
+.device-presence > .pi { font-size: 6px; }
+.device-presence.online { color: var(--p-green-700); }
+html.app-dark .device-presence.online { color: var(--p-green-300); }
+.more-details { grid-column: 1 / -1; border-top: 1px solid var(--console-border); padding-top: 6px; }
+.more-details summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; cursor: pointer; color: var(--console-muted); font-size: 12px; padding: 10px 2px; }
+.more-details summary::-webkit-details-marker { display: none; }
+.more-details summary:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 3px; border-radius: 4px; }
+.more-details summary > .pi { font-size: 10px; transition: transform .18s; }
+.more-details[open] summary > .pi { transform: rotate(180deg); }
+.more-details .detail-item { display: grid; grid-template-columns: minmax(110px, .5fr) minmax(0, 1fr); align-items: center; gap: 12px; background: transparent; padding: 10px 0; border: 0; border-radius: 0; }
+.more-details .detail-label { margin-bottom: 0; }
+.central-network-name { display: inline-flex; background: var(--console-accent-soft, var(--console-ground)); border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 5px; padding: 3px 8px; margin: 2px 4px 2px 0; max-width: 100%; overflow-wrap: anywhere; font-size: 11px; }
+.machine-id-value { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--console-muted); max-width: 100%; overflow-wrap: anywhere; }
+.device-details.compact { gap: 0; }
+.compact .detail-item { display: grid; grid-template-columns: minmax(100px, .7fr) minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--console-border); border-radius: 0; background: transparent; }
+.compact .detail-label { margin-bottom: 0; }
+.compact .detail-value { padding: 0; font-size: 12px; }
+.compact .more-details { border-top: 0; }
+@media (max-width: 767px) {
+    .detail-item { padding: 12px 14px; }
+    .more-details .detail-item { grid-template-columns: minmax(90px, .55fr) minmax(0, 1fr); }
 }
-
-.detail-item {
-  position: relative;
-  transition: all 0.2s;
-  border-radius: 0.25rem;
-}
-
-.more-details summary {
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--console-muted, #64748b);
-  margin-top: 10px;
-}
-
-.detail-item:hover {
-  background-color: var(--surface-hover, rgba(245, 247, 250, 0.5));
-}
-
-.compact .detail-item {
-  padding: 0.3rem 0.2rem;
-  display: grid;
-  grid-template-columns: 40% 60%;
-  align-items: center;
-}
-
-.detail-label {
-  font-weight: 600;
-  margin-bottom: 0.375rem;
-  display: flex;
-  align-items: center;
-}
-
-.compact .detail-label {
-  margin-bottom: 0;
-}
-
-.detail-value {
-  color: var(--text-color-secondary, #475569);
-  word-break: break-all;
-  line-height: 1.4;
-}
-
-/* 紧凑布局的值样式 */
-.compact .detail-value {
-  padding-left: 0.3rem;
-  line-height: 1.2;
-}
-
-.central-network-name {
-  display: inline-block;
-  background-color: var(--surface-ground, #f1f5f9);
-  border: 1px solid var(--surface-border, #e2e8f0);
-  border-radius: 0.25rem;
-  padding: 0.05rem 0.4rem;
-  margin: 0.1rem 0.2rem 0.1rem 0;
-  font-size: 0.85rem;
-}
-
-/* 机器ID特殊样式 */
-.machine-id-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.95rem;
-  background-color: var(--surface-ground, #f1f5f9);
-  color: var(--text-color, #1f2937);
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.25rem;
-  border: 1px solid var(--surface-border, #e2e8f0);
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 紧凑布局下的机器ID样式 */
-.compact .machine-id-value {
-  font-size: 0.75rem;
-  padding: 0.15rem 0.3rem;
-  border-radius: 0.2rem;
-}
+@media (prefers-reduced-motion: reduce) { .more-details summary > .pi { transition: none; } }
 </style>

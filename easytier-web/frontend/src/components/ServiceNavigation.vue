@@ -27,6 +27,7 @@ const updating = ref(false);
 const networkNames = computed(() => new Map(networks.value.map(network => [network.network_id, network.display_name || network.network_name])));
 const networkOptions = computed(() => [{ label: t('allNetworks'), value: null }, ...networks.value.map(network => ({ label: network.display_name || network.network_name, value: network.network_id }))]);
 const visibleServices = computed(() => sortServices((services.value ?? []).filter(service => service.show_in_navigation)));
+const linkedNetworkCount = computed(() => new Set(visibleServices.value.map(service => service.network_id)).size);
 const groups = computed(() => [...new Set(visibleServices.value.map(service => service.group))].sort((a, b) => a.localeCompare(b)));
 const filtered = computed(() => {
     const query = search.value.trim().toLocaleLowerCase();
@@ -83,7 +84,7 @@ function clearFilters() { search.value = ''; selectedNetwork.value = null; selec
 <template>
     <div class="console-page service-navigation-page">
         <header class="page-heading service-page-heading">
-            <div><h1>{{ t('navigation') }}</h1><p class="page-description">{{ t('navigationHint') }}</p></div>
+            <div class="service-heading-identity"><span class="service-page-mark"><i class="pi pi-th-large" aria-hidden="true"></i></span><div><h1>{{ t('navigation') }}</h1><p class="page-description">{{ t('navigationHint') }}</p></div></div>
             <div class="service-heading-actions">
                 <Button icon="pi pi-refresh" text severity="secondary" :aria-label="t('refresh')" :loading="loading" @click="load" />
                 <RouterLink v-if="centralEnabled" :to="{ name: 'serviceManagement' }" class="service-manage-link"><i class="pi pi-sliders-h" aria-hidden="true"></i>{{ t('management') }}</RouterLink>
@@ -92,6 +93,12 @@ function clearFilters() { search.value = ''; selectedNetwork.value = null; selec
         <Message v-if="!centralEnabled" severity="info" :closable="false">{{ t('external') }}</Message>
         <template v-else>
             <Message v-if="error" severity="error" :closable="false"><div class="service-error">{{ error }}<Button :label="t('retry')" text size="small" @click="load" /></div></Message>
+            <div v-if="services !== undefined && visibleServices.length" class="service-navigation-overview">
+                <div><span>{{ t('entryCount') }}</span><strong>{{ visibleServices.length }}</strong></div>
+                <div><span>{{ t('linkedNetworks') }}</span><strong>{{ linkedNetworkCount }}</strong></div>
+                <div><span>{{ t('customGroups') }}</span><strong>{{ groups.length }}</strong></div>
+                <Button :label="t('add')" icon="pi pi-plus" text size="small" @click="router.push({ name: 'serviceManagement', query: { create: '1' } })" />
+            </div>
             <div v-if="visibleServices.length" class="service-navigation-toolbar">
                 <div class="search-field"><i class="pi pi-search" aria-hidden="true"></i><InputText v-model="search" :placeholder="t('search')" :aria-label="t('search')" /></div>
                 <Select :placeholder="t('allNetworks')" v-model="selectedNetwork" :options="networkOptions" option-label="label" option-value="value" :aria-label="t('network')" class="service-network-filter" />
@@ -109,7 +116,7 @@ function clearFilters() { search.value = ''; selectedNetwork.value = null; selec
                 <i class="pi pi-search" aria-hidden="true"></i><h2>{{ t('noResults') }}</h2><p>{{ t('noResultsHint') }}</p><Button :label="t('clear')" outlined @click="clearFilters" />
             </section>
             <section v-for="section in sections" :key="section.name" class="service-group-section">
-                <header><h2>{{ section.name || t('ungrouped') }}</h2><span>{{ section.entries.length }}</span></header>
+                <header><i class="pi pi-folder" aria-hidden="true"></i><h2>{{ section.name || t('ungrouped') }}</h2><span>{{ section.entries.length }}</span></header>
                 <div class="service-navigation-grid"><ServiceCard v-for="service in section.entries" :key="service.id" :service="service" :network-name="networkNames.get(service.network_id)" @actions="openActions" /></div>
             </section>
             <RouterLink :to="{ name: 'networkMap' }" class="service-map-link">
@@ -121,33 +128,46 @@ function clearFilters() { search.value = ''; selectedNetwork.value = null; selec
 </template>
 
 <style scoped>
+.service-navigation-page { gap: 26px; }
+.service-heading-identity { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.service-page-mark { display: inline-flex; width: 48px; height: 48px; align-items: center; justify-content: center; flex: none; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 13px; color: var(--p-primary-color); background: var(--console-accent-soft, var(--p-highlight-background)); box-shadow: var(--console-glow, none); }
+.service-page-mark > .pi { font-size: 23px; }
 .service-heading-actions { display: flex; gap: 8px; align-items: center; flex: none; }
-.service-manage-link { display: inline-flex; align-items: center; gap: 9px; padding: 9px 13px; border: 1px solid var(--console-border); border-radius: 6px; font-size: 13px; background: var(--console-panel); color: var(--p-text-color); white-space: nowrap; }
-.service-manage-link:hover { border-color: var(--p-primary-color); }
+.service-manage-link { display: inline-flex; align-items: center; gap: 9px; min-height: 40px; padding: 9px 14px; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 9px; font-size: 13px; background: var(--console-panel-raised, var(--console-panel)); color: var(--p-text-color); white-space: nowrap; transition: border-color .18s, background .18s; }
+.service-manage-link:hover { border-color: var(--p-primary-color); background: var(--console-accent-soft, var(--p-highlight-background)); }
 .service-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.service-navigation-overview { display: flex; align-items: center; gap: 28px; padding: 18px 0 20px; border-top: 1px solid var(--console-border); border-bottom: 1px solid var(--console-border); }
+.service-navigation-overview > div { display: flex; align-items: baseline; gap: 12px; padding-right: 28px; border-right: 1px solid var(--console-border); }
+.service-navigation-overview > div > span { color: var(--console-muted); font-size: 12px; }
+.service-navigation-overview strong { font-size: 23px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.04em; line-height: 1; }
+.service-navigation-overview > .p-button { margin-left: auto; }
 .service-navigation-toolbar { display: flex; gap: 14px; align-items: center; }
-.service-navigation-toolbar .search-field { max-width: 460px; }
-.service-network-filter { min-width: 180px; margin-left: auto; }
-.service-group-filters { display: flex; flex-wrap: wrap; gap: 7px; margin-top: -6px; }
-.service-group-filters button { padding: 6px 13px; border-radius: 6px; color: var(--console-muted); font-size: 13px; background: transparent; }
-.service-group-filters button:hover { color: var(--p-text-color); background: var(--console-stripe); }
-.service-group-filters button.active { background: var(--p-highlight-background); color: var(--p-primary-color); }
+.service-navigation-toolbar .search-field { max-width: 520px; }
+.service-navigation-toolbar :deep(.p-inputtext), .service-network-filter { background: var(--console-panel); }
+.service-network-filter { min-width: 200px; margin-left: auto; }
+.service-group-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: -10px; }
+.service-group-filters button { padding: 8px 15px; border: 1px solid transparent; border-radius: 8px; color: var(--console-muted); font-size: 12px; background: transparent; transition: color .18s, background .18s, border-color .18s; }
+.service-group-filters button:hover { color: var(--p-text-color); background: var(--console-panel-raised, var(--console-stripe)); }
+.service-group-filters button.active { background: var(--console-accent-soft, var(--p-highlight-background)); color: var(--p-primary-color); border-color: color-mix(in srgb, var(--p-primary-color) 30%, var(--console-border)); }
 .service-group-filters button:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 2px; }
-.service-group-section { display: flex; flex-direction: column; gap: 14px; }
-.service-group-section > header { display: flex; align-items: center; gap: 10px; }
-.service-group-section h2 { font-size: 15px; font-weight: 600; }
-.service-group-section > header > span { font-size: 12px; color: var(--console-muted); }
-.service-navigation-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
-.service-empty { padding: 72px 24px; text-align: center; background: var(--console-panel); border: 1px dashed var(--console-border); border-radius: 10px; }
-.service-empty > .pi { font-size: 32px; color: var(--p-primary-color); margin-bottom: 22px; }
-.service-empty h2 { font-size: 20px; font-weight: 600; margin-bottom: 10px; }
-.service-empty p { color: var(--console-muted); max-width: 410px; margin: 0 auto 24px; line-height: 1.7; }
-.service-map-link { display: flex; align-items: center; gap: 18px; padding: 24px 0; border-top: 1px solid var(--console-border); margin-top: 8px; color: var(--p-text-color); }
-.service-map-icon { display: flex; align-items: center; justify-content: center; color: var(--p-primary-color); width: 44px; height: 44px; border: 1px solid var(--console-border); border-radius: 50%; }
-.service-map-icon > .pi { font-size: 22px; }
+.service-group-section { display: flex; flex-direction: column; gap: 15px; }
+.service-group-section > header { display: flex; align-items: center; gap: 9px; }
+.service-group-section > header > .pi { font-size: 13px; color: var(--console-muted); }
+.service-group-section h2 { font-size: 14px; font-weight: 600; }
+.service-group-section > header > span { font-size: 11px; color: var(--console-muted); padding: 1px 7px; border-radius: 5px; background: var(--console-panel-raised, var(--console-panel)); border: 1px solid var(--console-border); }
+.service-navigation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 18px; }
+.service-empty { padding: 76px 24px; text-align: center; background: var(--console-panel); border: 1px solid var(--console-border); border-radius: 14px; box-shadow: var(--console-shadow, none); }
+.service-empty > .pi { display: inline-flex; align-items: center; justify-content: center; width: 76px; height: 76px; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 22px; font-size: 30px; color: var(--p-primary-color); background: var(--console-accent-soft, var(--p-highlight-background)); margin-bottom: 26px; }
+.service-empty h2 { font-size: 21px; font-weight: 600; margin-bottom: 10px; }
+.service-empty p { color: var(--console-muted); max-width: 410px; margin: 0 auto 26px; line-height: 1.8; }
+.service-map-link { display: flex; align-items: center; gap: 18px; padding: 22px 24px; border: 1px solid var(--console-border); border-radius: 12px; background: var(--console-panel); margin-top: 8px; color: var(--p-text-color); transition: border-color .18s, box-shadow .18s; }
+.service-map-link:hover { border-color: color-mix(in srgb, var(--p-primary-color) 50%, var(--console-border)); box-shadow: var(--console-glow, none); }
+.service-map-icon { display: flex; align-items: center; justify-content: center; color: var(--p-primary-color); width: 48px; height: 48px; flex: none; border: 1px solid var(--console-border-strong, var(--console-border)); background: var(--console-accent-soft, var(--p-highlight-background)); border-radius: 12px; }
+.service-map-icon > .pi { font-size: 24px; }
 .service-map-link strong { font-size: 15px; font-weight: 550; }
-.service-map-hint { display: block; font-size: 13px; color: var(--console-muted); margin-top: 6px; }
-.service-map-action { margin-left: auto; color: var(--p-primary-color); display: flex; align-items: center; gap: 10px; white-space: nowrap; font-size: 13px; }
-@media (max-width: 1250px) { .service-navigation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 600px) { .service-page-heading { flex-wrap: wrap; } .service-navigation-grid { grid-template-columns: 1fr; } .service-navigation-toolbar { flex-wrap: wrap; } .service-network-filter { margin-left: 0; width: 100%; } .service-navigation-toolbar .search-field { max-width: none; width: 100%; } .service-map-action { display: none; } .service-map-hint { max-width: 240px; } .service-map-link { align-items: flex-start; } }
+.service-map-hint { display: block; font-size: 12px; color: var(--console-muted); margin-top: 6px; }
+.service-map-action { margin-left: auto; color: var(--p-primary-color); display: flex; align-items: center; gap: 10px; white-space: nowrap; font-size: 12px; }
+@media (max-width: 1000px) { .service-navigation-overview { gap: 18px; } .service-navigation-overview > div { padding-right: 18px; flex-direction: column-reverse; gap: 7px; } }
+@media (max-width: 600px) { .service-page-heading { flex-wrap: wrap; } .service-page-mark { width: 42px; height: 42px; } .service-heading-identity { gap: 12px; } .service-navigation-overview { gap: 12px; flex-wrap: wrap; } .service-navigation-overview > div { padding-right: 12px; flex: 1; } .service-navigation-overview > div:last-of-type { border-right: 0; } .service-navigation-overview > .p-button { margin-left: 0; padding-left: 0; } .service-navigation-grid { grid-template-columns: 1fr; } .service-navigation-toolbar { flex-wrap: wrap; } .service-network-filter { margin-left: 0; width: 100%; } .service-navigation-toolbar .search-field { max-width: none; width: 100%; } .service-map-action { display: none; } .service-map-hint { max-width: 240px; } .service-map-link { align-items: flex-start; padding: 20px; } }
+@media (prefers-reduced-motion: reduce) { .service-group-filters button, .service-map-link, .service-manage-link { transition: none; } }
 </style>
