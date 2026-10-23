@@ -110,11 +110,40 @@ def source_inputs(root: Path) -> list[dict[str, str]]:
             return True
         return any(package in path.parents for package in native_roots)
 
-    return [
-        {"path": name, "mode": tracked[name], "sha256": hashlib.sha256((root / name).read_bytes()).hexdigest()}
-        for name in sorted(tracked)
-        if is_input(name)
-    ]
+    selected = {name for name in tracked if is_input(name)}
+    pending = list(selected)
+    while pending:
+        name = pending.pop()
+        if tracked[name] != "120000":
+            continue
+        # A package may link to a shared file or directory outside its own tree.
+        # Include its tracked target contents as well as the link itself, without
+        # walking generated/untracked files or reading a directory as a file.
+        target = (root / name).resolve(strict=True)
+        if not target.is_relative_to(root):
+            raise ValueError(f"WASM input link points outside the repository: {name}")
+        target_name = PurePosixPath(target.relative_to(root).as_posix())
+        linked_inputs = {
+            candidate for candidate in tracked
+            if PurePosixPath(candidate).is_relative_to(target_name)
+        }
+        if not linked_inputs:
+            raise ValueError(f"WASM input link has no tracked target inputs: {name}")
+        pending.extend(linked_inputs - selected)
+        selected.update(linked_inputs)
+
+    inputs = []
+    for name in sorted(selected):
+        path = root / name
+        mode = tracked[name]
+        if mode == "120000":
+            payload = os.fsencode(os.readlink(path))
+        elif mode in ("100644", "100755"):
+            payload = path.read_bytes()
+        else:
+            raise ValueError(f"Unsupported WASM input mode {mode}: {name}")
+        inputs.append({"path": name, "mode": mode, "sha256": hashlib.sha256(payload).hexdigest()})
+    return inputs
 
 
 def main() -> None:
