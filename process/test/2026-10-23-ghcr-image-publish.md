@@ -1,6 +1,6 @@
 # EasyTier 官方结构镜像构建与 GHCR 发布
 
-**最终状态（2026-10-23 13:44，Asia/Shanghai）：双架构镜像已发布，内容和认证拉取通过；全新 Runner 的匿名拉取均被拒绝，等待包公开可见性设置。**
+**最终状态（2026-10-23 14:35:11，Asia/Shanghai）：双架构镜像已发布；用户调整公开访问设置后，两个全新 Runner 的匿名拉取均通过。镜像已满足 deploy Docker 部署免登录替换镜像地址的条件。**
 
 ## 范围与授权
 
@@ -45,7 +45,7 @@
 | arm64 四程序 release 构建与镜像冒烟 | 已通过；8 项 PASS，含 3 个 JS 资源检查 |
 | GHCR 推送及双平台 manifest 验证 | 已通过；分支标签与固定 SHA 标签指向同一 index |
 | 认证拉取两个平台 | 修复后均通过；同时验证实际平台、源码 revision 和默认入口 |
-| 匿名访问 | 两个全新 Runner 分别拉取部署标签，均返回 unauthorized；免登录使用尚未达成 |
+| 匿名访问 | 已通过；运行 #39907312596 attempt 2，两个全新 Runner 以空 Docker 配置分别下载 amd64/arm64 部署标签，核对平台、revision、入口和总 digest 均一致 |
 
 容器检查包含四程序加载、默认入口与零实例健康状态、现有 deploy 的 RPC/Web/数据库参数接口、Web 首页和 API metadata、config generator 页面及引用的 JS 资源。全部使用临时数据和 `--network none`，不访问真实设备或生产数据库。
 
@@ -74,7 +74,7 @@
 - [arm64 构建与容器日志](https://github.com/CiBeDerORG/EasyTier/actions/runs/39903466090/artifacts/12480627831)。
 - [首轮发布和 manifest 证据](https://github.com/CiBeDerORG/EasyTier/actions/runs/39903466090/artifacts/12480233285)。
 
-## 只读重验证结果
+## 首次只读重验证结果（历史）
 
 - 修复提交：`ce3d8fde1fbf9fcdbf765f5d84e186805ca2f6f2`。
 - [只读重验证 #39906421259](https://github.com/CiBeDerORG/EasyTier/actions/runs/39906421259) 已完成，job 为 success。
@@ -84,10 +84,10 @@
 - [重验证证据](https://github.com/CiBeDerORG/EasyTier/actions/runs/39906421259/artifacts/12481225860)。
 - 已补充两个全新 Runner 的匿名拉取，使用空 Docker 配置、无登录步骤，直接验证分支标签的实际拉取权限。
 
-## 冷缓存匿名拉取结果
+## 首次冷缓存匿名拉取结果（attempt 1，历史）
 
 - 验证提交：`f6669769e28f2ebb9cc314842820ad1db36b0dbd`。此提交只修改验证工作流及报告，制品版本仍为 `9eb9e8a`。
-- [运行 #39907312596](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596)，北京时间 2026-10-23 13:43:42 完成，整体 failure。
+- [运行 #39907312596 的 attempt 1](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/attempts/1)，北京时间 2026-10-23 13:43:42 完成，当次整体 failure。
 - 认证和 manifest 重验证 job：success；原总 digest、源码 revision、入口和两个平台仍一致。
 - amd64 匿名 job：failure；无镜像缓存、空 Docker 配置、未登录，在部署标签 HEAD 请求处返回 `unauthorized`。
 - arm64 匿名 job：failure；同样在部署标签 HEAD 请求处返回 `unauthorized`。
@@ -96,15 +96,31 @@
 - [arm64 匿名失败日志](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/artifacts/12481411853)。
 - [同轮认证与 manifest 验证证据](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/artifacts/12481347428)。
 
-这两个失败准确暴露尚未完成的匿名访问条件；没有降低检查标准或将其记为通过。公开可见性设置后，只需重跑这些匿名 job，不需要重新编译、打包或推送镜像。
+首次失败如实保留为公开访问设置前的历史结果。用户完成设置后，仅重跑失败的两个匿名 job；没有重新编译、打包或推送镜像。
 
-## 可用性剩余事项
+## 公开访问设置后的复验（attempt 2）
 
-镜像内容和认证拉取已可用，但“deploy 只替换地址、无需登录”的条件仍被匿名访问拒绝阻塞。GHCR 首次发布默认 private；关联公开源仓库不等于包公开。公开可见性应在组织 Packages → easytier → Package settings → Danger Zone → Change visibility → Public 设置。
+- 用户在组织公开包设置及包可见性操作说明后反馈“改好了”。本轮以实际匿名拉取结果确认访问已生效；没有通过连接器或浏览器读取并声称核验当前管理界面的设置值。
+- [运行 #39907312596 的 attempt 2](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/attempts/2)，北京时间 2026-10-23 14:34:57 开始、14:35:11 完成，整体 **success**。
+- 仅重跑此前失败的 amd64、arm64 匿名 job。认证/manifest 验证沿用 attempt 1 的成功结果；列表中的新 job ID 不代表该成功 job 重新执行，旧 publication.json 的历史匿名失败记录没有被改写。
+- 验证工作流提交仍为 `f6669769e28f2ebb9cc314842820ad1db36b0dbd`；镜像源码 revision 仍为 `9eb9e8aced76776c59668d8686affc2a8f302317`。
+- 两个 job 分别使用新的独立 Runner，`permissions: {}`，无 checkout、registry 登录、镜像导入或认证拉取。拉取前确认本地无 EasyTier 镜像，并新建空 `DOCKER_CONFIG`。
+- 两个平台日志均显示四层实际下载、`Pull complete` 和 `Downloaded newer image`，不是已有镜像缓存命中。
+- 拉取后逐项断言 Linux 平台及对应架构、原源码 revision、官方默认入口，以及原总 index digest `sha256:672bc12769b402a697870387b647d4c479efb26ae754cd75f84ca3c9559917aa`。
+- 两份 `anonymous-pull.json` 均记录 `anonymous_pull_verified: true`、`local_repository_cache_empty_before_pull: true`、`run_attempt: "2"`。
 
-当前 GitHub 连接器没有包可见性修改能力；Browser 返回缺少发起会话的浏览器上下文，无法进入包设置。尚未改动包的可见性，也未修改 deploy 或重启任何部署。需要由有包管理权限的用户设置 Public，或提供可用的已登录浏览器连接后继续。设置完成后可复用现有镜像重新执行匿名验证，无需重编译。
+| 平台 | job | 结果 | 独立匿名拉取证据 |
+| --- | --- | --- | --- |
+| linux/amd64 | [120278070521](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/job/120278070521) | success | [ghcr-anonymous-amd64-attempt-2](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/artifacts/12483303056) |
+| linux/arm64 | [120278070746](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/job/120278070746) | success | [ghcr-anonymous-arm64-attempt-2](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/artifacts/12483700729) |
 
-依据：[GitHub 包访问权限与可见性](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)。
+新证据保留 14 天，GitHub 当前记录的到期日为 2026-11-06。匿名拉取复验检查镜像下载与身份；本轮没有重复运行容器功能测试，其结果仍来自前述两个原生架构构建及冒烟检查。
+
+## 当前交付状态
+
+镜像已发布，amd64/arm64 匿名实际拉取均已通过，免登录获取镜像的阻塞已解除。现有 deploy Docker 部署可使用下述同一镜像地址，由 Docker 选择匹配的平台。
+
+本轮完成镜像交付和发布报告，未修改 deploy 项目或运行用户服务器上的部署命令。Actions 页面提供运行状态、日志及验证证据；当前工作流没有发布可供浏览器访问的 EasyTier 管理站点。管理页面需在服务器完成 Web 部署后通过该服务器地址访问。
 
 ## deploy 的单行替换
 
@@ -114,7 +130,7 @@
 image: ghcr.io/cibederorg/easytier:feat-node-attributes-main
 ```
 
-匿名访问确认后，在 deploy 仓库根目录执行 `sudo bash deploy.sh easytier update`。需要修改仓库里的 Compose；仅改安装目录副本会被更新流程同步覆盖。现有 cloud 和 intranet 的入口、端口、数据挂载可沿用。OpenWrt 原生安装及未包含在本轮的 CPU 架构不受本 Docker 镜像更新。
+匿名访问现已确认。在修改镜像地址后，从 deploy 仓库根目录执行 `sudo bash deploy.sh easytier update`。需要修改仓库里的 Compose；仅改安装目录副本会被更新流程同步覆盖。现有 cloud 和 intranet 的入口、端口、数据挂载可沿用。OpenWrt 原生安装及未包含在本轮的 CPU 架构不受本 Docker 镜像更新。
 
 
 ## 固定版本与更新方式

@@ -1,6 +1,6 @@
 # 官方结构 GHCR 镜像发布
 
-**当前状态：双架构镜像已发布，等待包公开可见性设置；冷缓存匿名拉取被拒绝。**
+**当前状态（2026-10-23 14:35，Asia/Shanghai）：镜像交付完成；amd64/arm64 均通过全新 Runner 的匿名实际拉取，可供 deploy 免登录替换镜像地址。**
 
 ## 目标
 
@@ -21,8 +21,11 @@
 - [x] 完成生产构建及两个原生架构的容器验证。
 - [x] 发布镜像并回读 manifest、digest、两个架构。
 - [x] 修复 Runner 的本地多架构 digest 冲突后重新验证认证拉取。
-- [x] 执行两个全新 Runner 的匿名拉取验证，结果均为 unauthorized。
-- [ ] 设置包为 Public 后重新确认匿名拉取，完成免登录单行替换条件。
+- [x] 执行首次全新 Runner 匿名拉取，准确发现公开访问设置尚未生效。
+- [x] 用户完成设置后重跑两个匿名 job，amd64/arm64 均真实下载成功，完成免登录单行替换条件。
+- [x] 核对原源码 revision、默认入口、架构及总 digest，并更新最终发布报告。
+
+最终验证：[运行 #39907312596，attempt 2](https://github.com/CiBeDerORG/EasyTier/actions/runs/39907312596/attempts/2)，整体 success。本次仅重跑两个匿名拉取 job，沿用原构建镜像；构建 revision 仍为 `9eb9e8aced76776c59668d8686affc2a8f302317`。
 
 ## 入口
 
