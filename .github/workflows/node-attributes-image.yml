@@ -19,6 +19,8 @@ on:
       - 'docs/**'
       - 'doc/**'
       - 'process/**'
+      - 'automation-executor/**'
+      - '.github/workflows/automation-executor-image.yml'
 
 permissions:
   contents: read
