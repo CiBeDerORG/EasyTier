@@ -20,6 +20,8 @@ export interface MapLanDevice {
     is_gateway?: boolean;
     asset_device_id?: string;
     group_name?: string;
+    /** Resolved asset gateway group; only used to compose the scene. */
+    gateway_group_id?: string;
 }
 
 export interface NetworkMapConfig {

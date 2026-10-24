@@ -81,7 +81,7 @@ const serviceCatalog = (state, owner) => state.services.filter(service => servic
 async function open(t, route = '/h/services', options = {}, configure = () => {}) {
     const state = fixture();
     configure(state);
-    const { language = 'en', noWebGL = false, clock = false, ...contextOptions } = options;
+    const { language = 'en', noWebGL = false, clock = false, offlineMap = false, ...contextOptions } = options;
     const context = await browser.newContext({ viewport: { width: 1440, height: 1024 }, colorScheme: 'dark', reducedMotion: 'reduce', ...contextOptions });
     t.after(() => context.close());
     await context.addInitScript(({ language, noWebGL }) => {
@@ -92,6 +92,14 @@ async function open(t, route = '/h/services', options = {}, configure = () => {}
         }
     }, { language, noWebGL });
     await context.route(/^https:\/\/[^/]+\.example\.test\//, route => route.fulfill({ contentType: 'text/html', body: '<h1>Fixture service reached</h1>' }));
+    const externalMapRequests = [];
+    if (offlineMap) {
+        await context.route(url => /^https?:$/.test(url.protocol) && url.origin !== new URL(base).origin, route => {
+            externalMapRequests.push(route.request().url());
+            return route.abort();
+        });
+        t.after(() => assert.deepEqual(externalMapRequests, [], 'globe geography must load from bundled assets without an external provider'));
+    }
     const page = await context.newPage();
     if (clock) await page.clock.install();
     page.setDefaultTimeout(15000);
@@ -105,7 +113,7 @@ async function open(t, route = '/h/services', options = {}, configure = () => {}
         assert.deepEqual(state.requests.filter(legacyRequest), [], 'map and services must not consume the retired central-network datasets');
     });
     await page.route('**/api_meta.js', route => route.fulfill({ contentType: 'text/javascript', body: 'window.apiMeta = { api_host: "" };' }));
-    await page.route('**/tiles/**', route => route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT9sAAAAASUVORK5CYII=', 'base64') }));
+    if (!offlineMap) await page.route('**/tiles/**', route => route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT9sAAAAASUVORK5CYII=', 'base64') }));
     await page.route('**/api/v1/**', async intercepted => {
         const request = intercepted.request();
         const url = new URL(request.url());
@@ -219,6 +227,79 @@ async function capture(page, name) {
 async function assertNoOverflow(page) { assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'page must not overflow horizontally'); }
 const assetDialog = page => page.getByRole('dialog', { name: 'Edit service', exact: true });
 const serviceRow = (page, serviceId) => page.locator(`.service-management-row[data-service-id="${serviceId}"]`);
+
+function altitudeInKm(text) {
+    const match = text.match(/(?:Altitude|距地)\s*([\d.,]+)\s*(km|m|千米|米)/);
+    assert.ok(match, `map must expose its current viewing altitude: ${text}`);
+    const value = Number(match[1].replaceAll(',', ''));
+    return /^(m|米)$/.test(match[2]) ? value / 1000 : value;
+}
+async function globeAltitude(globe) { return altitudeInKm(await globe.locator('.globe-view-status').innerText()); }
+async function zoomGlobeTo(page, globe, maximumKm, language = 'en', touch = false) {
+    const zoom = globe.getByRole('button', { name: language === 'cn' ? '放大地图' : 'Zoom in map', exact: true });
+    for (let step = 0; step < 60 && await globeAltitude(globe) > maximumKm; step++) {
+        const previous = await globe.locator('.globe-view-status').textContent();
+        await (touch ? zoom.tap() : zoom.click());
+        await page.waitForFunction(before => document.querySelector('.map-stage .globe-view-status')?.textContent !== before, previous);
+    }
+    assert.ok(await globeAltitude(globe) <= maximumKm, `zoom controls must reach below ${maximumKm} km`);
+}
+async function pinchGlobe(page, context, globe) {
+    const canvas = globe.locator('canvas');
+    await canvas.scrollIntoViewIfNeeded();
+    const bounds = await canvas.boundingBox();
+    assert.ok(bounds);
+    // Keep both touch points below the centered node label so the canvas owns
+    // the gesture, as it would when pinching an unobstructed part of the map.
+    const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height * .72;
+    const radius = Math.min(55, bounds.width * .14, bounds.height * .14);
+    const client = await context.newCDPSession(page);
+    const points = scale => [
+        { x: x - radius * scale, y, id: 1, radiusX: 1, radiusY: 1, force: 1 },
+        { x: x + radius * scale, y, id: 2, radiusX: 1, radiusY: 1, force: 1 },
+    ];
+    try {
+        await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points(1) });
+        for (let step = 1; step <= 6; step++) await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points(1 + step / 10) });
+    } finally {
+        await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await client.detach();
+    }
+}
+async function clickProjectedRoute(page, globe, linkId) {
+    const path = globe.locator(`.globe-route-path[data-link-id="${linkId}"]`);
+    await path.waitFor({ state: 'attached' });
+    const geometry = await path.evaluate(element => {
+        const bounds = element.ownerSVGElement.getBoundingClientRect();
+        const globe = element.closest('.network-globe');
+        const markers = [...globe.querySelectorAll('.globe-node-marker')].map(marker => marker.getBoundingClientRect());
+        const length = element.getTotalLength();
+        const samples = [];
+        for (const fraction of [.5, .45, .55, .4, .6, .35, .65, .3, .7, .25, .75, .2, .8, .15, .85, .1, .9, .05, .95]) {
+            const local = element.getPointAtLength(length * fraction);
+            const { x, y } = new DOMPoint(local.x, local.y).matrixTransform(element.getScreenCTM());
+            const distance = Math.min(...markers.map(marker => Math.hypot(x - marker.x - marker.width / 2, y - marker.y - marker.height / 2)));
+            const hit = document.elementFromPoint(x, y);
+            samples.push({ fraction, x: Math.round(x), y: Math.round(y), distance: Math.round(distance), hit: hit ? `${hit.tagName}.${hit.className}` : null });
+            if (x < bounds.x + 20 || y < bounds.y + 70 || x > bounds.right - 55 || y > bounds.bottom - 85) continue;
+            if (distance < 19 || hit !== globe.querySelector('canvas')) continue;
+            return { point: { x, y } };
+        }
+        return { point: null, linkId: element.dataset.linkId, bounds: bounds.toJSON(),
+            markers: markers.map(marker => ({ x: marker.x + marker.width / 2, y: marker.y + marker.height / 2 })), samples };
+    });
+    if (!geometry.point) await capture(page, 'nearby-node-route-unselectable');
+    assert.ok(geometry.point, `a nearby-node route must have a selectable interior outside the node hit targets: ${JSON.stringify(geometry)}`);
+    const point = geometry.point;
+    await page.mouse.click(point.x, point.y, { delay: 175 });
+    const picker = globe.locator('.globe-link-picker');
+    await page.waitForFunction(id => {
+        const map = document.querySelector('.map-stage .network-globe');
+        return !!map?.querySelector('.globe-link-picker') || map?.querySelector(`.globe-route-path[data-link-id="${id}"]`)?.classList.contains('selected');
+    }, linkId);
+    if (await picker.isVisible()) await picker.locator(`button[data-link-id="${linkId}"]`).click();
+    await page.waitForFunction(id => document.querySelector(`.map-stage .globe-route-path[data-link-id="${id}"]`)?.classList.contains('selected'), linkId);
+}
 
 test('device-owned navigation works without central networks and toggles only the same service flag', async t => {
     const { page, state, context } = await open(t);
@@ -502,6 +583,209 @@ test('sidebar collapse persists and external mode does not request the asset ser
     await external.page.waitForURL('**/#/h');
     assert.equal(external.state.requests.some(request => request.path === '/assets/services'), false);
     assert.equal(await external.page.locator('a[href*="/h/services"], a[href*="/h/map"]').count(), 0);
+});
+
+test('globe reaches regional and city views with real localized administrative labels and preserves zoom on selection', async t => {
+    const { page, state } = await open(t, `/h/map?node=${id(1)}`, { offlineMap: true });
+    await page.getByRole('switch', { name: 'Auto refresh', exact: true }).uncheck();
+    const globe = page.locator('.map-stage .network-globe');
+    await globe.locator('.globe-view-status').waitFor();
+    await globe.locator('.globe-administrative-label[data-level="country"]').first().waitFor();
+    assert.equal(await globe.locator('.globe-administrative-label[data-level="region"]').count(), 0,
+        'regional labels should not crowd the initial global view');
+    await zoomGlobeTo(page, globe, 800);
+    await globe.locator('.globe-administrative-label[data-level="region"]').first().waitFor();
+    await capture(page, 'globe-administrative-provinces-desktop');
+    await zoomGlobeTo(page, globe, 60);
+    await globe.locator('.globe-administrative-label.context[data-level="region"]').filter({ hasText: 'Shanghai' }).waitFor();
+    await capture(page, 'globe-administrative-en-regional');
+    const beforeWheel = await globeAltitude(globe);
+    const beforeWheelText = await globe.locator('.globe-view-status').textContent();
+    await globe.locator('canvas').hover({ position: { x: 90, y: 190 } });
+    await page.mouse.wheel(0, 350);
+    await page.waitForFunction(before => document.querySelector('.map-stage .globe-view-status')?.textContent !== before, beforeWheelText);
+    assert.ok(await globeAltitude(globe) > beforeWheel, 'wheel zoom must use the same useful altitude range as buttons');
+    await zoomGlobeTo(page, globe, 6);
+    const closeAltitude = await globeAltitude(globe);
+    assert.ok(closeAltitude > 0 && closeAltitude < 20, 'the camera stays above the surface while reaching a city view');
+    const marker = globe.getByRole('button', { name: `Select node ${nodeNames[0]}`, exact: true });
+    await marker.waitFor();
+    const dot = await marker.locator('i').boundingBox();
+    assert.ok(dot && dot.width <= 9 && dot.height <= 9, 'zooming in must not turn the selected dot into a large sphere');
+    const canvas = globe.locator('canvas');
+    await canvas.scrollIntoViewIfNeeded();
+    const beforeDrag = await marker.locator('i').boundingBox();
+    const canvasBounds = await canvas.boundingBox();
+    assert.ok(beforeDrag && canvasBounds);
+    // A short near-surface drag is below OrbitControls' usual change-event
+    // threshold. The visible marker must still track the actual camera move.
+    const dragX = canvasBounds.x + canvasBounds.width / 2;
+    const dragY = canvasBounds.y + canvasBounds.height * .72;
+    await page.mouse.move(dragX, dragY);
+    await page.mouse.down();
+    await page.mouse.move(dragX + 6, dragY, { steps: 3 });
+    await page.mouse.up();
+    await page.waitForFunction(({ nodeId, before }) => {
+        const dot = document.querySelector(`.map-stage .globe-node-marker[data-node-id="${nodeId}"] i`);
+        const current = dot?.getBoundingClientRect();
+        return current && Math.hypot(current.x - before.x, current.y - before.y) >= 1;
+    }, { nodeId: id(1), before: beforeDrag });
+    assert.ok(Math.abs(await globeAltitude(globe) - closeAltitude) <= .5, 'a short near-surface drag changes the view without changing altitude');
+    await page.locator('.map-node-list-item').filter({ hasText: nodeNames[1] }).click();
+    await page.locator('.map-inspector h2').getByText(nodeNames[1], { exact: true }).waitFor();
+    await globe.getByRole('button', { name: `Select node ${nodeNames[1]}`, exact: true }).waitFor();
+    assert.ok(Math.abs(await globeAltitude(globe) - closeAltitude) <= .5, 'selecting another node preserves the close viewing altitude');
+    await globe.locator('canvas').press('Home');
+    await page.waitForFunction(() => document.querySelectorAll('.map-stage .globe-administrative-label[data-level="region"]').length === 0);
+    assert.ok(await globeAltitude(globe) > 1000, 'Home still returns to a global view');
+    assert.equal(state.writes.length, 0);
+
+    const mobile = await open(t, `/h/map?node=${id(1)}`, {
+        language: 'cn', offlineMap: true, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    });
+    const mobileGlobe = mobile.page.locator('.map-stage .network-globe');
+    await mobileGlobe.locator('.globe-view-status').waitFor();
+    await zoomGlobeTo(mobile.page, mobileGlobe, 60, 'cn', true);
+    await mobileGlobe.locator('.globe-administrative-label.context[data-level="region"]').filter({ hasText: '上海市' }).waitFor();
+    const mobileMarker = mobileGlobe.getByRole('button', { name: `选择节点 ${nodeNames[0]}`, exact: true });
+    await mobileMarker.waitFor();
+    const markerCenter = element => {
+        const marker = element.getBoundingClientRect(), map = element.closest('.network-globe').getBoundingClientRect();
+        return { x: marker.x + marker.width / 2 - map.x, y: marker.y + marker.height / 2 - map.y };
+    };
+    const centerBeforePinch = await mobileMarker.evaluate(markerCenter);
+    const beforePinch = await globeAltitude(mobileGlobe);
+    const beforePinchText = await mobileGlobe.locator('.globe-view-status').textContent();
+    await pinchGlobe(mobile.page, mobile.context, mobileGlobe);
+    await mobile.page.waitForFunction(before => document.querySelector('.map-stage .globe-view-status')?.textContent !== before, beforePinchText);
+    assert.ok(await globeAltitude(mobileGlobe) < beforePinch, 'spreading two fingers continues to zoom into the surface');
+    await mobileMarker.waitFor();
+    const centerAfterPinch = await mobileMarker.evaluate(markerCenter);
+    assert.ok(Math.hypot(centerAfterPinch.x - centerBeforePinch.x, centerAfterPinch.y - centerBeforePinch.y) <= 2,
+        'a symmetric pinch preserves the viewing direction and keeps the selected node centered');
+    await zoomGlobeTo(mobile.page, mobileGlobe, 12, 'cn', true);
+    await mobileGlobe.locator('.globe-administrative-label.context[data-level="region"]').filter({ hasText: '上海市' }).waitFor();
+    await mobileMarker.waitFor();
+    await assertNoOverflow(mobile.page);
+    await capture(mobile.page, 'globe-administrative-cn-mobile-close');
+    assert.equal(mobile.state.writes.length, 0);
+});
+
+test('co-located and nearby nodes keep small selectable markers and every actual route remains selectable', async t => {
+    const locations = [[31.23, 121.47], [31.23, 121.47], [31.231, 121.471], [31.2295, 121.4708]];
+    const { page, state } = await open(t, `/h/map?node=${id(1)}`, { offlineMap: true }, state => {
+        locations.forEach(([latitude, longitude], index) => Object.assign(state.machines[index].geo_location, { latitude, longitude }));
+    });
+    await page.getByRole('switch', { name: 'Auto refresh', exact: true }).uncheck();
+    const globe = page.locator('.map-stage .network-globe');
+    await globe.locator('.globe-view-status').waitFor();
+    await globe.locator('.globe-cluster-note').waitFor();
+    await page.waitForFunction(() => document.querySelectorAll('.map-stage .globe-route-path[data-link-id]').length === 3);
+    const paths = await globe.locator('.globe-route-path[data-link-id]').evaluateAll(elements => elements.map(element => ({
+        id: element.dataset.linkId, path: element.getAttribute('d'), length: element.getTotalLength(),
+    })));
+    assert.equal(new Set(paths.map(path => path.path)).size, paths.length, 'nearby links must not share one indistinguishable path');
+    assert.ok(paths.every(path => path.length > 15), 'the same-coordinate link must still have a visible, usable route');
+    const dots = await globe.locator('.globe-node-marker i').evaluateAll(elements => elements.map(element => {
+        const box = element.getBoundingClientRect();
+        return { width: box.width, height: box.height };
+    }));
+    assert.equal(dots.length, 4);
+    assert.ok(dots.every(dot => dot.width >= 4 && dot.width <= 9 && dot.height >= 4 && dot.height <= 9),
+        'visible dots stay compact while their pointer targets remain larger');
+    for (const [index, name] of nodeNames.slice(0, 4).entries()) {
+        const marker = globe.getByRole('button', { name: `Select node ${name}`, exact: true });
+        await marker.waitFor();
+        assert.ok(await marker.evaluate(element => element.getBoundingClientRect().width >= 24));
+        await marker.click();
+        await page.waitForURL(url => url.hash.includes(`node=${id(index + 1)}`));
+        await page.locator('.map-inspector h2').getByText(name, { exact: true }).waitFor();
+    }
+    for (const path of paths) await clickProjectedRoute(page, globe, path.id);
+    await page.locator('.map-path-details').getByText('udp', { exact: true }).waitFor();
+    await capture(page, 'nearby-node-routes-desktop');
+    assert.deepEqual(state.machines.slice(0, 4).map(machine => [machine.geo_location.latitude, machine.geo_location.longitude]), locations);
+    assert.equal(state.writes.length, 0, 'unfolding nearby symbols must not write synthetic coordinates');
+});
+
+test('a gateway self device is the single selectable center in both space layouts and retains its services', async t => {
+    const { page, state } = await open(t, `/h/map?node=${id(1)}`);
+    await page.locator('.map-device-row').getByText('Home router', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Node space', exact: true }).click();
+    const space = page.locator('.map-stage .node-space');
+    await space.locator('.node-space-canvas').waitFor();
+    assert.equal(await space.getAttribute('data-center-gateway'), id(299));
+    const self = space.getByRole('button', { name: 'Home router', exact: true });
+    await self.waitFor();
+    assert.equal(await self.count(), 1, 'the gateway self device has one selectable scene label');
+    assert.equal(await self.getAttribute('title'), 'Home gateway · Home router');
+    assert.equal(await space.locator('.space-label-layer').getByText(nodeNames[0], { exact: true }).count(), 0,
+        'a separate physical network-node object must not duplicate the merged gateway');
+    assert.equal(await space.locator('.space-label-layer').getByText('Home gateway', { exact: true }).count(), 0,
+        'the group must not add a second router beside its self device');
+    await self.click();
+    await page.waitForURL(url => url.hash.includes(`device=${id(299)}`));
+    await page.locator('.map-device-row.selected').getByText('Home router', { exact: true }).waitFor();
+    await page.locator('.map-inspector').getByText('Home Assistant', { exact: true }).waitFor();
+    assert.equal(await page.locator('.map-inspector').getByText('Immich', { exact: true }).count(), 0,
+        'center selection uses the original self-device service ownership');
+    await page.getByRole('combobox', { name: 'Space view', exact: true }).selectOption('home');
+    await page.locator('.map-stage .node-space[data-layout="home"]').waitFor();
+    assert.equal(await space.getAttribute('data-center-gateway'), id(299));
+    await space.getByRole('button', { name: 'Home router', exact: true, pressed: true }).waitFor();
+    assert.equal(await page.locator('.map-device-row').count(), 3, 'visual composition does not remove asset records');
+    await assertNoOverflow(page);
+    await capture(page, 'merged-gateway-self-home-desktop');
+    assert.deepEqual(state.writes, [], 'merging the presentation must not mutate or recreate devices');
+    await page.locator('.map-device-row').filter({ hasText: 'Home router' }).getByRole('button', { name: 'Edit Home router', exact: true }).click();
+    await page.waitForURL(url => url.hash.includes('/h/node-assets?') && url.hash.includes(`node=${id(1)}`) && url.hash.includes(`device=${id(299)}`));
+    await page.locator('.service-panel').getByText('Home Assistant', { exact: true }).waitFor();
+    assert.deepEqual(state.writes.filter(request => request.path !== '/assets/device-types/initialize'), [],
+        'opening device management may initialize its type catalog but must not change the asset or its services');
+});
+
+test('multiple gateways remain distinct even when only one group has a self device', async t => {
+    const { page, state } = await open(t, `/h/map?node=${id(1)}`, {}, state => {
+        const originalGroup = state.groups[0];
+        state.groups.push({ ...structuredClone(originalGroup), id: id(601), name: 'Guest gateway', subnets: ['192.168.41.0/24'] });
+        const originalSelf = state.devices.find(device => device.id === id(299));
+        state.devices.push({ ...structuredClone(originalSelf), id: id(309), name: 'Guest router', gateway_group_id: id(601),
+            overlay_ip: '10.31.41.1', lan_ip: '192.168.41.1' });
+        const originalChild = state.devices.find(device => device.id === id(300));
+        state.devices.push({ ...structuredClone(originalChild), id: id(310), name: 'Guest NAS', gateway_group_id: id(601),
+            overlay_ip: '10.31.41.20', lan_ip: '192.168.41.20' });
+        const originalService = state.services.find(service => service.device_id === id(299));
+        state.services.push({ ...structuredClone(originalService), id: id(410), name: 'Guest router admin', device_id: id(309),
+            overlay_ip: '10.31.41.1', lan_ip: '192.168.41.1', access_url: 'https://guest.example.test/' });
+    });
+    await page.locator('.map-device-row').getByText('Guest router', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Node space', exact: true }).click();
+    const space = page.locator('.map-stage .node-space');
+    await space.locator('.node-space-canvas').waitFor();
+    assert.equal(await space.getAttribute('data-center-gateway'), null, 'two real gateways must not collapse into one center');
+    const site = space.locator('.space-label-layer > span').filter({ hasText: nodeNames[0] });
+    await site.waitFor();
+    assert.match(await site.getAttribute('title'), /Site connection point/);
+    for (const [name, deviceId, service] of [['Guest router', id(309), 'Guest router admin'], ['Home router', id(299), 'Home Assistant']]) {
+        const label = space.getByRole('button', { name, exact: true });
+        await label.waitFor();
+        assert.equal(await label.count(), 1);
+        await label.click();
+        await page.waitForURL(url => url.hash.includes(`device=${deviceId}`));
+        await page.locator('.map-inspector').getByText(service, { exact: true }).waitFor();
+    }
+    await capture(page, 'multiple-gateways-self-desktop');
+    // A group without a self asset remains a separate virtual gateway. It must
+    // still prevent the other group's self asset from absorbing the whole site.
+    state.devices = state.devices.filter(device => device.id !== id(309));
+    state.services = state.services.filter(service => service.device_id !== id(309));
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.locator('.map-device-row').getByText('Guest router', { exact: true }).waitFor({ state: 'detached' });
+    assert.equal(await space.getAttribute('data-center-gateway'), null);
+    await space.locator('.space-label-layer > span').filter({ hasText: 'Guest gateway' }).waitFor();
+    assert.equal(await space.getByRole('button', { name: 'Guest gateway', exact: true }).count(), 0);
+    await space.getByRole('button', { name: 'Home router', exact: true }).waitFor();
+    assert.equal(state.writes.length, 0);
 });
 
 test('node space automatically fits one hundred devices arriving after its empty scene mounts', async t => {
