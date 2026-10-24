@@ -218,7 +218,7 @@ jobs:
           retention-days: 14
 
   test_native:
-    name: Run native publication regressions (${{ matrix.arch }})
+    name: Run native publication and LuCI regressions (${{ matrix.arch }})
     if: github.repository == 'CiBeDerORG/EasyTier' && (github.ref == 'refs/heads/feat/node-attributes-main' || github.ref == 'refs/heads/feat/node-attributes-tech-console' || github.ref == 'refs/heads/feat/automation-center')
     strategy:
       fail-fast: false
@@ -269,11 +269,12 @@ jobs:
           key: ghcr-test-target-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.test_inputs.outputs.dependencies_key }}-${{ hashFiles('.github/scripts/test-native.sh') }}-${{ steps.test_inputs.outputs.key }}
           restore-keys: |
             ghcr-test-target-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.test_inputs.outputs.dependencies_key }}-${{ hashFiles('.github/scripts/test-native.sh') }}-
+            ghcr-test-target-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.test_inputs.outputs.dependencies_key }}-
 
       - name: Restore unchanged source timestamps for Cargo
         run: python3 .github/scripts/build-native-inputs.py restore-timestamps --file .ci-cache/source-mtimes.json
 
-      - name: Run publication ownership and transaction regressions
+      - name: Run publication and LuCI connection regressions
         run: bash .github/scripts/test-native.sh
 
       - name: Record timestamps for the successful regression build

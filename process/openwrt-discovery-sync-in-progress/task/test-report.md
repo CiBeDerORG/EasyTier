@@ -1,5 +1,38 @@
 # 文档检查与后续验证记录
 
+## 2026-10-24 · 修复“检查已保存接入”的受限账号兼容问题
+
+### 现象与定位依据
+
+- 用户反馈点击“检查已保存接入”时报 `LuCI returned a JSON-RPC error.`。本轮从 `feat/automation-center@38fa65f9` 的检查链路定位，随后已有纯文档提交 `4939270d`，业务代码未变。
+- 原检查先用固定 `easyadb` 登录，再通过 HTTP `/ubus` 调用四次 `session.access` 查询 `easy-discovery.devices`、`easy-discovery.adb` 的 `list`、`scan` 权限。
+- 已只读核对当前 [发现插件权限定义](https://github.com/CiBeDerORG/luci-app-easy-discovery/blob/main/root/usr/share/rpcd/acl.d/luci-app-easy-discovery.json) 与 [授权写入脚本](https://github.com/CiBeDerORG/luci-app-easy-discovery/blob/main/root/usr/libexec/luci-easy-discovery-auth)：受限账号只获取所选发现角色及相应旧 ADB 兼容角色，不额外授予 `session.access`。
+- [rpcd 会话源码](https://github.com/openwrt/rpcd/blob/master/session.c) 表明登录会话按 UCI 中允许的角色展开 ACL；匿名默认会话的 `unauthenticated` 角色不自动继承给任意登录账号。[uhttpd RPC 源码](https://github.com/openwrt/uhttpd/blob/master/ubus.c) 会先检查目标方法权限；因此账号可能成功登录并有发现权限，却无法执行额外的 `session.access`。
+- 原解析把 JSON-RPC `error`、版本不符和请求 ID 不符合并为同一条提示，掩盖具体失败阶段。原模拟服务无条件允许 `session.access`，未覆盖真实受限角色。
+- 以上确认的是代码与受限账号配置间的兼容缺陷；尚未获取用户设备的原始 RPC 错误码，不能把截图直接写成已实测的路由器 `-32002`，也不能据此断言密码错误。
+
+### 本轮修复
+
+- 检查只执行一次 `session.login`，读取该登录响应中实际展开的 `acls.ubus`，分别返回四项能力；不为检查发起扫描或额外权限查询。
+- 登录会话 ID 必须为 32 位 ASCII 十六进制且非全零，防止畸形会话响应携带权限表时被误报为检查成功。
+- 缺失的 ubus scope、空权限表以及未授予的方法保持为不可用；缺失或畸形的 ACL 响应明确报错，不冒充检查成功。
+- 支持发现插件使用的精确对象/方法授权以及 ASCII `*` 模式；其他 POSIX 模式明确返回 `discovery_acl_unsupported`，不把无法判断的授权静默转成允许或拒绝。
+- RPC 错误区分协议响应、JSON-RPC 数字码、ubus 状态和固定调用方法；不回显远端任意错误文本、请求参数、密码或会话令牌。
+- 环回夹具默认模拟真实受限账号：登录返回权限清单，`session.access` 返回拒绝；客户端测试共 11 项（原 4 项加新增 7 项），覆盖检查不调用额外 RPC、部分授权、畸形会话/权限响应和错误分类等。
+- 自动构建的原生回归任务增加 LuCI 客户端测试组，与 publication 共用同一套构建参数和测试程序；两组都必须实际执行至少一个通过用例。测试脚本变化时允许从同工具链、依赖、架构的测试缓存恢复，完整保存键仍包含脚本和源码版本。
+
+### 当前执行记录
+
+- 源码、插件 ACL 和 OpenWrt 上游协议实现：已只读核对；实现由独立 agent 交叉复查。
+- 本地测试、构建、类型检查、lint、语法检查及手动 Actions：**未执行**，沿用项目本轮 push 自动构建路径。
+- 修复提交、自动 CI 与新镜像：待本轮统一提交后补记。历史 HTTP/LuCI 回归通过只覆盖此前源码，不代表本轮修复已通过。
+- 用户路由器、真实 OpenWrt 扫描、NAS 容器更新：**未执行**。本轮不修改路由器授权、不替换用户密码、不部署生产容器。
+
+### 后续确认范围
+
+- 自动 CI 中受限账号的 HTTP/HTTPS 检查、四项能力结果、原有 publication 回归和镜像烟测。
+- 更新到修复镜像后再次点击“检查已保存接入”；如果还有失败，用新提示中的固定调用方法及数字码定位实际配置问题，不要求提供密码或完整会话响应。
+
 ## 2026-10-24 · 直接 HTTP 发现接入
 
 - 用户明确要求“直接 http 连接”。基于远端最新 `feat/automation-center@89349546`，修改 LuCI 端点校验与传输，支持显式 HTTP/HTTPS `/ubus`；已有 HTTPS 证书验证继续生效，不自动切协议或跟随跳转。
@@ -172,3 +205,4 @@ ODS-T01–T20 完成；ODS-T21 按用户指示另行实机安排；ODS-T22 的�
 - 已尝试 `gh workflow run node-attributes-image.yml --repo CiBeDerORG/EasyTier --ref feat/automation-center -f architecture=amd64`，包括申请额外执行权限后重试，均在读取 GitHub API 时返回 `Forbidden`，尚未发送成功的 workflow_dispatch 请求。当前环境网络允许列表不含 `api.github.com`；这不是自动审批拒绝，也不代表仓库构建失败。
 - **云端镜像构建尚未确认启动，未发布或部署。** 本地前端构建通过不能代替云端镜像构建成功。待允许访问 GitHub API 后可重试上述命令，或在 [EasyTier GHCR Image](https://github.com/CiBeDerORG/EasyTier/actions/workflows/node-attributes-image.yml) 页面选择 `feat/automation-center`、`amd64` 后点击 Run workflow。
 - 构建成功后预期更新镜像 `ghcr.io/cibederorg/easytier:feat-automation-center`。本条记录通过独立的纯文档提交保存，使用 `[skip ci]`，不重复修改功能代码或工作流。
+
