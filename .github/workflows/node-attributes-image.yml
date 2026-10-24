@@ -106,7 +106,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: native-artifacts/
-          key: ghcr-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.native_inputs.outputs.key }}
+          key: ghcr-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.native_inputs.outputs.key }}
 
       - name: Select a complete matching bundle
         id: reuse_native
@@ -132,15 +132,34 @@ jobs:
           pnpm: 'false'
           token: ${{ github.token }}
 
-      - name: Restore Rust dependencies and workspace libraries
+      - name: Restore the latest compatible Rust build
+        id: rust_cache
         if: steps.reuse_native.outputs.reusable != 'true'
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+            .ci-cache/source-mtimes.json
+          key: ghcr-target-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.native_inputs.outputs.dependencies_key }}-${{ steps.native_inputs.outputs.key }}
+          restore-keys: |
+            ghcr-target-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.native_inputs.outputs.dependencies_key }}-
+
+      - name: Seed the first rolling cache from existing release dependencies
+        if: steps.reuse_native.outputs.reusable != 'true' && steps.rust_cache.outputs.cache-matched-key == ''
         uses: Swatinem/rust-cache@v2
         with:
-          # Share dependency artifacts across native source revisions. Final
-          # executables use the separate, exact source-keyed bundle above.
+          # Migrate existing dependency artifacts once. This action must not
+          # clean target or skip saving the updated rolling cache below.
           shared-key: ghcr-release-${{ env.TARGET }}
           cache-workspace-crates: 'true'
           cache-bin: 'false'
+          save-if: 'false'
+
+      - name: Restore unchanged source timestamps for Cargo
+        if: steps.reuse_native.outputs.reusable != 'true'
+        run: python3 .github/scripts/build-native-inputs.py restore-timestamps --file .ci-cache/source-mtimes.json
 
       - name: Build native programs without frontend inputs
         if: steps.reuse_native.outputs.reusable != 'true'
@@ -166,6 +185,21 @@ jobs:
           path: native-artifacts/
           key: ${{ steps.native_cache.outputs.cache-primary-key }}
 
+      - name: Record timestamps for the successful Rust build
+        if: steps.reuse_native.outputs.reusable != 'true' && steps.rust_cache.outputs.cache-hit != 'true'
+        run: python3 .github/scripts/build-native-inputs.py save-timestamps --file .ci-cache/source-mtimes.json
+
+      - name: Save updated Rust build for this source revision
+        if: steps.reuse_native.outputs.reusable != 'true' && steps.rust_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+            .ci-cache/source-mtimes.json
+          key: ${{ steps.rust_cache.outputs.cache-primary-key }}
+
       - uses: actions/upload-artifact@v5
         with:
           name: ghcr-native-${{ matrix.arch }}
@@ -180,6 +214,90 @@ jobs:
         with:
           name: ghcr-native-report-${{ matrix.arch }}
           path: process/test/ghcr-native-${{ matrix.arch }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  test_native:
+    name: Run native publication and LuCI regressions (${{ matrix.arch }})
+    if: github.repository == 'CiBeDerORG/EasyTier' && (github.ref == 'refs/heads/feat/node-attributes-main' || github.ref == 'refs/heads/feat/node-attributes-tech-console' || github.ref == 'refs/heads/feat/automation-center')
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["${{ github.event_name == 'push' && 'amd64' || inputs.architecture }}"]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    env:
+      TARGET: ${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-musl' || 'x86_64-unknown-linux-musl' }}
+      ARCH: ${{ matrix.arch }}
+      FEATURES: ${{ matrix.arch == 'arm64' && 'mimalloc' || 'jemalloc' }}
+      REPORT_DIR: process/test/ghcr-regressions-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Fingerprint regression inputs
+        id: test_inputs
+        run: |
+          mkdir -p "$REPORT_DIR"
+          python3 .github/scripts/build-native-inputs.py key \
+            --arch "$ARCH" --target "$TARGET" --allocator "$FEATURES" \
+            --rust-toolchain "$NATIVE_RUST_TOOLCHAIN" \
+            --output "$REPORT_DIR/native-inputs.json"
+
+      - name: Verify cache boundaries and timestamp restoration
+        run: python3 .github/scripts/test_native_inputs.py -v
+
+      - name: Prepare native regression environment
+        uses: ./.github/actions/prepare-build
+        with:
+          target: ${{ env.TARGET }}
+          rust-toolchain: ${{ env.NATIVE_RUST_TOOLCHAIN }}
+          gui: 'false'
+          pnpm: 'false'
+          token: ${{ github.token }}
+
+      - name: Restore the latest compatible regression build
+        id: test_cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+            .ci-cache/source-mtimes.json
+          key: ghcr-test-target-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.test_inputs.outputs.dependencies_key }}-${{ hashFiles('.github/scripts/test-native.sh') }}-${{ steps.test_inputs.outputs.key }}
+          restore-keys: |
+            ghcr-test-target-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.test_inputs.outputs.dependencies_key }}-${{ hashFiles('.github/scripts/test-native.sh') }}-
+            ghcr-test-target-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.test_inputs.outputs.dependencies_key }}-
+
+      - name: Restore unchanged source timestamps for Cargo
+        run: python3 .github/scripts/build-native-inputs.py restore-timestamps --file .ci-cache/source-mtimes.json
+
+      - name: Run publication and LuCI connection regressions
+        run: bash .github/scripts/test-native.sh
+
+      - name: Record timestamps for the successful regression build
+        if: steps.test_cache.outputs.cache-hit != 'true'
+        run: python3 .github/scripts/build-native-inputs.py save-timestamps --file .ci-cache/source-mtimes.json
+
+      - name: Save updated regression build for this source revision
+        if: steps.test_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+            .ci-cache/source-mtimes.json
+          key: ${{ steps.test_cache.outputs.cache-primary-key }}
+
+      - name: Upload regression evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ghcr-regression-report-${{ matrix.arch }}
+          path: process/test/ghcr-regressions-${{ matrix.arch }}/
           if-no-files-found: warn
           retention-days: 14
 
@@ -273,7 +391,7 @@ jobs:
 
   publish:
     name: Publish and verify the selected GHCR image
-    needs: build_images
+    needs: [build_images, test_native]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -313,4 +431,5 @@ jobs:
           path: process/test/ghcr-publish/
           if-no-files-found: warn
           retention-days: 14
+
 

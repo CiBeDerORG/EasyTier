@@ -13,7 +13,7 @@ smoke_dir="$(mktemp -d -t easytier-ghcr-smoke.XXXXXXXX)"
 name_prefix="et-smoke-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$-${RANDOM}"
 containers=()
 summary="$report_dir/smoke-results.txt"
-printf 'Image: %s\nScope: standalone entrypoint and deploy CLI-interface compatibility\n' "$image" > "$summary"
+printf 'Image: %s\nScope: standalone core, API-only Web, and deploy Web UI entrypoints\n' "$image" > "$summary"
 
 cleanup() {
     local result=$?
@@ -40,7 +40,7 @@ pass() {
 }
 
 # The timeout bounds the entire readiness loop, including Docker commands.
-# No host ports or non-loopback container networking are used in either mode.
+# No host ports or non-loopback container networking are used in any mode.
 wait_ready() {
     local name="$1"
     local mode="$2"
@@ -67,7 +67,43 @@ fetch_http() {
     test -s "$2"
 }
 
-# Confirm that every official-style executable can load in the runtime image.
+wait_api_ready() {
+    timeout 60s bash -eu -o pipefail -c '
+        while :; do
+            state=$(docker inspect --format "{{.State.Status}}" "$1")
+            case "$state" in exited|dead|removing) exit 1 ;; esac
+            if timeout 5s docker exec "$1" wget -q -O - \
+                http://127.0.0.1:7017/api/v1/auth/logout > "$2"; then
+                [ -s "$2" ] && exit 0
+            fi
+            sleep 1
+        done
+    ' smoke-api-ready "$1" "$report_dir/api-only-response.json"
+}
+
+assert_api_ui_absent() {
+    local path="$1"
+    local report_name="$2"
+    local result=0
+    timeout 10s docker exec "$api_container" wget -S -O - \
+        "http://127.0.0.1:7017$path" \
+        > "$report_dir/$report_name-body.txt" \
+        2> "$report_dir/$report_name-headers.txt" || result=$?
+    # A connection failure or timeout is not evidence that the UI is disabled.
+    test "$result" -ne 124
+    python3 - "$report_dir/$report_name-headers.txt" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+headers = Path(sys.argv[1]).read_text()
+statuses = re.findall(r"^\s*HTTP/\S+\s+(\d{3})\b", headers, re.MULTILINE)
+if not statuses or statuses[-1] != "404":
+    raise RuntimeError(f"API-only entrypoint must return HTTP 404 for UI resources: {headers}")
+PY
+}
+
+# Confirm all four public entrypoints load, including the API-only wrapper.
 for binary in easytier-core easytier-cli easytier-web easytier-web-embed; do
     version_container="${name_prefix}-${binary}-version"
     containers+=("$version_container")
@@ -76,9 +112,62 @@ for binary in easytier-core easytier-cli easytier-web easytier-web-embed; do
         "$image" --version > "$report_dir/${binary}-version.log" 2>&1
     pass "$binary loads and reports its version"
 done
+cmp "$report_dir/easytier-web-version.log" "$report_dir/easytier-web-embed-version.log"
+pass 'both Web entrypoints report the same compiled version'
 
-mkdir -p "$smoke_dir/standalone-config" "$smoke_dir/config" "$smoke_dir/cloud-managed-core" "$smoke_dir/data"
+invalid_container="${name_prefix}-api-invalid-argument"
+containers+=("$invalid_container")
+if timeout 30s docker run --rm --pull never --network none \
+    --name "$invalid_container" --entrypoint /usr/local/bin/easytier-web \
+    "$image" --api-server-port not-a-port \
+    > "$report_dir/api-invalid-argument.log" 2>&1; then
+    echo 'API-only entrypoint unexpectedly accepted an invalid port' >&2
+    exit 1
+else
+    argument_status=$?
+    test "$argument_status" -eq 2
+fi
+pass 'API-only entrypoint preserves argument validation exit status'
+
+mkdir -p "$smoke_dir/standalone-config" "$smoke_dir/config" "$smoke_dir/cloud-managed-core" "$smoke_dir/data" "$smoke_dir/api-data"
 python3 -c 'import uuid; print(uuid.uuid4().hex)' > "$smoke_dir/machine-id"
+
+api_container="${name_prefix}-api"
+containers+=("$api_container")
+# The inherited image healthcheck probes Core, so disable it for this standalone
+# Web process. A nonexistent UI directory and ET_NO_WEB=false prove that the
+# legacy entrypoint still defaults to API-only; the spaced DB path checks argv.
+timeout 30s docker run --detach --pull never --network none --no-healthcheck \
+    --name "$api_container" \
+    --mount "type=bind,src=$smoke_dir/api-data,dst=/data" \
+    --env EASYTIER_WEB_DIR=/missing-smoke-ui --env ET_NO_WEB=false \
+    --entrypoint /usr/local/bin/easytier-web \
+    "$image" --api-server-addr 127.0.0.1 --api-server-port 7017 \
+    --config-server-port 7018 --config-server-protocol udp \
+    --db '/data/api only.db' > "$report_dir/api-container-id.txt"
+wait_api_ready "$api_container"
+timeout 10s docker exec "$api_container" test -s '/data/api only.db'
+api_executable="$(timeout 10s docker exec "$api_container" readlink /proc/1/exe)"
+test "$api_executable" = /usr/local/bin/easytier-web-embed
+assert_api_ui_absent / api-only-home
+assert_api_ui_absent /api_meta.js api-only-metadata
+assert_api_ui_absent /config-generator/index.html api-only-config-generator
+python3 - "$report_dir/api-only-response.json" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+if json.loads(Path(sys.argv[1]).read_text()) != {}:
+    raise RuntimeError("API-only entrypoint did not return the expected API response")
+PY
+pass 'API-only entrypoint starts without UI assets, preserves argv, and serves no Web pages'
+
+# The wrapper must exec the server, not leave a shell between PID 1 and it.
+# SIGINT is the server's existing graceful shutdown signal (ctrl_c handler).
+timeout 10s docker kill --signal INT "$api_container" > "$report_dir/api-signal.log"
+timeout 15s docker wait "$api_container" > "$report_dir/api-exit-status.txt"
+test "$(cat "$report_dir/api-exit-status.txt")" = 0
+pass 'API-only entrypoint forwards signals and preserves the server exit status'
 
 core_container="${name_prefix}-core"
 containers+=("$core_container")
@@ -209,3 +298,4 @@ pass "Web home, API metadata, config generator, and $asset_number referenced Jav
 test "$(docker inspect --format '{{.State.Running}}' "$core_container")" = true
 test "$(docker inspect --format '{{.State.Running}}' "$cloud_container")" = true
 pass 'all image smoke checks completed without host networking, privileges, or real data'
+

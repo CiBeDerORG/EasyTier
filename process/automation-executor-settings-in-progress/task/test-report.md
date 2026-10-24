@@ -41,3 +41,5 @@ CARGO_NET_OFFLINE=true cargo test -p easytier-web
 用户明确要求「push发布」。本轮将上一轮已验证的代码、测试及交付记录提交到 `feat/automation-center`，通过既有 `EasyTier GHCR Image` push 工作流发布 `ghcr.io/cibederorg/easytier:feat-automation-center`（linux/amd64）。
 
 推送前已同步远端分支；本轮没有新增业务代码，不重复执行上一轮已通过的本地测试。提交、工作流启动、镜像发布和远端摘要分别核实后补充回执。
+
+执行器设置提交为 `54b6d1b4`。远端已推进到 `2e01c487`，包含 LuCI 受限账号接入检查修复与镜像构建提速；已合并保留。唯一冲突在 `process/README.md` 的进度表，保留双方条目及远端较新的发布状态，业务代码没有冲突。第 1 轮本地测试对应设置实现与当时基线；合并后的构建与回归以本轮 Actions 结果为准。
