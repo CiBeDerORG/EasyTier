@@ -1,0 +1,7 @@
+Disposable evidence directory: /tmp/integrity-automation-sgvgspx4
+PASS: real asset type + device + ADB service feed automation device list
+PASS: Rust -> Python -> isolated adb executable -> Rust preparation response
+PASS: real script create/list/update and stale revision conflict
+PASS: Rust dispatch -> actual executor -> real HTTP callback persists honest capability_missing
+PASS: explicit refresh and deleting a script preserve execution history
+PASS: real session create/close checks persistent executor identity and cleanup

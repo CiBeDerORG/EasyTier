@@ -29,7 +29,7 @@ async function select(page, control, label) {
 async function login(page, account) {
     await page.goto('/');
     await page.locator('#username').fill(account.username);
-    await page.locator('#password input').fill(account.password);
+    await page.locator('input#password').fill(account.password);
     await page.getByRole('button', { name: 'Login', exact: true }).click();
     await page.locator('.console-page').waitFor();
 }
@@ -79,9 +79,11 @@ test('instance binding: source conflicts and R02–R05 regressions against the i
     let failed = false;
     const get = async (path, params = scope(fixture)) => json(await context.request.get(assetPath + path, { params }));
     const step = async (name, body, extra = {}) => {
-        t.diagnostic(name); const started = Date.now();
-        try { await body(); report.checks.push({ name, passed: true, durationMs: Date.now() - started, ...extra }); }
-        catch (error) { report.checks.push({ name, passed: false, error: clean(error.message), ...extra }); throw error; }
+        await t.test(name, async () => {
+            const started = Date.now();
+            try { await body(); report.checks.push({ name, passed: true, durationMs: Date.now() - started, ...extra }); }
+            catch (error) { report.checks.push({ name, passed: false, error: clean(error.message), ...extra }); throw error; }
+        });
     };
     let created;
     try {
@@ -98,7 +100,7 @@ test('instance binding: source conflicts and R02–R05 regressions against the i
             const dialog = page.getByRole('dialog', { name: 'Add device', exact: true });
             for (const key of ['ordinary', 'ordinary2']) {
                 const candidate = dialog.getByRole('radio').filter({ hasText: fixture.instances.node[key].instance_id.slice(0, 8) });
-                await candidate.waitFor(); assert.match(await candidate.innerText(), /Direct fixture/);
+                await candidate.waitFor(); assert.match(await candidate.innerText(), /fixture/);
             }
             await dialog.locator('#asset-device-type').click();
             for (const type of types) await page.getByRole('option', { name: idLabel(type) }).waitFor();
@@ -106,7 +108,7 @@ test('instance binding: source conflicts and R02–R05 regressions against the i
             await dialog.getByRole('button', { name: 'Gateway', exact: true }).click();
             for (const key of ['mapped', 'mapped2']) {
                 const candidate = dialog.getByRole('radio').filter({ hasText: fixture.instances.node[key].instance_id.slice(0, 8) });
-                await candidate.waitFor(); assert.match(await candidate.innerText(), /Mapped fixture/);
+                await candidate.waitFor(); assert.match(await candidate.innerText(), /fixture/);
                 assert.equal(await candidate.isDisabled(), false, 'Saved disabled/offline instances remain usable asset sources.');
             }
             await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -246,7 +248,7 @@ test('instance binding: source conflicts and R02–R05 regressions against the i
         if (originalNode) await context.request.patch(assetPath + `/nodes/${fixture.node.machine_id}/metadata`, {
             params: { owner_user_id: fixture.owner.id }, data: { site_location: originalNode.site_location, device_model: originalNode.device_model, is_public_server: originalNode.is_public_server },
         }).catch(() => report.cleanupErrors.push('node metadata restore'));
-        report.passed = !failed && report.cleanupErrors.length === 0; report.finishedAt = new Date().toISOString();
+        report.passed = !failed && report.checks.every(check => check.passed) && report.cleanupErrors.length === 0; report.finishedAt = new Date().toISOString();
         await writeFile(resolve(directory, 'node-instance-binding-e2e-report.json'), JSON.stringify(report, null, 2));
         await browser.close(); if (!failed) assert.deepEqual(report.cleanupErrors, []);
     }

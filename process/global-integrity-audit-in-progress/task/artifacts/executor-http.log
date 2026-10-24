@@ -1,0 +1,9 @@
+PASS: unauthenticated health returns 401
+Health: {'state': 'ready', 'capabilities': {'adb': True, 'webrtc': True, 'scripts': True}}
+PASS: real prepare detects missing ADB (health nevertheless advertised adb=true)
+PASS: replacement executor identity rejected
+PASS: real session registry and journal creation
+CONFIRMED: health webrtc=true but offer returns media_dependencies_missing
+PASS: explicit close confirms journal/media cleanup
+PASS: absent run cancellation creates a durable refusal fence
+PASS: executor identity and refusal fence survive restart

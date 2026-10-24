@@ -119,7 +119,7 @@ async function ensureExpanded(page, device) {
 async function login(page, config, account = config.admin) {
     await page.goto('/');
     await page.locator('#username').fill(account.username);
-    await page.locator('#password input').fill(account.password);
+    await page.locator('input#password').fill(account.password);
     await page.getByRole('button', { name: 'Login', exact: true }).click();
     await page.locator('.console-page').waitFor();
 }
@@ -524,9 +524,11 @@ test('real backend: node asset management, offline nodes, and Chinese responsive
         await step('Service delete and device cascade delete persist; empty group and unused type can then be deleted', async () => {
             const panel = servicesPanel(page, directDevice.name);
             await panel.getByRole('row').filter({ hasText: service.name }).getByRole('button', { name: 'Delete', exact: true }).click();
-            await actionResponse(page, 'DELETE', `/services/${service.id}`,
+            const deletedService = await actionResponse(page, 'DELETE', `/services/${service.id}`,
                 () => page.getByRole('dialog', { name: 'Delete service', exact: true })
-                    .getByRole('button', { name: 'Delete', exact: true }).click(), [204]);
+                    .getByRole('button', { name: 'Delete', exact: true }).click(), [200]);
+            assert.equal(deletedService.deleted, true);
+            assert.equal(deletedService.publication_sync.status, 'applied');
             assert.equal((await api(context, config, `/devices/${directDevice.id}/services`)).items.length, 0);
             await createService(page, directDevice, { name: names.cascadeService, port: 9091 });
             for (const device of [directDevice, groupedDevice]) {

@@ -1,0 +1,68 @@
+{
+  "before": "尚未保存的关键脚本",
+  "after": "",
+  "confirmationDialogs": 0,
+  "draftLost": true,
+  "idleRequests": [
+    {
+      "method": "GET",
+      "path": "/api/v1/summary"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/machines"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/networks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/networks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/blocked-devices"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/summary"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/machines"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/networks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/networks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/blocked-devices"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/summary"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/machines"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/networks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/networks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/blocked-devices"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+▶ real asset API with isolated sessions, SQLite and bound device registration
+  ✔ session JSON errors and exact administrator authorization (253.858855ms)
+  ✔ node properties keep source observations and persist public role (17.225517ms)
+  ✔ type initialization and instance-bound gateways preserve name and deletion rules (71.01371ms)
+  ✔ idempotent create, LAN uniqueness, parent and self-device guards (67.451167ms)
+  ✔ dual protocol atomic port conflicts and safe service fields (57.98918ms)
+  ✔ query filtering and locating use the requested scope (10.965802ms)
+  ✔ device deletion cascades every current service and replay remains gone (25.45894ms)
+✔ real asset API with isolated sessions, SQLite and bound device registration (524.913619ms)
+▶ instance binding HTTP contract, legacy conversion and configuration lifecycle
+  ✔ V02/V03/V16 catalog roles, disabled offline candidates and tenant secrecy (33.742241ms)
+  ✔ V04/V07 unique gateway instance, duplicate direct instance and scoped guards (70.382731ms)
+  ✔ V05/V15 proxy and mapped hosts, gateway self and metadata protections (80.818978ms)
+  ✔ V05 non-/24 offsets, /31 and /32 plus invalid boundaries (167.565652ms)
+  ✔ V06 stale preview rejects create and fresh preview creates with current data (143.399811ms)
+  ✔ V08/V11 create replay survives source changes and unrelated changes preserve previews (308.929305ms)
+  ✔ V09/V10 legacy IPv6 remains editable and explicit binding never rewrites children (156.917816ms)
+  ✔ V11/V12 parent refresh leaves child IPs untouched and self requires confirmation (298.241762ms)
+  ✔ V12 missing rules require explicit address correction without deleting services (182.013278ms)
+  ✔ V13 same-ID recreation keeps children replaced until their own confirmation (319.034004ms)
+  ✔ V13/V14 missing, changed role and unavailable source still allow metadata/services/deletion (426.222947ms)
+  ✔ V08 address replay returns gone after deletion instead of resurrecting a device (49.582615ms)
+✔ instance binding HTTP contract, legacy conversion and configuration lifecycle (3158.118931ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3798.131515

@@ -1,0 +1,35 @@
+✖ real backend: node asset management, offline nodes, and Chinese responsive screenshots (16618.04058ms)
+ℹ Administrator selects another account and a registered node
+✖ instance binding: source conflicts and R02–R05 regressions against the isolated backend (16631.293693ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 34202.115389
+
+✖ failing tests:
+
+test at tests/node-assets-e2e.test.mjs:195:1
+✖ real backend: node asset management, offline nodes, and Chinese responsive screenshots (16618.04058ms)
+  Error: locator.fill: Timeout 15000ms exceeded.
+  Call log:
+    - waiting for locator('#password input')
+
+      at TestContext.<anonymous> (file:///workspace/EasyTier/easytier-web/frontend/tests/node-assets-e2e.test.mjs:559:15)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    [cause]: undefined
+  }
+
+test at tests/node-instance-binding-e2e.test.mjs:62:1
+✖ instance binding: source conflicts and R02–R05 regressions against the isolated backend (16631.293693ms)
+  Error: locator.fill: Timeout 15000ms exceeded.
+  Call log:
+    - waiting for locator('#password input')
+
+      at TestContext.<anonymous> (file:///workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-e2e.test.mjs:234:15)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)

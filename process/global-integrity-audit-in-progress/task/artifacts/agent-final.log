@@ -1,0 +1,39 @@
+=== RUN   TestDeviceAuthenticationAndIdentity
+--- PASS: TestDeviceAuthenticationAndIdentity (0.00s)
+=== RUN   TestTaskDurabilityDeduplicationAndBusy
+--- PASS: TestTaskDurabilityDeduplicationAndBusy (0.01s)
+=== RUN   TestTaskRejectsUntrustedInputs
+--- PASS: TestTaskRejectsUntrustedInputs (0.02s)
+=== RUN   TestConfigurationPreservesExactValues
+--- PASS: TestConfigurationPreservesExactValues (0.00s)
+=== RUN   TestDockerDiscoveryIncludesStoppedAndCompose
+--- PASS: TestDockerDiscoveryIncludesStoppedAndCompose (0.00s)
+=== RUN   TestLogsRedactSplitAndConfiguredSecrets
+--- PASS: TestLogsRedactSplitAndConfiguredSecrets (0.00s)
+=== RUN   TestCertificateChecksHost
+--- PASS: TestCertificateChecksHost (0.00s)
+=== RUN   TestInitGeneratesOnceAndPreservesConfiguredCredential
+=== RUN   TestInitGeneratesOnceAndPreservesConfiguredCredential/generated
+Configuration: /tmp/TestInitGeneratesOnceAndPreservesConfiguredCredentialgenerated601037192/001/etc/config.json
+Trust certificate: /tmp/TestInitGeneratesOnceAndPreservesConfiguredCredentialgenerated601037192/001/etc/agent.crt
+Credential saved in configuration; it is not printed.
+=== RUN   TestInitGeneratesOnceAndPreservesConfiguredCredential/configured
+Configuration: /tmp/TestInitGeneratesOnceAndPreservesConfiguredCredentialconfigured3959449942/001/etc/config.json
+Trust certificate: /tmp/TestInitGeneratesOnceAndPreservesConfiguredCredentialconfigured3959449942/001/etc/agent.crt
+Credential saved in configuration; it is not printed.
+--- PASS: TestInitGeneratesOnceAndPreservesConfiguredCredential (0.00s)
+    --- PASS: TestInitGeneratesOnceAndPreservesConfiguredCredential/generated (0.00s)
+    --- PASS: TestInitGeneratesOnceAndPreservesConfiguredCredential/configured (0.00s)
+=== RUN   TestInitBlankCredentialAndUnrepresentableBytes
+Configuration: /tmp/TestInitBlankCredentialAndUnrepresentableBytes1338032559/001/config.json
+Trust certificate: /tmp/TestInitBlankCredentialAndUnrepresentableBytes1338032559/001/agent.crt
+Credential saved in configuration; it is not printed.
+--- PASS: TestInitBlankCredentialAndUnrepresentableBytes (0.00s)
+=== RUN   TestCatalogAndHTTPReadOnlyEndpoints
+--- PASS: TestCatalogAndHTTPReadOnlyEndpoints (0.01s)
+=== RUN   TestExecutorPreservesConfigurationAndRunsOnce
+--- PASS: TestExecutorPreservesConfigurationAndRunsOnce (0.02s)
+=== RUN   TestLogChunksPreserveUTF8
+--- PASS: TestLogChunksPreserveUTF8 (0.00s)
+PASS
+ok  	github.com/CiBeDerORG/deploy/agent	1.073s

@@ -1,0 +1,114 @@
+✔ overview uses real counts and recovers from partial refresh failures (3872.288808ms)
+✔ enrollment command uses the console info response (1043.723042ms)
+✔ enrollment command uses the configured API hostname for https://api.example.test:8443/ (1112.933713ms)
+✔ enrollment command uses the configured API hostname for http://[2001:db8::1]:8848/ (1024.122889ms)
+✔ enrollment command uses the configured API hostname for . (1031.711392ms)
+✔ device search, sort, expansion and routed drawer survive reload and history (2641.140361ms)
+✔ device list card view toggle renders cards and persists across reload (2466.172265ms)
+✔ network creation retains gateway and advanced standalone modes (3411.539735ms)
+✔ network creation supports all initial-node protocols and preserves URLs (10817.316734ms)
+✖ network settings supports all initial-node protocols and preserves URLs (17891.624673ms)
+✔ network creation normalizes virtual subnet " 10.200.0.0 " with gateway true (1623.14744ms)
+✔ network creation normalizes virtual subnet " 10.200.0.0 " with gateway false (1744.159183ms)
+✔ network creation normalizes virtual subnet " 10.200.0.0/16 " with gateway true (1650.593604ms)
+✔ network creation normalizes virtual subnet " 10.200.0.0/16 " with gateway false (1689.706576ms)
+✔ network creation normalizes virtual subnet "   " with gateway true (1705.315616ms)
+✔ network creation normalizes virtual subnet "   " with gateway false (1786.880328ms)
+✔ network settings normalize virtual subnets and preserve explicit masks and DHCP (3437.39335ms)
+✔ PublicServer settings retain discovery mode when renamed or edited to the gateway URL (1135.773468ms)
+✔ network tabs preserve gateway settings and unsaved input across polling (4129.259358ms)
+✔ ACL rules and network secrets use secure randomness without randomUUID (3588.621538ms)
+✔ a late member configuration response cannot overwrite the next member (2344.171322ms)
+✔ settings wait for gateway discovery before exposing the save action (2767.052424ms)
+✔ editing an automatic member address keeps automatic assignment (1477.986864ms)
+✔ member editing, adding and removal keep existing request semantics (2281.839124ms)
+✔ central member WireGuard clients stay editable through the member configuration (2531.621181ms)
+✔ credentials tab and temporary devices render (1192.031743ms)
+✔ PublicServer credential exports use the configured public server (1307.376057ms)
+✔ node detail gives empty peers a clear home and keeps actions separate (3416.110672ms)
+✔ logger levels decode protobuf responses, persist selections and translate labels (22872.364554ms)
+✔ node detail groups populated peers, routes, connections and ACL stats (1570.313633ms)
+✔ empty and failed lists recover without presenting an empty result as success (1691.019487ms)
+✔ responsive layouts, localization, dark mode and mobile drawer (19993.741081ms)
+✔ external Console keeps the device dashboard without central requests or navigation (3144.387059ms)
+✔ asset device deep links locate the correct page, replace same-node selection, and recover from a deleted target (3125.456785ms)
+✔ merged workspace keeps map and service navigation, honors user administration permissions, and persists polling preference (2156.420178ms)
+✔ local login remains usable without SSO discovery and preserves input through failed and pending requests (4986.628374ms)
+✔ registration keeps its request contract, refreshes captcha, and returns to the enabled SSO login (2741.252901ms)
+✔ device access, installation and task queries require explicit clicks (3988.411142ms)
+✖ manual pages share console themes, language, mobile layout and navigation (1275.685609ms)
+✔ explicit scan, reviewed apply and saved endpoint selection with no idle polling (3729.881817ms)
+✔ mobile access settings preserve exact secret and never scan on save (1454.72127ms)
+✔ endpoint events restore only the still-watched screen and never replay input (2868.281148ms)
+✔ device-owned navigation works without central networks and toggles only the same service flag (2310.332937ms)
+✔ global editing updates the device service, preserves a failed draft, and deletion removes its navigation card (3376.325419ms)
+✔ adding a service under its actual device appears in management and navigation without copying records (1678.840003ms)
+✔ navigation without an access address opens the actual service editor and clearing the address disables the card (1754.999893ms)
+✔ service navigation locates the registered node and same asset device without a central network selector (1550.875736ms)
+✔ map locations edit registered metadata and survive reopening without writing separate map configuration (2027.282241ms)
+✔ actual running instances produce direct links and relay routes while failed samples become stale (34631.457745ms)
+✔ node selection fences late device responses from a previously selected node (1747.591332ms)
+✔ WebGL fallback keeps node actions and links to real device management (1909.625884ms)
+✔ auto refresh pauses map sampling while manual refresh and later resumption remain usable (1231.633764ms)
+✔ service loading errors recover without pretending the device catalog is empty (840.759538ms)
+✔ administrator catalogs remain owner-specific and revoked access clears the other owner records (1241.294876ms)
+✔ sidebar collapse persists and external mode does not request the asset service catalog (1870.111965ms)
+✔ globe reaches regional and city views with real localized administrative labels and preserves zoom on selection (14755.422833ms)
+✔ co-located and nearby nodes keep small selectable markers and every actual route remains selectable (8688.71049ms)
+✔ a gateway self device is the single selectable center in both space layouts and retains its services (2720.536643ms)
+✔ multiple gateways remain distinct even when only one group has a self device (2889.981467ms)
+✔ node space automatically fits one hundred devices arriving after its empty scene mounts (3447.996732ms)
+✔ asset-backed 3D map and services remain usable on Chinese desktop and mobile layouts (11055.37271ms)
+✔ card edits alias and geographic metadata while separating automatic location, and cancels without a request (1889.878359ms)
+✔ save trims manual fields, persists clear, and keeps the selected view and search (2451.142107ms)
+✔ background list responses do not overwrite the open draft or leak it to another node (1806.285522ms)
+✔ 503 keeps the draft visible for correction or retry (1347.558477ms)
+✔ 404 keeps the draft visible for correction or retry (1420.633495ms)
+✔ an in-flight save disables closing, editing, and duplicate submissions (1469.950995ms)
+✔ Unicode limits count code points and reject excessive length and controls (2552.724953ms)
+✔ default table keeps expansion after an attribute save (1775.877162ms)
+✔ mobile list exposes the same edit flow without horizontal dialog overflow (1186.374678ms)
+✔ external console mode does not offer unsupported attribute editing (745.41094ms)
+✔ alias and public role share the attribute editor and partial failures retry only the unsaved metadata (1818.415799ms)
+✔ geographic coordinates validate as a pair, map selection resolves an address, and saves WGS84 metadata (2177.362682ms)
+✔ card details keep all six fields visible and attribute editing beside the gear above them (784.160567ms)
+✔ card Last Seen falls back from recorded time to report time to a dash for online and offline nodes (771.74564ms)
+✔ card details wrap long IPv6, UUID and version values without overflow (748.012027ms)
+ℹ tests 76
+ℹ suites 0
+ℹ pass 74
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 285586.877937
+
+✖ failing tests:
+
+test at tests/dashboard.test.mjs:276:5
+✖ network settings supports all initial-node protocols and preserves URLs (17891.624673ms)
+  locator.fill: Timeout 10000ms exceeded.
+  Call log:
+    - waiting for locator('#settings-initial-nodes').locator('.url-input-full').last().getByPlaceholder('/mypath')
+
+      at TestContext.<anonymous> (/workspace/EasyTier/easytier-web/frontend/tests/dashboard.test.mjs:312:69) {
+    name: 'TimeoutError',
+    log: [ "  - waiting for locator('#settings-initial-nodes').locator('.url-input-full').last().getByPlaceholder('/mypath')" ]
+  }
+
+test at tests/deploy-agents.test.mjs:120:1
+✖ manual pages share console themes, language, mobile layout and navigation (1275.685609ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///workspace/EasyTier/easytier-web/frontend/tests/deploy-agents.test.mjs:163:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

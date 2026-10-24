@@ -1,0 +1,10 @@
+ok assertFixtureCoversGeneratedFields
+ok assertFullFieldRoundTrip
+ok assertLegacyVpnPortalFieldsReachBackendValidation
+ok assertVpnPortalRpcJsonNormalization
+ok assertBooleanFieldValuesPreserved
+ok assertEnumCompatibility
+ok assertAclDefaultsAndExplicitZero
+ok assertNetworkingMethodNormalization
+ok assertPeerPublicKeysPreserved
+ok assertNumberBoundaries

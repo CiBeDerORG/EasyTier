@@ -1,0 +1,74 @@
+▶ real asset API with isolated sessions, SQLite and bound device registration
+  ✔ session JSON errors and exact administrator authorization (290.337387ms)
+  ✔ node properties keep source observations and persist public role (13.756048ms)
+  ✔ type initialization and instance-bound gateways preserve name and deletion rules (69.21742ms)
+  ✔ idempotent create, LAN uniqueness, parent and self-device guards (76.982908ms)
+  ✔ dual protocol atomic port conflicts and safe service fields (63.720117ms)
+  ✔ query filtering and locating use the requested scope (11.614879ms)
+  ✔ device deletion cascades every current service and replay remains gone (21.218349ms)
+✔ real asset API with isolated sessions, SQLite and bound device registration (567.286995ms)
+▶ instance binding HTTP contract, legacy conversion and configuration lifecycle
+  ✖ V02/V03/V16 catalog roles, disabled offline candidates and tenant secrecy (20.963634ms)
+  ✔ V04/V07 unique gateway instance, duplicate direct instance and scoped guards (85.609319ms)
+  ✔ V05/V15 proxy and mapped hosts, gateway self and metadata protections (77.660051ms)
+  ✔ V05 non-/24 offsets, /31 and /32 plus invalid boundaries (135.744598ms)
+  ✔ V06 stale preview rejects create and fresh preview creates with current data (128.04095ms)
+  ✔ V08/V11 create replay survives source changes and unrelated changes preserve previews (283.894672ms)
+  ✔ V09/V10 legacy IPv6 remains editable and explicit binding never rewrites children (141.053479ms)
+  ✔ V11/V12 parent refresh leaves child IPs untouched and self requires confirmation (275.280778ms)
+  ✔ V12 missing rules require explicit address correction without deleting services (240.577359ms)
+  ✔ V13 same-ID recreation keeps children replaced until their own confirmation (230.335326ms)
+  ✖ V13/V14 missing, changed role and unavailable source still allow metadata/services/deletion (117.407763ms)
+  ✔ V08 address replay returns gone after deletion instead of resurrecting a device (53.771098ms)
+✖ instance binding HTTP contract, legacy conversion and configuration lifecycle (2796.650997ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 18
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3485.190799
+
+✖ failing tests:
+
+test at tests/node-instance-binding-api.test.mjs:48:13
+✖ V02/V03/V16 catalog roles, disabled offline candidates and tenant secrecy (20.963634ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  6 !== 4
+
+      at TestContext.<anonymous> (file:///workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-api.test.mjs:51:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async TestContext.<anonymous> (file:///workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-api.test.mjs:48:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 6,
+    expected: 4,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/node-instance-binding-api.test.mjs:224:13
+✖ V13/V14 missing, changed role and unavailable source still allow metadata/services/deletion (117.407763ms)
+  AssertionError [ERR_ASSERTION]: DELETE /api/v1/assets/services/f7ce38a8-203d-4044-a132-6658f1613ede: {"deleted":true,"publication_sync":{"status":"applied","targets":[]}}
+
+  200 !== 204
+
+      at request (file:///workspace/EasyTier/easytier-web/frontend/tests/node-assets-api-support.mjs:25:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-api.test.mjs:232:9)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async TestContext.<anonymous> (file:///workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-api.test.mjs:224:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 204,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

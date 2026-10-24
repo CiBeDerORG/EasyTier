@@ -139,6 +139,9 @@ test('manual pages share console themes, language, mobile layout and navigation'
             else if (path === '/blocked-devices') result = { blocked: [] };
             else if (path === '/admin/users/context') result = { available: true, can_manage_users: true };
             else if (path === '/deploy/agents') result = [];
+            else if (path === '/automation/context') result = { available: true, runner_configured: false, actor: { id: 1, username: 'test' }, can_manage_others: false, protocol_version: 1 };
+            else if (path === '/automation/devices') result = { items: [], issues: [] };
+            else if (path === '/automation/scripts' || path === '/automation/runs') result = { items: [] };
             await route.fulfill({ json: result });
         });
         const agentTitle = lang === 'cn' ? '应用与服务' : 'Applications & services';
@@ -160,7 +163,9 @@ test('manual pages share console themes, language, mobile layout and navigation'
         await page.clock.fastForward(60_000);
         await delay(100);
         assert.equal(requests.length, idle, 'automation entry must not scan or poll');
-        assert.equal(await page.getByText(lang === 'cn' ? '规划中' : 'Planned', { exact: true }).count(), 1);
+        assert.equal(await page.getByText(lang === 'cn' ? '规划中' : 'Planned', { exact: true }).count(), 0);
+        await page.getByRole('button', { name: lang === 'cn' ? '脚本库' : 'Script library', exact: true }).waitFor();
+        await page.getByRole('heading', { name: lang === 'cn' ? '还没有登记实体设备' : 'No registered devices', exact: true }).waitFor();
         if (process.env.WEB_SCREENSHOT_DIR) {
             await mkdir(process.env.WEB_SCREENSHOT_DIR, { recursive: true });
             await page.screenshot({ path: `${process.env.WEB_SCREENSHOT_DIR}/automation-${lang}-${theme}-desktop.png`, fullPage: true });
@@ -168,7 +173,8 @@ test('manual pages share console themes, language, mobile layout and navigation'
         await page.setViewportSize({ width: 390, height: 844 });
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'automation mobile must not overflow');
         if (process.env.WEB_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.WEB_SCREENSHOT_DIR}/automation-${lang}-${theme}-mobile.png`, fullPage: true });
-        await page.getByRole('button', { name: lang === 'cn' ? '准备接入主机' : 'Prepare a host', exact: true }).click();
+        await page.locator('.mobile-nav-toggle').click();
+        await page.locator('.console-mobile-nav').getByRole('menuitem').filter({ hasText: agentTitle }).click();
         await page.getByRole('heading', { name: agentTitle, exact: true }).waitFor();
         await page.getByRole('button', { name: lang === 'cn' ? '添加设备' : 'Add device', exact: true }).first().click();
         await page.getByRole('dialog').waitFor();

@@ -48,20 +48,26 @@ test('instance binding HTTP contract, legacy conversion and configuration lifecy
     await t.test('V02/V03/V16 catalog roles, disabled offline candidates and tenant secrecy', async () => {
         const gateways = await request(owner, 'GET', '/assets/network-instances', { ...scope, role: 'gateway' });
         const ordinary = await request(owner, 'GET', '/assets/network-instances', { ...scope, role: 'ordinary' });
-        assert.equal(gateways.items.length, 4); assert.equal(ordinary.items.length, 2);
+        // Both catalogs retain every saved instance, with incompatible roles disabled.
+        assert.equal(gateways.items.length, 6); assert.equal(ordinary.items.length, 6);
+        const gatewayChoices = gateways.items.filter(item => item.role === 'gateway');
+        const ordinaryChoices = ordinary.items.filter(item => item.role === 'ordinary');
+        assert.equal(gatewayChoices.length, 4); assert.equal(ordinaryChoices.length, 2);
+        assert.ok(gateways.items.filter(item => item.role !== 'gateway').every(item => !item.selectable && item.unavailable_reason));
+        assert.ok(ordinary.items.filter(item => item.role !== 'ordinary').every(item => !item.selectable && item.unavailable_reason));
         const proxy = gateways.items.find(item => item.instance_id === instance('proxy'));
         assert.equal(proxy.role, 'gateway'); assert.equal(proxy.rules[0].mapped_cidr, null);
         const disabled = gateways.items.find(item => item.instance_id === instance('mapped2'));
         assert.equal(disabled.disabled, true); assert.equal(disabled.selectable, true);
-        assert.equal(ordinary.items[0].display_name, ordinary.items[1].display_name);
-        assert.notEqual(ordinary.items[0].instance_id, ordinary.items[1].instance_id);
+        assert.equal(ordinaryChoices[0].display_name, ordinaryChoices[1].display_name);
+        assert.notEqual(ordinaryChoices[0].instance_id, ordinaryChoices[1].instance_id);
         const all = JSON.stringify([gateways, ordinary]);
         assert.doesNotMatch(all, /network_secret|fixture-secret|Other private fixture/);
         await request(other, 'GET', '/assets/network-instances', { ...scope, role: 'ordinary' }, undefined, 403);
         const theirs = await request(other, 'GET', '/assets/network-instances', { ...scope, owner_user_id: fixture.other.id, role: 'ordinary' });
         assert.equal(theirs.items[0].ipv4, '10.99.0.99');
         const managed = await request(admin, 'GET', '/assets/network-instances', { ...scope, role: 'gateway' });
-        assert.equal(managed.items.length, 4);
+        assert.equal(managed.items.length, 6);
     });
 
     let proxy, mapped, wide, plain, samePlain, mappedChild, self;
@@ -229,7 +235,9 @@ test('instance binding HTTP contract, legacy conversion and configuration lifecy
         assert.equal(updated.overlay_ip, plain.overlay_ip);
         const service = await request(owner, 'POST', `/assets/devices/${plain.id}/services`, scope,
             fresh({ name: 'Service while source missing', port: 8080, protocols: ['tcp'], remarks: null, access_url: null, icon: null }));
-        await request(owner, 'DELETE', `/assets/services/${service.id}`, scope, undefined, 204);
+        const removed = await request(owner, 'DELETE', `/assets/services/${service.id}`, scope);
+        assert.equal(removed.deleted, true);
+        assert.equal(removed.publication_sync.status, 'applied');
         mutateInstance('ordinary', 'recreate');
         assert.equal((await deviceRecord(owner, plain.id)).binding.state, 'replaced');
         await applyBinding('device', plain.id, 'ordinary');

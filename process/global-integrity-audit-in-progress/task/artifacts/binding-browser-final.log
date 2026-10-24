@@ -1,0 +1,33 @@
+▶ instance binding: source conflicts and R02–R05 regressions against the isolated backend
+  ✔ R02: duplicate instance and type names expose distinct stable short IDs (669.480506ms)
+  ✔ V06: changing the saved instance after preview returns a real conflict and preserves draft input (893.7047ms)
+  ✖ R05: Unicode code-point limits match the server; control characters and over-limit values cannot submit (15018.005014ms)
+  ✔ R03: a deleted device reports a resource error without clearing the valid node (565.967462ms)
+  ✔ R03 transient network failure keeps the last successful rows and manual retry recovers (193.710678ms)
+  ✔ R04: returning from a scrolled detail page resets the node-list scroll position (149.319451ms)
+  ✔ R03: revoking a separate administrator in the real database clears cross-account forms and data (2127.46231ms)
+✖ instance binding: source conflicts and R02–R05 regressions against the isolated backend (21603.020222ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 6
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 21955.54231
+
+✖ failing tests:
+
+test at tests/node-instance-binding-e2e.test.mjs:82:17
+✖ R05: Unicode code-point limits match the server; control characters and over-limit values cannot submit (15018.005014ms)
+  locator.click: Timeout 15000ms exceeded.
+  Call log:
+    - waiting for getByRole('button', { name: 'Edit node properties', exact: true })
+
+      at /workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-e2e.test.mjs:141:91
+      at async TestContext.<anonymous> (/workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-e2e.test.mjs:84:19)
+      at async step (/workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-e2e.test.mjs:82:9)
+      at async TestContext.<anonymous> (/workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-e2e.test.mjs:139:9) {
+    name: 'TimeoutError',
+    log: [ "  - waiting for getByRole('button', { name: 'Edit node properties', exact: true })" ]
+  }

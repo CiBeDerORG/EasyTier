@@ -1,0 +1,49 @@
+✖ real backend: node asset management, offline nodes, and Chinese responsive screenshots (18590.390324ms)
+ℹ Administrator selects another account and a registered node
+ℹ Gateway manager requires a persisted gateway instance and preserves metadata editing
+ℹ Add-device Gateway role creates a gateway and highlights it without counting it as an entity device
+ℹ Custom device type can be created and renamed
+ℹ Search is explicit; creating outside current filters resets them and expands the new direct device
+ℹ Grouped device derives mapped addresses from its rule; multiple service lists stay expanded
+ℹ Service CRUD uses real API; dual protocols, HTTP link, icon, and conflict handling
+ℹ Device editing preserves ownership; reopening a collapsed service panel does not reopen an old add dialog
+ℹ Referenced groups and types cannot be deleted
+ℹ Chinese desktop and 390px screenshots show the saved data and service form
+ℹ An offline registered node accepts persisted-instance device and service management
+ℹ Service delete and device cascade delete persist; empty group and unused type can then be deleted
+✖ instance binding: source conflicts and R02–R05 regressions against the isolated backend (2115.64059ms)
+ℹ R02: duplicate instance and type names expose distinct stable short IDs
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 21350.579794
+
+✖ failing tests:
+
+test at tests/node-assets-e2e.test.mjs:195:1
+✖ real backend: node asset management, offline nodes, and Chinese responsive screenshots (18590.390324ms)
+  Error: /api/v1/assets/services/10334374-0148-4a6d-b7c9-aa3fad363e56: HTTP 200; {"deleted":true,"publication_sync":{"status":"applied","targets":[]}}
+      at TestContext.<anonymous> (file:///workspace/EasyTier/easytier-web/frontend/tests/node-assets-e2e.test.mjs:559:15)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    [cause]: undefined
+  }
+
+test at tests/node-instance-binding-e2e.test.mjs:62:1
+✖ instance binding: source conflicts and R02–R05 regressions against the isolated backend (2115.64059ms)
+  Error: The input did not match the regular expression /Direct fixture/. Input:
+
+  'fixture\n' +
+    '5fb54b07\n' +
+    'Available\n' +
+    'Offline · Web configuration\n' +
+    'Instance overlay IP: 10.70.0.10 (Configured address)\n' +
+    'No subnet forwarding'
+
+      at TestContext.<anonymous> (file:///workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-e2e.test.mjs:234:15)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)

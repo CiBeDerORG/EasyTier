@@ -1,0 +1,50 @@
+WARNING: The directory '/home/agent/.cache/pip' or its parent directory is not owned or is not writable by the current user. The cache has been disabled. Check the permissions and owner of that directory. If executing pip with sudo, you should use sudo's -H flag.
+Collecting fastapi==0.115.12 (from -r automation-executor/requirements.txt (line 2))
+  Downloading fastapi-0.115.12-py3-none-any.whl.metadata (27 kB)
+Collecting uvicorn==0.34.0 (from -r automation-executor/requirements.txt (line 3))
+  Downloading uvicorn-0.34.0-py3-none-any.whl.metadata (6.5 kB)
+Collecting httpx==0.28.1 (from -r automation-executor/requirements.txt (line 4))
+  Downloading httpx-0.28.1-py3-none-any.whl.metadata (7.1 kB)
+Collecting aiortc==1.13.0 (from -r automation-executor/requirements.txt (line 5))
+  Downloading aiortc-1.13.0-py3-none-any.whl.metadata (4.9 kB)
+Collecting av==14.4.0 (from -r automation-executor/requirements.txt (line 6))
+  Downloading av-14.4.0.tar.gz (3.9 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.9/3.9 MB 21.7 MB/s eta 0:00:00
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'error'
+  error: subprocess-exited-with-error
+
+  × Getting requirements to build wheel did not run successfully.
+  │ exit code: 1
+  ╰─> [16 lines of output]
+      Package libavformat was not found in the pkg-config search path.
+      Perhaps you should add the directory containing `libavformat.pc'
+      to the PKG_CONFIG_PATH environment variable
+      Package 'libavformat', required by 'virtual:world', not found
+      Package 'libavcodec', required by 'virtual:world', not found
+      Package 'libavdevice', required by 'virtual:world', not found
+      Package 'libavutil', required by 'virtual:world', not found
+      Package 'libavfilter', required by 'virtual:world', not found
+      Package 'libswscale', required by 'virtual:world', not found
+      Package 'libswresample', required by 'virtual:world', not found
+
+      Warning! You are installing from source.
+      It is EXPECTED that it will fail. You are REQUIRED to use ffmpeg 7.
+      You MUST have Cython, pkg-config, and a C compiler.
+
+      pkg-config could not find libraries ['avformat', 'avcodec', 'avdevice', 'avutil', 'avfilter', 'swscale', 'swresample']
+      [end of output]
+
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.2.2
+[notice] To update, run: python -m pip install --upgrade pip
+error: subprocess-exited-with-error
+
+× Getting requirements to build wheel did not run successfully.
+│ exit code: 1
+╰─> See above for output.
+
+note: This error originates from a subprocess, and is likely not a problem with pip.

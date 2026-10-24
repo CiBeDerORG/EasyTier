@@ -1,0 +1,16 @@
+$ git branch -a
+* main
+  remotes/origin/HEAD -> origin/main
+  remotes/origin/main
+
+$ git status --short
+ M README.md
+ M deploy.sh
+?? .github/workflows/agent-check.yml
+?? agent/
+?? docs/
+
+$ git ls-tree HEAD agent
+
+$ git log -1 --format=%H %s
+b73694d24ca924ffed16b780d20861eb2ed9add2 新增仅针对 GHCR 镜像的全局加速轮换

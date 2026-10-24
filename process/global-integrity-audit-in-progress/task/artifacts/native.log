@@ -1,0 +1,702 @@
+ Downloading crates ...
+  Downloaded serial_test_derive v4.0.1
+  Downloaded plotters-svg v0.3.7
+  Downloaded alloca v0.4.0
+  Downloaded netlink-packet-generic v0.5.0
+  Downloaded universal-hash v0.6.1
+  Downloaded ciborium-io v0.2.2
+  Downloaded futures-timer v3.0.4
+  Downloaded serial_test v4.0.1
+  Downloaded poly1305 v0.9.1
+  Downloaded netlink-packet-wireguard v0.5.0
+  Downloaded tokio-socks v0.5.3
+  Downloaded chacha20poly1305 v0.11.0
+  Downloaded tinytemplate v1.2.1
+  Downloaded rayon-core v1.13.0
+  Downloaded zerocopy-derive v0.8.57
+  Downloaded hmac v0.13.0
+  Downloaded oorandom v11.1.5
+  Downloaded rayon v1.12.0
+  Downloaded netlink-packet-core v0.9.0
+  Downloaded pastey v0.1.1
+  Downloaded cipher v0.5.2
+  Downloaded aead v0.6.1
+  Downloaded defguard_boringtun v0.7.0
+  Downloaded criterion-plot v0.8.2
+  Downloaded x25519-dalek v3.0.0
+  Downloaded half v2.7.1
+  Downloaded ciborium-ll v0.2.2
+  Downloaded page_size v0.6.0
+  Downloaded netlink-packet-route v0.33.0
+  Downloaded rstest v0.27.0
+  Downloaded ciborium v0.2.2
+  Downloaded cast v0.3.0
+  Downloaded plotters-backend v0.3.7
+  Downloaded criterion v0.8.2
+  Downloaded relative-path v1.9.3
+  Downloaded blake2 v0.11.0
+  Downloaded netlink-packet-utils v0.6.0
+  Downloaded defguard_wireguard_rs v0.12.1
+  Downloaded anes v0.1.6
+  Downloaded rstest_macros v0.27.0
+  Downloaded plotters v0.3.7
+  Downloaded maplit v1.0.2
+  Downloaded curve25519-dalek v5.0.0
+  Downloaded inout v0.2.2
+   Compiling serde_core v1.0.229
+   Compiling aho-corasick v1.1.5
+   Compiling subtle v2.6.1
+   Compiling parking_lot v0.12.5
+   Compiling crypto-common v0.2.2
+   Compiling zerocopy v0.8.57
+   Compiling generic-array v0.14.7
+   Compiling regex-automata v0.4.18
+   Compiling zerocopy-derive v0.8.57
+   Compiling tokio v1.53.1
+   Compiling serde v1.0.229
+   Compiling crypto-common v0.1.7
+   Compiling regex v1.13.1
+   Compiling futures-io v0.3.34
+   Compiling futures-util v0.3.34
+   Compiling crossbeam-deque v0.8.8
+   Compiling prost-derive v0.14.4
+   Compiling inout v0.2.2
+   Compiling cipher v0.5.2
+   Compiling prost v0.14.4
+   Compiling chacha20 v0.10.2
+   Compiling rand v0.10.2
+   Compiling prost-types v0.14.4
+   Compiling block-buffer v0.10.4
+   Compiling bstr v1.13.1
+   Compiling digest v0.10.7
+   Compiling globset v0.4.20
+   Compiling ppv-lite86 v0.2.21
+   Compiling rustix v1.1.5
+   Compiling tempfile v3.27.0
+   Compiling ignore v0.4.33
+   Compiling petgraph v0.8.3
+   Compiling ipnet v2.12.2
+   Compiling either v1.18.0
+   Compiling cmov v0.5.4
+   Compiling ctutils v0.4.2
+   Compiling serde_json v1.0.151
+   Compiling prost-build v0.14.4
+   Compiling rustls v0.23.45
+   Compiling url v2.5.8
+   Compiling inout v0.1.4
+   Compiling deranged v0.5.8
+   Compiling uuid v1.26.1
+   Compiling time v0.3.55
+   Compiling cipher v0.4.4
+   Compiling rand_chacha v0.9.0
+   Compiling erased-serde v0.4.10
+   Compiling terminal_size v0.4.4
+   Compiling prost-wkt-build v0.7.2
+   Compiling curve25519-dalek v4.1.3
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling globwalk v0.8.1
+   Compiling hmac v0.12.1
+   Compiling tokio-util v0.7.19
+   Compiling universal-hash v0.5.1
+   Compiling nix v0.31.3
+   Compiling curve25519-dalek v5.0.0
+   Compiling smallvec v1.16.1
+   Compiling toml_edit v0.22.27
+   Compiling clap_builder v4.6.7
+   Compiling granit-parser v1.3.0
+   Compiling chrono v0.4.45
+   Compiling poly1305 v0.8.0
+   Compiling typetag v0.2.23
+   Compiling clang-sys v1.9.1
+   Compiling prost-wkt-types v0.7.2
+   Compiling rand v0.9.5
+   Compiling chacha20 v0.9.1
+   Compiling digest v0.11.3
+   Compiling universal-hash v0.6.1
+   Compiling prost-reflect v0.16.5
+   Compiling pbjson-build v0.9.0
+   Compiling aead v0.5.2
+   Compiling itertools v0.13.0
+   Compiling rayon-core v1.13.0
+   Compiling netlink-packet-core v0.9.0
+   Compiling serde-saphyr v1.3.0
+   Compiling bindgen v0.72.1
+   Compiling hickory-proto v0.25.2
+   Compiling easytier-proto v2.7.0 (/workspace/EasyTier/easytier-proto)
+   Compiling clap v4.6.7
+   Compiling chacha20poly1305 v0.10.1
+   Compiling poly1305 v0.9.1
+   Compiling prost-wkt v0.7.2
+   Compiling toml v0.8.23
+   Compiling x25519-dalek v2.0.1
+   Compiling triomphe v0.1.16
+   Compiling rand_chacha v0.3.1
+   Compiling sha2 v0.10.9
+   Compiling futures-executor v0.3.34
+   Compiling half v2.7.1
+   Compiling aead v0.6.1
+   Compiling cidr v0.3.2
+   Compiling rstest_macros v0.27.0
+   Compiling itertools v0.11.0
+   Compiling alloca v0.4.0
+   Compiling ciborium-io v0.2.2
+   Compiling defguard_boringtun v0.7.0
+   Compiling regex-syntax v0.8.11
+   Compiling plotters-backend v0.3.7
+   Compiling lazy_static v1.5.0
+   Compiling sharded-slab v0.1.7
+   Compiling plotters-svg v0.3.7
+   Compiling moka v0.12.16
+   Compiling rust-i18n-support v4.2.2
+   Compiling ciborium-ll v0.2.2
+   Compiling hyper v1.11.1
+   Compiling dashmap v6.2.1
+   Compiling chacha20poly1305 v0.11.0
+   Compiling rand v0.8.8
+   Compiling x25519-dalek v3.0.0
+   Compiling kcp-sys v0.1.0 (https://github.com/EasyTier/kcp-sys?rev=268533568d734ae89dc89603078da3ca522effe1#26853356)
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling netlink-packet-generic v0.5.0
+   Compiling pbjson v0.9.0
+   Compiling blake2 v0.11.0
+   Compiling hmac v0.13.0
+   Compiling tokio-rustls v0.26.5
+   Compiling rust-i18n v4.2.2
+   Compiling globwalk v0.9.1
+   Compiling sha1 v0.10.7
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling pastey v0.1.1
+   Compiling relative-path v1.9.3
+   Compiling cast v0.3.0
+   Compiling hickory-resolver v0.25.2
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling netlink-packet-utils v0.6.0
+   Compiling criterion-plot v0.8.2
+   Compiling prefix-trie v0.10.1
+   Compiling quinn-proto v0.11.18
+   Compiling which v4.4.2
+   Compiling tracing-subscriber v0.3.23
+   Compiling stun_codec v0.4.0
+   Compiling easytier v2.7.0 (/workspace/EasyTier/easytier)
+   Compiling plist v1.10.1
+   Compiling async-ringbuf v0.3.9
+   Compiling guarden v0.3.0
+   Compiling netlink-packet-wireguard v0.5.0
+   Compiling rayon v1.12.0
+   Compiling snow v0.10.0
+   Compiling hyper-util v0.1.20
+   Compiling rust-i18n-macro v4.2.2
+   Compiling ciborium v0.2.2
+   Compiling plotters v0.3.7
+   Compiling futures v0.3.34
+   Compiling clap_complete v4.6.11
+   Compiling netlink-packet-route v0.33.0
+   Compiling yasna v0.6.0
+   Compiling tinytemplate v1.2.1
+   Compiling prefix-trie v0.7.0
+   Compiling netdev v0.31.0
+   Compiling blake2 v0.10.6
+   Compiling crossbeam-queue v0.3.14
+   Compiling ipnetwork v0.20.0
+   Compiling spin v0.9.9
+   Compiling page_size v0.6.0
+   Compiling serial_test_derive v4.0.1
+   Compiling futures-timer v3.0.4
+   Compiling anes v0.1.6
+   Compiling oorandom v11.1.5
+   Compiling humantime-serde v1.1.1
+   Compiling serial_test v4.0.1
+   Compiling boringtun-easytier v0.6.1
+   Compiling criterion v0.8.2
+   Compiling service-manager v0.8.0 (https://github.com/EasyTier/service-manager-rs.git?branch=main#5eb28f7a)
+   Compiling easytier-core v2.7.0 (/workspace/EasyTier/easytier-core)
+   Compiling rstest v0.27.0
+   Compiling pnet_datalink v0.35.0
+   Compiling flume v0.12.0
+   Compiling crossbeam v0.8.5
+   Compiling rcgen v0.14.10
+   Compiling hickory-server v0.25.2
+   Compiling defguard_wireguard_rs v0.12.1
+   Compiling natpmp v0.5.0
+   Compiling clap_complete_nushell v4.6.2
+   Compiling quinn v0.11.12
+   Compiling tun-easytier v1.1.1 (https://github.com/EasyTier/rust-tun?rev=5ba6be073e5b486b68c12f80fac5cfb50601f024#5ba6be07)
+   Compiling hickory-client v0.25.2
+   Compiling tokio-websockets v0.13.2 (https://github.com/EasyTier/tokio-websockets#dc9771c7)
+   Compiling atomic-write-file v0.3.1
+   Compiling tokio-socks v0.5.3
+   Compiling hkdf v0.12.4
+   Compiling gethostname v1.1.0
+   Compiling maplit v1.0.2
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 05s
+     Running unittests src/lib.rs (target/debug/deps/easytier-2341b8b06ff05984)
+
+running 822 tests
+test common::config::compatibility_tests::test_env_var_with_default_value ... ok
+test common::config::compatibility_tests::test_boolean_type_env_vars ... ok
+test common::config::compatibility_tests::test_disable_env_parsing_flag ... ok
+test common::config::compatibility_tests::test_env_var_expansion_and_readonly_flag ... ok
+test common::config::compatibility_tests::test_multiple_instances_with_different_env_vars ... ok
+test common::config::compatibility_tests::test_mixed_type_env_vars ... ok
+test common::config::compatibility_tests::test_numeric_type_env_vars ... ok
+test common::config::compatibility_tests::test_readonly_config_api_protection ... ok
+test common::config::tests::detects_only_top_level_logging_sections ... ok
+test common::config::tests::ignored_logging_values_do_not_change_config_validation ... ok
+test common::config::compatibility_tests::test_real_config_fields_expansion ... ok
+test common::credential_manager::tests::file_storage_reports_read_errors ... ok
+test common::config::tests::file_adapter_keeps_os_metadata_outside_core_config ... ok
+test common::config::compatibility_tests::test_undefined_env_var_without_default ... ok
+test common::dns::tests::runtime_dns_context_preserves_process_routing_inputs ... ok
+test common::config::tests::path_adapter_preserves_file_name_in_parse_error ... ok
+test common::dns::tests::socket_addrs_preserves_explicit_zero_port ... ok
+test common::dns::tests::successful_system_lookup_skips_hickory ... ok
+test common::credential_manager::tests::file_storage_round_trips_serialized_credentials ... ok
+test common::env_parser::tests::test_complex_toml_config ... ok
+test common::env_parser::tests::test_default_with_special_chars ... ok
+test common::env_parser::tests::test_empty_var_value ... ok
+test common::env_parser::tests::test_empty_string ... ok
+test common::env_parser::tests::test_escape_syntax_backslash ... ok
+test common::env_parser::tests::test_expand_short_syntax ... ok
+test common::env_parser::tests::test_escape_syntax_double_dollar ... ok
+test common::env_parser::tests::test_expand_standard_syntax ... ok
+test common::env_parser::tests::test_expand_with_default ... ok
+test common::env_parser::tests::test_invalid_syntax ... ok
+test common::env_parser::tests::test_mixed_defined_undefined_vars ... ok
+test common::env_parser::tests::test_multiple_dollar_signs ... ok
+test common::env_parser::tests::test_nested_braces ... ok
+test common::env_parser::tests::test_multiple_vars ... ok
+test common::env_parser::tests::test_no_env_vars ... ok
+test common::env_parser::tests::test_undefined_var_without_default ... ok
+test common::env_parser::tests::test_var_name_with_numbers_underscores ... ok
+test common::global_ctx::tests::active_dhcp_ipv4_survives_declarative_config_replacement ... ok
+test common::global_ctx::tests::compact_runtime_does_not_advertise_unsupported_mapped_listeners ... ok
+test common::global_ctx::tests::dhcp_initial_addresses_match_normalized_runtime ... ok
+test common::global_ctx::tests::host_hostname_fallback_does_not_materialize_in_toml ... ok
+test common::global_ctx::tests::runtime_state_does_not_rewrite_toml_config ... ok
+test common::global_ctx::tests::test_global_ctx ... ok
+test common::global_ctx::tests::test_tun_device_name_tracks_explicit_runtime_state ... ok
+test common::dns::tests::timed_out_system_lookup_is_not_retried ... ok
+test common::ifcfg::netlink::tests::addr_test ... FAILED
+test common::ifcfg::netlink::tests::ipv6_addr_readback_test ... FAILED
+test common::ifcfg::netlink::tests::ipv6_route_readback_test ... FAILED
+test common::ifcfg::netlink::tests::ipv6_route_remove_test ... FAILED
+test common::ifcfg::netlink_wire::tests::message_iterator_rejects_truncated_padding ... ok
+test common::ifcfg::netlink_wire::tests::neighbor_proxy_round_trip ... ok
+test common::ifcfg::netlink_wire::tests::route_builder_encodes_preferred_source ... ok
+test common::ifcfg::netlink_wire::tests::route_parser_reads_ipv6_source_prefix ... ok
+test common::ifcfg::netlink_wire::tests::route_round_trip_preserves_unknown_attributes ... ok
+test common::ifcfg::tests::removed_shell_cmd_ignores_missing_addresses_and_routes ... ok
+test common::ifcfg::tests::removed_shell_cmd_preserves_other_errors ... ok
+test common::ifcfg::netlink::tests::remove_ipv4_route_with_source_hint_keeps_other_metric ... FAILED
+test common::ifcfg::netlink::tests::route_test ... FAILED
+test common::log::tests::additional_default_console_targets_are_scoped ... ok
+test common::log::tests::default_console_only_enables_core_info ... ok
+test common::log::tests::formatting_is_compact_and_color_is_optional ... ok
+test common::log::tests::default_file_logger_is_not_opened_without_reload ... ok
+test common::log::tests::rust_log_supports_global_and_target_levels ... ok
+test common::log::tests::rust_log_target_without_level_enables_trace ... ok
+test common::log::tests::file_logger_uses_rust_log_when_enabled ... ok
+test common::log::tests::unix_day_conversion_matches_known_dates ... ok
+test common::machine_id::tests::test_default_linux_machine_id_state_dir_falls_back_in_order ... ok
+test common::machine_id::tests::test_legacy_machine_uid_migration_requires_existing_state_dir_content ... ok
+test common::machine_id::tests::test_non_empty_os_string_filters_empty_values ... ok
+test common::machine_id::tests::test_persist_machine_id_creates_missing_state_dir ... ok
+test common::machine_id::tests::test_read_legacy_machine_id_file_ignores_read_errors ... ok
+test common::machine_id::tests::test_resolve_machine_id_reads_state_file ... ok
+test common::machine_id::tests::test_resolve_machine_id_uses_uuid_seed_verbatim ... ok
+test common::machine_id::tests::test_write_uuid_file_atomically_writes_expected_contents ... ok
+test common::network::tests::converts_contiguous_ip_masks_to_prefixes ... ok
+test common::network::tests::namespace_operation_does_not_migrate_between_os_threads ... ok
+test common::log::tests::reloading_file_logger_preserves_rust_log_and_supports_off ... ok
+test common::stun::tests::native_runtime_supports_collector_socket ... ok
+test common::log::tests::tracing_events_and_direct_log_records_share_the_file_sink ... ok
+test common::stun::tests::runtime_collector_starts_with_native_runtime ... ok
+test common::tracing_rolling_appender::base::test::daily_and_max_size ... ok
+test common::tracing_rolling_appender::base::test::frequency_every_day ... ok
+test common::tracing_rolling_appender::base::test::frequency_every_day_limited_files ... ok
+test common::tracing_rolling_appender::base::test::frequency_every_hour ... ok
+test common::tracing_rolling_appender::base::test::frequency_every_minute ... ok
+test common::tracing_rolling_appender::base::test::max_size ... ok
+test common::tracing_rolling_appender::base::test::max_size_existing ... ok
+test common::tracing_rolling_appender::base::test::rolling_file_appender_builder ... ok
+test common::tracing_rolling_appender::base::test::rolling_file_appender_builder_no_filename ... ok
+test common::stun::tests::native_tcp_runtime_drives_core_stun_detector ... ok
+test common::stun::tests::native_udp_runtime_drives_core_stun_detector ... ok
+test core::tests::dhcp_cli_rejects_invalid_or_unusable_subnets ... ok
+test core::tests::empty_stun_server_options_clear_existing_config ... ok
+test core::tests::secure_mode_cli_flag_preserves_config_file_keypair ... ok
+test core::tests::secure_mode_cli_key_replaces_config_file_keypair ... ok
+test core::tests::dhcpv6_cli_accepts_optional_bool_or_cidr ... ok
+test core::tests::test_network_options_merge_preserves_credential_identity ... ok
+test core::tests::test_network_options_patch_preserves_omitted_flags_and_applies_zero_values ... ok
+test core::tests::dhcp_cli_accepts_optional_bool_or_cidr_and_overrides_config ... ok
+test core::tests::test_parse_listeners ... ok
+test core::tests::vpn_portal_cli_rejects_legacy_path_and_invalid_group_mapping ... ok
+test core::tests::vpn_portal_cli_uses_named_clients_and_preserves_unset_fields ... ok
+test core::tests::vpn_portal_cli_repeat_flags_use_singular_names ... ok
+test gateway::quic_proxy::tests::etq1_against_legacy_server_falls_back_to_version_1 ... ok
+test gateway::quic_proxy::tests::connect_with_etq1_falls_back_for_legacy_server ... ok
+test gateway::quic_proxy::tests::legacy_client_against_etq1_server ... ok
+test gateway::quic_proxy::tests::etq1_handshake_streams_both_ways ... ok
+test gateway::quic_proxy::tests::test_bandwidth ... ignored, consumes massive memory (~16GB)
+test gateway::quic_proxy::tests::test_bandwidth_parallel ... ignored, consumes massive memory (~16GB)
+test gateway::quic_proxy::tests::test_gso ... ok
+test host_runtime::tests::native_host_runtime_is_process_wide ... ok
+test host_runtime::tests::native_local_ip_probe_uses_process_runtime ... ok
+test host_runtime::tests::native_route_probe_uses_remote_address_family ... ok
+test igd_next::messages::tests::mapping_description_is_xml_escaped ... ok
+test igd_next::messages::tests::soap_action_and_body_use_discovered_service_type ... ok
+test igd_next::parsing::tests::device_description_uses_declared_xml_encoding ... ok
+test igd_next::parsing::tests::nested_ppp_service_is_discovered ... ok
+test igd_next::parsing::tests::schema_contains_only_input_arguments ... ok
+test igd_next::parsing::tests::search_location_is_case_insensitive_and_keeps_query ... ok
+test igd_next::parsing::tests::soap_fault_preserves_error_code ... ok
+test instance::cli_event_logger::tests::event_loop_stops_when_the_instance_closes ... ok
+test gateway::quic_proxy::tests::test_ping ... ok
+test core::tests::test_cli_flags_from_schema_preserves_presence ... ok
+test instance::config::tests::clearing_configured_hostname_does_not_reuse_the_old_value ... ok
+test instance::config::tests::core_event_sink_projects_credential_changes_to_global_context ... ok
+test instance::config::tests::core_event_sink_projects_peer_events_to_global_context ... ok
+test instance::config::tests::native_host_config_contains_only_platform_policy ... ok
+test instance::config::tests::test_config_uses_current_global_context_hostname_as_fallback ... ok
+test instance::config_storage::tests::config_write_is_atomic_and_private ... ok
+test instance::dns_server::config::tests::it_works ... ok
+test instance::dns_server::server::tests::can_resolve_records ... ok
+test instance::dns_server::server::tests::it_works ... ok
+test instance::dns_server::tests::test_magic_dns_runner ... FAILED
+test instance::dns_server::tests::test_magic_dns_server_instance ... FAILED
+test instance::dns_server::tests::test_magic_dns_update_replaces_records_for_same_client ... ok
+test instance::factory::mobile_tun::tests::distinguishes_claim_conflicts_from_device_failures_through_context ... ok
+test instance::factory::mobile_tun::tests::keeps_attached_member_when_bootstrap_subnets_overlap ... ok
+test instance::factory::mobile_tun::tests::projects_ipv6_and_shared_dns_and_rejects_overlapping_proxy_routes ... ok
+test instance::factory::mobile_tun::tests::reconfigured_member_does_not_displace_unchanged_member ... ok
+test instance::factory::tests::compact_manager_retains_the_supplied_runtime ... ok
+test instance::factory::tests::configured_runtime_supports_synchronous_instance_construction ... ok
+test instance::factory::tests::core_manager_stores_and_runs_native_core_instance_directly ... ok
+test instance::factory::tests::direct_instance_outlives_its_callers_runtime ... ok
+test instance::factory::tests::event_subscription_is_recovered_from_the_native_runtime ... ok
+test instance::factory::tests::hot_added_port_forwards_outlive_the_callers_runtime ... ok
+test instance::composition::tests::native_kcp_engine_round_trips_through_portable_cores ... ok
+test instance::listeners::tests::external_listener_capabilities_follow_native_build ... ok
+test instance::listeners::tests::unix_adapters_exchange_bytes_and_unlink_listener ... ok
+test instance::public_ipv6_provider::platform::tests::test_cleanup_ndp_proxy_runtime_removes_owned_entry_on_task_exit ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_clear_owned_ndp_proxy_entries_forgets_already_absent_entry ... ok
+test instance::public_ipv6_provider::platform::tests::test_configured_prefix_broader_than_default_iface_does_not_get_ndp_proxy_target ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_configured_prefix_on_default_iface_gets_ndp_proxy_target ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_from_interfaces_skips_non_global ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_from_interfaces_uses_default_route_iface ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_from_routes_prefers_shortest_prefix ... ok
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_from_routes_rejects_loopback_delegation ... ok
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_from_routes_rejects_non_public_prefixes ... ok
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_from_routes_rejects_non_unicast_default_route ... ok
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_from_routes_rejects_non_unicast_delegation ... ok
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_from_routes_requires_delegated_route ... ok
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_from_routes_selects_delegated_prefix ... ok
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_linux_dhcpv6_ia_na_fallback ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_linux_dhcpv6_ia_na_single_prefix ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_linux_prefers_shortest_prefix_from_kernel ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_detect_public_ipv6_prefix_linux_reads_netlink_routes_from_kernel ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_ensure_linux_ipv6_forwarding_enables_all_and_default ... ok
+test instance::public_ipv6_provider::platform::tests::test_ensure_linux_ipv6_forwarding_is_noop_when_already_enabled ... ok
+test instance::public_ipv6_provider::platform::tests::test_missing_netlink_object_errors_release_ndp_ownership ... ok
+test instance::public_ipv6_provider::platform::tests::test_ndp_proxy_runtime_finishes_cleanup_when_wan_interface_is_gone_after_disable ... ok
+test instance::public_ipv6_provider::platform::tests::test_ndp_proxy_runtime_forgets_entries_when_wan_interface_is_gone ... ok
+test instance::public_ipv6_provider::platform::tests::test_ndp_proxy_sync_does_not_delete_preexisting_proxy_entry ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_ndp_proxy_sync_removes_owned_entry_when_tun_iface_is_gone ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_ndp_proxy_sync_uses_configured_tun_iface_without_shell_neigh ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_public_ipv6_provider_platform_check_accepts_linux ... ok
+test instance::public_ipv6_provider::platform::tests::test_reconcile_task_shutdown_removes_owned_ndp_proxy_entry ... FAILED
+test instance::public_ipv6_provider::platform::tests::test_runtime_public_ipv6_provider_config_reads_provider_fields ... ok
+test instance::public_ipv6_provider::platform::tests::test_select_default_route_ipv6_interfaces_filters_candidates ... ok
+test instance::public_ipv6_provider::platform::tests::test_select_default_route_ipv6_interfaces_strips_host_bits ... ok
+test instance::public_ipv6_provider::platform::tests::test_select_public_ipv6_prefix_tie_breaks_by_lowest_ifindex ... ok
+test instance::public_ipv6_provider::tests::wait_for_reconcile_ignores_unrelated_events ... ok
+test instance::runtime_executor::tests::dropping_owner_from_a_worker_shuts_down_tasks ... ok
+test instance::runtime_executor::tests::honors_runtime_flavor_and_worker_count ... ok
+test instance::runtime_host::tests::runtime_host_owns_event_subscription_context ... ok
+test instance::runtime_host::tests::runtime_host_preserves_dhcp_ipv4_during_config_synchronization ... ok
+test instance::runtime_host::tests::runtime_host_synchronizes_normalized_config_without_management ... ok
+test instance::runtime_host::tun_common::tests::dhcp_preserves_publication_permit_and_cancelled_address ... ok
+test instance::runtime_host::tun_common::tests::stop_releases_packet_receiver_before_returning ... ok
+test instance::shared_virtual_nic::dispatcher::tests::cancelled_member_updates_finish_before_registration_cleanup ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_changed_members_clear_nat_translation ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_colliding_native_and_translated_flows_remain_distinct ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_drops_inactive_source_owner_without_fallback ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_drops_unknown_source_and_destination_without_fallback ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_forwards_external_ipv6_to_route_only_owner ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_full_member_queue_drops_only_packet_without_reserving_flow ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_icmp_sequences_preserve_other_members_flow_capacity ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_ignores_stale_member_unregister ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_incoming_flow_pressure_keeps_active_reservations ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_invalidates_shared_nic_when_tun_read_fails ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_prefers_source_owner_for_shared_magic_dns ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_prefers_source_owner_over_first_member ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_preserves_external_ipv4_source_to_route_owner ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_preserves_incoming_udp_reply_ports_with_wrong_source ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_preserves_owned_ipv4_source_with_unspecified_placeholder ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_reserves_native_incoming_tcp_flows_before_translation ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_shutdown_for_replacement_keeps_shared_nic_valid ... ok
+test instance::composition::tests::portable_core_instances_connect_through_core_tcp_listener ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_single_member_forwards_unknown_addresses_unchanged ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_single_member_keeps_existing_translations_after_other_member_leaves ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_single_member_preserves_fragmented_packets ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_single_member_reserves_flows_before_another_member_joins ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_translates_android_synthetic_icmp_source_to_destination_member ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_translates_wrong_local_ipv6_source_to_destination_member ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_shutdown_waits_for_resources_when_control_fails ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_unrelated_claims_and_unregister_preserve_replies ... ok
+test instance::shared_virtual_nic::dispatcher::tests::full_flow_table_drops_yield_to_other_runtime_tasks ... ok
+test instance::shared_virtual_nic::dispatcher::tests::icmp_nat_replies_keep_distinct_source_networks ... ok
+test instance::shared_virtual_nic::dispatcher::tests::member_ring_polling_is_fair_and_wakes_after_pending ... ok
+test instance::shared_virtual_nic::dispatcher::tests::mobile_dispatcher_invalidates_shared_nic_when_tun_read_closes ... ok
+test instance::shared_virtual_nic::dispatcher::tests::mobile_dispatcher_invalidates_shared_nic_when_tun_replacement_fails ... ok
+test instance::factory::tests::manager_honors_per_instance_runtime_configuration_and_teardown ... ok
+test instance::shared_virtual_nic::dispatcher::tests::mobile_open_handshake_preserves_original_error ... ok
+test instance::shared_virtual_nic::dispatcher::tests::mobile_open_handshake_waits_for_dispatcher_result ... ok
+test instance::shared_virtual_nic::dispatcher::tests::nat_existing_outgoing_udp_mapping_precedes_incoming_reservation ... ok
+test instance::shared_virtual_nic::dispatcher::tests::nat_identical_wire_tuples_are_scoped_to_member ... ok
+test instance::shared_virtual_nic::dispatcher::tests::nat_pressure_reclaims_idle_flows_but_preserves_active_reservations ... ok
+test instance::shared_virtual_nic::dispatcher::tests::rewrite_ipv4_flow_preserves_zero_udp_checksum ... ok
+test instance::shared_virtual_nic::dispatcher::tests::rewrite_ipv4_source_rejects_fragments_without_changing_packet ... ok
+test instance::shared_virtual_nic::dispatcher::tests::rewrite_ipv6_source_rejects_extension_headers_without_changing_packet ... ok
+test instance::shared_virtual_nic::dispatcher::tests::rewrite_tcp_flow_updates_checksums_and_restores_ports ... ok
+test instance::shared_virtual_nic::dispatcher::tests::source_table_selects_ipv4_destination_owner_from_route_claim ... ok
+test instance::shared_virtual_nic::dispatcher::tests::source_table_selects_ipv6_source_owner ... ok
+test instance::shared_virtual_nic::ifcfg::tests::only_magic_dns_routes_can_overlap_between_members ... ok
+test instance::shared_virtual_nic::ifcfg::tests::replacing_member_claims_releases_previous_addresses ... ok
+test instance::shared_virtual_nic::ifcfg::tests::route_source_hint_prefers_an_owner_address_inside_the_route ... ok
+test instance::shared_virtual_nic::ifcfg::tests::shared_route_and_mtu_follow_member_ownership ... ok
+test instance::shared_virtual_nic::tests::changed_route_source_is_removed_before_its_replacement_is_added ... ok
+test instance::shared_virtual_nic::tests::conflicting_claims_leave_existing_configuration_intact ... ok
+test instance::shared_virtual_nic::tests::failed_cleanup_and_replacement_invalidate_without_committing_claims ... ok
+test instance::shared_virtual_nic::tests::mobile_claims_do_not_configure_the_os_interface ... ok
+test instance::shared_virtual_nic::tests::registry_replaces_invalid_devices ... ok
+test instance::shared_virtual_nic::tests::registry_shares_devices_only_within_the_same_name_and_namespace ... ok
+test instance::shared_virtual_nic::tests::removing_route_preserves_its_old_cost_and_source_hint ... ok
+test instance::shared_virtual_nic::tests::stale_registration_cannot_update_or_remove_current_claims ... ok
+test instance::test_instance::tests::composition_preserves_secure_admin_identity ... ok
+mkdir /run/netns failed: Read-only file system
+test instance::virtual_nic::tests::mobile_configuration_registers_ipv6_and_tracks_public_updates ... FAILED
+test instance::virtual_nic::tests::tun_test ... FAILED
+test instance::windows_udp_broadcast::tests::windows_udp_broadcast_windivert_filter_is_constrained ... ok
+test proto::rpc::standalone::tests::runtime_udp_tunnel_endpoints_connect ... ok
+test proto::rpc::standalone::tests::standalone_exit_on_drop ... ok
+test proto::rpc::standalone::tests::standalone_ipv4_and_ipv6_listeners_share_port ... ok
+test proto::tests::greeting_client_json_call_method_rejects_invalid_json ... ok
+test proto::tests::greeting_client_json_call_method_rejects_unknown_method ... ok
+test proto::tests::greeting_client_json_call_method_supports_snake_and_proto_method_name ... ok
+test instance::shared_virtual_nic::dispatcher::tests::dispatcher_tun_write_timeout_closes_members_and_source_updates ... ok
+test instance::shared_virtual_nic::dispatcher::tests::mobile_dispatcher_tun_write_timeout_closes_members_and_source_updates ... ok
+test proto::tests::rpc_tunnel_stuck_test ... ok
+test proto::tests::test_bidirect_rpc_manager ... ok
+test rpc_service::api::tests::trusted_ring_management_transport_does_not_require_an_ip_host ... ok
+test rpc_service::api::tests::zero_rpc_portal_is_resolved_before_listener_binding ... ok
+test socket::fake_tcp::netfilter::linux_bpf::tests::linux_bpf_tun_filters_ipv4_tuple_on_l3_interface ... ok
+test socket::fake_tcp::netfilter::linux_bpf::tests::linux_bpf_tun_filters_out_non_matching_ipv4_frame ... ok
+test socket::fake_tcp::netfilter::linux_bpf::tests::linux_bpf_tun_receives_ipv4_from_l3_interface ... ok
+test socket::fake_tcp::netfilter::linux_bpf::tests::linux_bpf_tun_receives_ipv6_from_l3_interface ... ok
+test socket::fake_tcp::netfilter::linux_bpf::tests::linux_bpf_tun_receives_matching_ipv4_frame ... ok
+test socket::fake_tcp::netfilter::linux_bpf::tests::linux_bpf_tun_rejects_non_initial_ipv4_fragment ... ok
+test socket::fake_tcp::netfilter::linux_bpf::tests::linux_bpf_tun_sends_ipv4_frame_to_ethernet_interface ... ok
+test socket::fake_tcp::netfilter::linux_bpf::tests::linux_bpf_tun_sends_ipv4_to_l3_interface ... ok
+test socket::fake_tcp::netfilter::linux_bpf::tests::linux_bpf_tun_sends_ipv6_to_l3_interface ... ok
+test socket::fake_tcp::packet::tests::build_and_parse_ipv6_packet_round_trip ... ok
+test socket::fake_tcp::packet::tests::ethernet_padding_is_not_tcp_payload ... ok
+test socket::fake_tcp::packet::tests::ipv4_options_do_not_shift_tcp_payload ... ok
+test socket::fake_tcp::packet::tests::parse_ipv4_packet_round_trip ... ok
+test socket::fake_tcp::packet::tests::parse_rejects_ipv4_header_shorter_than_minimum ... ok
+test socket::fake_tcp::packet::tests::parse_rejects_short_ethernet_frame ... ok
+test socket::fake_tcp::packet::tests::parse_rejects_truncated_ipv4_tcp_packet ... ok
+test socket::fake_tcp::packet::tests::parse_rejects_truncated_ipv6_header ... ok
+test socket::fake_tcp::packet::tests::syn_packet_preserves_wire_format_and_unsigned_sequence ... ok
+test socket::fake_tcp::stack::tests::reader_task_closes_sockets_on_tun_recv_error ... ok
+test socket::fake_tcp::stack::tests::tcp_option_iterator_preserves_all_sack_blocks ... ok
+test socket::fake_tcp::stack::tests::tcp_option_iterator_stops_at_end_or_malformed_length ... ok
+test socket::fake_tcp::tests::faketcp_socket_pingpong ... ok
+test socket::tcp::tests::runtime_tcp_owned_split_preserves_full_duplex_and_shutdown ... ok
+test socket::tcp::tests::tcp_connect_binds_when_socket_option_requires_pre_connect_setup ... ok
+test socket::udp::tests::factory_applies_listener_bind_device_option ... ok
+test socket::udp::tests::factory_interprets_bind_device_by_purpose ... ok
+test socket::udp::tests::runtime_udp_bind_rejects_occupied_port ... ok
+test socket::udp::tests::runtime_udp_listeners_keep_ephemeral_ports_and_packets_separate ... ok
+test socket::udp::tests::runtime_udp_socket_drops_truncated_datagrams ... ok
+test socket::udp::tests::runtime_udp_socket_receives_owned_datagram_with_destination_ip ... ok
+test socket::udp::tests::runtime_udp_socket_reports_ipv4_destination_ip ... ok
+test socket::udp::tests::runtime_v4_hole_punch_control_packet_is_forwarded ... ok
+test socket::udp::tests::runtime_v6_hole_punch_control_packet_is_forwarded ... ok
+test socket_protector::tests::accepted_child_waits_for_inherited_protection ... ok
+test socket_protector::tests::protection_failure_blocks_creation_and_explicit_false_bypasses_callback ... ok
+test socket_protector::tests::tcp_connect_waits_for_protection_ack ... ok
+
+thread 'tests::credential_tests::credential_admin_shared_admin_credential_connectivity::connect_to_admin_1_true' (94900) panicked at easytier/src/tests/mod.rs:81:10:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+thread 'tests::credential_tests::credential_admin_shared_admin_credential_connectivity::connect_to_admin_1_true' (94900) panicked at easytier/src/common/netns.rs:45:47:
+called `Result::unwrap()` on an `Err` value: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+stack backtrace:
+   0:     0x559f4200d6ba - std[e28293b1aa0f68bd]::backtrace_rs::backtrace::libunwind::trace
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1:     0x559f4200d6ba - std[e28293b1aa0f68bd]::backtrace_rs::backtrace::trace_unsynchronized::<std[e28293b1aa0f68bd]::sys::backtrace::_print_fmt::{closure#1}>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2:     0x559f4200d6ba - std[e28293b1aa0f68bd]::sys::backtrace::_print_fmt
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/sys/backtrace.rs:74:9
+   3:     0x559f4200d6ba - <<std[e28293b1aa0f68bd]::sys::backtrace::BacktraceLock>::print::DisplayBacktrace as core[c1f1a4ba060b9bfa]::fmt::Display>::fmt
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/sys/backtrace.rs:44:26
+   4:     0x559f420279aa - <core[c1f1a4ba060b9bfa]::fmt::rt::Argument>::fmt
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/fmt/rt.rs:152:76
+   5:     0x559f420279aa - core[c1f1a4ba060b9bfa]::fmt::write
+   6:     0x559f42013ae2 - std[e28293b1aa0f68bd]::io::default_write_fmt::<alloc[fdfd2bd8633a6659]::vec::Vec<u8>>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/io/mod.rs:639:11
+   7:     0x559f42013ae2 - <alloc[fdfd2bd8633a6659]::vec::Vec<u8> as std[e28293b1aa0f68bd]::io::Write>::write_fmt
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/io/mod.rs:1994:13
+   8:     0x559f41fe85a3 - <std[e28293b1aa0f68bd]::sys::backtrace::BacktraceLock>::print
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/sys/backtrace.rs:47:9
+   9:     0x559f41fe85a3 - std[e28293b1aa0f68bd]::panicking::default_hook::{closure#0}
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:292:27
+  10:     0x559f420037d4 - std[e28293b1aa0f68bd]::panicking::default_hook
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:316:9
+  11:     0x559f4003c62c - <alloc[fdfd2bd8633a6659]::boxed::Box<dyn for<'a, 'b> core[c1f1a4ba060b9bfa]::ops::function::Fn<(&'a std[e28293b1aa0f68bd]::panic::PanicHookInfo<'b>,), Output = ()> + core[c1f1a4ba060b9bfa]::marker::Sync + core[c1f1a4ba060b9bfa]::marker::Send> as core[c1f1a4ba060b9bfa]::ops::function::Fn<(&std[e28293b1aa0f68bd]::panic::PanicHookInfo,)>>::call
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/alloc/src/boxed.rs:2254:9
+  12:     0x559f4003c62c - test[273d7611820c9051]::test_main_with_exit_callback::<test[273d7611820c9051]::test_main::{closure#0}>::{closure#0}
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/test/src/lib.rs:145:21
+  13:     0x559f42003992 - <alloc[fdfd2bd8633a6659]::boxed::Box<dyn for<'a, 'b> core[c1f1a4ba060b9bfa]::ops::function::Fn<(&'a std[e28293b1aa0f68bd]::panic::PanicHookInfo<'b>,), Output = ()> + core[c1f1a4ba060b9bfa]::marker::Sync + core[c1f1a4ba060b9bfa]::marker::Send> as core[c1f1a4ba060b9bfa]::ops::function::Fn<(&std[e28293b1aa0f68bd]::panic::PanicHookInfo,)>>::call
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/alloc/src/boxed.rs:2254:9
+  14:     0x559f42003992 - std[e28293b1aa0f68bd]::panicking::panic_with_hook
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:833:13
+  15:     0x559f41fe8658 - std[e28293b1aa0f68bd]::panicking::panic_handler::{closure#0}
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:698:13
+  16:     0x559f41fdfae9 - std[e28293b1aa0f68bd]::sys::backtrace::__rust_end_short_backtrace::<std[e28293b1aa0f68bd]::panicking::panic_handler::{closure#0}, !>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/sys/backtrace.rs:182:18
+  17:     0x559f41fe97cd - __rustc[b7974e8690430dd9]::rust_begin_unwind
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+  18:     0x559f3deccd4c - core[c1f1a4ba060b9bfa]::panicking::panic_fmt
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+  19:     0x559f3decca92 - core[c1f1a4ba060b9bfa]::result::unwrap_failed
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/result.rs:1867:5
+  20:     0x559f3f2cf7e9 - core::result::Result<T,E>::unwrap::h3a5c7f8774d0228e
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/result.rs:1233:23
+  21:     0x559f3f2cf7e9 - easytier::common::netns::NetNSGuard::switch_ns::h2097efcd5f2fa6e8
+                               at /workspace/EasyTier/easytier/src/common/netns.rs:45:47
+  22:     0x559f3f2cf474 - easytier::common::netns::NetNSGuard::new::hb7c1b70263893c41
+                               at /workspace/EasyTier/easytier/src/common/netns.rs:25:13
+  23:     0x559f3f2d02b1 - easytier::common::netns::NetNS::guard::h53bb207aaf51ad09
+                               at /workspace/EasyTier/easytier/src/common/netns.rs:122:9
+  24:     0x559f3ec6335c - <easytier::tests::network::TestNetwork as core::ops::drop::Drop>::drop::h0dbb3a69868c2d7c
+                               at /workspace/EasyTier/easytier/src/tests/network.rs:85:67
+  25:     0x559f3eb9b363 - core::ptr::drop_in_place<easytier::tests::network::TestNetwork>::h2ff8339ee896d741
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ptr/mod.rs:805:1
+  26:     0x559f3fd8528f - easytier::tests::credential_tests::prepare_credential_network::hf8af61ab9a16aa36
+                               at /workspace/EasyTier/easytier/src/tests/credential_tests.rs:248:1
+  27:     0x559f3def1c31 - easytier::tests::credential_tests::credential_admin_shared_admin_credential_connectivity::{{closure}}::hd4ca69ee27d38c91
+                               at /workspace/EasyTier/easytier/src/tests/credential_tests.rs:2516:19
+  28:     0x559f3e7ac7f0 - easytier::tests::credential_tests::credential_admin_shared_admin_credential_connectivity::connect_to_admin_1_true::{{closure}}::{{closure}}::h2b807bcb59676b5c
+                               at /workspace/EasyTier/easytier/src/tests/credential_tests.rs:2510:1
+  29:     0x559f3df2f0a2 - <core::pin::Pin<P> as core::future::future::Future>::poll::hf7eefc393ca4074c
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/future/future.rs:133:9
+  30:     0x559f3df2866d - <core::pin::Pin<P> as core::future::future::Future>::poll::h22fffa75d41efa30
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/future/future.rs:133:9
+  31:     0x559f3f3ec6ad - tokio::runtime::scheduler::current_thread::CoreGuard::block_on::{{closure}}::{{closure}}::{{closure}}::hafa7e9ab77cf9b2c
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:830:70
+  32:     0x559f3f3e8b9b - tokio::task::coop::with_budget::hc53bb8764694fe4c
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/task/coop/mod.rs:167:5
+  33:     0x559f3f3e8b9b - tokio::task::coop::budget::ha1c3ef74eb5e5506
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/task/coop/mod.rs:133:5
+  34:     0x559f3f3e8b9b - tokio::runtime::scheduler::current_thread::CoreGuard::block_on::{{closure}}::{{closure}}::h621af61067ace221
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:830:25
+  35:     0x559f3f3ae3e0 - tokio::runtime::scheduler::current_thread::Context::enter::h97b406ac6e41333d
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:488:19
+  36:     0x559f3f3def0d - tokio::runtime::scheduler::current_thread::CoreGuard::block_on::{{closure}}::hc8c9f2acd5acbd35
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:829:44
+  37:     0x559f3f3c15a4 - tokio::runtime::scheduler::current_thread::CoreGuard::enter::{{closure}}::ha2ea71544d821e95
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:906:68
+  38:     0x559f3f5b3e6b - tokio::runtime::context::scoped::Scoped<T>::set::h2d138f0f11581801
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context/scoped.rs:40:9
+  39:     0x559f3f336829 - tokio::runtime::context::set_scheduler::{{closure}}::h4b38787c40aceef0
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context.rs:187:38
+  40:     0x559f3f6c01b2 - std::thread::local::LocalKey<T>::try_with::hffa98b9a2cc71d9a
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/thread/local.rs:513:12
+  41:     0x559f3f686fee - std::thread::local::LocalKey<T>::with::h50024f5595b2a3de
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/thread/local.rs:477:20
+  42:     0x559f3f33600d - tokio::runtime::context::set_scheduler::hae03f54955c5a824
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context.rs:187:17
+  43:     0x559f3f3bb850 - tokio::runtime::scheduler::current_thread::CoreGuard::enter::ha2b1e50ebdcd80dc
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:906:27
+  44:     0x559f3f3c2106 - tokio::runtime::scheduler::current_thread::CoreGuard::block_on::h383b21a7f7dcc88a
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:817:24
+  45:     0x559f3f35b6e0 - tokio::runtime::scheduler::current_thread::CurrentThread::block_on::{{closure}}::hdc4cf53199abfb03
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:218:33
+  46:     0x559f3e1d5b23 - tokio::runtime::context::runtime::enter_runtime::h2ceb026a3f3183ef
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/context/runtime.rs:65:16
+  47:     0x559f3f351bf1 - tokio::runtime::scheduler::current_thread::CurrentThread::block_on::hce7ae5fcf91f4f99
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/scheduler/current_thread/mod.rs:206:9
+  48:     0x559f3f038354 - tokio::runtime::runtime::Runtime::block_on_inner::he4d58d79dfb756e4
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/runtime.rs:374:52
+  49:     0x559f3f03e49f - tokio::runtime::runtime::Runtime::block_on::hc229700a7f04c0d2
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.53.1/src/runtime/runtime.rs:343:18
+  50:     0x559f3e7ac63f - easytier::tests::credential_tests::credential_admin_shared_admin_credential_connectivity::connect_to_admin_1_true::{{closure}}::hd78c379d9029fe74
+                               at /workspace/EasyTier/easytier/src/tests/credential_tests.rs:2510:1
+  51:     0x559f3e9edbde - core::ops::function::FnOnce::call_once::h39e6c9de8bac04a7
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+  52:     0x559f4002cf0e - serial_test::serial_code_lock::local_serial_core::h2578fe85dd5277c6
+                               at /workspace/toolchains/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serial_test-4.0.1/src/serial_code_lock.rs:36:5
+  53:     0x559f3e89bda4 - easytier::tests::credential_tests::credential_admin_shared_admin_credential_connectivity::connect_to_admin_1_true::h17498640b06fe3a3
+                               at /workspace/EasyTier/easytier/src/tests/credential_tests.rs:2512:1
+  54:     0x559f3e7ac4d7 - easytier::tests::credential_tests::credential_admin_shared_admin_credential_connectivity::connect_to_admin_1_true::{{closure}}::h4b44f0d09f6ae573
+                               at /workspace/EasyTier/easytier/src/tests/credential_tests.rs:2512:23
+  55:     0x559f3ea12b26 - core::ops::function::FnOnce::call_once::hc6b6cf729462dc0c
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+  56:     0x559f400312bb - <fn() -> core[c1f1a4ba060b9bfa]::result::Result<(), alloc[fdfd2bd8633a6659]::string::String> as core[c1f1a4ba060b9bfa]::ops::function::FnOnce<()>>::call_once
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+  57:     0x559f400312bb - test[273d7611820c9051]::__rust_begin_short_backtrace::<core[c1f1a4ba060b9bfa]::result::Result<(), alloc[fdfd2bd8633a6659]::string::String>, fn() -> core[c1f1a4ba060b9bfa]::result::Result<(), alloc[fdfd2bd8633a6659]::string::String>>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/test/src/lib.rs:663:18
+  58:     0x559f4003cf2b - test[273d7611820c9051]::run_test_in_process::{closure#0}
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/test/src/lib.rs:686:74
+  59:     0x559f4003cf2b - <core[c1f1a4ba060b9bfa]::panic::unwind_safe::AssertUnwindSafe<test[273d7611820c9051]::run_test_in_process::{closure#0}> as core[c1f1a4ba060b9bfa]::ops::function::FnOnce<()>>::call_once
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panic/unwind_safe.rs:274:9
+  60:     0x559f4003cf2b - std[e28293b1aa0f68bd]::panicking::catch_unwind::do_call::<core[c1f1a4ba060b9bfa]::panic::unwind_safe::AssertUnwindSafe<test[273d7611820c9051]::run_test_in_process::{closure#0}>, core[c1f1a4ba060b9bfa]::result::Result<(), alloc[fdfd2bd8633a6659]::string::String>>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:581:40
+  61:     0x559f4003cf2b - std[e28293b1aa0f68bd]::panicking::catch_unwind::<core[c1f1a4ba060b9bfa]::result::Result<(), alloc[fdfd2bd8633a6659]::string::String>, core[c1f1a4ba060b9bfa]::panic::unwind_safe::AssertUnwindSafe<test[273d7611820c9051]::run_test_in_process::{closure#0}>>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:544:19
+  62:     0x559f4003cf2b - std[e28293b1aa0f68bd]::panic::catch_unwind::<core[c1f1a4ba060b9bfa]::panic::unwind_safe::AssertUnwindSafe<test[273d7611820c9051]::run_test_in_process::{closure#0}>, core[c1f1a4ba060b9bfa]::result::Result<(), alloc[fdfd2bd8633a6659]::string::String>>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panic.rs:359:14
+  63:     0x559f4003cf2b - test[273d7611820c9051]::run_test_in_process
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/test/src/lib.rs:686:27
+  64:     0x559f4003cf2b - test[273d7611820c9051]::run_test::{closure#0}
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/test/src/lib.rs:607:43
+  65:     0x559f400388a4 - test[273d7611820c9051]::run_test::{closure#1}
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/test/src/lib.rs:637:41
+  66:     0x559f400388a4 - std[e28293b1aa0f68bd]::sys::backtrace::__rust_begin_short_backtrace::<test[273d7611820c9051]::run_test::{closure#1}, ()>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/sys/backtrace.rs:166:18
+  67:     0x559f4003fa32 - std[e28293b1aa0f68bd]::thread::lifecycle::spawn_unchecked::<test[273d7611820c9051]::run_test::{closure#1}, ()>::{closure#1}::{closure#0}
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/thread/lifecycle.rs:91:13
+  68:     0x559f4003fa32 - <core[c1f1a4ba060b9bfa]::panic::unwind_safe::AssertUnwindSafe<std[e28293b1aa0f68bd]::thread::lifecycle::spawn_unchecked<test[273d7611820c9051]::run_test::{closure#1}, ()>::{closure#1}::{closure#0}> as core[c1f1a4ba060b9bfa]::ops::function::FnOnce<()>>::call_once
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panic/unwind_safe.rs:274:9
+  69:     0x559f4003fa32 - std[e28293b1aa0f68bd]::panicking::catch_unwind::do_call::<core[c1f1a4ba060b9bfa]::panic::unwind_safe::AssertUnwindSafe<std[e28293b1aa0f68bd]::thread::lifecycle::spawn_unchecked<test[273d7611820c9051]::run_test::{closure#1}, ()>::{closure#1}::{closure#0}>, ()>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:581:40
+  70:     0x559f4003fa32 - std[e28293b1aa0f68bd]::panicking::catch_unwind::<(), core[c1f1a4ba060b9bfa]::panic::unwind_safe::AssertUnwindSafe<std[e28293b1aa0f68bd]::thread::lifecycle::spawn_unchecked<test[273d7611820c9051]::run_test::{closure#1}, ()>::{closure#1}::{closure#0}>>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:544:19
+  71:     0x559f4003fa32 - std[e28293b1aa0f68bd]::panic::catch_unwind::<core[c1f1a4ba060b9bfa]::panic::unwind_safe::AssertUnwindSafe<std[e28293b1aa0f68bd]::thread::lifecycle::spawn_unchecked<test[273d7611820c9051]::run_test::{closure#1}, ()>::{closure#1}::{closure#0}>, ()>
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panic.rs:359:14
+  72:     0x559f4003fa32 - std[e28293b1aa0f68bd]::thread::lifecycle::spawn_unchecked::<test[273d7611820c9051]::run_test::{closure#1}, ()>::{closure#1}
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/thread/lifecycle.rs:89:26
+  73:     0x559f4003fa32 - <std[e28293b1aa0f68bd]::thread::lifecycle::spawn_unchecked<test[273d7611820c9051]::run_test::{closure#1}, ()>::{closure#1} as core[c1f1a4ba060b9bfa]::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+  74:     0x559f4200c46f - <alloc[fdfd2bd8633a6659]::boxed::Box<dyn core[c1f1a4ba060b9bfa]::ops::function::FnOnce<(), Output = ()> + core[c1f1a4ba060b9bfa]::marker::Send> as core[c1f1a4ba060b9bfa]::ops::function::FnOnce<()>>::call_once
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/alloc/src/boxed.rs:2240:9
+  75:     0x559f4200c46f - <std[e28293b1aa0f68bd]::sys::thread::unix::Thread>::new::thread_start
+                               at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/sys/thread/unix.rs:118:17
+  76:     0x7f1c707b28bb - <unknown>
+  77:     0x7f1c70830538 - <unknown>
+  78:                0x0 - <unknown>
+
+thread 'tests::credential_tests::credential_admin_shared_admin_credential_connectivity::connect_to_admin_1_true' (94900) panicked at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:233:5:
+panic in a destructor during cleanup
+thread caused non-unwinding panic. aborting.
+error: test failed, to rerun pass `-p easytier --lib`
+
+Caused by:
+  process didn't exit successfully: `/workspace/EasyTier/target/debug/deps/easytier-2341b8b06ff05984` (signal: 6, SIGABRT: process abort signal)
+error: 1 target failed:
+    `-p easytier --lib`

@@ -1,0 +1,64 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+$ pnpm codegen:proto && vitest run --config vitest.config.ts
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+$ node scripts/codegen-proto.mjs
+
+ RUN  v2.1.9 /workspace/EasyTier/easytier-web/frontend-lib
+
+Browserslist: browsers data (caniuse-lite) is 13 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ tests/remote-management-config.spec.ts (1 test) 90ms
+stderr | tests/status-vpn-portal.spec.ts > WireGuard devices > refreshes same-instance settings, retries failures, and stops after unmount
+Failed to load WireGuard settings Error: temporarily offline
+    at /workspace/EasyTier/easytier-web/frontend-lib/tests/status-vpn-portal.spec.ts:137:50
+    at file:///workspace/EasyTier/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///workspace/EasyTier/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///workspace/EasyTier/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///workspace/EasyTier/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
+    at runSuite (file:///workspace/EasyTier/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file:///workspace/EasyTier/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file:///workspace/EasyTier/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+    at startTests (file:///workspace/EasyTier/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3)
+    at file:///workspace/EasyTier/node_modules/.pnpm/vitest@2.1.9_@types+node@22.18.1_happy-dom@16.8.1/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11
+
+ ✓ tests/status-vpn-portal.spec.ts (9 tests) 228ms
+stderr | tests/config-ui.spec.ts > Config.vue network config projection > projects config values into the visible form controls
+Deprecated since v4. Use ToggleSwitch component instead.
+
+stderr | tests/config-ui.spec.ts > Config.vue network config projection > projects form edits back into config and backend JSON
+Deprecated since v4. Use ToggleSwitch component instead.
+
+stderr | tests/config-ui.spec.ts > Config.vue network config projection > shows a flag the configuration does not state as the value the core resolves
+Deprecated since v4. Use ToggleSwitch component instead.
+
+stderr | tests/config-ui.spec.ts > Config.vue network config projection > round-trips every visible boolean config control into backend JSON
+Deprecated since v4. Use ToggleSwitch component instead.
+
+stderr | tests/config-ui.spec.ts > Config.vue network config projection > generates a private key on enable and preserves devices across disable and reload
+Deprecated since v4. Use ToggleSwitch component instead.
+Deprecated since v4. Use ToggleSwitch component instead.
+
+stderr | tests/config-ui.spec.ts > Config.vue network config projection > preserves existing keys and completes older enabled configurations without one
+Deprecated since v4. Use ToggleSwitch component instead.
+Deprecated since v4. Use ToggleSwitch component instead.
+
+stderr | tests/config-ui.spec.ts > Config.vue network config projection > keeps uint64 input editable without losing large values
+Deprecated since v4. Use ToggleSwitch component instead.
+
+stderr | tests/config-ui.spec.ts > Config.vue network config projection > emits runNetwork with the current projected config
+Deprecated since v4. Use ToggleSwitch component instead.
+
+ ✓ tests/config-ui.spec.ts (8 tests) 430ms
+ ✓ tests/status-display.spec.ts (16 tests) 8ms
+ ✓ tests/vpn-portal.spec.ts (7 tests) 9ms
+ ✓ tests/network-config-credential.spec.ts (8 tests) 11ms
+ ✓ tests/node-attributes.spec.ts (2 tests) 3ms
+ ✓ tests/network-config-bigint.spec.ts (1 test) 7ms
+ ✓ tests/status-rendering.spec.ts (3 tests) 407ms
+ ✓ tests/uuid.spec.ts (2 tests) 4ms
+
+ Test Files  10 passed (10)
+      Tests  57 passed (57)
+   Start at  05:04:24
+   Duration  4.79s (transform 2.19s, setup 132ms, collect 5.59s, tests 1.20s, environment 3.07s, prepare 1.21s)

@@ -1,0 +1,10 @@
+✔ device access, installation and task queries require explicit clicks (5586.696908ms)
+✔ manual pages share console themes, language, mobile layout and navigation (11275.323345ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 17325.552112

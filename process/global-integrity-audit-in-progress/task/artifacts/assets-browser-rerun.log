@@ -1,0 +1,38 @@
+✔ real backend: node asset management, offline nodes, and Chinese responsive screenshots (25039.827667ms)
+ℹ Administrator selects another account and a registered node
+ℹ Gateway manager requires a persisted gateway instance and preserves metadata editing
+ℹ Add-device Gateway role creates a gateway and highlights it without counting it as an entity device
+ℹ Custom device type can be created and renamed
+ℹ Search is explicit; creating outside current filters resets them and expands the new direct device
+ℹ Grouped device derives mapped addresses from its rule; multiple service lists stay expanded
+ℹ Service CRUD uses real API; dual protocols, HTTP link, icon, and conflict handling
+ℹ Device editing preserves ownership; reopening a collapsed service panel does not reopen an old add dialog
+ℹ Referenced groups and types cannot be deleted
+ℹ Chinese desktop and 390px screenshots show the saved data and service form
+ℹ An offline registered node accepts persisted-instance device and service management
+ℹ Service delete and device cascade delete persist; empty group and unused type can then be deleted
+ℹ Responsive layout has no document-wide horizontal overflow
+✖ instance binding: source conflicts and R02–R05 regressions against the isolated backend (19834.96608ms)
+ℹ R02: duplicate instance and type names expose distinct stable short IDs
+ℹ V06: changing the saved instance after preview returns a real conflict and preserves draft input
+ℹ R05: Unicode code-point limits match the server; control characters and over-limit values cannot submit
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 45676.344523
+
+✖ failing tests:
+
+test at tests/node-instance-binding-e2e.test.mjs:62:1
+✖ instance binding: source conflicts and R02–R05 regressions against the isolated backend (19834.96608ms)
+  Error: locator.click: Timeout 15000ms exceeded.
+  Call log:
+    - waiting for getByRole('button', { name: 'Edit node properties', exact: true })
+
+      at TestContext.<anonymous> (file:///workspace/EasyTier/easytier-web/frontend/tests/node-instance-binding-e2e.test.mjs:234:15)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)

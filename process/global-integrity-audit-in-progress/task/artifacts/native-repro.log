@@ -1,0 +1,17 @@
+
+running 1 test
+
+thread 'common::ifcfg::netlink::tests::addr_test' (95175) panicked at easytier/src/common/ifcfg/netlink.rs:608:9:
+command failed: ip link add dummy type dummy
+stdout:
+stderr: RTNETLINK answers: Operation not permitted
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test common::ifcfg::netlink::tests::addr_test ... FAILED
+
+failures:
+
+failures:
+    common::ifcfg::netlink::tests::addr_test
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 821 filtered out; finished in 0.00s
