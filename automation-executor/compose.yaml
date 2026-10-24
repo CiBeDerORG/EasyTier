@@ -1,6 +1,6 @@
 services:
   automation-executor:
-    build: .
+    image: ${AUTOMATION_EXECUTOR_IMAGE:-ghcr.io/cibederorg/easytier-automation-executor:feat-automation-center}
     # ICE advertises host addresses and uses dynamic UDP ports. Linux only.
     network_mode: host
     init: true
