@@ -23,7 +23,7 @@ ENV PATH="/opt/platform-tools:${PATH}" \
     AUTOMATION_SCRCPY_SERVER=/opt/automation/scrcpy-server-v5.0.1
 WORKDIR /app
 COPY requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN pip install --no-cache-dir --only-binary=av -r requirements.txt \
     && useradd --create-home --uid 10001 automation \
     && mkdir -p /var/lib/easytier-automation /home/automation/.android \
     && chown -R automation:automation /var/lib/easytier-automation /home/automation/.android
