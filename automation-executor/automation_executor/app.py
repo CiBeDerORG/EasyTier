@@ -116,8 +116,8 @@ async def renew(request: Request, sid: str, body: dict):
 
 
 @app.post("/internal/v1/sessions/{sid}/close")
-async def close_session(request: Request, sid: str):
-    return await request.app.state.runtime.close_session(identifier(sid))
+async def close_session(request: Request, sid: str, body: dict):
+    return await request.app.state.runtime.close_session_request(identifier(sid), body)
 
 
 @app.post("/internal/v1/runs")
@@ -142,3 +142,13 @@ async def get_artifact(request: Request, rid: str, aid: str):
         prefix = handle.read(8)
     media_type = "image/png" if prefix == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@app.post("/internal/v1/runs/{rid}/devices/{did}/withdraw")
+async def withdraw_device(request: Request, rid: str, did: str, body: dict):
+    return await request.app.state.runtime.withdraw_device(identifier(rid),identifier(did),body)
+
+
+@app.post("/internal/v1/targets/{did}/retire")
+async def retire_target(request: Request, did: str, body: dict):
+    return await request.app.state.runtime.retire_target(identifier(did),body)

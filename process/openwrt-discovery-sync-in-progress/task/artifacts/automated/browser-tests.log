@@ -1,0 +1,11 @@
+✔ explicit scan, reviewed apply and saved endpoint selection with no idle polling (3935.455392ms)
+✔ mobile access settings preserve exact secret and never scan on save (1699.686615ms)
+✔ endpoint events restore only the still-watched screen and never replay input (3007.036423ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 9120.966904

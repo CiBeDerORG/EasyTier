@@ -15,6 +15,7 @@ const loadError = ref('');
 const editorOpen = ref(false);
 const editingId = ref<string | null>(null);
 const name = ref('');
+const semanticKind = ref<DeviceType['semantic_kind']>(null);
 const fieldError = ref('');
 const actionError = ref('');
 const saving = ref(false);
@@ -51,6 +52,7 @@ function startEditor(type?: DeviceType) {
     deleteTarget.value = null;
     editingId.value = type?.id ?? null;
     name.value = type?.name ?? '';
+    semanticKind.value = type?.semantic_kind ?? null;
     editorOpen.value = true;
 }
 
@@ -95,7 +97,7 @@ async function save() {
     const editor = editorVersion;
     const owner = props.ownerUserId;
     const id = editingId.value;
-    const payload = { name: name.value.trim() };
+    const payload = { name: name.value.trim(), semantic_kind: semanticKind.value };
     saving.value = true;
     try {
         if (id) {
@@ -190,6 +192,7 @@ onBeforeUnmount(() => {
                             autocomplete="off" :aria-invalid="!!fieldError" aria-describedby="asset-type-name-error" />
                         <small v-if="fieldError" id="asset-type-name-error" class="error" role="alert">{{ fieldError }}</small>
                     </div>
+                    <label class="field">设备语义（用于发现与自动化）<select v-model="semanticKind" :disabled="saving || createAttempt.uncertain.value"><option :value="null">未确认 / 历史类型</option><option value="openwrt">OpenWrt 网关</option><option value="phone">手机</option><option value="other">其他设备</option></select></label>
                     <p v-if="createAttempt.uncertain.value" class="notice" role="status">{{ t('assets.types.uncertain') }}</p>
                     <p v-if="actionError" class="error" role="alert">{{ actionError }}</p>
                     <div class="editor-actions">
@@ -219,7 +222,7 @@ onBeforeUnmount(() => {
             <p v-else-if="!types.length" class="list-status muted">{{ t('assets.types.empty') }}</p>
             <ul v-else class="type-list">
                 <li v-for="type in types" :key="type.id" class="type-item">
-                    <div class="type-information"><strong>{{ type.name }}</strong><code>{{ type.id.slice(0, 8) }}</code></div>
+                    <div class="type-information"><strong>{{ type.name }}</strong><small>{{ type.semantic_kind || '未确认语义' }}</small><code>{{ type.id.slice(0, 8) }}</code></div>
                     <div class="row-actions">
                         <Button icon="pi pi-pencil" text severity="secondary" :disabled="saving || deleting"
                             :aria-label="t('assets.types.edit_named', { name: type.name })" @click="startEditor(type)" />

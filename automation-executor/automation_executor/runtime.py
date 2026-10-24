@@ -41,7 +41,10 @@ class Runtime:
         self.sessions: dict[str, Session] = {}
         self.tasks: dict[str, asyncio.Task] = {}
         self.cancellations: dict[str, asyncio.Event] = {}
+        self.device_tasks: dict[tuple[str,str], asyncio.Task] = {}
+        self.device_cancellations: dict[tuple[str,str], asyncio.Event] = {}
         self.helpers: dict[str, PreparedHelper] = {}
+        self.preparations: dict[tuple[str,str], asyncio.Task] = {}
         self.admission = asyncio.Lock()
         self.capacity = asyncio.Semaphore(settings.max_running)
         self.artifact_lock = asyncio.Lock()
@@ -61,6 +64,7 @@ class Runtime:
         current = self.sessions.get(sid)
         if not current or current.closing or asyncio.get_running_loop().time() >= current.deadline:
             raise ExecutorError("session_expired", "会话已关闭或授权到期，请重新打开画面", 410)
+        self.journal.ensure_target(current.target)
         return current
 
     async def prepare(self, body):
@@ -68,6 +72,7 @@ class Runtime:
             raise ExecutorError("executor_stopping", "执行器正在停止", 503)
         validation.object_fields(body, {"target", "action", "pairing_port", "code"}, {"target", "action"})
         target = validation.target(body["target"])
+        self.journal.ensure_target(target)
         action = body["action"]
         if action not in ("pair", "connect", "inspect", "automation"):
             raise invalid("不支持该准备操作")
@@ -89,6 +94,7 @@ class Runtime:
                 self.journal.release(previous["holder"])
             holder = "prepare:" + str(uuid4())
             self.journal.claim(target, holder, "prepare")
+            self.preparations[(target["device_id"],target["target_fingerprint"])] = asyncio.current_task()
         try:
             if action == "automation":
                 if body.get("code") is not None or body.get("pairing_port") is not None:
@@ -118,10 +124,12 @@ class Runtime:
                 return result
             return await adb.prepare(self.settings.adb_binary, target, action, body.get("pairing_port"), body.get("code"))
         finally:
+            self.preparations.pop((target["device_id"],target["target_fingerprint"]), None)
             self.journal.release(holder, clean=self.journal.worker_record(holder) is None)
 
     async def create_session(self, body):
-        validation.object_fields(body, {"id", "target", "quality", "lease_seconds"}, {"id", "target", "quality", "lease_seconds"})
+        validation.object_fields(body, {"id", "target", "quality", "lease_seconds", "expected_executor_id"}, {"id", "target", "quality", "lease_seconds", "expected_executor_id"})
+        self.require_identity(body["expected_executor_id"])
         sid = validation.identifier(body["id"])
         target = validation.target(body["target"])
         validation.integer(body["lease_seconds"], 1, 60)
@@ -142,7 +150,7 @@ class Runtime:
             current = Session(target, asyncio.get_running_loop().time() + body["lease_seconds"])
             self.sessions[sid] = current
             current.timer = asyncio.create_task(self._expire_session(sid, current))
-        return {"id": sid, "device_id": target["device_id"], "state": "opening", **details,
+        return {"id": sid, "executor_id": self.journal.executor_id, "device_id": target["device_id"], "state": "opening", **details,
                 "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=body["lease_seconds"])).isoformat()}
 
     async def _expire_session(self, sid, session):
@@ -243,6 +251,15 @@ class Runtime:
             current.commands[command_id] = (request_digest, result)
             return result
 
+    def require_identity(self, expected):
+        if validation.identifier(expected) != self.journal.executor_id:
+            raise ExecutorError("executor_identity_changed", "执行器身份已改变，无法确认旧资源清理")
+
+    async def close_session_request(self, sid, body):
+        validation.object_fields(body, {"expected_executor_id"}, {"expected_executor_id"})
+        self.require_identity(body["expected_executor_id"])
+        return await self.close_session(sid)
+
     async def close_session(self, sid):
         sid = validation.identifier(sid)
         # Persist before any await: a late create/offer cannot revive this id.
@@ -267,7 +284,7 @@ class Runtime:
         self.journal.session_state(sid, "closed" if clean else "cleanup_pending")
         if clean:
             self.sessions.pop(sid, None)
-        return {"id": sid, "state": "closed" if clean else "cleanup_pending", "cleanup_pending": not clean}
+        return {"id": sid, "executor_id": self.journal.executor_id, "state": "closed" if clean else "cleanup_pending", "cleanup_pending": not clean}
 
     async def _authorize(self, rid, target):
         if not self.settings.callback_url:
@@ -319,10 +336,24 @@ class Runtime:
 
     async def _run(self, body, cancel):
         limit = asyncio.Semaphore(body["concurrency"])
+        children = []
         try:
-            await asyncio.gather(*(self._run_device(body, target, cancel, limit) for target in body["targets"]), return_exceptions=True)
+            for target in body["targets"]:
+                key = (body["id"],target["device_id"])
+                device_cancel = asyncio.Event()
+                if cancel.is_set() or self.journal.withdrawn(*key):
+                    device_cancel.set()
+                self.device_cancellations[key] = device_cancel
+                task = asyncio.create_task(self._run_device(body,target,device_cancel,limit))
+                self.device_tasks[key] = task
+                children.append(task)
+            await asyncio.gather(*children, return_exceptions=True)
         finally:
-            body["parameters"].clear()  # Runtime values are never used for restart/replay.
+            for target in body["targets"]:
+                key=(body["id"],target["device_id"])
+                self.device_tasks.pop(key,None)
+                self.device_cancellations.pop(key,None)
+            body["parameters"].clear()
 
     async def _run_device(self, body, target, cancel, limit):
         rid, did = body["id"], target["device_id"]
@@ -340,7 +371,7 @@ class Runtime:
                     limit.release()
                     raise
             acquired = True
-            if cancel.is_set() or self.journal.cancelled(rid):
+            if cancel.is_set() or (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)):
                 await self._update(rid, did, {"state": "cancelled", "steps": results})
                 return
             self.journal.claim(target, holder, "script")
@@ -350,13 +381,15 @@ class Runtime:
             await adb.require_connected(self.settings.adb_binary, target)
             await self._update(rid, did, {"state": "running", "steps": results})
             for index, step in enumerate(body["steps"]):
-                if cancel.is_set() or self.journal.cancelled(rid):
+                if cancel.is_set() or (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)):
                     await self._update(rid, did, {"state": "cancelled", "steps": results})
                     return
                 await self._authorize(rid, target)
                 current_step = step["id"]
                 results[index].update(state="running", started_at=now())
                 await self._update(rid, did, {"state": "running", "current_step": current_step, "steps": results})
+                if cancel.is_set() or self.journal.withdrawn(rid,did):
+                    raise ExecutorError("operation_cancelled", "该设备已退出当前脚本")
                 if step["type"] == "screenshot":
                     async with self.artifact_lock:
                         # Count actual local files too: a crash between file write and
@@ -388,7 +421,7 @@ class Runtime:
                 await self._update(rid, did, {"state": "running", "steps": results})
             await self._update(rid, did, {"state": "completed", "current_step": current_step, "steps": results})
         except BaseException as exc:
-            cancelled = cancel.is_set() or self.journal.cancelled(rid) or isinstance(exc, asyncio.CancelledError)
+            cancelled = cancel.is_set() or (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)) or isinstance(exc, asyncio.CancelledError)
             code = getattr(exc, "code", "executor_interrupted")
             unknown = (getattr(exc, "outcome_unknown", False)
                        or (isinstance(exc, asyncio.CancelledError) and in_flight)
@@ -410,7 +443,7 @@ class Runtime:
             if acquired:
                 self.capacity.release()
                 limit.release()
-            if clean and self.journal.cancelled(rid):
+            if clean and (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)):
                 # This device's execution path is finished and cannot send another action.
                 await self._update(rid, did, {"cleanup_confirmed": True})
 
@@ -447,6 +480,93 @@ class Runtime:
                     # Response is immediate durable proof; caller refreshes without a timer.
                     self.journal.update_device(rid, device["device_id"], values)
         return self.journal.run(rid) if result.get("devices") else result
+
+    async def withdraw_device(self, rid, did, body):
+        rid,did=validation.identifier(rid),validation.identifier(did)
+        validation.object_fields(body,{"event_id","expected_executor_id","old_target_fingerprint"},{"event_id","expected_executor_id","old_target_fingerprint"})
+        if validation.identifier(body["expected_executor_id"]) != self.journal.executor_id:
+            raise ExecutorError("executor_identity_changed", "执行器身份已改变，不能确认旧设备退出")
+        event_id=validation.identifier(body["event_id"])
+        fingerprint=validation.text(body["old_target_fingerprint"],256)
+        never_started=self.journal.withdraw(rid,did,fingerprint,event_id)
+        if never_started:
+            return {"id":rid,"device_id":did,"executor_id":self.journal.executor_id,"event_id":event_id,
+                    "old_target_fingerprint":fingerprint,"fenced":True,"never_started":True,"cleanup_confirmed":True}
+        cancel=self.device_cancellations.get((rid,did))
+        if cancel: cancel.set()
+        task=self.device_tasks.get((rid,did))
+        if task and not task.done():
+            if not task.cancelling(): task.cancel()
+            await asyncio.wait({task},timeout=6)
+        holder="run:"+rid+":"+did
+        clean=False
+        if not task or task.done():
+            clean=await asyncio.to_thread(cleanup_record,self.journal.worker_record(holder))
+            self.journal.release(holder,clean=clean)
+        device=next(d for d in self.journal.run(rid)["devices"] if d["device_id"]==did)
+        values={"cleanup_confirmed":clean}
+        if device["state"] not in TERMINAL:
+            values["steps"]=[{**step,"state":"outcome_unknown" if step["state"]=="running" else ("cancelled" if step["state"] in ("pending","queued") else step["state"])} for step in device["steps"]]
+            values["state"]="outcome_unknown" if any(step["state"]=="outcome_unknown" for step in values["steps"]) else ("cancelled" if clean else "cleanup_pending")
+        self.journal.update_device(rid,did,values)
+        return self.journal.run(rid)
+
+    async def retire_target(self, did, body):
+        did=validation.identifier(did)
+        validation.object_fields(body,{"event_id","expected_executor_id","target"},{"event_id","expected_executor_id","target"})
+        target=validation.target(body["target"])
+        if target["device_id"] != did or validation.identifier(body["expected_executor_id"]) != self.journal.executor_id:
+            raise ExecutorError("target_mismatch", "清理目标或执行器身份不一致")
+        event_id=validation.identifier(body["event_id"])
+        async with self.admission:
+            if self.journal.retire(target,event_id):
+                return {"device_id":did,"event_id":event_id,"executor_id":self.journal.executor_id,"cleanup_confirmed":True}
+            clean=True
+            preparation=self.preparations.get((did,target["target_fingerprint"]))
+            if preparation and not preparation.done():
+                preparation.cancel()
+                await asyncio.wait({preparation},timeout=10)
+                clean=preparation.done()
+            # Helpers can survive an executor restart; their process identity is journaled.
+            record=self.journal.worker_record("helper:"+did)
+            if did not in self.helpers and record:
+                prepared=self.journal.db.execute("SELECT fingerprint FROM prepared WHERE device_id=?",(did,)).fetchone()
+                control=self.journal.control(target)
+                import json
+                owned=self.journal.prepared(target) or bool(control and control["target"] and json.loads(control["target"])["target_fingerprint"]==target["target_fingerprint"])
+                if owned:
+                    stopped=await asyncio.to_thread(cleanup_record,record)
+                    clean=clean and stopped
+                    if stopped: self.journal.clear_worker("helper:"+did)
+                elif not prepared:
+                    clean=False  # Unknown process ownership is not proof of release.
+
+            for row in list(self.journal.db.execute("SELECT id,target FROM sessions WHERE state NOT IN ('closed','failed')")):
+                import json
+                old=json.loads(row["target"])
+                if old["device_id"]==did and old["target_fingerprint"]==target["target_fingerprint"]:
+                    result=await self.close_session(row["id"])
+                    clean=clean and not result["cleanup_pending"]
+            helper=self.helpers.get(did)
+            if helper and helper.target["target_fingerprint"]==target["target_fingerprint"]:
+                stopped=await helper.close()
+                clean=clean and stopped
+                if stopped: self.helpers.pop(did,None)
+            control=self.journal.control(target)
+            if control and control["target"]:
+                import json
+                old=json.loads(control["target"])
+                if old["target_fingerprint"]==target["target_fingerprint"]:
+                    if control["kind"]=="script": clean=False
+                    else:
+                        stopped=await asyncio.to_thread(cleanup_record,self.journal.worker_record(control["holder"]))
+                        self.journal.release(control["holder"],clean=stopped)
+                        clean=clean and stopped
+            # A newer target can legitimately reuse an address. Never disconnect it.
+            if clean and not self.journal.control(target) and not any(validation.endpoint(s.target)==validation.endpoint(target) for s in self.sessions.values()) and not any(validation.endpoint(h.target)==validation.endpoint(target) for h in self.helpers.values()):
+                await adb.disconnect(self.settings.adb_binary,target)
+            if clean: self.journal.retired(target,event_id)
+            return {"device_id":did,"event_id":event_id,"executor_id":self.journal.executor_id,"cleanup_confirmed":clean}
 
     def artifact(self, rid, aid):
         row = self.journal.find_artifact(validation.identifier(rid), validation.identifier(aid))

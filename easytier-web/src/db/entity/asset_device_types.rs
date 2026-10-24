@@ -11,6 +11,7 @@ pub struct Model {
     pub owner_user_id: i32,
     #[sea_orm(column_type = "Text")]
     pub name: String,
+    pub semantic_kind: Option<String>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

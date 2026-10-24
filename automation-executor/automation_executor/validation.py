@@ -40,10 +40,13 @@ def text(value, maximum=512, empty=False):
 
 def target(value):
     object_fields(value, {"device_id", "name", "owner_user_id", "machine_id", "ip", "adb_port",
-                          "connection_mode", "target_fingerprint", "route_context"},
+                          "connection_mode", "target_fingerprint", "route_context", "adb_service_id", "endpoint_revision"},
                   {"device_id", "name", "owner_user_id", "machine_id", "ip", "adb_port",
                    "connection_mode", "target_fingerprint", "route_context"})
     result = dict(value)
+    if "adb_service_id" in value:
+        result["adb_service_id"] = identifier(value["adb_service_id"])
+        integer(value.get("endpoint_revision"), 0, 2 ** 63 - 1)
     result["device_id"] = identifier(value["device_id"])
     result["machine_id"] = identifier(value["machine_id"])
     result["name"] = text(value["name"], 512)

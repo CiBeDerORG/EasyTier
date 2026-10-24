@@ -1,10 +1,10 @@
 //! Session-authenticated automation APIs. Media never traverses these routes.
-mod common;
+pub(crate) mod common;
 mod devices;
-mod runner;
+pub(crate) mod runner;
 mod runs;
 mod scripts;
-mod sessions;
+pub(crate) mod sessions;
 
 use std::{collections::HashSet, sync::Arc};
 
@@ -17,9 +17,9 @@ use crate::central_network::service::CentralNetworkService;
 
 use super::AppStateInner;
 
-pub(super) struct AutomationRuntime {
-    runner: Option<runner::Runner>,
-    controls: Mutex<HashSet<String>>,
+pub(crate) struct AutomationRuntime {
+    pub(crate) runner: Option<runner::Runner>,
+    pub(crate) controls: Mutex<HashSet<String>>,
 }
 
 pub(crate) fn router() -> Router<AppStateInner> {

@@ -31,6 +31,7 @@ mod client_manager;
 mod config_server_listener_tests;
 mod db;
 mod deploy_agent;
+mod discovery;
 mod migrator;
 mod restful;
 mod webhook;

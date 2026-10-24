@@ -34,7 +34,7 @@ const autoRefreshEnabled = Polling.provideAutoRefresh();
 const router = useRouter();
 const toast = useToast();
 const route = useRoute();
-const manualManagementPage = computed(() => ['deployAgents', 'automationCenter'].includes(String(route.name)));
+const manualManagementPage = computed(() => ['deployAgents', 'automationCenter', 'nodeAssets'].includes(String(route.name)));
 const navigationAutoRefresh = computed(() => autoRefreshEnabled.value && !manualManagementPage.value);
 const sidebarStorageKey = 'easytier.sidebar.collapsed';
 const sidebarCollapsed = ref((() => {

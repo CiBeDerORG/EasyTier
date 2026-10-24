@@ -1,10 +1,10 @@
 # EasyTier 手机执行器
 
-本目录是新增执行器的源码和部署材料。当前处于调试开发，**尚未安装依赖、构建镜像、启动服务或进行真机测试**；以下命令供后续授权部署时使用。
+本目录是执行器源码和部署材料。本轮已完成 journal、调度和退出协议的模拟测试；媒体依赖集、镜像构建与实机测试未执行。以下部署命令供实机验收时使用，结果见 [本轮验证记录](../process/openwrt-discovery-sync-in-progress/task/test-report.md)。
 
 ## 部署位置与配置
 
-首版在Linux x86_64/NAS运行一个执行器，使用现有EasyTier可达的手机IPv4；不扫描设备、不自动重连，不导入第二套资产。镜像使用Google Linux platform-tools，尚未提供ARM镜像验证。OpenWrt承担网络与发现职责。
+首版在Linux x86_64/NAS运行一个执行器，使用现有EasyTier可达的手机IPv4；不扫描设备、不周期重连，不导入第二套资产；用户触发的服务端点变化由主服务发起一次清理和连接。镜像使用Google Linux platform-tools，尚未提供ARM镜像验证。OpenWrt承担网络与发现职责。
 
 Rust后端配置：
 
@@ -15,7 +15,7 @@ EASYTIER_AUTOMATION_RUNNER_TOKEN=<与执行器相同的32至4096字节无控制�
 
 执行器复制.env.example为本机.env，填写同一私有token和真实AUTOMATION_CALLBACK_URL。示例11211端口需按实际后端监听修改，不代表现有服务必定使用此端口。回调地址应直接到受信任主服务，可经EasyTier；不会跟随重定向或继承外部HTTP代理。
 
-token示例故意留空，必须填写随机私有值后才能启动。单Runner有活动会话期间不得切换URL或数据卷；切换前关闭会话并停止旧Runner。视频session目前未绑定稳定executor_id，新Runner返回关闭不证明旧Runner立即终止；异常情况下旧媒体还需等待剩余的60秒授权租期到期。脚本任务另有稳定身份核验，不受这项session限制代替。
+token示例故意留空，必须填写随机私有值后才能启动。视频会话与脚本任务均绑定 journal 的稳定 executor_id；创建、关闭及清理确认核对身份。更换 URL 或数据卷不能代替旧执行器清理。升级前关闭旧版活动会话；没有身份记录的历史会话保留 cleanup_pending，需实机确认旧执行器已停止，不会用新执行器的响应冒充旧资源释放。
 
 ```sh
 docker compose build
@@ -69,3 +69,9 @@ docker compose up -d
 上述维护命令本轮未执行。进程被强制断电时可能留下尚未登记的截图文件；这些文件也计入截图容量。可在相同停机步骤中把维护参数改为`--delete-unregistered-artifacts`，仅删除未登记且文件名为UUID的截图；不会清理任务或控制占用。升级备份时应同时保存artifacts目录，不直接修改SQLite记录。
 
 待测：首次准备、无线配对端口变化、中文/控件兼容、rotation、1/2/5/10台媒体、TURN、重复命令、取消与回执丢失、进程重启、账号撤销、脚本与人工占用、证据授权及容量。所有性能/可用性数据当前为空。
+
+## 端点变更协议
+
+主服务与执行器需同时升级。`runs/{run}/devices/{device}/withdraw` 只持久撤销该设备，其他设备继续；`targets/{device}/retire` 拒收旧指纹并确认旧准备、会话、控件进程和定向 ADB 连接退出。无全局 `adb disconnect`、无自动续跑或历史输入重放。清理失败、身份变更和未知进程归属均保留待确认，由用户点击重试。
+
+模拟回归：`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`。测试替换媒体层和设备命令，不证明 Android 或 WebRTC 媒体可用。

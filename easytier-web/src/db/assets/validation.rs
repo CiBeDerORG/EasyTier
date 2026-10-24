@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::common::{AssetError, AssetResult};
 
-pub(super) fn keys(body: &Value, allowed: &[&str]) -> AssetResult<()> {
+pub(crate) fn keys(body: &Value, allowed: &[&str]) -> AssetResult<()> {
     let Some(object) = body.as_object() else { return Err(AssetError::field("body", "Expected an object.")); };
     if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
         return Err(AssetError::field(key, "This field cannot be submitted here."));
@@ -12,7 +12,7 @@ pub(super) fn keys(body: &Value, allowed: &[&str]) -> AssetResult<()> {
     Ok(())
 }
 
-pub(super) fn required_string(body: &Value, field: &str, max: usize) -> AssetResult<String> {
+pub(crate) fn required_string(body: &Value, field: &str, max: usize) -> AssetResult<String> {
     let value = body.get(field).and_then(Value::as_str)
         .ok_or_else(|| AssetError::field(field, "This field is required."))?.trim();
     if value.is_empty() || value.chars().count() > max || value.chars().any(char::is_control) {
@@ -21,7 +21,7 @@ pub(super) fn required_string(body: &Value, field: &str, max: usize) -> AssetRes
     Ok(value.to_owned())
 }
 
-pub(super) fn optional_string(body: &Value, field: &str, max: usize) -> AssetResult<Option<String>> {
+pub(crate) fn optional_string(body: &Value, field: &str, max: usize) -> AssetResult<Option<String>> {
     let value = match body.get(field) {
         None | Some(Value::Null) => return Ok(None),
         Some(Value::String(value)) => value.trim(),
@@ -35,18 +35,18 @@ pub(super) fn optional_string(body: &Value, field: &str, max: usize) -> AssetRes
     Ok(Some(value.to_owned()))
 }
 
-pub(super) fn optional_id(body: &Value, field: &str) -> AssetResult<Option<String>> {
+pub(crate) fn optional_id(body: &Value, field: &str) -> AssetResult<Option<String>> {
     optional_string(body, field, 64)?.map(|value| {
         uuid::Uuid::parse_str(&value).map(|id| id.to_string())
             .map_err(|_| AssetError::field(field, "Expected a UUID."))
     }).transpose()
 }
 
-pub(super) fn required_id(body: &Value, field: &str) -> AssetResult<String> {
+pub(crate) fn required_id(body: &Value, field: &str) -> AssetResult<String> {
     optional_id(body, field)?.ok_or_else(|| AssetError::field(field, "Choose a valid identifier."))
 }
 
-pub(super) fn address_spec(body: &Value) -> AssetResult<Value> {
+pub(crate) fn address_spec(body: &Value) -> AssetResult<Value> {
     let mode = required_string(body, "mode", 32)?;
     match mode.as_str() {
         "direct_instance" => {
@@ -72,7 +72,7 @@ pub(super) fn address_spec(body: &Value) -> AssetResult<Value> {
     }
 }
 
-pub(super) fn canonical_ip(input: &str, field: &str) -> AssetResult<String> {
+pub(crate) fn canonical_ip(input: &str, field: &str) -> AssetResult<String> {
     let address = input.parse::<IpAddr>().map_err(|_| AssetError::field(field, "Enter a plain IPv4 or IPv6 address without a port, URL, or subnet prefix."))?;
     Ok(match address {
         IpAddr::V6(value) => value.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(value)),
@@ -80,7 +80,7 @@ pub(super) fn canonical_ip(input: &str, field: &str) -> AssetResult<String> {
     }.to_string())
 }
 
-pub(super) fn subnets(body: &Value) -> AssetResult<Vec<String>> {
+pub(crate) fn subnets(body: &Value) -> AssetResult<Vec<String>> {
     let entries = body.get("subnets").and_then(Value::as_array)
         .ok_or_else(|| AssetError::field("subnets", "At least one subnet is required."))?;
     if entries.is_empty() { return Err(AssetError::field("subnets", "At least one subnet is required.")); }
@@ -126,12 +126,12 @@ pub(super) fn subnets(body: &Value) -> AssetResult<Vec<String>> {
     Ok(normalized)
 }
 
-pub(super) fn matches_subnets(address: &str, subnets: &[String]) -> bool {
+pub(crate) fn matches_subnets(address: &str, subnets: &[String]) -> bool {
     let Ok(address) = address.parse::<IpAddr>() else { return false; };
     subnets.iter().any(|subnet| subnet.parse::<cidr::IpCidr>().is_ok_and(|network| network.contains(&address)))
 }
 
-pub(super) fn group_payload(body: &Value, creating: bool) -> AssetResult<Value> {
+pub(crate) fn group_payload(body: &Value, creating: bool) -> AssetResult<Value> {
     if creating {
         keys(body, &["request_id", "name", "remarks", "binding", "preview_version"])?;
         keys(&body["binding"], &["instance_id"])?;
@@ -146,19 +146,24 @@ pub(super) fn group_payload(body: &Value, creating: bool) -> AssetResult<Value> 
     }
 }
 
-pub(super) fn device_create_payload(body: &Value) -> AssetResult<Value> {
+pub(crate) fn device_create_payload(body: &Value) -> AssetResult<Value> {
     keys(body, &["request_id", "name", "model", "remarks", "device_type_id", "address_spec", "preview_version"])?;
     Ok(json!({"name":required_string(body,"name",128)?,"model":optional_string(body,"model",128)?,
         "remarks":optional_string(body,"remarks",2000)?,"device_type_id":optional_id(body,"device_type_id")?,
         "address_spec":address_spec(&body["address_spec"])?,"preview_version":required_string(body,"preview_version",256)?}))
 }
 
-pub(super) fn type_payload(body: &Value, creating: bool) -> AssetResult<Value> {
-    keys(body, if creating { &["request_id", "name"] } else { &["name"] })?;
-    Ok(json!({"name":required_string(body,"name",128)?}))
+pub(crate) fn type_payload(body: &Value, creating: bool) -> AssetResult<Value> {
+    keys(body, if creating { &["request_id", "name", "semantic_kind"] } else { &["name", "semantic_kind"] })?;
+    let mut payload = json!({"name":required_string(body,"name",128)?});
+    if let Some(value) = body.get("semantic_kind") {
+        if !value.is_null() && !value.as_str().is_some_and(|v| matches!(v,"openwrt"|"phone"|"other")) { return Err(AssetError::field("semantic_kind","Choose OpenWrt, phone, other, or unclassified.")); }
+        payload["semantic_kind"] = value.clone();
+    }
+    Ok(payload)
 }
 
-pub(super) fn device_payload(body: &Value, creating: bool) -> AssetResult<Value> {
+pub(crate) fn device_payload(body: &Value, creating: bool) -> AssetResult<Value> {
     let mut allowed = vec!["gateway_group_id", "device_type_id", "name", "model", "overlay_ip", "lan_ip", "is_gateway_self", "remarks"];
     if creating { allowed.push("request_id"); }
     keys(body, &allowed)?;
@@ -177,7 +182,7 @@ pub(super) fn device_payload(body: &Value, creating: bool) -> AssetResult<Value>
         "remarks":optional_string(body,"remarks",2000)?}))
 }
 
-pub(super) fn service_access_url(link: &str) -> AssetResult<()> {
+pub(crate) fn service_access_url(link: &str) -> AssetResult<()> {
     if link.chars().count() > 2048 || link.chars().any(char::is_control) {
         return Err(AssetError::field("access_url", "Use at most 2048 characters without control characters."));
     }
@@ -192,14 +197,14 @@ pub(super) fn service_access_url(link: &str) -> AssetResult<()> {
     Ok(())
 }
 
-pub(super) fn service_navigation_payload(body: &Value) -> AssetResult<bool> {
+pub(crate) fn service_navigation_payload(body: &Value) -> AssetResult<bool> {
     keys(body, &["show_in_navigation"])?;
     body.get("show_in_navigation").and_then(Value::as_bool)
         .ok_or_else(|| AssetError::field("show_in_navigation", "Expected true or false."))
 }
 
-pub(super) fn service_payload(body: &Value, creating: bool) -> AssetResult<Value> {
-    let mut allowed = vec!["name", "protocols", "port", "remarks", "access_url", "icon", "publication", "show_in_navigation"];
+pub(crate) fn service_payload(body: &Value, creating: bool) -> AssetResult<Value> {
+    let mut allowed = vec!["name", "protocols", "port", "remarks", "access_url", "icon", "publication", "show_in_navigation", "service_type", "connection_mode"];
     if creating { allowed.push("request_id"); }
     keys(body, &allowed)?;
     let input_protocols = body.get("protocols").and_then(Value::as_array)
@@ -227,6 +232,12 @@ pub(super) fn service_payload(body: &Value, creating: bool) -> AssetResult<Value
     }
     let mut payload = json!({"name":required_string(body,"name",128)?,"protocols":protocols,"port":port,
         "remarks":optional_string(body,"remarks",2000)?,"access_url":access_url,"icon":icon});
+    for (field, allowed) in [("service_type", &["generic","adb"][..]), ("connection_mode", &["tcp","wireless"][..])] {
+        if let Some(value) = body.get(field) {
+            if !value.as_str().is_some_and(|v| allowed.contains(&v)) { return Err(AssetError::field(field,"Choose a supported service type or connection mode.")); }
+            payload[field] = value.clone();
+        }
+    }
     // Preserve the canonical payload of pre-publication idempotency keys.
     // Absence also means that older edit clients retain the existing binding.
     if let Some(publication) = body.get("publication") {

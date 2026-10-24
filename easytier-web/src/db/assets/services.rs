@@ -17,6 +17,18 @@ async fn available_bindings(connection: &mut SqliteConnection, owner: i32, node:
     Ok(())
 }
 
+async fn validate_adb(connection: &mut SqliteConnection, owner: i32, device: &str, excluded: &str, payload: &Value) -> AssetResult<()> {
+    if payload["service_type"] != "adb" { return Ok(()); }
+    if payload["protocols"] != json!(["tcp"]) { return Err(AssetError::field("protocols","An ADB service must use exactly one TCP port.")); }
+    let phone: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM asset_devices d JOIN asset_device_types t ON t.id=d.device_type_id AND t.owner_user_id=d.owner_user_id WHERE d.id=? AND d.owner_user_id=? AND t.semantic_kind='phone' AND d.is_gateway_self=0)")
+        .bind(device).bind(owner).fetch_one(&mut *connection).await?;
+    if !phone { return Err(AssetError::field("service_type","Confirm the device's phone type before classifying an ADB service.")); }
+    let duplicate: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM asset_services WHERE device_id=? AND service_type='adb' AND id<>?)")
+        .bind(device).bind(excluded).fetch_one(&mut *connection).await?;
+    if duplicate { return Err(AssetError::conflict("adb_service_exists","This phone already has an ADB service. Edit that service instead.")); }
+    Ok(())
+}
+
 async fn insert_bindings(connection: &mut SqliteConnection, owner: i32, node: &str, device: &str, id: &str, payload: &Value) -> AssetResult<()> {
     for protocol in payload["protocols"].as_array().into_iter().flatten() {
         sqlx::query("INSERT INTO asset_service_bindings(service_id,owner_user_id,machine_id,device_id,protocol,port) VALUES(?,?,?,?,?,?)")
@@ -120,14 +132,15 @@ impl AssetsStore {
             return Ok(response);
         }
         ensure_device(&mut transaction, owner, node, device).await?;
+        validate_adb(&mut transaction, owner, device, "", &payload).await?;
         available_bindings(&mut transaction, owner, node, device, "", &payload).await?;
         let id = uuid::Uuid::new_v4().to_string();
         let timestamp = now();
-        sqlx::query("INSERT INTO asset_services(id,owner_user_id,machine_id,device_id,name,port,remarks,access_url,icon,show_in_navigation,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+        sqlx::query("INSERT INTO asset_services(id,owner_user_id,machine_id,device_id,name,port,remarks,access_url,icon,show_in_navigation,created_at,updated_at,service_type,connection_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
             .bind(&id).bind(owner).bind(node).bind(device).bind(payload["name"].as_str()).bind(payload["port"].as_i64())
             .bind(payload["remarks"].as_str()).bind(payload["access_url"].as_str()).bind(payload["icon"].as_str())
             .bind(payload["show_in_navigation"].as_bool().unwrap_or(false))
-            .bind(&timestamp).bind(&timestamp).execute(&mut *transaction).await?;
+            .bind(&timestamp).bind(&timestamp).bind(payload["service_type"].as_str().unwrap_or("generic")).bind(payload["connection_mode"].as_str().unwrap_or("tcp")).execute(&mut *transaction).await?;
         insert_bindings(&mut transaction, owner, node, device, &id, &payload).await?;
         publications::sync_service(&mut transaction, owner, node, device, &id, &payload, self.publication_runtime_proof.as_ref()).await?;
         let row = sqlx::query(
@@ -143,20 +156,22 @@ impl AssetsStore {
     }
 
     pub(crate) async fn update_service(&self, owner: i32, node: &str, id: &str, body: Value) -> AssetResult<Value> {
-        let payload = validation::service_payload(&body, false)?;
+        let mut payload = validation::service_payload(&body, false)?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
-        let original = sqlx::query("SELECT device_id, show_in_navigation FROM asset_services WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
+        let original = sqlx::query("SELECT device_id, show_in_navigation, service_type, connection_mode FROM asset_services WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(id).bind(owner).bind(node).fetch_optional(&mut *transaction).await?.ok_or_else(AssetError::not_found)?;
         let device: String = original.try_get("device_id")?;
+        for field in ["service_type","connection_mode"] { if payload.get(field).is_none() { payload[field]=json!(original.try_get::<String,_>(field)?); } }
+        validate_adb(&mut transaction, owner, &device, id, &payload).await?;
         let show_in_navigation = payload["show_in_navigation"].as_bool().unwrap_or(
             original.try_get::<bool, _>("show_in_navigation")? && payload["access_url"].is_string(),
         );
         available_bindings(&mut transaction, owner, node, &device, id, &payload).await?;
         sqlx::query("DELETE FROM asset_service_bindings WHERE service_id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
-        sqlx::query("UPDATE asset_services SET name = ?, port = ?, remarks = ?, access_url = ?, icon = ?, show_in_navigation = ?, updated_at = ? WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
+        sqlx::query("UPDATE asset_services SET name = ?, port = ?, remarks = ?, access_url = ?, icon = ?, show_in_navigation = ?, updated_at = ?, service_type = ?, connection_mode = ? WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
             .bind(payload["name"].as_str()).bind(payload["port"].as_i64()).bind(payload["remarks"].as_str())
-            .bind(payload["access_url"].as_str()).bind(payload["icon"].as_str()).bind(show_in_navigation).bind(now()).bind(id).bind(owner).bind(node)
+            .bind(payload["access_url"].as_str()).bind(payload["icon"].as_str()).bind(show_in_navigation).bind(now()).bind(payload["service_type"].as_str()).bind(payload["connection_mode"].as_str()).bind(id).bind(owner).bind(node)
             .execute(&mut *transaction).await?;
         insert_bindings(&mut transaction, owner, node, &device, id, &payload).await?;
         publications::sync_service(&mut transaction, owner, node, &device, id, &payload, self.publication_runtime_proof.as_ref()).await?;

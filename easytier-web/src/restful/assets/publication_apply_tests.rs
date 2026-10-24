@@ -1,5 +1,14 @@
 use super::*;
 
+#[test]
+fn persisted_retry_keeps_selected_target_even_when_saved_rules_unchanged() {
+    let selected=(Uuid::new_v4(),Uuid::new_v4());
+    let plan=ApplyPlan{before:BTreeMap::from([(selected,None)]),since:12,selected:Some(selected)};
+    let restored=ApplyPlan::decode(&plan.encode()).unwrap();
+    assert_eq!(restored.selected,Some(selected));
+    assert!(restored.before.contains_key(&selected));
+}
+
 fn rule(proto: &str, bind: u32, destination: u32) -> PortForwardConfig {
     PortForwardConfig { proto: proto.into(), bind_ip: "0.0.0.0".into(), bind_port: bind,
         dst_ip: "10.10.10.3".into(), dst_port: destination }

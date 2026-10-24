@@ -1,16 +1,16 @@
 //! Manually registered assets. These are separate from EasyTier registered machines.
-mod address_derivation;
-mod binding_ops;
+pub(crate) mod address_derivation;
+pub(crate) mod binding_ops;
 mod bindings;
-mod common;
-mod devices;
+pub(crate) mod common;
+pub(crate) mod devices;
 mod groups;
 mod idempotency;
 mod instances;
-mod publications;
+pub(crate) mod publications;
 mod services;
 mod types;
-mod validation;
+pub(crate) mod validation;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

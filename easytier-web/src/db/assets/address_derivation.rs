@@ -21,13 +21,13 @@ fn cidr(value: &str, field: &str) -> AssetResult<(Ipv4Addr, u8)> {
     Ok((network, prefix))
 }
 
-pub(super) fn ipv4(value: &str, field: &str) -> AssetResult<Ipv4Addr> {
+pub(crate) fn ipv4(value: &str, field: &str) -> AssetResult<Ipv4Addr> {
     value.trim().parse::<Ipv4Addr>()
         .map_err(|_| AssetError::field(field, "Enter a plain IPv4 address without a port or prefix."))
 }
 
 /// Canonical, order-independent rule keys preserve identity when an instance's rules reorder.
-pub(super) fn parse_rules(raw: &[String]) -> AssetResult<Vec<Value>> {
+pub(crate) fn parse_rules(raw: &[String]) -> AssetResult<Vec<Value>> {
     let mut rules = BTreeMap::new();
     for (index, value) in raw.iter().enumerate() {
         let field = format!("proxy_cidrs.{index}");
@@ -100,7 +100,7 @@ fn rule_addresses(rules: &[Value], rule_key: Option<&str>, host_offset: Option<u
     Ok((Ipv4Addr::from(overlay as u32).to_string(), Ipv4Addr::from(lan as u32).to_string(), warnings))
 }
 
-pub(super) fn derive_address(
+pub(crate) fn derive_address(
     mode: &str,
     instance_ipv4: &str,
     rules: &[Value],

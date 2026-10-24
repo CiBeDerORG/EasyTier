@@ -4,6 +4,7 @@ import { Button, Dialog, InputText, Message, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { v4 as uuid } from 'uuid';
+import { DiscoveryApi, type EndpointEvent } from '../modules/discovery-api';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../modules/automation-api';
 import type { AutomationContext, AutomationControl, AutomationControlReply, AutomationDevice, AutomationRun, AutomationStep } from '../types/automation';
 import PhoneCard from './automation/PhoneCard.vue';
@@ -13,8 +14,10 @@ import RunHistory from './automation/RunHistory.vue';
 import { automationMessages } from './automation/messages';
 
 interface PhoneHandle {
+    endpointChanged(event: EndpointEvent): Promise<void>;
     open(quality: 'wall' | 'focus'): Promise<void>;
     close(): Promise<void>;
+    cancelRestoreIntent(): void;
     send(message: AutomationControl): Promise<AutomationControlReply>;
     getState(): { phase: string; ready: boolean; width: number; height: number };
     cancelPointer(): void;
@@ -25,6 +28,20 @@ interface Gesture { id: string; x: number; y: number; width: number; height: num
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
 const router = useRouter();
 const api = new AutomationApi();
+const discoveryApi = new DiscoveryApi();
+const sourceIssues = ref<{device_id:string;machine_id:string;name:string;reason:string}[]>([]);
+let stopEvents: (() => void) | undefined;
+let eventOwner = 0;
+function subscribeEndpoints() {
+    if (eventOwner === ownerId.value && stopEvents) return;
+    stopEvents?.(); eventOwner = ownerId.value;
+    stopEvents = discoveryApi.subscribe(eventOwner, event => {
+        if (disposed || event.owner_user_id !== ownerId.value || tab.value !== 'workbench') return;
+        void cards.get(event.device_id)?.endpointChanged(event);
+        // Only a committed endpoint event refreshes the list; no polling.
+        void loadDevices();
+    }, () => { stopEvents = undefined; if (!disposed) notice.value = '设备变更通知已断开，点击刷新重新订阅。'; });
+}
 const context = ref<AutomationContext | null>(null);
 const accounts = ref<{ id: number; username: string }[]>([]);
 const ownerId = ref(0);
@@ -89,7 +106,7 @@ async function loadDevices() {
     try {
         const response = await api.devices(owner);
         if (disposed || request !== loadGeneration || owner !== ownerId.value) return;
-        devices.value = response.items;
+        devices.value = response.items; sourceIssues.value = response.issues ?? []; subscribeEndpoints();
         const currentIds = new Set(devices.value.map(device => device.id));
         selectedIds.value = selectedIds.value.filter(id => currentIds.has(id));
         for (const id of Object.keys(phases.value)) if (!currentIds.has(id)) delete phases.value[id];
@@ -104,6 +121,7 @@ async function query() {
 }
 async function changeOwner(id: number) {
     if (id === ownerId.value || busy.value || connecting.value || switchingTab.value) return;
+    stopEvents?.(); stopEvents = undefined;
     ++workspaceGeneration; ++loadGeneration;
     await closeAll();
     ownerId.value = id; devices.value = []; selectedIds.value = []; phases.value = {}; results.value = [];
@@ -321,6 +339,7 @@ async function changeTab(next: typeof tab.value) {
     switchingTab.value = true;
     try {
         if (tab.value === 'workbench') {
+            for (const card of cards.values()) card.cancelRestoreIntent();
             globalOpen.value = false; syncPreparation.value = false;
             if (recordingId.value) finishRecording(false);
             await stopSync();
@@ -332,6 +351,7 @@ async function changeTab(next: typeof tab.value) {
     } finally { switchingTab.value = false; }
 }
 function onRunCreated(run: AutomationRun) {
+    for (const card of cards.values()) card.cancelRestoreIntent();
     focusRunId.value = run.id; ++historyKey.value; tab.value = 'history';
 }
 function savedConnection(device: AutomationDevice) {
@@ -359,7 +379,7 @@ onMounted(async () => {
         await loadDevices();
     } catch (cause) { if (!disposed) handleError(cause); }
 });
-onBeforeUnmount(() => {
+onBeforeUnmount(() => { stopEvents?.();
     disposed = true; ++workspaceGeneration; ++loadGeneration;
     document.removeEventListener('visibilitychange', visibilityChanged);
     document.removeEventListener('fullscreenchange', fullScreenChanged);
@@ -371,6 +391,7 @@ onBeforeUnmount(() => {
 <template>
     <section class="console-page automation-center">
         <header class="page-heading"><div><h1>{{ t('title') }}</h1><p class="page-description">{{ t('description') }}</p></div><span v-if="ownerId" class="owner-caption"><i class="pi pi-user" aria-hidden="true" /> {{ t('managing') }} · <strong>{{ managedAccount }}</strong></span></header>
+        <Message v-if="sourceIssues.length" severity="warn" :closable="false">有 {{ sourceIssues.length }} 条设备资料需要确认手机类型或 ADB 服务，请在节点设备与服务编辑器中处理。<details><summary>查看待处理设备</summary><div v-for="issue in sourceIssues" :key="issue.device_id"><a :href="`#/h/node-assets?owner=${ownerId}&node=${issue.machine_id}&device=${issue.device_id}`">{{ issue.name }}</a> · {{ issue.reason }}</div></details></Message>
         <Message v-if="error" severity="error" @close="error = ''">{{ error }}</Message>
         <Message v-if="notice" severity="info" @close="notice = ''">{{ notice }}</Message>
         <Message v-if="context && !context.available" severity="warn" :closable="false">{{ t('unavailable') }}</Message>

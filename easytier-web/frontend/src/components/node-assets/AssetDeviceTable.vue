@@ -23,6 +23,7 @@ const emit = defineEmits<{
     'add-service': [device: AssetDevice];
     binding: [device: AssetDevice];
     address: [device: AssetDevice];
+    discovery: [device: AssetDevice, action: 'devices' | 'adb'];
 }>();
 defineSlots<{ services(props: { device: AssetDevice }): unknown }>();
 const { t, locale } = useI18n();
@@ -88,6 +89,7 @@ const createdAt = (value: string) => {
                 <template #body="{ data }">
                     <div class="device-identity" :data-asset-device-id="data.id">
                         <span class="device-name">{{ data.name }}</span>
+                        <div v-if="data.is_gateway_self && data.semantic_kind === 'openwrt'" class="discovery-actions"><Button label="立即同步" size="small" text @click="emit('discovery', data, 'devices')" /><Button label="ADB 发现" size="small" text @click="emit('discovery', data, 'adb')" /></div>
                         <Tag v-if="data.is_gateway_self" severity="info" :value="t('assets.deviceGatewaySelf')" />
                         <span class="device-record-id" :title="data.id">{{ data.id.slice(0, 8) }}</span>
                     </div>

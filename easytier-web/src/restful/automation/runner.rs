@@ -8,16 +8,20 @@ use subtle::ConstantTimeEq;
 
 use super::common::{HttpResult, error};
 
-pub(super) struct Runner {
+#[derive(Clone)]
+pub(crate) struct Runner {
     base: url::Url,
     token: String,
     client: Client,
 }
 
 impl Runner {
-    pub(super) fn from_environment() -> Option<Self> {
+    pub(crate) fn from_environment() -> Option<Self> {
         let raw = std::env::var("EASYTIER_AUTOMATION_RUNNER_URL").ok()?;
         let token = std::env::var("EASYTIER_AUTOMATION_RUNNER_TOKEN").ok()?;
+        Self::configured(&raw,token)
+    }
+    pub(crate) fn configured(raw:&str,token:String)->Option<Self>{
         let mut base = url::Url::parse(raw.trim()).ok()?;
         if !matches!(base.scheme(), "http" | "https") || base.host_str().is_none()
             || !base.username().is_empty() || base.password().is_some()
@@ -29,7 +33,7 @@ impl Runner {
         }
         let path = format!("{}/", base.path().trim_end_matches('/'));
         base.set_path(&path);
-        let client = Client::builder()
+        let client = Client::builder().no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(45))
@@ -37,7 +41,7 @@ impl Runner {
         Some(Self { base, token, client })
     }
 
-    pub(super) fn authenticate(&self, headers: &HeaderMap) -> HttpResult<()> {
+    pub(crate) fn authenticate(&self, headers: &HeaderMap) -> HttpResult<()> {
         let supplied = headers.get(axum::http::header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer "));
         let valid = supplied.is_some_and(|value| value.as_bytes().ct_eq(self.token.as_bytes()).into());
@@ -47,7 +51,7 @@ impl Runner {
         Ok(())
     }
 
-    pub(super) async fn request(&self, method: Method, path: &str, body: Option<&Value>) -> HttpResult<Value> {
+    pub(crate) async fn request(&self, method: Method, path: &str, body: Option<&Value>) -> HttpResult<Value> {
         // Paths are built exclusively from fixed route names and parsed UUIDs.
         let url = self.base.join(&format!("internal/v1/{}",path.trim_start_matches('/')))
             .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE,"runner_not_configured","执行器地址配置无效。"))?;
@@ -90,15 +94,15 @@ impl Runner {
         Ok(payload)
     }
 
-    pub(super) async fn post(&self, path: &str, body: &Value) -> HttpResult<Value> {
+    pub(crate) async fn post(&self, path: &str, body: &Value) -> HttpResult<Value> {
         self.request(Method::POST, path, Some(body)).await
     }
 
-    pub(super) async fn get(&self, path: &str) -> HttpResult<Value> {
+    pub(crate) async fn get(&self, path: &str) -> HttpResult<Value> {
         self.request(Method::GET, path, None).await
     }
 
-    pub(super) async fn identity(&self) -> HttpResult<String> {
+    pub(crate) async fn identity(&self) -> HttpResult<String> {
         let health = self.get("health").await?;
         if health["protocol_version"] != 1 {
             return Err(error(StatusCode::BAD_GATEWAY,"runner_protocol_mismatch","执行器协议版本不兼容，请先更新执行器。"));
@@ -107,7 +111,7 @@ impl Runner {
             .map_err(|_|error(StatusCode::BAD_GATEWAY,"runner_identity_invalid","执行器没有有效的持久身份。"))
     }
 
-    pub(super) async fn artifact(&self, run_id: &str, artifact_id: &str) -> HttpResult<(String,Vec<u8>)> {
+    pub(crate) async fn artifact(&self, run_id: &str, artifact_id: &str) -> HttpResult<(String,Vec<u8>)> {
         let url = self.base.join(&format!("internal/v1/runs/{run_id}/artifacts/{artifact_id}"))
             .map_err(|_|error(StatusCode::SERVICE_UNAVAILABLE,"runner_not_configured","执行器地址配置无效。"))?;
         let mut response = self.client.get(url).bearer_auth(&self.token).timeout(Duration::from_secs(15)).send().await

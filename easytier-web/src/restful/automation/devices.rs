@@ -61,6 +61,8 @@ pub(super) async fn prepare(auth: AuthSession, State(manager): State<AppStateInn
     let expected_state=match action {"pair"=>"paired","automation"=>"automation_ready",_=>"connected"};
     let mut outbound = payload;
     outbound["target"] = wire_target(&target);
+    let executor=runner(&runtime)?.identity().await?;
+    crate::discovery::reconnect::remember_target(&service,&target,&executor).await.map_err(|e|store_error(e.into()))?;
     let result=runner(&runtime)?.post("prepare",&outbound).await?;
     if result["state"]!=expected_state {
         return Err(error(StatusCode::BAD_GATEWAY,"runner_response_invalid","设备准备结果尚未确认，请手动检查设备状态。"));

@@ -56,68 +56,69 @@ impl From<sqlx::Error> for AssetError {
     }
 }
 
-pub(super) fn now() -> String {
+pub(crate) fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
 }
 
-pub(super) async fn ensure_owner(connection: &mut SqliteConnection, owner: i32) -> AssetResult<()> {
+pub(crate) async fn ensure_owner(connection: &mut SqliteConnection, owner: i32) -> AssetResult<()> {
     let exists: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)")
         .bind(owner).fetch_one(&mut *connection).await?;
     if exists == 0 { return Err(AssetError::not_found()); }
     Ok(())
 }
 
-pub(super) async fn ensure_node(connection: &mut SqliteConnection, owner: i32, node: &str) -> AssetResult<()> {
+pub(crate) async fn ensure_node(connection: &mut SqliteConnection, owner: i32, node: &str) -> AssetResult<()> {
     let exists: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM devices WHERE user_id = ? AND machine_id = ?)")
         .bind(owner).bind(node).fetch_one(&mut *connection).await?;
     if exists == 0 { return Err(AssetError::not_found()); }
     Ok(())
 }
 
-pub(super) async fn ensure_group(connection: &mut SqliteConnection, owner: i32, node: &str, id: &str) -> AssetResult<()> {
+pub(crate) async fn ensure_group(connection: &mut SqliteConnection, owner: i32, node: &str, id: &str) -> AssetResult<()> {
     let exists: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM asset_gateway_groups WHERE id = ? AND owner_user_id = ? AND machine_id = ?)")
         .bind(id).bind(owner).bind(node).fetch_one(&mut *connection).await?;
     if exists == 0 { return Err(AssetError::not_found()); }
     Ok(())
 }
 
-pub(super) async fn ensure_type(connection: &mut SqliteConnection, owner: i32, id: &str) -> AssetResult<()> {
+pub(crate) async fn ensure_type(connection: &mut SqliteConnection, owner: i32, id: &str) -> AssetResult<()> {
     let exists: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM asset_device_types WHERE id = ? AND owner_user_id = ?)")
         .bind(id).bind(owner).fetch_one(&mut *connection).await?;
     if exists == 0 { return Err(AssetError::not_found()); }
     Ok(())
 }
 
-pub(super) async fn ensure_device(connection: &mut SqliteConnection, owner: i32, node: &str, id: &str) -> AssetResult<()> {
+pub(crate) async fn ensure_device(connection: &mut SqliteConnection, owner: i32, node: &str, id: &str) -> AssetResult<()> {
     let exists: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?)")
         .bind(id).bind(owner).bind(node).fetch_one(&mut *connection).await?;
     if exists == 0 { return Err(AssetError::not_found()); }
     Ok(())
 }
 
-pub(super) fn type_json(row: &SqliteRow) -> AssetResult<Value> {
+pub(crate) fn type_json(row: &SqliteRow) -> AssetResult<Value> {
     Ok(json!({
         "id": row.try_get::<String, _>("id")?,
         "owner_user_id": row.try_get::<i32, _>("owner_user_id")?,
         "name": row.try_get::<String, _>("name")?,
+        "semantic_kind": row.try_get::<Option<String>, _>("semantic_kind")?,
         "created_at": row.try_get::<String, _>("created_at")?,
         "updated_at": row.try_get::<String, _>("updated_at")?,
     }))
 }
 
-pub(super) async fn group_subnets(connection: &mut SqliteConnection, owner: i32, node: &str, id: &str) -> AssetResult<Vec<String>> {
+pub(crate) async fn group_subnets(connection: &mut SqliteConnection, owner: i32, node: &str, id: &str) -> AssetResult<Vec<String>> {
     Ok(sqlx::query_scalar::<_, String>("SELECT cidr FROM asset_gateway_subnets WHERE group_id = ? AND owner_user_id = ? AND machine_id = ? ORDER BY cidr")
         .bind(id).bind(owner).bind(node).fetch_all(&mut *connection).await?)
 }
 
-pub(super) fn address_warning(id: Option<&str>, name: Option<&str>, lan: &str) -> Value {
+pub(crate) fn address_warning(id: Option<&str>, name: Option<&str>, lan: &str) -> Value {
     let mut warning = json!({"code":"lan_outside_gateway_subnets", "field":"lan_ip", "message":format!("{lan} is outside the registered gateway subnets.")});
     if let Some(id) = id { warning["device_id"] = json!(id); }
     if let Some(name) = name { warning["device_name"] = json!(name); }
     warning
 }
 
-pub(super) async fn group_warnings(connection: &mut SqliteConnection, owner: i32, node: &str, group_id: &str, subnets: &[String]) -> AssetResult<Vec<Value>> {
+pub(crate) async fn group_warnings(connection: &mut SqliteConnection, owner: i32, node: &str, group_id: &str, subnets: &[String]) -> AssetResult<Vec<Value>> {
     let rows = sqlx::query("SELECT id, name, lan_ip FROM asset_devices WHERE owner_user_id = ? AND machine_id = ? AND gateway_group_id = ? AND lan_ip IS NOT NULL ORDER BY id")
         .bind(owner).bind(node).bind(group_id).fetch_all(&mut *connection).await?;
     let mut warnings = Vec::new();
@@ -130,7 +131,7 @@ pub(super) async fn group_warnings(connection: &mut SqliteConnection, owner: i32
     Ok(warnings)
 }
 
-pub(super) async fn group_json(connection: &mut SqliteConnection, row: &SqliteRow, runtime: &super::instances::RuntimeObservations) -> AssetResult<Value> {
+pub(crate) async fn group_json(connection: &mut SqliteConnection, row: &SqliteRow, runtime: &super::instances::RuntimeObservations) -> AssetResult<Value> {
     let id: String = row.try_get("id")?;
     let owner: i32 = row.try_get("owner_user_id")?;
     let node: String = row.try_get("machine_id")?;
@@ -143,13 +144,16 @@ pub(super) async fn group_json(connection: &mut SqliteConnection, row: &SqliteRo
         "created_at":row.try_get::<String,_>("created_at")?, "updated_at":row.try_get::<String,_>("updated_at")?}))
 }
 
-pub(super) async fn device_json(connection: &mut SqliteConnection, row: &SqliteRow, runtime: &super::instances::RuntimeObservations) -> AssetResult<Value> {
+pub(crate) async fn device_json(connection: &mut SqliteConnection, row: &SqliteRow, runtime: &super::instances::RuntimeObservations) -> AssetResult<Value> {
     let id: String = row.try_get("id")?;
     let owner: i32 = row.try_get("owner_user_id")?;
     let node: String = row.try_get("machine_id")?;
     let name: String = row.try_get("name")?;
     let group: Option<String> = row.try_get("gateway_group_id")?;
     let lan: Option<String> = row.try_get("lan_ip")?;
+    let semantic: Option<String> = sqlx::query_scalar("SELECT semantic_kind FROM asset_device_types WHERE id=? AND owner_user_id=?")
+        .bind(row.try_get::<Option<String>,_>("device_type_id")?).bind(owner).fetch_optional(&mut *connection).await?.flatten();
+    let discovery: Option<String> = row.try_get("discovery_json")?;
     let mode: String = row.try_get("address_mode")?;
     let instance: Option<String> = row.try_get("network_instance_id")?;
     let rule: Option<String> = row.try_get("rule_key")?;
@@ -168,6 +172,9 @@ pub(super) async fn device_json(connection: &mut SqliteConnection, row: &SqliteR
         }
     }
     Ok(json!({"id":id,"owner_user_id":owner,"machine_id":node,"name":name,
+        "semantic_kind":semantic,"endpoint_revision":row.try_get::<i64,_>("endpoint_revision")?,
+        "discovery":discovery.as_deref().and_then(|s|serde_json::from_str::<Value>(s).ok()),
+        "display_name_manual":row.try_get::<bool,_>("display_name_manual")?,
         "gateway_group_id":group,"device_type_id":row.try_get::<Option<String>,_>("device_type_id")?,
         "model":row.try_get::<Option<String>,_>("model")?,"overlay_ip":row.try_get::<String,_>("overlay_ip")?,
         "lan_ip":lan,"is_gateway_self":row.try_get::<bool,_>("is_gateway_self")?,
@@ -176,7 +183,7 @@ pub(super) async fn device_json(connection: &mut SqliteConnection, row: &SqliteR
         "created_at":row.try_get::<String,_>("created_at")?,"updated_at":row.try_get::<String,_>("updated_at")?}))
 }
 
-pub(super) async fn service_json(connection: &mut SqliteConnection, row: &SqliteRow) -> AssetResult<Value> {
+pub(crate) async fn service_json(connection: &mut SqliteConnection, row: &SqliteRow) -> AssetResult<Value> {
     let id: String = row.try_get("id")?;
     let owner: i32 = row.try_get("owner_user_id")?;
     let node: String = row.try_get("machine_id")?;
@@ -185,6 +192,7 @@ pub(super) async fn service_json(connection: &mut SqliteConnection, row: &Sqlite
         .bind(&id).fetch_all(&mut *connection).await?;
     Ok(json!({"id":id,"owner_user_id":row.try_get::<i32,_>("owner_user_id")?,
         "machine_id":row.try_get::<String,_>("machine_id")?,"device_id":row.try_get::<String,_>("device_id")?,
+        "service_type":row.try_get::<String,_>("service_type")?,"connection_mode":row.try_get::<String,_>("connection_mode")?,"endpoint_revision":row.try_get::<i64,_>("endpoint_revision")?,
         "name":row.try_get::<String,_>("name")?,"protocols":protocols,"port":row.try_get::<i32,_>("port")?,
         "overlay_ip":row.try_get::<String,_>("overlay_ip")?,"lan_ip":row.try_get::<Option<String>,_>("lan_ip")?,
         "publication":publication,"show_in_navigation":row.try_get::<bool,_>("show_in_navigation")?,

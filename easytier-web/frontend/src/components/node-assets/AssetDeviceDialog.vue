@@ -10,6 +10,7 @@ import type { AddressSpec, ApplyAddressInput, ApplyBindingInput, AssetDevice, As
 import { formatAssetError, getAssetError, isUncertainMutationError, useAssetMutation } from '../../composables/useAssetMutation';
 import InstanceBindingSelector from './InstanceBindingSelector.vue';
 import GatewayBindingEditor from './GatewayBindingEditor.vue';
+import DiscoveryDialog from './DiscoveryDialog.vue';
 import AssetAddressFields from './AssetAddressFields.vue';
 
 type EditMode = 'metadata' | 'binding' | 'address';
@@ -24,6 +25,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const { bindingReason } = useAssetBindingLabels();
 const role = ref<AssetRole>('ordinary');
+const showDiscovery = ref(false);
 const mode = ref<EditMode>('metadata');
 const gatewayBusy = ref(false);
 const candidate = ref<InstanceCandidate | null>(null);
@@ -294,6 +296,7 @@ onBeforeUnmount(() => { disposed = true; generation += 1; previewGeneration += 1
                     <span>{{ t('assets.deviceLanIp') }}: <code>{{ device.lan_ip || '—' }}</code></span>
                 </div>
                 <template v-if="showMetadata">
+                    <div v-if="device?.is_gateway_self && device.semantic_kind === 'openwrt'" class="field"><Button label="OpenWrt 发现接入设置" icon="pi pi-cog" outlined type="button" :disabled="locked" @click="showDiscovery = true" /></div>
                     <div class="device-field full-width">
                         <label for="asset-device-name">{{ t('assets.deviceName') }} *</label>
                         <InputText id="asset-device-name" v-model="form.name" autocomplete="off" :disabled="locked"
@@ -389,6 +392,7 @@ onBeforeUnmount(() => { disposed = true; generation += 1; previewGeneration += 1
                 icon="pi pi-check" type="submit" form="asset-device-form" :loading="saving" :disabled="saving" />
         </template>
     </Dialog>
+    <DiscoveryDialog v-if="showDiscovery && device" :gateway="device" :owner-id="scope.owner_user_id" initial-action="access" @close="showDiscovery = false" />
 </template>
 
 <style scoped>

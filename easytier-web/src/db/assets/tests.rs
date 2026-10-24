@@ -1729,7 +1729,7 @@ async fn failed_binding_write_rolls_back_snapshot_addresses_and_retry_record() {
 }
 
 #[tokio::test]
-async fn binding_migration_up_and_down_preserve_legacy_ipv6_ids_services_and_foreign_keys() {
+async fn latest_upgrade_refuses_lossy_rollback_and_preserves_legacy_ipv6_assets() {
     use sea_orm_migration::MigratorTrait;
     let f = Fixture::new().await;
     let node = f.node.to_string();
@@ -1749,9 +1749,8 @@ async fn binding_migration_up_and_down_preserve_legacy_ipv6_ids_services_and_for
         .await
         .unwrap();
     let orm = sea_orm::SqlxSqliteConnector::from_sqlx_sqlite_pool(f.db.inner());
-    crate::migrator::Migrator::down(&orm, Some(1))
-        .await
-        .unwrap();
+    let rollback = crate::migrator::Migrator::down(&orm, Some(1)).await.unwrap_err();
+    assert!(rollback.to_string().contains("pre-upgrade backup"));
     let before: (String, String, Option<String>) =
         sqlx::query_as("SELECT id,overlay_ip,lan_ip FROM asset_devices WHERE id=?")
             .bind(id(&device))

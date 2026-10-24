@@ -55,6 +55,23 @@ class Journal:
                 id TEXT PRIMARY KEY, run_id TEXT NOT NULL, device_id TEXT NOT NULL,
                 step_id TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL, created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS device_refusals (
+                run_id TEXT NOT NULL, device_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                event_id TEXT NOT NULL, PRIMARY KEY(run_id,device_id)
+            );
+            CREATE TABLE IF NOT EXISTS target_refusals (
+                device_id TEXT NOT NULL, fingerprint TEXT NOT NULL, event_id TEXT NOT NULL,
+                PRIMARY KEY(device_id,fingerprint)
+            );
+            CREATE TABLE IF NOT EXISTS run_targets (
+                run_id TEXT NOT NULL, device_id TEXT NOT NULL, target TEXT NOT NULL,
+                PRIMARY KEY(run_id,device_id)
+            );
+            CREATE TABLE IF NOT EXISTS retirements (
+                event_id TEXT NOT NULL, device_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                cleanup_confirmed INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(event_id,device_id,fingerprint)
+            );
             CREATE TABLE IF NOT EXISTS workers (
                 holder TEXT PRIMARY KEY, pid INTEGER NOT NULL, start_tick TEXT,
                 state TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -107,6 +124,7 @@ class Journal:
         return dict(row) if row else None
 
     def create_session(self, sid, target):
+        self.ensure_target(target)
         with self.transaction() as db:
             if db.execute("SELECT 1 FROM closed_sessions WHERE id=?", (sid,)).fetchone():
                 raise ExecutorError("session_closed", "该会话已关闭，不接受迟到的创建请求")
@@ -123,6 +141,7 @@ class Journal:
             db.execute("INSERT OR IGNORE INTO closed_sessions VALUES (?,?)", (sid, now()))
 
     def claim(self, target, holder, kind):
+        self.ensure_target(target)
         with self.transaction() as db:
             row = db.execute("SELECT * FROM controls WHERE endpoint=? OR device_id=?", (endpoint(target), target["device_id"])).fetchone()
             if row:
@@ -171,6 +190,8 @@ class Journal:
                       "devices": [{"device_id": t["device_id"], "name": t["name"], "state": "queued", "current_step": None,
                                    "steps": [{"step_id": s["id"], "state": "pending"} for s in body["steps"]]} for t in body["targets"]]}
             db.execute("INSERT INTO runs VALUES (?,?,?,0,?,?)", (body["id"], request_digest, encode(result), stamp, stamp))
+            for target in body["targets"]:
+                db.execute("INSERT INTO run_targets VALUES (?,?,?)", (body["id"], target["device_id"], encode(target)))
             return result, True
 
     def run(self, rid):
@@ -253,3 +274,39 @@ class Journal:
 
     def artifact_size(self):
         return self.db.execute("SELECT COALESCE(SUM(size),0) FROM artifacts").fetchone()[0]
+
+    def ensure_target(self, target):
+        if self.target_refused(target):
+            raise ExecutorError("target_retired", "旧目标已失效，禁止迟到命令重新占用")
+
+    def target_refused(self, target):
+        return self.db.execute("SELECT 1 FROM target_refusals WHERE device_id=? AND fingerprint=?",
+                               (target["device_id"], target["target_fingerprint"])).fetchone() is not None
+
+    def withdrawn(self, rid, did):
+        return self.db.execute("SELECT 1 FROM device_refusals WHERE run_id=? AND device_id=?", (rid,did)).fetchone() is not None
+
+    def withdraw(self, rid, did, fingerprint, event_id):
+        with self.transaction() as db:
+            row = db.execute("SELECT target FROM run_targets WHERE run_id=? AND device_id=?", (rid,did)).fetchone()
+            run = db.execute("SELECT 1 FROM runs WHERE id=?", (rid,)).fetchone()
+            if run and (not row or json.loads(row["target"])["target_fingerprint"] != fingerprint):
+                raise ExecutorError("target_mismatch", "退出目标与任务保存的设备不一致")
+            previous = db.execute("SELECT fingerprint FROM device_refusals WHERE run_id=? AND device_id=?", (rid,did)).fetchone()
+            if previous and previous["fingerprint"] != fingerprint:
+                raise ExecutorError("target_mismatch", "该设备退出记录已绑定另一目标")
+            db.execute("INSERT OR IGNORE INTO device_refusals VALUES (?,?,?,?)", (rid,did,fingerprint,event_id))
+            db.execute("INSERT OR IGNORE INTO target_refusals VALUES (?,?,?)", (did,fingerprint,event_id))
+            return not bool(run)
+
+    def retire(self, target, event_id):
+        with self.transaction() as db:
+            db.execute("INSERT OR IGNORE INTO target_refusals VALUES (?,?,?)", (target["device_id"],target["target_fingerprint"],event_id))
+            db.execute("INSERT OR IGNORE INTO retirements VALUES (?,?,?,0)", (event_id,target["device_id"],target["target_fingerprint"]))
+            row=db.execute("SELECT cleanup_confirmed FROM retirements WHERE event_id=? AND device_id=? AND fingerprint=?", (event_id,target["device_id"],target["target_fingerprint"])).fetchone()
+            return bool(row[0])
+
+    def retired(self, target, event_id):
+        with self.transaction() as db:
+            db.execute("UPDATE retirements SET cleanup_confirmed=1 WHERE event_id=? AND device_id=? AND fingerprint=?", (event_id,target["device_id"],target["target_fingerprint"]))
+            db.execute("DELETE FROM prepared WHERE device_id=? AND fingerprint=?", (target["device_id"],target["target_fingerprint"]))

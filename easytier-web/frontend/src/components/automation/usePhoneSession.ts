@@ -23,6 +23,7 @@ export function usePhoneSession(api: AutomationApi) {
     let queue: PendingControl[] = [];
     let inflight: { item: PendingControl; id: string; timer: ReturnType<typeof setTimeout> } | null = null;
     let closing = false;
+    let closePromise: Promise<void> | null = null;
     let firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingReady: { reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
@@ -50,8 +51,12 @@ export function usePhoneSession(api: AutomationApi) {
         // A failed media session is explicitly closed once; a lost reply remains visible.
         if (session) void close(true);
     }
-    async function close(keepFailure = false) {
-        if (closing) return;
+    function close(keepFailure = false): Promise<void> {
+        if (closePromise) return closePromise;
+        closePromise = closeOnce(keepFailure).finally(() => { closePromise = null; });
+        return closePromise;
+    }
+    async function closeOnce(keepFailure: boolean) {
         closing = true; ++generation;
         stopLocal('Session closed');
         const current = session;

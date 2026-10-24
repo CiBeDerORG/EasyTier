@@ -18,9 +18,9 @@ impl AssetsStore {
             .bind(owner).fetch_one(&mut *transaction).await?;
         if exists == 0 {
             let timestamp = now();
-            for name in ["OpenWrt", "手机", "电脑", "NAS", "智能家居", "其他"] {
-                sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,created_at,updated_at) VALUES(?,?,?,?,?)")
-                    .bind(uuid::Uuid::new_v4().to_string()).bind(owner).bind(name).bind(&timestamp).bind(&timestamp)
+            for (name, semantic) in [("OpenWrt","openwrt"), ("手机","phone"), ("电脑","other"), ("NAS","other"), ("智能家居","other"), ("其他","other")] {
+                sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,created_at,updated_at,semantic_kind) VALUES(?,?,?,?,?,?)")
+                    .bind(uuid::Uuid::new_v4().to_string()).bind(owner).bind(name).bind(&timestamp).bind(&timestamp).bind(semantic)
                     .execute(&mut *transaction).await?;
             }
             sqlx::query("INSERT INTO asset_catalog_state(owner_user_id,initialized_at) VALUES(?,?)")
@@ -44,8 +44,8 @@ impl AssetsStore {
         ensure_owner(&mut transaction, owner).await?;
         let id = uuid::Uuid::new_v4().to_string();
         let timestamp = now();
-        sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,created_at,updated_at) VALUES(?,?,?,?,?)")
-            .bind(&id).bind(owner).bind(payload["name"].as_str()).bind(&timestamp).bind(&timestamp)
+        sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,created_at,updated_at,semantic_kind) VALUES(?,?,?,?,?,?)")
+            .bind(&id).bind(owner).bind(payload["name"].as_str()).bind(&timestamp).bind(&timestamp).bind(payload["semantic_kind"].as_str())
             .execute(&mut *transaction).await?;
         let row = sqlx::query("SELECT * FROM asset_device_types WHERE id = ? AND owner_user_id = ?")
             .bind(&id).bind(owner).fetch_one(&mut *transaction).await?;
@@ -59,8 +59,8 @@ impl AssetsStore {
         let payload = validation::type_payload(&body, false)?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         ensure_type(&mut transaction, owner, id).await?;
-        sqlx::query("UPDATE asset_device_types SET name = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?")
-            .bind(payload["name"].as_str()).bind(now()).bind(id).bind(owner).execute(&mut *transaction).await?;
+        sqlx::query("UPDATE asset_device_types SET name = ?, updated_at = ?, semantic_kind = CASE WHEN ? THEN ? ELSE semantic_kind END WHERE id = ? AND owner_user_id = ?")
+            .bind(payload["name"].as_str()).bind(now()).bind(payload.get("semantic_kind").is_some()).bind(payload["semantic_kind"].as_str()).bind(id).bind(owner).execute(&mut *transaction).await?;
         let row = sqlx::query("SELECT * FROM asset_device_types WHERE id = ? AND owner_user_id = ?")
             .bind(id).bind(owner).fetch_one(&mut *transaction).await?;
         let response = type_json(&row)?;

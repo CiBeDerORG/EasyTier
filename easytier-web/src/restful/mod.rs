@@ -1,6 +1,7 @@
 mod auth;
-mod assets;
-mod automation;
+pub(crate) mod assets;
+pub(crate) mod automation;
+mod discovery;
 pub(crate) mod captcha;
 mod central_network;
 mod geocoding;
@@ -67,7 +68,7 @@ struct GetSummaryJsonResp {
 }
 
 #[derive(Clone)]
-struct ConsoleInfoConfig {
+pub(crate) struct ConsoleInfoConfig {
     config_server_protocol: String,
     config_server_port: u16,
     webhook_auth: bool,
@@ -341,6 +342,7 @@ impl RestfulServer {
         } else {
             central_network::CentralNetworkApi::build_route().merge(network_space::router())
         };
+        let discovery_runtime = Arc::new(crate::discovery::Runtime::new(self.db.clone()).await?);
         let mut app = Router::new()
             .route("/api/v1/summary", get(Self::handle_get_summary))
             .route("/api/v1/console-info", get(Self::handle_get_console_info))
@@ -357,9 +359,12 @@ impl RestfulServer {
             // their JSON contract, including unauthenticated requests.
             .merge(assets::router())
             .merge(automation::router())
+            .merge(discovery::router())
             .merge(user_admin::router())
             .merge(auth::router().layer(Extension(self.feature_flags.clone())))
             .merge(oidc::router())
+            .layer(axum_mw::from_fn_with_state(self.client_mgr.clone(), discovery::after_mutation))
+            .layer(Extension(discovery_runtime))
             .with_state(self.client_mgr.clone())
             .route(
                 "/api/v1/generate-config",

@@ -2,8 +2,8 @@
 
 |需求|状态|进度及问题|
 |---|---|---|
-|[OpenWrt发现同步与手机ADB联动](openwrt-discovery-sync-ready/README.md)|需求已确认，计划就绪|基于feat/automation-center@dbbade81；已拆分8个小需求、10个实施计划、22个任务，公共契约、并行边界和任务看板齐备；实现0/22，未开始应用测试、构建或部署。|
-|[自动化中心](automation-center-in-progress/README.md)|源码完成，待验证|基于feat/node-attributes-tech-console的f951e054，在feat/automation-center实现资产接入、WebRTC手机墙与悬浮控制、有限脚本及逐设备结果；延续调试模式，未测试/部署/push。|
+|[OpenWrt发现同步与手机ADB联动](openwrt-discovery-sync-in-progress/README.md)|代码和模拟验证通过|feat/automation-center；普通发现/覆盖、唯一ADB服务、公开目标同步、单机退出和画面恢复已实现；[验证记录](openwrt-discovery-sync-in-progress/task/test-report.md)、[升级回退](openwrt-discovery-sync-in-progress/task/delivery-record.md)。实机验收另行安排，未发布部署。|
+|[自动化中心](automation-center-in-progress/README.md)|模拟验证通过，待实机|feat/automation-center 已包含技术控制台页面优化、手机墙与悬浮控制、有限脚本；本轮通过 OpenWrt 联动接入唯一 ADB 服务与单设备退出，模拟证据见上项；真实媒体和实机仍待验收。|
 |[用户管理与删除停网](user-management-in-progress/README.md)|已实现，待验证|管理员菜单、全量用户列表和逻辑删除；禁用全部网络配置，保留节点/设备/服务，在线停止与离线未确认分开反馈。本轮按用户指令先提交推送，测试与部署未执行。|
 |[节点设备角色与网络实例绑定](node-instance-binding-planned/README.md)|已验证并部署当前云环境|14项任务完成，角色/实例绑定、IPv4派生、旧资料兼容与配置变化处理已交付；[验证报告](node-instance-binding-planned/task/verification-report.md)、[备份部署记录](node-instance-binding-planned/task/release-record.md)。无公网/Dot访问入口。|
 |[节点详情、设备与服务](node-device-service-discussion/README.md)|已交付|原16项任务及R01–R05复审修复已随实例绑定版验证部署；原报告保留历史证据，最终结果见新轮报告。|

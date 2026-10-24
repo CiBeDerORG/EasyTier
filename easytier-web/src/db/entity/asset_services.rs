@@ -23,6 +23,9 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub icon: Option<String>,
     pub show_in_navigation: bool,
+    pub service_type: String,
+    pub connection_mode: String,
+    pub endpoint_revision: i64,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

@@ -95,7 +95,7 @@ impl Service {
                     "invalid Agent credential key length"
                 );
             } else {
-                let records: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deploy_agents")
+                let records: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM deploy_agents)+(SELECT COUNT(*) FROM discovery_gateway_access WHERE secret_cipher IS NOT NULL)")
                     .fetch_one(&db.inner())
                     .await?;
                 anyhow::ensure!(
@@ -129,7 +129,7 @@ impl Service {
             locks: Mutex::new(HashMap::new()),
         })
     }
-    fn seal(&self, context: &str, plain: &[u8]) -> Result<String> {
+    pub(crate) fn seal(&self, context: &str, plain: &[u8]) -> Result<String> {
         let mut nonce = [0u8; 12];
         SystemRandom::new()
             .fill(&mut nonce)
@@ -144,7 +144,7 @@ impl Service {
             .map_err(|_| Error::Credential)?;
         Ok(STANDARD.encode([nonce.as_slice(), data.as_slice()].concat()))
     }
-    fn open(&self, context: &str, cipher: &str) -> Result<Vec<u8>> {
+    pub(crate) fn open(&self, context: &str, cipher: &str) -> Result<Vec<u8>> {
         let data = STANDARD.decode(cipher).map_err(|_| Error::Credential)?;
         if data.len() < 28 {
             return Err(Error::Credential);

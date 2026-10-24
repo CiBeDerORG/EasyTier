@@ -47,12 +47,15 @@ pub(super) async fn create(auth: AuthSession, State(manager): State<AppStateInne
     if !matches!(quality,"wall"|"focus") {
         return Err(error(StatusCode::UNPROCESSABLE_ENTITY,"invalid_quality","请选择有效的画质档位。"));
     }
+    let executor=runner.identity().await?;
     let store = observed_store(&manager,&service,owner,Some(&[device_id.clone()])).await?;
     let mut session = store.create_session(actor,owner,&device_id,quality).await.map_err(store_error)?;
     let session_id = id(session["id"].as_str().unwrap_or_default())?;
-    let outbound = json!({"id":session_id,"target":wire_target(&session["target"]),"quality":quality,"lease_seconds":60});
+    sqlx::query("UPDATE automation_sessions SET executor_identity=? WHERE id=?").bind(&executor).bind(&session_id).execute(&service.db.inner()).await.map_err(|e|store_error(e.into()))?;
+    crate::discovery::reconnect::remember_target(&service,&session["target"],&executor).await.map_err(|e|store_error(e.into()))?;
+    let outbound = json!({"id":session_id,"target":wire_target(&session["target"]),"quality":quality,"lease_seconds":60,"expected_executor_id":executor});
     let result = runner.post("sessions",&outbound).await.and_then(|result| {
-        if result["id"] != session_id || result["device_id"] != device_id
+        if result["executor_id"] != executor || result["id"] != session_id || result["device_id"] != device_id
             || !matches!(result["state"].as_str(),Some("created"|"opening"|"active"))
             || !result["ice_servers"].is_array()
         {
@@ -126,15 +129,17 @@ pub(super) async fn close(auth: AuthSession, Extension(service): Service, Extens
     Ok(Json(close_remote(&service,&runtime,&session_id).await?))
 }
 
-pub(super) async fn close_remote(service: &CentralNetworkService, runtime: &AutomationRuntime, session_id: &str) -> HttpResult<Value> {
+pub(crate) async fn close_remote(service: &CentralNetworkService, runtime: &AutomationRuntime, session_id: &str) -> HttpResult<Value> {
     let store = store(service);
     store.update_session(session_id,"cleanup_pending").await.map_err(store_error)?;
+    let expected:Option<String>=sqlx::query_scalar("SELECT executor_identity FROM automation_sessions WHERE id=?").bind(session_id).fetch_one(&service.db.inner()).await.map_err(|e|store_error(e.into()))?;
+    let Some(expected)=expected else{return Ok(json!({"id":session_id,"state":"cleanup_pending","cleanup_pending":true,"code":"legacy_executor_unconfirmed","message":"旧会话没有执行器身份记录，请先完成旧执行器清理验收。"}));};
     let remote = match runner(runtime) {
-        Ok(runner) => runner.post(&format!("sessions/{session_id}/close"),&json!({})).await,
+        Ok(runner) => runner.post(&format!("sessions/{session_id}/close"),&json!({"expected_executor_id":expected})).await,
         Err(cause) => Err(cause),
     };
     match remote {
-        Ok(result) if confirmed_closed(&result,session_id) => {
+        Ok(result) if confirmed_closed(&result,session_id) && result["executor_id"]==expected => {
             store.update_session(session_id,"closed").await.map_err(store_error)?;
             Ok(json!({"id":session_id,"state":"closed","cleanup_pending":false}))
         }

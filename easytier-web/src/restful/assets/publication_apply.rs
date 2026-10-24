@@ -18,6 +18,7 @@ use super::{AppStateInner, HttpResult, database_error};
 
 type Target = (Uuid, Uuid);
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct SavedConfig {
     id: i64,
     created: String,
@@ -27,8 +28,11 @@ struct SavedConfig {
     config: NetworkConfig,
 }
 
-pub(super) struct ApplyPlan {
+#[derive(Clone)]
+pub(crate) struct ApplyPlan {
     before: BTreeMap<Target, Option<SavedConfig>>,
+    since: i64,
+    selected: Option<Target>,
 }
 
 fn binding_target(value: &Value) -> Option<Target> {
@@ -51,9 +55,10 @@ async fn load(service: &CentralNetworkService, owner: i32, target: Target) -> Re
 /// Called while holding the shared asset/network mutation lock, before saving.
 /// Capture old targets as well as the requested new one: unpublishing/rebinding
 /// must still apply the removal after its publication record has been deleted.
-pub(super) async fn snapshot(
+pub(crate) async fn snapshot(
     service: &CentralNetworkService, owner: i32, node: &str, requested: Option<&Value>,
 ) -> HttpResult<ApplyPlan> {
+    let since:i64=sqlx::query_scalar("SELECT COALESCE(MAX(seq),0) FROM discovery_endpoint_events").fetch_one(&service.db.inner()).await.map_err(database_error)?;
     let rows = sqlx::query("SELECT DISTINCT public_machine_id, instance_id FROM asset_service_publications WHERE owner_user_id = ? AND machine_id = ?")
         .bind(owner).bind(node).fetch_all(&service.db.inner()).await.map_err(database_error)?;
     let mut targets = BTreeSet::new();
@@ -67,7 +72,7 @@ pub(super) async fn snapshot(
     for target in targets {
         before.insert(target, load(service, owner, target).await.map_err(database_error)?);
     }
-    Ok(ApplyPlan { before })
+    Ok(ApplyPlan { before, since, selected: None })
 }
 
 fn address(raw: &str) -> Option<IpAddr> {
@@ -227,10 +232,10 @@ async fn apply_one(manager: &AppStateInner, service: &CentralNetworkService, own
 
 /// The caller keeps the shared mutation lock through this bounded RPC work.
 /// Only changed targets, plus the selected publication on a retry, are applied.
-pub(super) async fn apply(manager: &AppStateInner, service: &CentralNetworkService, owner: i32,
+async fn apply_inner(manager: &AppStateInner, service: &CentralNetworkService, owner: i32,
     mut plan: ApplyPlan, response: Option<&Value>,
 ) -> Value {
-    let selected = response.and_then(|value| binding_target(&value["publication"]));
+    let selected = response.and_then(|value| binding_target(&value["publication"])).or(plan.selected);
     if let Some(target) = selected { plan.before.entry(target).or_insert(None); }
     let mut targets: Vec<_> = plan.before.into_iter().collect();
     // Release the old instance's listener first, even if its UUID sorts after
@@ -279,3 +284,51 @@ pub(super) async fn apply(manager: &AppStateInner, service: &CentralNetworkServi
 #[cfg(test)]
 #[path = "publication_apply_tests.rs"]
 mod tests;
+
+impl ApplyPlan {
+    pub(crate) fn encode(&self) -> Value {
+        json!({"selected":self.selected,"targets":self.before.iter().map(|(key,value)|json!({"machine":key.0,"instance":key.1,"before":value})).collect::<Vec<_>>()})
+    }
+    pub(crate) fn decode(value: &Value) -> Option<Self> {
+        let mut before = BTreeMap::new();
+        for row in value.get("targets").unwrap_or(value).as_array()? {
+            before.insert((row["machine"].as_str()?.parse().ok()?,row["instance"].as_str()?.parse().ok()?),serde_json::from_value(row["before"].clone()).ok()?);
+        }
+        Some(Self{before,since:0,selected:serde_json::from_value(value["selected"].clone()).ok().flatten()})
+    }
+    pub(crate) async fn fence(&self, service:&CentralNetworkService,owner:i32)->Option<Value> {
+        let mut values=Vec::new();
+        for target in self.before.keys(){let current=load(service,owner,*target).await.ok()?;values.push(json!([target.0,target.1,current.map(|c|json!([c.id,c.created,c.raw,c.disabled]))]));}
+        Some(json!(crate::db::discovery::hash(&json!(values))))
+    }
+}
+
+pub(crate) async fn apply(manager:&AppStateInner,service:&CentralNetworkService,owner:i32,mut plan:ApplyPlan,response:Option<&Value>)->Value {
+    plan.selected=response.and_then(|v|binding_target(&v["publication"]));
+    if let Some(target)=plan.selected{plan.before.entry(target).or_insert(None);}
+    let id=Uuid::new_v4().to_string();
+    let Some(fence)=plan.fence(service,owner).await else{return json!({"status":"pending","code":"publication_fence_unavailable"});};
+    let saved=sqlx::query("INSERT INTO discovery_publication_plans(id,owner_user_id,plan_json,desired_fence_json,created_at) VALUES(?,?,?,?,?)").bind(&id).bind(owner).bind(plan.encode().to_string()).bind(fence.to_string()).bind(crate::db::assets::common::now()).execute(&service.db.inner()).await;
+    if saved.is_err(){return json!({"status":"pending","code":"publication_plan_not_saved"});}
+    let pending=json!({"state":"pending","plan_id":id});
+    if sqlx::query("UPDATE discovery_endpoint_events SET publication_json=? WHERE owner_user_id=? AND seq>?").bind(pending.to_string()).bind(owner).bind(plan.since).execute(&service.db.inner()).await.is_err(){return pending;}
+    let report=apply_inner(manager,service,owner,plan.clone(),response).await;
+    if let Some(fence)=plan.fence(service,owner).await{let _=sqlx::query("UPDATE discovery_publication_plans SET desired_fence_json=? WHERE id=?").bind(fence.to_string()).bind(&id).execute(&service.db.inner()).await;}
+    let _=sqlx::query("UPDATE discovery_publication_plans SET report_json=? WHERE id=?").bind(report.to_string()).bind(&id).execute(&service.db.inner()).await;
+    let _=sqlx::query("UPDATE discovery_endpoint_events SET publication_json=? WHERE owner_user_id=? AND json_extract(publication_json,'$.plan_id')=?").bind(json!({"state":report["status"],"plan_id":id,"report":report}).to_string()).bind(owner).bind(&id).execute(&service.db.inner()).await;
+    report
+}
+pub(crate) async fn retry(manager:&AppStateInner,service:&CentralNetworkService,owner:i32,id:&str)->HttpResult<Value>{
+    let row=sqlx::query("SELECT * FROM discovery_publication_plans WHERE id=? AND owner_user_id=?").bind(id).bind(owner).fetch_optional(&service.db.inner()).await.map_err(database_error)?.ok_or_else(||super::asset_error(crate::db::assets::AssetError::not_found()))?;
+    let raw:String=row.try_get("plan_json").map_err(database_error)?;
+    let plan=serde_json::from_str::<Value>(&raw).ok().and_then(|v|ApplyPlan::decode(&v)).ok_or_else(||super::asset_error(crate::db::assets::AssetError::conflict("publication_plan_invalid","The original publication plan is unavailable.")))?;
+    let fence:String=row.try_get("desired_fence_json").map_err(database_error)?;
+    if plan.fence(service,owner).await.map(|v|v.to_string())!=Some(fence){return Err(super::asset_error(crate::db::assets::AssetError::conflict("publication_changed","The saved public configuration changed. Review its current mapping.")));}
+    let previous:Option<String>=row.try_get("report_json").map_err(database_error)?;
+    if let Some(previous)=previous.as_deref().and_then(|s|serde_json::from_str::<Value>(s).ok()).filter(|v|v["status"]=="applied"){return Ok(previous);}
+    let report=apply_inner(manager,service,owner,plan.clone(),None).await;
+    if let Some(fence)=plan.fence(service,owner).await{sqlx::query("UPDATE discovery_publication_plans SET desired_fence_json=? WHERE id=?").bind(fence.to_string()).bind(id).execute(&service.db.inner()).await.map_err(database_error)?;}
+    sqlx::query("UPDATE discovery_publication_plans SET report_json=? WHERE id=?").bind(report.to_string()).bind(id).execute(&service.db.inner()).await.map_err(database_error)?;
+    sqlx::query("UPDATE discovery_endpoint_events SET publication_json=? WHERE owner_user_id=? AND json_extract(publication_json,'$.plan_id')=?").bind(json!({"state":report["status"],"plan_id":id,"report":report}).to_string()).bind(owner).bind(id).execute(&service.db.inner()).await.map_err(database_error)?;
+    Ok(report)
+}

@@ -8,6 +8,7 @@ import type { AssetDevice, AssetSavedResource } from '../types/node-assets';
 import { useNodeAssetsPage } from '../composables/useNodeAssetsPage';
 import GatewayGroupDialog from './node-assets/GatewayGroupDialog.vue';
 import DeviceTypeDialog from './node-assets/DeviceTypeDialog.vue';
+import DiscoveryDialog from './node-assets/DiscoveryDialog.vue';
 import AssetDeviceTable from './node-assets/AssetDeviceTable.vue';
 import AssetDeviceDialog from './node-assets/AssetDeviceDialog.vue';
 import AssetServicePanel from './node-assets/AssetServicePanel.vue';
@@ -19,6 +20,7 @@ const { context, accounts, ownerId, nodeId, ownerName, nodes, selectedNode, grou
     total, page, pageSize, expandedIds, draft, contextVersion, booting, loading, error, invalidNode, invalidDevice, scope,
     listError, hasLoadedDevices, retry, refreshPage, selectOwner, selectNode, query, loadDevices, refreshCatalogs,
     afterDeviceSaved, afterDeviceDeleted, expand, handleContextFailure } = useNodeAssetsPage(props.api);
+const discovery = ref<{ device: AssetDevice; action: 'devices' | 'adb' } | null>(null);
 const showGroups = ref(false), showTypes = ref(false), showDevice = ref(false);
 const pageElement = ref<HTMLElement | null>(null);
 const gatewayFocusId = ref<string | null>(null);
@@ -41,7 +43,7 @@ const groupOptions = computed(() => [{ id: null, name: t('assets.page.all_device
 const typeOptions = computed(() => [{ id: null, name: t('assets.page.all_types') },
     ...types.value.map(type => ({ id: type.id, name: `${type.name} · ${type.id.slice(0, 8)}` }))]);
 watch(contextVersion, () => {
-    showGroups.value = false; showTypes.value = false; showDevice.value = false;
+    discovery.value = null; showGroups.value = false; showTypes.value = false; showDevice.value = false;
     deleteDevice.value = null; editingDevice.value = null;
     gatewayFocusId.value = null; deviceInitialMode.value = 'metadata';
     serviceRequests.value = {}; actionError.value = ''; deleting.value = false;
@@ -160,7 +162,7 @@ async function confirmDelete() {
                 </header>
                 <Message v-if="listError && hasLoadedDevices" severity="warn" :closable="false">{{ t('assets.page.stale_results') }}</Message>
                 <AssetDeviceTable v-if="!listError || hasLoadedDevices" :rows="rows" :loading="loading" :total="total" :page="page" :page-size="pageSize" :expanded-ids="expandedIds"
-                    :groups="groups" :types="types" @page="loadDevices" @expand="expand" @edit="editDevice"
+                    :groups="groups" :types="types" @discovery="(device, action) => discovery = { device, action }" @page="loadDevices" @expand="expand" @edit="editDevice"
                     @delete="deleteDevice = $event; actionError = ''" @add-service="addService" @binding="openDeviceBinding" @address="editDevice($event, 'address')">
                     <template #services="{ device }"><AssetServicePanel :key="`${scope.owner_user_id}/${scope.machine_id}/${device.id}`"
                         :api="api" :scope="scope" :device="device" :add-request="serviceRequests[device.id] ?? 0"
@@ -171,6 +173,7 @@ async function confirmDelete() {
         </template>
 
         <template v-if="scope">
+            <DiscoveryDialog v-if="discovery" :key="discovery.device.id" :gateway="discovery.device" :owner-id="scope.owner_user_id" :initial-action="discovery.action" @close="discovery = null" @changed="refreshPage" />
             <GatewayGroupDialog v-if="showGroups" :visible="true" :api="api" :scope="scope" :focus-id="gatewayFocusId" :owner-label="ownerName" :node-label="selectedNode?.alias || selectedNode?.hostname || nodeId || ''" @close="showGroups = false" @changed="refreshCatalogs" @context-error="handleContextFailure" />
             <DeviceTypeDialog v-if="showTypes" :visible="true" :api="api" :owner-user-id="scope.owner_user_id" :owner-label="ownerName" @close="showTypes = false" @changed="refreshCatalogs" @context-error="handleContextFailure" />
             <AssetDeviceDialog v-if="showDevice" :visible="true" :api="api" :scope="scope" :groups="groups" :types="types" :device="editingDevice" :initial-mode="deviceInitialMode"

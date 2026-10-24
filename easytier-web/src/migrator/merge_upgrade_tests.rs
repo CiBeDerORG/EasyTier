@@ -182,3 +182,26 @@ async fn node_database_upgrades_without_losing_attributes_assets_or_coordinates(
     assert!(!row.try_get::<bool>("", "show_in_navigation").unwrap());
     assert_schema_complete_and_idempotent(&db).await;
 }
+
+struct AutomationBranch;
+impl MigratorTrait for AutomationBranch {
+    fn migrations()->Vec<Box<dyn MigrationTrait>>{Migrator::migrations().into_iter().filter(|m|m.name()<"m20261024_000019").collect()}
+}
+#[tokio::test]
+async fn discovery_upgrade_preserves_services_and_automation_history_without_guessing_types(){
+    let db=Database::connect("sqlite::memory:").await.unwrap();AutomationBranch::up(&db,None).await.unwrap();seed_shared_records(&db).await;
+    db.execute_unprepared(r#"
+      INSERT INTO asset_device_types(id,owner_user_id,name,created_at,updated_at) VALUES('type-legacy',1001,'手机','before','before');
+      INSERT INTO asset_devices(id,owner_user_id,machine_id,device_type_id,name,overlay_ip,lan_ip,created_at,updated_at) VALUES('phone-old',1001,'machine-1','type-legacy','Saved phone','10.1.1.20','192.168.1.20','before','before');
+      INSERT INTO asset_services(id,owner_user_id,machine_id,device_id,name,port,created_at,updated_at) VALUES('service-old',1001,'machine-1','phone-old','ADB',5555,'before','before');
+      INSERT INTO asset_service_bindings(service_id,owner_user_id,machine_id,device_id,protocol,port) VALUES('service-old',1001,'machine-1','phone-old','tcp',5555);
+      INSERT INTO automation_connections(device_id,owner_user_id,enabled,adb_port,updated_at) VALUES('phone-old',1001,1,5555,'before');
+      INSERT INTO automation_runs(id,actor_user_id,owner_user_id,request_id,request_hash,name,state,snapshot_json,parameters_json,concurrency,created_at,updated_at) VALUES('history',1001,1001,'request-old','hash','Historical run','completed','{"steps":[]}','{}',1,'before','before');
+      INSERT INTO automation_run_devices(run_id,device_id,ordinal,name,target_key,target_fingerprint,target_json,state,steps_json,updated_at) VALUES('history','phone-old',0,'Original name','old-key','old-fingerprint','{"device_id":"phone-old","adb_port":5555}','completed','[]','before');
+    "#).await.unwrap();
+    Migrator::up(&db,None).await.unwrap();Migrator::up(&db,None).await.unwrap();
+    let pool=db.get_sqlite_connection_pool();
+    let legacy:(Option<String>,String,i64)=sqlx::query_as("SELECT t.semantic_kind,s.service_type,s.port FROM asset_device_types t JOIN asset_devices d ON d.device_type_id=t.id JOIN asset_services s ON s.device_id=d.id WHERE d.id='phone-old'").fetch_one(pool).await.unwrap();assert_eq!(legacy,(None,"generic".into(),5555));
+    let history:(String,String)=sqlx::query_as("SELECT name,target_json FROM automation_run_devices WHERE run_id='history'").fetch_one(pool).await.unwrap();assert_eq!(history,("Original name".into(),"{\"device_id\":\"phone-old\",\"adb_port\":5555}".into()));
+    assert!(sqlx::query("PRAGMA foreign_key_check").fetch_all(pool).await.unwrap().is_empty());assert_eq!(sqlx::query_scalar::<_,i64>("PRAGMA foreign_keys").fetch_one(pool).await.unwrap(),1);
+}

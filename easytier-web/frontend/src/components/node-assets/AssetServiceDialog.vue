@@ -24,6 +24,7 @@ const attempt = useAssetMutation<AssetServiceInput, AssetService>();
 const editing = computed(() => !!props.service);
 const contextKey = computed(() => `${props.scope.owner_user_id}:${props.scope.machine_id}:${props.device.id}`);
 const form = reactive({
+    service_type: 'generic' as 'generic' | 'adb', connection_mode: 'tcp' as 'tcp' | 'wireless',
     name: '', protocols: ['tcp'] as AssetProtocol[], port: null as number | null,
     remarks: '', access_url: '', icon: null as AssetIcon | null, show_in_navigation: false,
 });
@@ -92,6 +93,7 @@ const resetDraft = () => {
     fieldErrors.value = {};
     const record = props.service;
     form.name = record?.name ?? '';
+    form.service_type = record?.service_type ?? 'generic'; form.connection_mode = record?.connection_mode ?? 'tcp';
     form.protocols = record ? [...record.protocols] : ['tcp'];
     form.port = record?.port ?? null;
     form.remarks = record?.remarks ?? '';
@@ -156,6 +158,7 @@ function endpoint(ip: string, port: number) {
     return `${ip.includes(':') ? `[${ip}]` : ip}:${port}`;
 }
 
+watch(() => form.service_type, kind => { if (kind === 'adb') form.protocols = ['tcp']; });
 function validate(): AssetServiceInput | null {
     const errors: Record<string, string> = {};
     const name = form.name.trim();
@@ -179,9 +182,9 @@ function validate(): AssetServiceInput | null {
     fieldErrors.value = errors;
     if (Object.keys(errors).length) return null;
     return {
-        name,
+        name, service_type: form.service_type, connection_mode: form.connection_mode,
         show_in_navigation: form.show_in_navigation,
-        protocols: (['tcp', 'udp'] as const).filter(protocol => form.protocols.includes(protocol)),
+        protocols: form.service_type === 'adb' ? ['tcp'] : (['tcp', 'udp'] as const).filter(protocol => form.protocols.includes(protocol)),
         port: form.port!,
         remarks: remarks || null,
         access_url: accessUrl || null,
@@ -189,7 +192,7 @@ function validate(): AssetServiceInput | null {
         publication: publicationEnabled.value && publication.value ? {
             machine_id: publication.value.machine_id, instance_id: publication.value.instance_id,
             bind_ip: publication.value.bind_ip, bind_port: publication.value.bind_port,
-            dst_port: publication.value.dst_port,
+            dst_port: form.service_type === 'adb' ? form.port! : publication.value.dst_port,
         } : null,
     };
 }
@@ -247,6 +250,8 @@ function close() {
         :closable="!publicationEditorVisible" :closeOnEscape="!publicationEditorVisible"
         @update:visible="value => { if (!value) close(); }">
         <form :id="formId" class="service-form" @submit.prevent="save">
+            <div class="service-field"><label :for="fieldId('service-type')">服务类型</label><select :id="fieldId('service-type')" v-model="form.service_type" :disabled="fieldsDisabled"><option value="generic">普通服务</option><option value="adb" :disabled="device.semantic_kind !== 'phone'">ADB（已确认的手机）</option></select><small v-if="device.semantic_kind !== 'phone'">请先在设备类型管理中确认“手机”语义，再选择 ADB 服务。</small></div>
+            <div v-if="form.service_type === 'adb'" class="service-field"><label :for="fieldId('connection-mode')">ADB 连接方式（TCP 单端口）</label><select :id="fieldId('connection-mode')" v-model="form.connection_mode" :disabled="fieldsDisabled"><option value="tcp">传统 TCP</option><option value="wireless">无线调试</option></select><small>自动化中心统一使用此服务端口。修改目标会停止本手机的旧任务并尝试重新连接。</small></div>
             <p class="service-context">{{ t('assets.services.deviceContext', { name: device.name }) }}</p>
             <div class="service-field">
                 <label :for="fieldId('name')">{{ t('assets.services.name') }} <span aria-hidden="true">*</span></label>
@@ -277,7 +282,7 @@ function close() {
                 </div>
             </div>
             <div class="service-fields-row">
-                <fieldset class="service-field protocol-field" :disabled="fieldsDisabled" :aria-describedby="fieldId('protocol-error')">
+                <fieldset class="service-field protocol-field" :disabled="fieldsDisabled || form.service_type === 'adb'" :aria-describedby="fieldId('protocol-error')">
                     <legend>{{ t('assets.services.protocols') }} <span aria-hidden="true">*</span></legend>
                     <div class="protocol-options">
                         <label :for="fieldId('tcp')" class="protocol-option">
@@ -373,6 +378,7 @@ function close() {
 
 <style scoped>
 .service-form, .service-field { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+select{padding:9px;border:1px solid var(--console-border);border-radius:7px;background:var(--console-panel);color:var(--p-text-color)}
 .service-form { gap: 1rem; }
 .service-context { margin: 0; color: var(--console-muted, var(--p-text-muted-color)); overflow-wrap: anywhere; }
 .service-field label, .service-field legend { font-weight: 600; }

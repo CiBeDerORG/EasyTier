@@ -24,15 +24,15 @@ fn filter(query: &mut QueryBuilder<'_, Sqlite>, owner: i32, node: &str, options:
     }
 }
 
-pub(super) async fn validate_relations(connection: &mut SqliteConnection, owner: i32, node: &str, excluded_id: &str, payload: &Value) -> AssetResult<()> {
+pub(crate) async fn validate_relations(connection: &mut SqliteConnection, owner: i32, node: &str, excluded_id: &str, payload: &Value) -> AssetResult<()> {
     if let Some(id) = payload["gateway_group_id"].as_str() { ensure_group(connection, owner, node, id).await?; }
     if let Some(id) = payload["device_type_id"].as_str() { ensure_type(connection, owner, id).await?; }
     if let Some(lan) = payload["lan_ip"].as_str() {
-        let duplicate: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM asset_devices WHERE owner_user_id = ? AND machine_id = ? AND lan_ip = ? AND id <> ?)")
-            .bind(owner).bind(node).bind(lan).bind(excluded_id).fetch_one(&mut *connection).await?;
+        let duplicate: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM asset_devices WHERE owner_user_id = ? AND machine_id = ? AND gateway_group_id IS ? AND lan_ip = ? AND id <> ?)")
+            .bind(owner).bind(node).bind(payload["gateway_group_id"].as_str()).bind(lan).bind(excluded_id).fetch_one(&mut *connection).await?;
         if duplicate != 0 {
-            let mut error = AssetError::conflict("lan_ip_in_use", "This LAN IP is already assigned to another device in this network node.");
-            error.field_errors.insert("lan_ip".into(), "The LAN IP must be unique within this network node.".into());
+            let mut error = AssetError::conflict("lan_ip_in_use", "This LAN IP is already assigned to another device in this gateway group.");
+            error.field_errors.insert("lan_ip".into(), "The LAN IP must be unique within this gateway group (or the ungrouped node scope).".into());
             return Err(error);
         }
     }
@@ -191,8 +191,8 @@ impl AssetsStore {
         for (key, value) in body.as_object().into_iter().flatten() { merged[key] = value.clone(); }
         let payload = validation::device_payload(&merged, false)?;
         validate_relations(&mut transaction, owner, node, id, &payload).await?;
-        sqlx::query("UPDATE asset_devices SET device_type_id = ?, name = ?, model = ?, overlay_ip = ?, lan_ip = ?, is_gateway_self = ?, remarks = ?, updated_at = ? WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
-            .bind(payload["device_type_id"].as_str()).bind(payload["name"].as_str()).bind(payload["model"].as_str())
+        sqlx::query("UPDATE asset_devices SET device_type_id = ?, name = ?, display_name_manual = CASE WHEN ? THEN 1 ELSE display_name_manual END, model = ?, overlay_ip = ?, lan_ip = ?, is_gateway_self = ?, remarks = ?, updated_at = ? WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
+            .bind(payload["device_type_id"].as_str()).bind(payload["name"].as_str()).bind(body.get("name").is_some()).bind(payload["model"].as_str())
             .bind(payload["overlay_ip"].as_str()).bind(payload["lan_ip"].as_str()).bind(payload["is_gateway_self"].as_bool().unwrap_or(false))
             .bind(payload["remarks"].as_str()).bind(now()).bind(id).bind(owner).bind(node).execute(&mut *transaction).await?;
         publications::sync_device_address(&mut transaction, owner, node, id).await?;

@@ -171,6 +171,9 @@ def cleanup_record(record):
 
 
 async def execute_step(journal, holder, target, step, parameters, cancel, adb_binary, artifact_path=None):
+    if cancel.is_set():
+        raise ExecutorError("operation_cancelled", "该设备已退出当前脚本")
+    journal.ensure_target(target)
     context = multiprocessing.get_context("spawn")
     read, write = context.Pipe(duplex=False)
     gate = context.Event()

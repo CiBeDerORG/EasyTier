@@ -10,7 +10,7 @@ const props = defineProps<{ device: AutomationDevice | null; ownerId: number; ru
 const emit = defineEmits<{ close: []; saved: [device: AutomationDevice] }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
 const api = new AutomationApi();
-const form = ref<AutomationConnection>({ enabled: true, adb_port: 5555, connection_mode: 'tcp' });
+const form = ref<AutomationConnection>({ enabled: true, adb_port: 0, connection_mode: 'tcp' });
 const pairingPort = ref<number | undefined>();
 const pairingCode = ref('');
 const busy = ref(false); const error = ref(''); const notice = ref('');
@@ -35,10 +35,7 @@ async function perform(action?: 'pair' | 'connect' | 'inspect' | 'automation') {
     const target = props.device; const owner = props.ownerId; const mine = generation;
     busy.value = true;
     try {
-        const saved = await api.saveConnection(owner, target.id, { ...form.value });
-        if (mine !== generation) return;
-        emit('saved', saved);
-        if (!action) { notice.value = t('saved'); return; }
+        if (!action) return;
         const body = action === 'pair' ? { action, pairing_port: pairingPort.value, code: pairingCode.value } : { action };
         pairingCode.value = '';
         const observed = await api.prepare(owner, target.id, body);
@@ -56,9 +53,9 @@ async function perform(action?: 'pair' | 'connect' | 'inspect' | 'automation') {
             <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
             <Message v-if="notice" severity="success" :closable="false">{{ notice }}</Message>
             <Message v-if="result" :severity="['failed', 'unauthorized', 'offline'].includes(result.state) ? 'warn' : 'info'" :closable="false">{{ result.message }} <span v-if="result.state">({{ result.state }})</span></Message>
-            <label class="checkbox-field"><input v-model="form.enabled" type="checkbox" :disabled="busy">{{ t('enabled') }}</label>
-            <label>{{ t('connectionMode') }}<select v-model="form.connection_mode" :disabled="busy"><option value="tcp">{{ t('tcp') }}</option><option value="wireless">{{ t('wireless') }}</option></select></label>
-            <label>{{ t('adbPort') }}<input v-model.number="form.adb_port" type="number" min="1" max="65535" step="1" :disabled="busy"></label>
+            <p class="muted">连接端口和模式来自该手机的 ADB 服务；请到节点设备的服务编辑器修改。</p>
+            <label>{{ t('connectionMode') }}<select v-model="form.connection_mode" disabled><option value="tcp">{{ t('tcp') }}</option><option value="wireless">{{ t('wireless') }}</option></select></label>
+            <label>{{ t('adbPort') }}<input v-model.number="form.adb_port" type="number" min="1" max="65535" step="1" disabled></label>
             <p class="muted">{{ t('phoneAuthHint') }}</p>
             <fieldset v-if="form.connection_mode === 'wireless'" :disabled="busy">
                 <legend>{{ t('pair') }}</legend><p>{{ t('pairingHint') }}</p>
@@ -69,7 +66,7 @@ async function perform(action?: 'pair' | 'connect' | 'inspect' | 'automation') {
             <div class="script-prepare"><p>{{ t('prepareHint') }}</p><Button :label="t('prepareAutomation')" icon="pi pi-bolt" outlined :disabled="busy || !runnerAvailable" @click="perform('automation')" /></div>
             <dl v-if="result?.metadata" class="metadata"><template v-for="(value, key) in result.metadata" :key="key"><dt>{{ key }}</dt><dd>{{ value ?? '—' }}</dd></template></dl>
         </div>
-        <template #footer><Button :label="t('closeDialog')" text :disabled="busy" @click="dismiss" /><Button :label="t('save')" icon="pi pi-check" :loading="busy" @click="perform()" /></template>
+        <template #footer><Button :label="t('closeDialog')" text :disabled="busy" @click="dismiss" /></template>
     </Dialog>
 </template>
 

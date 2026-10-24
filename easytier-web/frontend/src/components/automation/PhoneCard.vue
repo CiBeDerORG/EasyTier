@@ -2,9 +2,11 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Button, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
+import { v4 as uuid } from 'uuid';
 import AutomationApi from '../../modules/automation-api';
 import type { AutomationControl, AutomationDevice } from '../../types/automation';
 import { automationMessages } from './messages';
+import type { EndpointEvent } from '../../modules/discovery-api';
 import { usePhoneSession } from './usePhoneSession';
 
 const props = defineProps<{
@@ -91,8 +93,26 @@ async function fullscreen() {
     else await card.value?.requestFullscreen();
 }
 function localAction(message: AutomationControl) { if (manualAllowed.value) emit('action', props.device.id, message); }
-async function open(quality: 'wall' | 'focus') { await session.open(props.ownerId, props.device.id, quality); }
-async function close() { cancelPointer(); menuOpen.value = false; await session.close(); }
+let watching = false, disposed = false, intentVersion = 0, latestEndpoint = -1, restoredEndpoint = -1;
+let watchQuality: 'wall' | 'focus' = 'wall';
+async function open(quality: 'wall' | 'focus') { watching = true; ++intentVersion; watchQuality = quality; await session.open(props.ownerId, props.device.id, quality); }
+function cancelRestoreIntent() { watching = false; ++intentVersion; }
+async function close() { cancelRestoreIntent(); cancelPointer(); menuOpen.value = false; await session.close(); }
+async function endpointChanged(event: EndpointEvent) {
+    if (event.device_id !== props.device.id || event.endpoint_revision < latestEndpoint || event.endpoint_revision <= restoredEndpoint) return;
+    const changed = event.endpoint_revision > latestEndpoint;
+    latestEndpoint = event.endpoint_revision;
+    const intent = intentVersion;
+    resetPointer(); emit('geometry', props.device.id);
+    if (changed) await session.close(); // clears queued input and the previous peer before any replacement
+    if (disposed || !watching || intent !== intentVersion || event.endpoint_revision !== latestEndpoint) return;
+    if (event.cleanup.state !== 'confirmed' || event.connection.state !== 'connected') return;
+    await session.close();
+    if (disposed || !watching || intent !== intentVersion || event.endpoint_revision !== latestEndpoint || session.state.phase === 'cleanup_pending') return;
+    restoredEndpoint = event.endpoint_revision;
+    try { await session.open(props.ownerId, props.device.id, watchQuality); }
+    catch { /* bounded attempt: session exposes its failure, user can retry */ }
+}
 async function cleanupSaved() {
     if (!props.device.active_session || cleaningSaved.value) return;
     cleaningSaved.value = true;
@@ -104,9 +124,16 @@ async function cleanupSaved() {
     } catch (cause) { session.state.error = cause instanceof Error ? cause.message : t('actionFailed'); }
     finally { cleaningSaved.value = false; }
 }
+async function retryEndpoint(stage: 'cleanup'|'connection'|'publication') {
+    const event = props.device.endpoint_event; if (!event || cleaningSaved.value) return;
+    cleaningSaved.value = true;
+    try { await api.retryEndpoint(props.ownerId, props.device.id, event.event_id, {request_id:uuid(),stage}); emit('refresh'); }
+    catch(cause) { session.state.error = cause instanceof Error ? cause.message : '重试未完成'; }
+    finally { cleaningSaved.value = false; }
+}
 function getState() { return { phase: session.state.phase, ready: ready.value, ...geometry() }; }
-defineExpose({ open, close, send: session.send, getState, cancelPointer, resetPointer });
-onBeforeUnmount(() => { cancelPointer(); void session.close(); });
+defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, getState, cancelPointer, resetPointer });
+onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; cancelPointer(); void session.close(); });
 </script>
 
 <template>
@@ -141,17 +168,19 @@ onBeforeUnmount(() => { cancelPointer(); void session.close(); });
                     <Button icon="pi pi-expand" rounded :aria-label="t('fullscreen')" :title="t('fullscreen')" :disabled="!ready" @click="fullscreen().catch(() => {})" />
                     <Button icon="pi pi-circle-fill" rounded :severity="recording ? 'danger' : 'secondary'" :aria-label="t(recording ? 'stopRecord' : 'record')" :title="t(recording ? 'stopRecord' : 'record')" :disabled="!manualAllowed" @click="emit('record', device.id)" />
                     <Button icon="pi pi-unlock" rounded severity="secondary" :aria-label="t('releaseManual')" :title="t('releaseManual')" :disabled="!manualAllowed" @click="localAction({ type: 'stop' })" />
-                    <Button icon="pi pi-stop" rounded severity="danger" :aria-label="t('close')" :title="t('close')" :disabled="pending" @click="close().then(() => emit('refresh'))" />
+                    <Button icon="pi pi-stop" rounded severity="danger" :aria-label="t('close')" :title="t('close')" @click="close().then(() => emit('refresh'))" />
                 </div>
                 <Button class="main-orb" :icon="menuOpen ? 'pi pi-times' : 'pi pi-sliders-h'" rounded :aria-expanded="menuOpen" :aria-label="t('localControl')" :title="syncRole ? t('controlsLocked') : t('localControl')" @click="menuOpen = !menuOpen" />
             </div>
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
+        <div v-if="device.endpoint_event" class="endpoint-status"><small>目标切换：{{ device.endpoint_event.cleanup.state }} / {{ device.endpoint_event.connection.state }}</small><Button v-if="device.endpoint_event.cleanup.state !== 'confirmed'" label="重试清理" text size="small" :loading="cleaningSaved" @click="retryEndpoint('cleanup')" /><Button v-else-if="device.endpoint_event.connection.state === 'pending'" label="重试连接" text size="small" :loading="cleaningSaved" @click="retryEndpoint('connection')" /><Button v-if="device.endpoint_event.publication && !['applied','not_applicable'].includes(device.endpoint_event.publication.state)" label="重试公开应用" text size="small" :loading="cleaningSaved" @click="retryEndpoint('publication')" /></div>
         <p v-if="session.state.error || device.availability_reason" class="phone-error" role="status">{{ session.state.error || device.availability_reason }}</p>
     </article>
 </template>
 
 <style scoped>
+.endpoint-status{padding:8px 14px;display:flex;gap:6px;flex-wrap:wrap;color:var(--console-muted)}
 .phone-card{min-width:0;border:1px solid var(--console-border);border-radius:14px;background:var(--console-panel);overflow:hidden;box-shadow:var(--console-shadow)}
 .phone-card.selected{border-color:var(--p-primary-color);box-shadow:0 0 0 1px color-mix(in srgb,var(--p-primary-color) 20%,transparent)}
 .phone-card.master{box-shadow:0 0 0 2px var(--p-primary-color)}

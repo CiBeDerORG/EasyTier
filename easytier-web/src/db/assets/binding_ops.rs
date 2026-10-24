@@ -12,7 +12,7 @@ use super::{
 };
 use instances::RuntimeObservations;
 
-pub(super) fn stored_snapshot(row: &SqliteRow) -> AssetResult<Option<Value>> {
+pub(crate) fn stored_snapshot(row: &SqliteRow) -> AssetResult<Option<Value>> {
     let unavailable = || AssetError::new(503, "binding_snapshot_unavailable", "The saved binding is incomplete or inconsistent. Other asset information is retained.");
     let instance: Option<String> = row.try_get("network_instance_id")?;
     let record: Option<i64> = row.try_get("config_record_id")?;
@@ -41,7 +41,7 @@ pub(super) fn stored_snapshot(row: &SqliteRow) -> AssetResult<Option<Value>> {
     Ok(Some(snapshot))
 }
 
-pub(super) async fn subject_row(connection: &mut SqliteConnection, owner: i32, node: &str, kind: &str, id: &str) -> AssetResult<SqliteRow> {
+pub(crate) async fn subject_row(connection: &mut SqliteConnection, owner: i32, node: &str, kind: &str, id: &str) -> AssetResult<SqliteRow> {
     let table = match kind {
         "gateway" => "asset_gateway_groups",
         "device" => "asset_devices",
@@ -52,7 +52,7 @@ pub(super) async fn subject_row(connection: &mut SqliteConnection, owner: i32, n
         .ok_or_else(AssetError::not_found)
 }
 
-pub(super) fn subject(body: &Value) -> AssetResult<Value> {
+pub(crate) fn subject(body: &Value) -> AssetResult<Value> {
     let input = body.get("subject").ok_or_else(|| AssetError::field("subject", "The asset context is required."))?;
     validation::keys(input, &["resource_kind", "id"])?;
     let kind = validation::required_string(input, "resource_kind", 16)?;
@@ -62,11 +62,11 @@ pub(super) fn subject(body: &Value) -> AssetResult<Value> {
     Ok(json!({"resource_kind":kind,"id":validation::optional_id(input,"id")?}))
 }
 
-pub(super) fn version(input: &Value) -> AssetResult<String> {
+pub(crate) fn version(input: &Value) -> AssetResult<String> {
     validation::required_string(input, "preview_version", 256)
 }
 
-pub(super) fn assert_version(body: &Value, preview: &Value) -> AssetResult<()> {
+pub(crate) fn assert_version(body: &Value, preview: &Value) -> AssetResult<()> {
     let expected = version(body)?;
     if preview["preview_version"].as_str() != Some(expected.as_str()) {
         return Err(AssetError::conflict("instance_config_changed", "The binding or address changed after the preview. Review the current preview before saving."));
@@ -74,7 +74,7 @@ pub(super) fn assert_version(body: &Value, preview: &Value) -> AssetResult<()> {
     Ok(())
 }
 
-pub(super) async fn usable_candidate(connection: &mut SqliteConnection, owner: i32, node: &str,
+pub(crate) async fn usable_candidate(connection: &mut SqliteConnection, owner: i32, node: &str,
     instance_id: &str, role: &str, exclude_group: Option<&str>, runtime: &RuntimeObservations) -> AssetResult<Value> {
     let candidate = instances::get_candidate(connection, owner, node, instance_id, exclude_group, runtime).await?
         .ok_or_else(|| AssetError::conflict("binding_instance_missing", "The selected instance has no saved configuration in this node."))?;
@@ -88,7 +88,7 @@ pub(super) async fn usable_candidate(connection: &mut SqliteConnection, owner: i
     Ok(candidate)
 }
 
-pub(super) async fn binding_info(connection: &mut SqliteConnection, row: &SqliteRow, kind: &str, runtime: &RuntimeObservations) -> AssetResult<Value> {
+pub(crate) async fn binding_info(connection: &mut SqliteConnection, row: &SqliteRow, kind: &str, runtime: &RuntimeObservations) -> AssetResult<Value> {
     let owner: i32 = row.try_get("owner_user_id")?;
     let node: String = row.try_get("machine_id")?;
     let id: String = row.try_get("id")?;
@@ -140,7 +140,7 @@ pub(super) async fn binding_info(connection: &mut SqliteConnection, row: &Sqlite
             && (!is_child || bindings::binding_state(accepted_parent.as_ref(), current.as_ref(), "gateway", read_error.as_deref())["state"] == "current")}))
 }
 
-pub(super) struct PreparedAddress {
+pub(crate) struct PreparedAddress {
     pub spec: Value,
     pub snapshot: Value,
     pub addresses: Value,
@@ -158,7 +158,7 @@ fn before_side(row: Option<&SqliteRow>, kind: &str) -> AssetResult<Value> {
     Ok(json!({"snapshot":snapshot,"overlay_ip":overlay,"lan_ip":lan}))
 }
 
-pub(super) async fn prepare_address(connection: &mut SqliteConnection, owner: i32, node: &str,
+pub(crate) async fn prepare_address(connection: &mut SqliteConnection, owner: i32, node: &str,
     subject: &Value, spec: &Value, runtime: &RuntimeObservations, allow_legacy_direct: bool) -> AssetResult<PreparedAddress> {
     ensure_node(connection, owner, node).await?;
     if subject["resource_kind"].as_str() != Some("device") {
@@ -216,7 +216,7 @@ pub(super) async fn prepare_address(connection: &mut SqliteConnection, owner: i3
     Ok(PreparedAddress { spec, snapshot, addresses, preview, group_id, is_self })
 }
 
-pub(super) async fn prepare_binding(connection: &mut SqliteConnection, owner: i32, node: &str,
+pub(crate) async fn prepare_binding(connection: &mut SqliteConnection, owner: i32, node: &str,
     subject: &Value, selection: &Value, runtime: &RuntimeObservations) -> AssetResult<Value> {
     ensure_node(connection, owner, node).await?;
     let kind = subject["resource_kind"].as_str().unwrap_or_default();
@@ -287,7 +287,7 @@ pub(super) async fn prepare_binding(connection: &mut SqliteConnection, owner: i3
         "addresses":addresses,"snapshot":snapshot,"before":before,"after":after,"affected_device_ids":affected}))
 }
 
-pub(super) async fn save_snapshot(connection: &mut SqliteConnection, owner: i32, node: &str, kind: &str, id: &str, snapshot: &Value) -> AssetResult<()> {
+pub(crate) async fn save_snapshot(connection: &mut SqliteConnection, owner: i32, node: &str, kind: &str, id: &str, snapshot: &Value) -> AssetResult<()> {
     let table = match kind { "gateway" => "asset_gateway_groups", "device" => "asset_devices", _ => return Err(AssetError::not_found()) };
     sqlx::query(&format!("UPDATE {table} SET network_instance_id = ?, config_record_id = ?, config_create_time = ?, config_fingerprint = ?, binding_snapshot_json = ? WHERE id = ? AND owner_user_id = ? AND machine_id = ?"))
         .bind(snapshot["instance_id"].as_str()).bind(snapshot["config_ref"]["id"].as_i64())

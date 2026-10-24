@@ -59,3 +59,9 @@ async def prepare(binary, target, action, pairing_port=None, code=None):
         metadata[key] = value if status == 0 and len(value) <= 256 and value.isprintable() else None
     return {"state": "connected", "message": "ADB 已连接；实时画面和脚本能力需分别准备", "metadata": metadata,
             "capabilities": {"adb": True, "video": True, "automation": False}}
+
+
+async def disconnect(binary, target):
+    status, _, _ = await command(binary,"disconnect",serial(target),timeout=8)
+    if status != 0:
+        raise ExecutorError("cleanup_pending", "旧设备 ADB 连接尚未确认清理")

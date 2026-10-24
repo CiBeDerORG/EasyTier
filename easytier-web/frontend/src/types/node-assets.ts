@@ -1,3 +1,4 @@
+import type { SemanticKind } from '../modules/discovery-api';
 import type { Utils } from 'easytier-frontend-lib';
 
 /** Manual node assets. These IDs are not EasyTier network instance IDs. */
@@ -242,6 +243,7 @@ export interface GatewayGroup extends AssetScope, GatewayGroupInput {
 }
 
 export interface DeviceTypeInput {
+    semantic_kind?: SemanticKind;
     name: string;
 }
 
@@ -265,6 +267,10 @@ export interface AssetDeviceInput {
 }
 
 export interface AssetDevice extends AssetScope, AssetDeviceInput {
+    semantic_kind?: SemanticKind;
+    endpoint_revision?: number;
+    discovery?: Record<string, unknown> | null;
+    display_name_manual?: boolean;
     id: string;
     address_mode: AddressMode;
     rule_key: string | null;
@@ -314,6 +320,8 @@ export interface ServicePublicationNetwork {
 }
 
 export interface AssetServiceInput {
+    service_type?: 'generic' | 'adb';
+    connection_mode?: 'tcp' | 'wireless';
     name: string;
     protocols: AssetProtocol[];
     port: number;

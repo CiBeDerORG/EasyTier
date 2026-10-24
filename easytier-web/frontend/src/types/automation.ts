@@ -16,6 +16,7 @@ export interface AutomationContext {
 }
 export interface AutomationConnection { enabled: boolean; adb_port: number; connection_mode: 'tcp' | 'wireless' }
 export interface AutomationDevice {
+    endpoint_event?: import('../modules/discovery-api').EndpointEvent;
     id: string; name: string; model: string | null; owner_user_id: number;
     machine_id: string; node_name: string; gateway_group_id: string | null;
     gateway_name: string | null; device_type_id: string | null; type_name: string | null;

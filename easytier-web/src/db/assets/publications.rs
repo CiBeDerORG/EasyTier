@@ -80,7 +80,7 @@ fn invalid_config() -> AssetError {
     publication_conflict("publication_config_invalid", "instance_id", "The saved network configuration cannot be safely updated. Open and save it in network settings first.")
 }
 
-pub(super) fn input(body: &Value) -> AssetResult<Value> {
+pub(crate) fn input(body: &Value) -> AssetResult<Value> {
     if body.is_null() { return Ok(Value::Null); }
     let normalized: AssetResult<Value> = (|| {
         validation::keys(body, &["machine_id", "instance_id", "bind_ip", "bind_port", "dst_port"])?;
@@ -257,10 +257,10 @@ async fn available_listeners(connection: &mut SqliteConnection, owner: i32, mach
     Ok(())
 }
 
-pub(super) async fn sync_service(connection: &mut SqliteConnection, owner: i32, node: &str, device: &str, service: &str, payload: &Value, proof: Option<&PublicationRuntimeProof>) -> AssetResult<()> {
+pub(crate) async fn sync_service(connection: &mut SqliteConnection, owner: i32, node: &str, device: &str, service: &str, payload: &Value, proof: Option<&PublicationRuntimeProof>) -> AssetResult<()> {
     let old = existing(connection, owner, node, service).await?;
     let requested = payload.get("publication");
-    let desired = requested.cloned().or_else(|| old.as_ref().map(|old| old.input.clone())).unwrap_or(Value::Null);
+    let mut desired = requested.cloned().or_else(|| old.as_ref().map(|old| old.input.clone())).unwrap_or(Value::Null);
     if desired.is_null() {
         if let Some(old) = old { remove_owned(connection, owner, &old).await?; }
         sqlx::query("DELETE FROM asset_service_publications WHERE service_id = ? AND owner_user_id = ? AND machine_id = ?")
@@ -269,12 +269,15 @@ pub(super) async fn sync_service(connection: &mut SqliteConnection, owner: i32, 
     }
     let dst_ip: String = sqlx::query_scalar("SELECT overlay_ip FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
         .bind(device).bind(owner).bind(node).fetch_one(&mut *connection).await?;
+    // A structured ADB service owns its destination port. Keep the public listener.
+    let inherited = desired.clone();
+    if payload["service_type"] == "adb" && !desired.is_null() { desired["dst_port"] = payload["port"].clone(); }
     let rules = desired_rules(&desired, &payload["protocols"], &dst_ip)?;
     let machine = desired["machine_id"].as_str().ok_or_else(invalid_saved_publication)?;
     let instance = desired["instance_id"].as_str().ok_or_else(invalid_saved_publication)?;
     let mut owned_intact = false;
     if let Some(old) = &old {
-        if old.input == desired {
+        if old.input == inherited {
             if let Some(config) = load_config(connection, owner, machine, instance).await? {
                 let config_instance = config.value["instance_id"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok());
                 if config.id == old.config_record_id && config.created == old.config_create_time
@@ -328,7 +331,7 @@ pub(super) async fn sync_service(connection: &mut SqliteConnection, owner: i32, 
     Ok(())
 }
 
-pub(super) async fn remove_service(connection: &mut SqliteConnection, owner: i32, node: &str, service: &str) -> AssetResult<()> {
+pub(crate) async fn remove_service(connection: &mut SqliteConnection, owner: i32, node: &str, service: &str) -> AssetResult<()> {
     if let Some(publication) = existing(connection, owner, node, service).await? {
         remove_owned(connection, owner, &publication).await?;
         sqlx::query("DELETE FROM asset_service_publications WHERE service_id = ? AND owner_user_id = ? AND machine_id = ?")
@@ -337,7 +340,7 @@ pub(super) async fn remove_service(connection: &mut SqliteConnection, owner: i32
     Ok(())
 }
 
-pub(super) async fn remove_device(connection: &mut SqliteConnection, owner: i32, node: &str, device: &str) -> AssetResult<()> {
+pub(crate) async fn remove_device(connection: &mut SqliteConnection, owner: i32, node: &str, device: &str) -> AssetResult<()> {
     let services: Vec<String> = sqlx::query_scalar("SELECT service_id FROM asset_service_publications WHERE owner_user_id = ? AND machine_id = ? AND device_id = ?")
         .bind(owner).bind(node).bind(device).fetch_all(&mut *connection).await?;
     for service in services { remove_service(connection, owner, node, &service).await?; }
@@ -345,7 +348,7 @@ pub(super) async fn remove_device(connection: &mut SqliteConnection, owner: i32,
 }
 
 /// Address changes preserve each existing binding and update only its target IP.
-pub(super) async fn sync_device_address(connection: &mut SqliteConnection, owner: i32, node: &str, device: &str) -> AssetResult<()> {
+pub(crate) async fn sync_device_address(connection: &mut SqliteConnection, owner: i32, node: &str, device: &str) -> AssetResult<()> {
     let dst_ip: String = sqlx::query_scalar("SELECT overlay_ip FROM asset_devices WHERE id = ? AND owner_user_id = ? AND machine_id = ?")
         .bind(device).bind(owner).bind(node).fetch_one(&mut *connection).await?;
     let rows = sqlx::query("SELECT * FROM asset_service_publications WHERE owner_user_id = ? AND machine_id = ? AND device_id = ? AND dst_ip <> ?")
@@ -377,7 +380,7 @@ pub(super) async fn sync_device_address(connection: &mut SqliteConnection, owner
     Ok(())
 }
 
-pub(super) async fn response(connection: &mut SqliteConnection, owner: i32, node: &str, service: &str) -> AssetResult<Value> {
+pub(crate) async fn response(connection: &mut SqliteConnection, owner: i32, node: &str, service: &str) -> AssetResult<Value> {
     let Some(row) = sqlx::query("SELECT * FROM asset_service_publications WHERE service_id = ? AND owner_user_id = ? AND machine_id = ?")
         .bind(service).bind(owner).bind(node).fetch_optional(&mut *connection).await? else { return Ok(Value::Null); };
     let publication = Publication::from_row(&row)?;

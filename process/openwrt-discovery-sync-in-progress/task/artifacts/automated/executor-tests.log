@@ -1,0 +1,13 @@
+test_early_withdraw_survives_restart_and_does_not_cancel_other_phone (test_device_exit.JournalTests.test_early_withdraw_survives_restart_and_does_not_cancel_other_phone) ... ok
+test_wrong_fingerprint_cannot_fence_a_known_run (test_device_exit.JournalTests.test_wrong_fingerprint_cannot_fence_a_known_run) ... ok
+test_adb_disconnect_uses_serial_not_global_disconnect (test_device_exit.RuntimeTests.test_adb_disconnect_uses_serial_not_global_disconnect) ... ok
+test_disconnect_is_target_specific_and_does_not_disconnect_new_owner (test_device_exit.RuntimeTests.test_disconnect_is_target_specific_and_does_not_disconnect_new_owner) ... ok
+test_restart_helper_cleanup_requires_owned_process_exit_proof (test_device_exit.RuntimeTests.test_restart_helper_cleanup_requires_owned_process_exit_proof) ... ok
+test_retire_cancels_inflight_preparation_before_target_disconnect (test_device_exit.RuntimeTests.test_retire_cancels_inflight_preparation_before_target_disconnect) ... ok
+test_session_identity_rejects_replacement_executor_before_side_effects (test_device_exit.RuntimeTests.test_session_identity_rejects_replacement_executor_before_side_effects) ... ok
+test_withdraw_running_phone_preserves_other_phone_and_its_second_step (test_device_exit.RuntimeTests.test_withdraw_running_phone_preserves_other_phone_and_its_second_step) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.299s
+
+OK

@@ -40,6 +40,9 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub rule_key: Option<String>,
     pub host_offset: Option<i64>,
+    pub discovery_json: Option<String>,
+    pub display_name_manual: bool,
+    pub endpoint_revision: i64,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }
