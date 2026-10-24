@@ -784,3 +784,41 @@ async fn external_webhook_mode_rejects_binding_candidates_previews_and_writes() 
         .unwrap();
     assert_eq!(count, 0);
 }
+
+#[tokio::test]
+async fn public_node_ip_is_manual_scoped_and_cleared_when_role_is_disabled() {
+    let fixture = Fixture::new().await;
+    let owner = fixture.account("node-ip-owner").await;
+    let node = Uuid::new_v4();
+    fixture.register_node(owner.id, node).await;
+    let path = format!("/api/v1/assets/nodes/{node}/metadata?owner_user_id={}", owner.id);
+    let input = |role: bool, ip: Option<&str>| {
+        let mut payload = json!({"is_public_server": role, "site_location": null, "device_model": null});
+        if let Some(ip) = ip { payload["public_ip"] = json!(ip); }
+        payload
+    };
+    let (status, first) = fixture.request(Some(owner.clone()), false, Method::PATCH, &path,
+        Some(input(true, Some("8.8.8.8")))).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    assert_eq!(first["public_ip"], "8.8.8.8");
+    let (status, listed) = fixture.request(Some(owner.clone()), false, Method::GET,
+        &format!("/api/v1/assets/nodes?owner_user_id={}", owner.id), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(listed["items"][0]["public_ip"], "8.8.8.8");
+    // Older metadata clients may omit the new field without erasing it.
+    let (status, kept) = fixture.request(Some(owner.clone()), false, Method::PATCH, &path,
+        Some(input(true, None))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(kept["public_ip"], "8.8.8.8");
+    for invalid in ["127.0.0.1", "192.168.1.2", "203.0.113.10", "8.8.8.8:443", "http://8.8.8.8"] {
+        let (status, failure) = fixture.request(Some(owner.clone()), false, Method::PATCH, &path,
+            Some(input(true, Some(invalid)))).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{invalid}: {failure}");
+        assert!(failure["field_errors"]["public_ip"].is_string(), "{invalid}: {failure}");
+    }
+    let (status, removed) = fixture.request(Some(owner.clone()), false, Method::PATCH, &path,
+        Some(input(false, None))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(removed["is_public_server"], false);
+    assert!(removed["public_ip"].is_null());
+}

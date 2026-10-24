@@ -342,8 +342,13 @@ fn public_node_ip(value: &Value) -> HttpResult<Option<String>> {
     if raw.is_empty() { return Ok(None); }
     let ip = raw.parse::<IpAddr>().map_err(|_| asset_error(AssetError::field("public_ip", "Enter a plain IPv4/IPv6 address, without scheme or port.")))?;
     let valid = match ip {
-        IpAddr::V4(ip) => !ip.is_private() && !ip.is_loopback() && !ip.is_link_local()
-            && !ip.is_unspecified() && !ip.is_multicast() && !ip.is_broadcast(),
+        IpAddr::V4(ip) => {
+            let [a, b, _, _] = ip.octets();
+            !ip.is_private() && !ip.is_loopback() && !ip.is_link_local()
+                && !ip.is_unspecified() && !ip.is_multicast() && !ip.is_broadcast()
+                && !ip.is_documentation() && a != 0 && a < 224
+                && !(a == 100 && (64..=127).contains(&b))
+        },
         IpAddr::V6(ip) => !ip.is_loopback() && !ip.is_unspecified() && !ip.is_multicast()
             && !ip.is_unique_local() && !ip.is_unicast_link_local(),
     };
