@@ -54,7 +54,7 @@ function fixture() {
             info: { hostname, machine_id: uuid(i + 1), easytier_version: '2.4.5', report_time: '2026-10-22 12:00:00', running_network_instances: [] },
             location: { country: 'Legacy country', region: '', city: 'Legacy city' },
             networks: [], online: true,
-            geo_location: location(i ? 'Office city' : 'Home city'), site_location: 'Legacy rack', is_public_server: false, device_model: i ? 'Office model' : 'Router model',
+            geo_location: location(i ? 'Office city' : 'Home city'), site_location: 'Legacy rack', is_public_server: false, public_server_ip: null, device_model: i ? 'Office model' : 'Router model',
             connection_ip: `198.51.100.${i + 10}`, ip_country: 'Source country', ip_region: 'Source region', ip_city: 'Source city',
             ip_location_status: 'resolved', ip_observed_at: '2026-10-22T12:00:00Z',
         })),
@@ -91,7 +91,7 @@ async function open(t, { view = 'card', mobile = false, configure = () => {} } =
         else if (path === '/assets/context') result = { actor: { id: 1, username: 'test-user' }, available: !state.externalConsole, can_manage_others: false };
         else if (path === '/assets/nodes') result = { items: state.machines.map(machine => ({
             ...machine, machine_id: machineId(machine), owner_user_id: 1, hostname: machine.info.hostname,
-            alias: machine.alias || '', device_count: 0,
+            alias: machine.alias || '', device_count: 0, public_ip: machine.public_server_ip ?? null,
         })) };
         else if (path === '/geocoding/config') result = { tile_url: `${base}/tiles/{z}/{x}/{y}.png`, attribution_text: 'Fixture tiles', attribution_url: 'https://example.test/', max_zoom: 19, reverse_enabled: true };
         else if (path === '/geocoding/reverse') result = state.reverseResult;
@@ -112,7 +112,9 @@ async function open(t, { view = 'card', mobile = false, configure = () => {} } =
             if (!machine) return route.fulfill({ status: 404, json: { message: 'Machine not found' } });
             const payload = request.postDataJSON();
             result = { ...payload, owner_user_id: 1, machine_id: machineId(machine), hostname: machine.info.hostname, alias: machine.alias || '', device_count: 0 };
-            Object.assign(machine, result);
+            machine.public_server_ip = payload.public_ip ?? null;
+            const { public_ip: _manualPublicIp, ...observedMetadata } = result;
+            Object.assign(machine, observedMetadata);
         }
         await route.fulfill({ json: result });
     });
@@ -172,7 +174,7 @@ test('save trims manual fields, persists clear, and keeps the selected view and 
     await locationInput(page).fill('  Upstairs cabinet  ');
     await modelInput(page).fill('  GL-MT6000  ');
     await save(page);
-    assert.deepEqual(state.writes, [{ path: attributesPath(1), method: 'PATCH', payload: { site_location: null, device_model: 'GL-MT6000', geo_location: location('Upstairs cabinet'), is_public_server: false } }]);
+    assert.deepEqual(state.writes, [{ path: attributesPath(1), method: 'PATCH', payload: { site_location: null, device_model: 'GL-MT6000', geo_location: location('Upstairs cabinet'), is_public_server: false, public_ip: null } }]);
     await scope.getByText('Upstairs cabinet', { exact: false }).waitFor();
     assert.equal(await search.inputValue(), 'OpenWrt');
     assert.equal(await page.locator('.device-card').count(), 1);
@@ -182,7 +184,7 @@ test('save trims manual fields, persists clear, and keeps the selected view and 
     await dialogFor(page).getByRole('button', { name: 'Clear location', exact: true }).click();
     await modelInput(page).fill('');
     await save(page);
-    assert.deepEqual(state.writes.at(-1).payload, { site_location: null, device_model: null, geo_location: null, is_public_server: false });
+    assert.deepEqual(state.writes.at(-1).payload, { site_location: null, device_model: null, geo_location: null, is_public_server: false, public_ip: null });
     await page.reload();
     const refreshed = page.locator('.device-card').filter({ hasText: 'OpenWrt gateway' });
     await edit(page, refreshed);
@@ -306,6 +308,7 @@ test('alias and public role share the attribute editor and partial failures retr
     await page.locator('#device-alias').fill('  Home gateway  ');
     await modelInput(page).fill('New router');
     await page.locator('#device-public-node').check();
+    await page.locator('#device-public-ip').fill('8.8.8.8');
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await dialog.getByRole('alert').waitFor();
     await dialog.getByRole('status').waitFor();
@@ -314,6 +317,7 @@ test('alias and public role share the attribute editor and partial failures retr
     assert.deepEqual(state.writes[0], { path: `/machines/${id(1)}/alias`, method: 'PUT', payload: { alias: 'Home gateway' } });
     assert.equal(state.writes[1].path, attributesPath(1));
     assert.equal(state.writes[1].payload.is_public_server, true);
+    assert.equal(state.writes[1].payload.public_ip, '8.8.8.8');
     state.saveStatus = 200;
     await save(page);
     assert.equal(state.writes.filter(write => write.path.endsWith('/alias')).length, 1, 'confirmed alias must not be resent');
@@ -323,6 +327,9 @@ test('alias and public role share the attribute editor and partial failures retr
     await edit(page, scope);
     assert.equal(await page.locator('#device-alias').inputValue(), 'Home gateway');
     assert.equal(await page.locator('#device-public-node').isChecked(), true);
+    assert.equal(await page.locator('#device-public-ip').inputValue(), '8.8.8.8');
+    // Manual public IP must never replace the observed management endpoint.
+    assert.equal((await scope.locator('.public-ip .detail-value').textContent()).trim(), 'tcp://198.51.100.10:11010');
 });
 
 test('geographic coordinates validate as a pair, map selection resolves an address, and saves WGS84 metadata', async t => {

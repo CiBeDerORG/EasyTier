@@ -10,7 +10,7 @@ import type { MapCounter, MapTopologyLink, MapTopologyRoute } from '../modules/m
 import { buildRegisteredMapTopology, type RegisteredMapRuntimeSample } from '../modules/registered-map-topology';
 import { buildNodeSpaceDevices } from '../modules/node-map-assets';
 import { mapMessages } from '../modules/map-messages';
-import type { AssetContextResponse, AssetDevice, AssetNode, AssetServiceCatalogEntry, DeviceType, GatewayGroup } from '../types/node-assets';
+import type { AssetContextResponse, AssetDevice, AssetNode, AssetNodeAttributeChanges, AssetServiceCatalogEntry, DeviceType, GatewayGroup } from '../types/node-assets';
 import DeviceAttributesDialog from './DeviceAttributesDialog.vue';
 
 const NetworkGlobe = defineAsyncComponent(() => import('./map/NetworkGlobe.vue'));
@@ -340,13 +340,17 @@ function editNode(id = selectedId.value) {
     selectNode(machine.machine_id);
     attributesTarget.value = { ...machine }; attributesNode.value = { ...node };
 }
-function attributesUpdated(machineId: string, changes: Partial<Utils.DeviceInfo> & { is_public_server?: boolean }) {
-    // Fence reads that started before this confirmed write.
+function attributesUpdated(machineId: string, changes: AssetNodeAttributeChanges) {
+    // DeviceInfo.public_ip is the observed management connection URL. The manually
+    // maintained public server IP belongs exclusively to the asset node metadata.
     generation++; metadataGeneration++;
+    const { public_ip: _manualPublicIp, is_public_server: _publicRole, ...machineChanges } = changes;
     const machine = machines.value.find(node => node.machine_id === machineId);
-    if (machine) Object.assign(machine, changes);
+    if (machine) Object.assign(machine, machineChanges);
     const node = assetNodes.value.find(node => node.machine_id === machineId);
     if (node) Object.assign(node, changes);
+    if (attributesTarget.value?.machine_id === machineId) Object.assign(attributesTarget.value, machineChanges);
+    if (attributesNode.value?.machine_id === machineId) Object.assign(attributesNode.value, changes);
     collecting.value = false; loading.value = false;
 }
 function attributesSaved() { attributesTarget.value = null; attributesNode.value = null; void refresh(); }

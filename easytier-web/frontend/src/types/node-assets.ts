@@ -41,6 +41,11 @@ export interface AssetNodeUpdate {
     geo_location?: Utils.NodeGeoLocation | null;
 }
 
+/** Confirmed editable node metadata; not the observed DeviceInfo.public_ip connection URL. */
+export type AssetNodeAttributeChanges = Partial<Pick<AssetNode,
+    'device_model' | 'geo_location' | 'is_public_server' | 'public_ip'>> & { alias?: string };
+
+
 export interface AssetDeviceCount {
     machine_id: string;
     device_count: number;

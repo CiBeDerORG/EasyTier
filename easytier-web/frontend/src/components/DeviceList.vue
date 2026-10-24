@@ -10,7 +10,7 @@ import { useI18n } from 'vue-i18n'
 import ApiClient from '../modules/api';
 import { overviewMessages } from '../modules/overview-messages';
 import { nodeLocationCoordinates, nodeLocationLabel } from '../modules/node-location';
-import type { AssetContextResponse, AssetNode } from '../types/node-assets';
+import type { AssetContextResponse, AssetNode, AssetNodeAttributeChanges } from '../types/node-assets';
 
 const { t, locale } = useI18n()
 const copy = computed(() => overviewMessages[locale.value === 'cn' ? 'cn' : 'en']);
@@ -214,17 +214,19 @@ const handleEditAttributes = async (device: Utils.DeviceInfo) => {
     }
 };
 const closeAttributes = () => { attributesTarget.value = null; attributesNode.value = null; };
-const handleAttributesUpdated = async (machineId: string, changes: Partial<Utils.DeviceAttributes> & { alias?: string; is_public_server?: boolean }) => {
-    // Fence older asset reads before reflecting the confirmed write.
+const handleAttributesUpdated = async (machineId: string, changes: AssetNodeAttributeChanges) => {
+    // The asset's manually maintained public_ip is distinct from DeviceInfo.public_ip
+    // (the observed management connection URL); never write the former into the latter.
     ++assetCountRequest;
+    const { public_ip: _manualPublicIp, is_public_server: _publicRole, ...machineChanges } = changes;
     if (assetNodes.value[machineId]) Object.assign(assetNodes.value[machineId], changes);
     if (attributesNode.value?.machine_id === machineId) Object.assign(attributesNode.value, changes);
-    if (attributesTarget.value?.machine_id === machineId) Object.assign(attributesTarget.value, changes);
+    if (attributesTarget.value?.machine_id === machineId) Object.assign(attributesTarget.value, machineChanges);
     // Finish any pre-save list response before applying confirmed changes.
     await requestInFlight?.catch(() => {});
     if (disposed) return;
     const device = deviceList.value?.find(device => device.machine_id === machineId);
-    if (device) Object.assign(device, changes);
+    if (device) Object.assign(device, machineChanges);
 };
 const handleAttributesSaved = async () => {
     closeAttributes();

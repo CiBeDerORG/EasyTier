@@ -4,7 +4,7 @@ import { Button, Checkbox, Dialog, InputText } from 'primevue';
 import { Utils } from 'easytier-frontend-lib';
 import { useI18n } from 'vue-i18n';
 import ApiClient from '../modules/api';
-import type { AssetNode } from '../types/node-assets';
+import type { AssetNode, AssetNodeAttributeChanges } from '../types/node-assets';
 import { nodeLocationErrors, normalizeNodeLocation } from '../modules/node-location';
 import NodeLocationEditor from './NodeLocationEditor.vue';
 import { getAssetError } from '../composables/useAssetMutation';
@@ -13,7 +13,7 @@ type EditableAttributes = Pick<Utils.DeviceAttributes, 'device_model' | 'geo_loc
 const props = defineProps<{ device: Utils.DeviceInfo; node: AssetNode; api?: ApiClient }>();
 const emit = defineEmits<{
     close: [];
-    updated: [machineId: string, changes: Partial<EditableAttributes> & { alias?: string }];
+    updated: [machineId: string, changes: AssetNodeAttributeChanges];
     saved: [machineId: string];
 }>();
 const { t } = useI18n();
