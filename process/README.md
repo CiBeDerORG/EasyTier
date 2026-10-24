@@ -2,6 +2,7 @@
 
 |需求|状态|进度及问题|
 |---|---|---|
+|[镜像构建提速](image-build-acceleration-in-progress/README.md)|第二阶段实现中|`feat/automation-center` 合并 Web 原生编译、并行执行发布回归测试、按源码版本滚动保存 Cargo 产物；保留网页管理及两个 Web 启动入口，等待本轮 push 自动构建实测。|
 |[自动化中心 push 自动构建](automation-push-build-in-progress/README.md)|自动触发已恢复，构建中|`44e21624` 已通过 push 启动运行 #21，14:18 查询时前端/原生编译进行中；amd64 镜像尚未确认发布。|
 |[全局完整性审计](global-integrity-audit-in-progress/README.md)|发现未闭环，修复待跟进|包含地图合并后的当前分支、关联 deploy Agent 和手机执行器；测试通过与实际缺口分开记录，见[报告](global-integrity-audit-in-progress/task/test-report.md)。用户已确认手动服务导入为必做范围。|
 |[OpenWrt发现同步与手机ADB联动](openwrt-discovery-sync-in-progress/README.md)|代码和模拟验证通过|feat/automation-center；普通发现/覆盖、唯一ADB服务、公开目标同步、单机退出和画面恢复已实现；[验证记录](openwrt-discovery-sync-in-progress/task/test-report.md)、[升级回退](openwrt-discovery-sync-in-progress/task/delivery-record.md)。实机验收另行安排，未发布部署。|
@@ -13,4 +14,5 @@
 |[main 网络节点属性](network-node-attributes-done/README.md)|已完成|原设备卡片新增地点/型号编辑，来源 IP 持久化；已部署当前云环境并截图。内置 GeoIP 仅 Country 精度，未现场接入用户实际 OpenWrt。|
 
 每个需求使用 `<需求名>-<状态>/`，内部保留需求汇总及 `require/`、`plan/`、`task/`。用户管理、生态集成的历史文档保留在各自已有分支；本轮用户管理单独记录，不覆盖历史交付结论。
+
 
