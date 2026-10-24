@@ -9,7 +9,9 @@
 - 前端：`PATH=/workspace/toolchains/protoc/bin:$PATH pnpm --dir easytier-web/frontend build:ci` **通过**，含 Vue 类型检查及 Vite 生产构建；[日志](artifacts/automated/http-discovery-build.log)。保留原有大 chunk/Browserslist 提示。
 - 浏览器：前端目录 `node --test tests/discovery.test.mjs` **4 passed / 0 failed**，11.03 秒；[日志](artifacts/automated/http-discovery-browser.log)。新增 HTTP 保存、隐藏/清空旧证书、精确保留密码空格、点击触发两类扫描、切回 HTTPS 处理空白 CA；原移动端与无空闲轮询回归通过。
 - `git diff --check` 通过。未重复运行无关全量套件；未测试真实路由器监听端口、防火墙和 HTTP→HTTPS 强制跳转配置，未部署生产环境。
-- 发布：准备将本轮代码推送到 `feat/automation-center`，沿用已授权的 push 镜像构建；构建/发布结果待平台回执，当前没有本轮镜像成功结论。
+- 推送：代码提交 `b51e4c025a024bab660c3b7953e7bb9a98735fe4` 已成功推送到 `feat/automation-center`，未附加跳过 CI 标记。
+- 镜像构建已确认自动启动：[EasyTier GHCR Image #22 / 40073334116](https://github.com/CiBeDerORG/EasyTier/actions/runs/40073334116)，页面标题明确为 `push`、目标分支及上述提交，状态 `WORKFLOW_RUN_STATUS_IN_PROGRESS`；[平台回执](artifacts/automated/http-discovery-ci.json)。目标镜像 `ghcr.io/cibederorg/easytier:feat-automation-center`，linux/amd64。
+- 尚无本轮构建成功或新 digest 证据，未更新用户运行容器。需等本次镜像发布并更新部署后，再配置 `http://10.10.10.3:80/ubus`（实际 HTTP 端口以路由器为准）。本回执为纯文档补记，不触发额外镜像构建。
 
 ## 第1轮：2026-10-24（北京时间）需求与任务拆分
 

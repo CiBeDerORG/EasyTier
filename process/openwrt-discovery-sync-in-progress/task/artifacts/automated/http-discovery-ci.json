@@ -1,0 +1,13 @@
+{
+  "run_id": "40073334116",
+  "run_number": 22,
+  "url": "https://github.com/CiBeDerORG/EasyTier/actions/runs/40073334116",
+  "title": "GHCR image - push - feat/automation-center - b51e4c025a024bab660c3b7953e7bb9a98735fe4",
+  "state": {
+    "status": "WORKFLOW_RUN_STATUS_IN_PROGRESS"
+  },
+  "commit": "b51e4c025a024bab660c3b7953e7bb9a98735fe4",
+  "observed_at": "2026-10-24T15:14:46.822228+08:00",
+  "image": "ghcr.io/cibederorg/easytier:feat-automation-center",
+  "published": false
+}
