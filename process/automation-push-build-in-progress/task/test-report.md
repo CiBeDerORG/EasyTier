@@ -19,3 +19,12 @@
 - 本轮仅在工作流 `run-name` 增加 `${{ github.event_name }}`，让运行列表明确区分 push 和手动触发。通过推送这项工作流调整启动已有构建流程，不改构建步骤、权限、平台、缓存或镜像标签。
 - 用户此前要求 push 自动构建，本轮承接恢复后的构建与发布，不重新请求相同授权。未使用 `[skip ci]`；GitHub API 域名仍受当前网络策略限制，使用正常 Git push 和公开 Actions 网页跟进。
 - 本地测试、前端/Rust 构建、类型检查、lint、真实设备操作和部署：**未执行**。本轮执行范围仅为现有云端镜像构建/启动检查/发布链，结果待运行回执；没有当前版本发布成功结论。
+
+### 自动触发回执
+
+- 工作流提交 `44e216243116946efce8a5ec7134609abf032a0a` 已成功推送到 `feat/automation-center`。
+- 已确认创建[运行 #21 / 40069487917](https://github.com/CiBeDerORG/EasyTier/actions/runs/40069487917)，页面明确显示 `Triggered via push`、上述提交和目标分支。自动触发链已恢复，不是手动 dispatch 或旧提交运行。
+- 2026-10-24 14:18（北京时间）查询：整体 `In progress`，Web 和原生任务运行中，镜像打包等待前置任务，尚未执行发布。未取得本次镜像 digest，不宣称构建、容器启动检查或发布通过。
+- 原生输入指纹包含工作流 YAML，本次标题调整也会使完整 native bundle 缓存失效；原 Rust 依赖缓存机制不变，实际耗时以运行结果为准。
+- 只读查询 GHCR，构建前分支标签 digest 为 `sha256:a8d038c324373a8dd4a57274e98a07d533dcfe01c97226c7256e1916bf4846d9`，平台 linux/amd64；该旧 digest 不代表本次发布。
+- 页面证据保存在 `/workspace/scratch/automation-build-resume/`。本次回执仅补充文档，经现有路径忽略规则不会额外触发镜像构建；无本地测试、镜像拉取运行或部署。
