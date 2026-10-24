@@ -41,7 +41,7 @@ async function perform(action?: 'pair' | 'connect' | 'inspect' | 'automation') {
         pairingCode.value = '';
         // Pairing must not bypass the saved-endpoint retirement fence. Retry its
         // durable cleanup event first and only pair after the server confirms it.
-        if (action === 'pair' && target.endpoint_event?.cleanup?.state !== 'confirmed') {
+        if (action === 'pair' && target.endpoint_event && target.endpoint_event.cleanup?.state !== 'confirmed') {
             const event = target.endpoint_event;
             if (!event?.event_id) throw new Error(t('endpointCleanupPending'));
             const cleanup = await api.retryEndpoint(owner, target.id, event.event_id, {
