@@ -25,7 +25,10 @@
 
 - 源码、插件 ACL 和 OpenWrt 上游协议实现：已只读核对；实现由独立 agent 交叉复查。
 - 本地测试、构建、类型检查、lint、语法检查及手动 Actions：**未执行**，沿用项目本轮 push 自动构建路径。
-- 修复提交、自动 CI 与新镜像：待本轮统一提交后补记。历史 HTTP/LuCI 回归通过只覆盖此前源码，不代表本轮修复已通过。
+- 修复提交 `724d09bc113fad29d35fb5dfc3dd650ff76e75c4` 已推送至 `feat/automation-center`；自动 [EasyTier GHCR Image #24](https://github.com/CiBeDerORG/EasyTier/actions/runs/40076510493) 于北京时间 16:02:54 启动。
+- 已读取 [#24 回归任务完整日志](https://github.com/CiBeDerORG/EasyTier/actions/runs/40076510493/job/120820881668)：**11 项 LuCI 客户端回归全部通过（0.38 秒）**，同时 **20 项 publication 通过（0.22 秒）、13 项缓存边界通过（0.390 秒）**。这是真实环回 HTTP/HTTPS 测试，包含受限角色拒绝额外 `session.access` 的场景；不是用户路由器实测。
+- #24 单次原生生产编译已经成功，用时 9 分 16 秒；镜像装配与发布结果待本次运行结束后补记。
+- 日志同时发现两个连续 Cargo 测试命令分别重新编译 3 分 13 秒和 3 分 07 秒。后续仅将测试脚本改为单次 Cargo、在 libtest 中取两组筛选的并集，保留业务修复及所有 31 项回归；对应脚本执行与镜像结果将单独补记，见[构建提速记录](../../image-build-acceleration-in-progress/task/test-report.md)。
 - 用户路由器、真实 OpenWrt 扫描、NAS 容器更新：**未执行**。本轮不修改路由器授权、不替换用户密码、不部署生产容器。
 
 ### 后续确认范围

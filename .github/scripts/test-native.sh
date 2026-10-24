@@ -16,16 +16,19 @@ test_args=(
     --package easytier-web --bin easytier-web
     --features "easytier-web/web-static,easytier/$FEATURES"
 )
-cargo test "${test_args[@]}" publication -- --nocapture --test-threads=2 --color never \
-    2>&1 | tee "$REPORT_DIR/publication-tests.log"
-# Reuse the same test binary to exercise the real HTTP(S) protocol fixture.
-# A restricted easyadb session must be checkable without session.access rights.
-cargo test "${test_args[@]}" discovery::luci_client::tests -- --nocapture --test-threads=2 --color never \
-    2>&1 | tee "$REPORT_DIR/luci-client-tests.log"
+# libtest accepts multiple filters after '--' and runs their union. A second
+# Cargo invocation can rerun build scripts and compile the workspace again,
+# even with identical flags; build and execute both suites in one invocation.
+cargo test "${test_args[@]}" -- publication discovery::luci_client::tests \
+    --nocapture --test-threads=2 --color never --format pretty \
+    2>&1 | tee "$REPORT_DIR/native-tests.log"
 
-for test_log in "$REPORT_DIR/publication-tests.log" "$REPORT_DIR/luci-client-tests.log"; do
-    if ! grep -Eq 'test result: ok\. [1-9][0-9]* passed; 0 failed;' "$test_log"; then
-        printf 'Required regression suite did not execute any passing tests: %s\n' "$test_log" >&2
+for test_suite in publication discovery::luci_client::tests::; do
+    if ! awk -v suite="$test_suite" '
+        NF >= 4 && $1 == "test" && $(NF - 1) == "..." && $NF == "ok" && index($2, suite) { passed++ }
+        END { exit passed == 0 }
+    ' "$REPORT_DIR/native-tests.log"; then
+        printf 'Required regression suite did not execute any passing tests: %s\n' "$test_suite" >&2
         exit 1
     fi
 done
