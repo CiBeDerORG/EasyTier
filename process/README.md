@@ -2,7 +2,7 @@
 
 |需求|状态|进度及问题|
 |---|---|---|
-|[自动化中心 push 自动构建](automation-push-build-blocked/README.md)|配置已有，平台暂停|后续代码 push 不默认跳过 CI；GitHub 因 Actions 使用规模暂停该 fork 工作流，需维护者重新启用。|
+|[自动化中心 push 自动构建](automation-push-build-in-progress/README.md)|平台已恢复，构建跟进中|用户已重新启用 Actions，后续代码 push 不默认跳过 CI；本轮通过工作流提交启动最新分支的 amd64 镜像构建。|
 |[全局完整性审计](global-integrity-audit-in-progress/README.md)|发现未闭环，修复待跟进|包含地图合并后的当前分支、关联 deploy Agent 和手机执行器；测试通过与实际缺口分开记录，见[报告](global-integrity-audit-in-progress/task/test-report.md)。用户已确认手动服务导入为必做范围。|
 |[OpenWrt发现同步与手机ADB联动](openwrt-discovery-sync-in-progress/README.md)|代码和模拟验证通过|feat/automation-center；普通发现/覆盖、唯一ADB服务、公开目标同步、单机退出和画面恢复已实现；[验证记录](openwrt-discovery-sync-in-progress/task/test-report.md)、[升级回退](openwrt-discovery-sync-in-progress/task/delivery-record.md)。实机验收另行安排，未发布部署。|
 |[自动化中心](automation-center-in-progress/README.md)|模拟验证通过，待实机|feat/automation-center 已包含技术控制台页面优化、手机墙与悬浮控制、有限脚本；本轮通过 OpenWrt 联动接入唯一 ADB 服务与单设备退出，模拟证据见上项；真实媒体和实机仍待验收。|

@@ -1,5 +1,5 @@
 name: EasyTier GHCR Image
-run-name: "GHCR image - ${{ github.ref_name }} - ${{ github.sha }}"
+run-name: "GHCR image - ${{ github.event_name }} - ${{ github.ref_name }} - ${{ github.sha }}"
 
 on:
   workflow_dispatch:
