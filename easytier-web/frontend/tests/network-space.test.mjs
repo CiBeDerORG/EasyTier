@@ -460,17 +460,49 @@ test('map locations edit registered metadata and survive reopening without writi
 });
 
 test('actual running instances produce direct links and relay routes while failed samples become stale', async t => {
-    const { page, state } = await open(t, `/h/map?node=${id(1)}`);
+    const { page, state } = await open(t, `/h/map?node=${id(1)}`, { reducedMotion: 'no-preference' });
     await page.locator('.map-link-row').filter({ hasText: nodeNames[1] }).first().click();
     const details = page.locator('.map-path-details');
+    const globe = page.locator('.map-stage .network-globe');
     await details.getByText('udp', { exact: true }).waitFor();
     assert.match(await details.textContent(), /0 B\/s/, 'initial counters establish a baseline');
+    const direct = globe.locator('.globe-route-path.selected');
+    await direct.waitFor({ state: 'attached' });
+    const directLinkId = await direct.getAttribute('data-link-id');
+    assert.ok(directLinkId);
+    assert.equal(await globe.locator('.globe-traffic-dot').count(), 0, 'one counter sample must not invent traffic');
+    const assertTrafficMoves = async () => {
+        const dot = globe.locator(`.globe-traffic-dot[data-traffic-id^="${directLinkId}:"]:visible`).first();
+        await dot.waitFor();
+        const before = await dot.evaluate(element => ({ id: element.dataset.trafficId,
+            x: Number(element.getAttribute('cx')), y: Number(element.getAttribute('cy')) }));
+        await page.waitForFunction(before => {
+            const current = document.querySelector(`.map-stage .globe-traffic-dot[data-traffic-id="${before.id}"]`);
+            return current && getComputedStyle(current).visibility === 'visible'
+                && Math.hypot(Number(current.getAttribute('cx')) - before.x, Number(current.getAttribute('cy')) - before.y) >= 1;
+        }, before);
+    };
+    const assertTrafficHidden = () => page.waitForFunction(() => {
+        const dots = [...document.querySelectorAll('.map-stage .globe-traffic-dot')];
+        return dots.length > 0 && dots.every(dot => getComputedStyle(dot).visibility === 'hidden');
+    });
     await page.locator('.map-live-label .pi-spin').waitFor({ state: 'detached' });
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('.map-path-details dd')].some(element => {
         const match = element.textContent.match(/↓ ([\d.]+) [kM]?B\/s/);
         return match && Number(match[1]) > 0;
     }));
+    await globe.locator('canvas').scrollIntoViewIfNeeded();
+    await assertTrafficMoves();
+    await capture(page, 'map-traffic-after-counter-delta-desktop');
+    await globe.getByRole('button', { name: 'Pause traffic animation', exact: true }).click();
+    await assertTrafficHidden();
+    await globe.getByRole('button', { name: 'Play traffic animation', exact: true }).click();
+    await assertTrafficMoves();
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await assertTrafficHidden();
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await assertTrafficMoves();
     await page.locator('.map-link-row').filter({ hasText: nodeNames[3] }).click();
     await details.getByText(`${nodeNames[0]} → ${nodeNames[2]} → ${nodeNames[3]}`, { exact: true }).waitFor();
     state.failures.add(`/machines/${id(1)}/proxy-rpc`);
@@ -478,6 +510,7 @@ test('actual running instances produce direct links and relay routes while faile
     await page.getByText('Some nodes could not be queried. Retained links are marked stale.', { exact: true }).waitFor();
     await page.locator('.map-link-row').filter({ hasText: nodeNames[3] }).click();
     await details.getByText('Stale', { exact: true }).waitFor();
+    await page.waitForFunction(id => !document.querySelector(`.map-stage .globe-traffic-dot[data-traffic-id^="${id}:"]`), directLinkId);
 });
 
 test('node selection fences late device responses from a previously selected node', async t => {
@@ -611,7 +644,8 @@ test('globe reaches regional and city views with real localized administrative l
     const marker = globe.getByRole('button', { name: `Select node ${nodeNames[0]}`, exact: true });
     await marker.waitFor();
     const dot = await marker.locator('i').boundingBox();
-    assert.ok(dot && dot.width <= 9 && dot.height <= 9, 'zooming in must not turn the selected dot into a large sphere');
+    assert.ok(dot && dot.width >= 8 && dot.width <= 12 && dot.height >= 8 && dot.height <= 12,
+        'the selected marker remains readable and compact even at a close viewing altitude');
     const canvas = globe.locator('canvas');
     await canvas.scrollIntoViewIfNeeded();
     const beforeDrag = await marker.locator('i').boundingBox();
@@ -691,8 +725,8 @@ test('co-located and nearby nodes keep small selectable markers and every actual
         return { width: box.width, height: box.height };
     }));
     assert.equal(dots.length, 4);
-    assert.ok(dots.every(dot => dot.width >= 4 && dot.width <= 9 && dot.height >= 4 && dot.height <= 9),
-        'visible dots stay compact while their pointer targets remain larger');
+    assert.ok(dots.every(dot => dot.width >= 7 && dot.width <= 12 && dot.height >= 7 && dot.height <= 12),
+        'visible dots stay readable without covering nearby nodes, while their pointer targets remain larger');
     for (const [index, name] of nodeNames.slice(0, 4).entries()) {
         const marker = globe.getByRole('button', { name: `Select node ${name}`, exact: true });
         await marker.waitFor();

@@ -25,10 +25,11 @@ const altitudeText = computed(() => altitudeKm.value >= 100 ? Math.round(altitud
 const viewLevel = computed(() => altitudeKm.value < 400 ? text('近地视图', 'Local view') : altitudeKm.value < 4500 ? text('区域视图', 'Regional view') : text('全球视图', 'Global view'));
 const viewport = ref({ width: 1, height: 1 });
 interface MarkerDisplay { id: string; name: string; online: boolean; x: number; y: number; originalX: number; originalY: number; expanded: boolean }
-interface RouteDisplay { id: string; path: string; color: string; dashed: boolean; selected: boolean }
+interface RouteDisplay { id: string; path: string; color: string; dashed: boolean; selected: boolean; related: boolean }
 interface Rectangle { left: number; top: number; width: number; height: number }
 const markers = ref<MarkerDisplay[]>([]);
 const displayedRoutes = ref<RouteDisplay[]>([]);
+const trafficMarkerIds = shallowRef<string[]>([]);
 const administrativeLabels = shallowRef<readonly AdministrativeLabel[]>([]);
 const expandedMarkers = computed(() => markers.value.filter(marker => marker.expanded));
 const linkPicker = ref<{ x: number; y: number; ids: string[] } | null>(null);
@@ -39,11 +40,11 @@ const pickerLinks = computed(() => (linkPicker.value?.ids ?? []).flatMap(id => {
         targetName: props.nodes.find(node => node.id === link.target)?.name ?? link.target }] : [];
 }));
 const labelElements = new Map<string, HTMLElement>();
+const trafficElements = new Map<string, SVGCircleElement>();
 const minimumAltitude = .0008;
 const surfaceRadius = 1.000012;
 let renderer: THREE.WebGLRenderer | undefined, camera: THREE.PerspectiveCamera | undefined;
 let scene: THREE.Scene | undefined, controls: OrbitControls | undefined, atmosphere: THREE.Mesh | undefined;
-let trafficLayer: THREE.Group | undefined;
 let administrativeLayer: ReturnType<typeof createAdministrativeLayer> | undefined;
 let frame = 0, destroyed = false, inView = true, layoutDirty = true, initialFocusApplied = false, sizeInitialized = false;
 let targetCamera: THREE.Vector3 | null = null;
@@ -55,7 +56,7 @@ const textures: THREE.Texture[] = [];
 const nodePositions = new Map<string, THREE.Vector3>();
 const originalPositions = new Map<string, THREE.Vector3>();
 const curves = new Map<string, GeographicArc>();
-const particles: { mesh: THREE.Mesh; linkId: string; speed: number; reverse: boolean; offset: number }[] = [];
+const particles: { id: string; position: THREE.Vector3; linkId: string; speed: number; reverse: boolean; offset: number }[] = [];
 const routeSegments = new Map<string, { x1: number; y1: number; x2: number; y2: number }[]>();
 let routeLabelExclusions: Rectangle[] = [];
 const lastRenderedPosition = new THREE.Vector3(Infinity, Infinity, Infinity);
@@ -69,6 +70,13 @@ const direction = new THREE.Vector3();
 
 function setLabelRef(id: string, element: Element | ComponentPublicInstance | null) {
     if (element instanceof HTMLElement) labelElements.set(id, element); else labelElements.delete(id);
+}
+function setTrafficRef(id: string, element: Element | ComponentPublicInstance | null) {
+    if (!(element instanceof SVGCircleElement)) { trafficElements.delete(id); return; }
+    if (trafficElements.get(id) === element) return;
+    trafficElements.set(id, element);
+    element.style.visibility = 'hidden';
+    requestRender();
 }
 function disposeObject(object: THREE.Object3D) {
     object.traverse(child => {
@@ -240,10 +248,11 @@ function updateDisplayGeometry() {
         }
         routeSegments.set(link.id, segments);
         const available = !link.stale && byId.get(link.source)?.online && byId.get(link.target)?.online;
-        rendered.push({ id: link.id, path, color: !available ? '#647787' : link.kind === 'relay' ? '#f5b94d' : '#5edfeb',
-            dashed: link.kind === 'relay' || link.stale, selected: link.id === props.selectedLinkId });
+        rendered.push({ id: link.id, path, color: !available ? '#a5b6c7' : link.kind === 'relay' ? '#ffd074' : '#72edfa',
+            dashed: link.kind === 'relay' || !available, selected: link.id === props.selectedLinkId,
+            related: link.source === props.selectedNodeId || link.target === props.selectedNodeId });
     }
-    displayedRoutes.value = rendered.sort((a, b) => Number(a.selected) - Number(b.selected));
+    displayedRoutes.value = rendered.sort((a, b) => (Number(a.selected) * 2 + Number(a.related)) - (Number(b.selected) * 2 + Number(b.related)));
     altitudeKm.value = altitude * 6371;
     controls!.rotateSpeed = Math.max(.00022, Math.min(.55, altitude * .7));
     if (atmosphere) atmosphere.visible = altitude > .12;
@@ -279,21 +288,32 @@ function renderFrame(time: number) {
     if (layoutDirty) updateDisplayGeometry();
     const animateTraffic = !reducedMotion.value && !paused.value;
     for (const particle of particles) {
+        const element = trafficElements.get(particle.id);
+        if (!element) continue;
         const curve = curves.get(particle.linkId);
-        particle.mesh.visible = animateTraffic && !!curve;
+        let visible = false;
         if (animateTraffic && curve) {
             const progress = (time * .0001 * particle.speed + particle.offset) % 1;
-            curve.getPoint(particle.reverse ? 1 - progress : progress, particle.mesh.position);
-            particle.mesh.scale.setScalar(worldUnitsPerPixel(particle.mesh.position) * 1.8);
+            curve.getPoint(particle.reverse ? 1 - progress : progress, particle.position);
+            const point = screenPosition(particle.position);
+            visible = visibleFromCamera(particle.position) && point.z >= -1 && point.z <= 1
+                && point.x >= 0 && point.x <= viewport.value.width && point.y >= 0 && point.y <= viewport.value.height;
+            if (visible) {
+                // Traffic sits above the route casing. Updating SVG elements
+                // directly avoids re-rendering the Vue scene on every frame.
+                element.setAttribute('cx', point.x.toFixed(2));
+                element.setAttribute('cy', point.y.toFixed(2));
+            }
         }
+        element.style.visibility = visible ? 'visible' : 'hidden';
     }
     renderer.render(scene, camera);
     lastRenderedPosition.copy(camera.position); lastRenderedQuaternion.copy(camera.quaternion);
     if (targetCamera || controlsMoved || (animateTraffic && particles.length)) requestRender();
 }
 function rebuildData() {
-    if (!scene || !trafficLayer) return;
-    disposeObject(trafficLayer); trafficLayer.clear(); particles.length = 0;
+    if (!scene) return;
+    particles.length = 0;
     originalPositions.clear();
     const validNodes = props.nodes.filter(node => Number.isFinite(node.latitude) && Number.isFinite(node.longitude) && Math.abs(node.latitude) <= 90 && Math.abs(node.longitude) <= 180);
     validNodes.forEach(node => originalPositions.set(node.id, geographicPosition(node.latitude, node.longitude, surfaceRadius)));
@@ -302,11 +322,11 @@ function rebuildData() {
         if (link.stale || !byId.get(link.source)?.online || !byId.get(link.target)?.online) continue;
         for (const [rate, reverse] of [[link.tx_bps, false], [link.rx_bps, true]] as const) {
             if (!Number.isFinite(rate) || rate <= 0) continue;
-            const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshBasicMaterial({ color: 0xd9ffff, toneMapped: false }));
-            trafficLayer.add(mesh);
-            particles.push({ mesh, linkId: link.id, speed: Math.min(3, Math.max(.5, Math.log10(rate + 1) / 2)), reverse, offset: reverse ? .45 : 0 });
+            particles.push({ id: `${link.id}:${reverse ? 'rx' : 'tx'}`, position: new THREE.Vector3(), linkId: link.id,
+                speed: Math.min(3, Math.max(.5, Math.log10(rate + 1) / 2)), reverse, offset: reverse ? .45 : 0 });
         }
     }
+    trafficMarkerIds.value = particles.map(particle => particle.id);
     if (!initialFocusApplied && validNodes.length) { focusNode(props.selectedNodeId ?? validNodes[0]!.id, false); initialFocusApplied = true; }
     if (linkPicker.value) linkPicker.value.ids = linkPicker.value.ids.filter(id => props.links.some(link => link.id === id));
     if (!linkPicker.value?.ids.length) linkPicker.value = null;
@@ -479,7 +499,6 @@ onMounted(() => {
         }));
         scene.add(atmosphere);
         administrativeLayer = createAdministrativeLayer(); scene.add(administrativeLayer.object);
-        trafficLayer = new THREE.Group(); scene.add(trafficLayer);
         resize(); rebuildData();
         resizeObserver = new ResizeObserver(resize); resizeObserver.observe(root.value);
         visibilityObserver = new IntersectionObserver(entries => { inView = entries[0]?.isIntersecting ?? true; visibilityChange(); }); visibilityObserver.observe(root.value);
@@ -499,7 +518,7 @@ onBeforeUnmount(() => {
     canvas.value?.removeEventListener('webglcontextlost', contextLost); controls?.dispose();
     if (administrativeLayer && scene) { scene.remove(administrativeLayer.object); administrativeLayer.dispose(); }
     if (scene) disposeObject(scene); textures.forEach(texture => texture.dispose()); renderer?.dispose(); renderer?.forceContextLoss();
-    labelElements.clear(); activePointers.clear();
+    labelElements.clear(); trafficElements.clear(); activePointers.clear();
 });
 </script>
 
@@ -509,12 +528,18 @@ onBeforeUnmount(() => {
             @keydown="keyboardControl" @wheel="wheel" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerCancel" />
         <template v-if="!unavailable">
             <svg class="globe-routes" :viewBox="`0 0 ${viewport.width} ${viewport.height}`" aria-hidden="true">
-                <path v-for="link in displayedRoutes" :key="link.id" class="globe-route-path" :class="{ selected: link.selected, dashed: link.dashed }"
-                    :data-link-id="link.id" :d="link.path" :stroke="link.color" />
+                <g v-for="link in displayedRoutes" :key="link.id" class="globe-route"
+                    :class="{ selected: link.selected, related: link.related, dashed: link.dashed }" :style="{ color: link.color }">
+                    <path class="globe-route-casing" :d="link.path" />
+                    <path class="globe-route-path" :class="{ selected: link.selected, related: link.related, dashed: link.dashed }"
+                        :data-link-id="link.id" :d="link.path" :stroke="link.color" />
+                </g>
                 <g v-for="marker in expandedMarkers" :key="`leader:${marker.id}`" class="globe-marker-leader">
                     <line :x1="marker.originalX" :y1="marker.originalY" :x2="marker.x" :y2="marker.y" />
                     <circle :cx="marker.originalX" :cy="marker.originalY" r="1.5" />
                 </g>
+                <circle v-for="id in trafficMarkerIds" :key="`traffic:${id}`" :ref="element => setTrafficRef(id, element)"
+                    class="globe-traffic-dot" :data-traffic-id="id" r="2.2" />
             </svg>
             <div class="globe-administrative-labels" aria-label="Administrative regions">
                 <span v-for="label in administrativeLabels" :key="label.id" class="globe-administrative-label"
@@ -571,15 +596,25 @@ onBeforeUnmount(() => {
 .network-globe canvas:active { cursor: grabbing; }
 .network-globe canvas:focus-visible { outline: 2px solid #57efc7; outline-offset: -3px; }
 .globe-routes, .globe-administrative-labels, .globe-markers { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
-.globe-route-path { fill: none; stroke-width: 1.2; stroke-opacity: .86; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.globe-route-path.selected { stroke-width: 2.2; stroke-opacity: 1; }
-.globe-route-path.dashed { stroke-dasharray: 6 4; }
+.globe-route-casing, .globe-route-path { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.globe-route-casing { stroke: #06121f; stroke-width: 4.4; stroke-opacity: .88; }
+.globe-route.related .globe-route-casing { stroke-width: 5; }
+.globe-route.selected .globe-route-casing { stroke-width: 5.8; }
+.globe-route-path { stroke-width: 2; stroke-opacity: .96; }
+.globe-route-path.related { stroke-width: 2.5; stroke-opacity: 1; }
+.globe-route-path.selected { stroke-width: 3.2; stroke-opacity: 1; filter: drop-shadow(0 0 2px currentColor); }
+.globe-route.dashed .globe-route-casing, .globe-route-path.dashed { stroke-dasharray: 8 5; }
+.globe-route.dashed .globe-route-casing { stroke-linecap: butt; }
+.globe-traffic-dot { fill: #eaffff; stroke: #0a3444; stroke-width: .8; pointer-events: none; }
 .globe-marker-leader { stroke: #a4b8ca; stroke-width: .75; stroke-opacity: .65; fill: #bad6df; }
 .globe-marker-leader line { stroke-dasharray: 2 3; }
-.globe-node-marker { position: absolute; transform: translate(-50%, -50%); display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; pointer-events: auto; }
-.globe-node-marker i { display: block; width: 5px; height: 5px; border-radius: 50%; background: #77e6fa; box-shadow: 0 0 0 1px #092b3c, 0 0 5px #52cde280; }
-.globe-node-marker.selected i { width: 7px; height: 7px; background: #63f5cb; box-shadow: 0 0 0 2px #173c39, 0 0 0 3px #39dfb99e; }
-.globe-node-marker.offline i { background: #8d9ba8; }
+.globe-node-marker { --marker-fill: #82edff; --marker-ring: #70bed2; --marker-glow: #5edcf34d; position: absolute; transform: translate(-50%, -50%); display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; pointer-events: auto; }
+.globe-node-marker i { display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--marker-fill); box-shadow: 0 0 0 2px #071725, 0 0 0 3px var(--marker-ring), 0 0 7px 2px var(--marker-glow); }
+.globe-node-marker.selected { --marker-fill: #8affdc; --marker-ring: #64f0c5; --marker-glow: #51e7b966; }
+.globe-node-marker.selected i { width: 10px; height: 10px; }
+.globe-node-marker.offline { --marker-fill: #bdcbd8; --marker-ring: #879eaf; --marker-glow: transparent; }
+.globe-node-marker.offline.selected { --marker-ring: #e0eaf2; }
+.globe-node-marker:hover i, .globe-node-marker:focus-visible i { outline: 1px solid #ecfcff; outline-offset: 3px; }
 .globe-node-marker:focus-visible { outline: 1px solid #57efc7; }
 .globe-administrative-label { position: absolute; left: 0; top: 0; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; line-height: 20px; color: #b2cad7; text-shadow: 0 1px 3px #000, 0 0 5px #051421; }
 .globe-administrative-label[data-level="country"] { color: #cbdde7; letter-spacing: .04em; font-weight: 550; }
