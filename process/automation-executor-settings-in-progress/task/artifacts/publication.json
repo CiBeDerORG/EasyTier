@@ -1,0 +1,16 @@
+{
+  "image": "ghcr.io/cibederorg/easytier:feat-automation-center",
+  "commit_tag": "ghcr.io/cibederorg/easytier:sha-72119aeec3b566e9761b32d5e57f553c8218562a",
+  "revision": "72119aeec3b566e9761b32d5e57f553c8218562a",
+  "digest": "sha256:067e52cb982acfeb05bc4508b73b9665d3a055588fcc6229eadecdc6c6f77d5d",
+  "platforms": [
+    "linux/amd64"
+  ],
+  "backend_source_sha": "72119aeec3b566e9761b32d5e57f553c8218562a",
+  "frontend_revision": "72119aeec3b566e9761b32d5e57f553c8218562a",
+  "web_asset_mode": "directory",
+  "anonymous_manifest_and_config_verified": true,
+  "published": true,
+  "run_url": "https://github.com/CiBeDerORG/EasyTier/actions/runs/40084382069",
+  "observed_at": "2026-10-24T10:17:41.503101+00:00"
+}

@@ -36,10 +36,27 @@ CARGO_NET_OFFLINE=true cargo test -p easytier-web
 
 未执行：真实 Android/OpenWrt/fnOS 验收、执行器镜像构建、远端推送、Actions 和生产部署。本轮不会把媒体依赖安装问题写成已修复。
 
-## 第 2 轮 · 推送与镜像发布
+## 第 2 轮 · 2026-10-24 · 推送与镜像发布
 
 用户明确要求「push发布」。本轮将上一轮已验证的代码、测试及交付记录提交到 `feat/automation-center`，通过既有 `EasyTier GHCR Image` push 工作流发布 `ghcr.io/cibederorg/easytier:feat-automation-center`（linux/amd64）。
 
-推送前已同步远端分支；本轮没有新增业务代码，不重复执行上一轮已通过的本地测试。提交、工作流启动、镜像发布和远端摘要分别核实后补充回执。
+推送前已同步远端分支；本轮没有新增业务代码，不重复执行上一轮已通过的本地测试。提交、工作流启动、镜像发布和远端摘要已分别核实。
 
 执行器设置提交为 `54b6d1b4`。远端已推进到 `2e01c487`，包含 LuCI 受限账号接入检查修复与镜像构建提速；已合并保留。唯一冲突在 `process/README.md` 的进度表，保留双方条目及远端较新的发布状态，业务代码没有冲突。第 1 轮本地测试对应设置实现与当时基线；合并后的构建与回归以本轮 Actions 结果为准。
+
+发布结果：
+
+|核验项|结果|证据|
+|---|---|---|
+|代码推送|`feat/automation-center` 已推进至 `72119aeec3b566e9761b32d5e57f553c8218562a`，发布完成后再次 fetch 确认远端一致|[提交](https://github.com/CiBeDerORG/EasyTier/commit/72119aeec3b566e9761b32d5e57f553c8218562a)|
+|push 自动构建|#26 成功，13 分 45 秒；前端、原生程序、原生发布/LuCI 回归、镜像装配与启动检查、发布任务均成功|[Actions](https://github.com/CiBeDerORG/EasyTier/actions/runs/40084382069)、[状态回执](artifacts/release-ci.json)|
+|镜像发布|分支标签 `ghcr.io/cibederorg/easytier:feat-automation-center` 已更新，平台 `linux/amd64`|[镜像回执](artifacts/publication.json)|
+|远端内容核验|匿名读取 GHCR manifest、子 manifest 和配置；逐项核对响应字节摘要、平台，以及镜像/前端/原生程序提交号；分支标签和固定提交标签摘要一致|[镜像回执](artifacts/publication.json)|
+
+固定提交标签：`ghcr.io/cibederorg/easytier:sha-72119aeec3b566e9761b32d5e57f553c8218562a`。
+
+已核实摘要：`sha256:067e52cb982acfeb05bc4508b73b9665d3a055588fcc6229eadecdc6c6f77d5d`。镜像、前端和原生程序提交号均为 `72119aeec3b566e9761b32d5e57f553c8218562a`；前端资源使用目录模式。
+
+本机未执行 Docker 拉取/运行；上述匿名远端核验范围是 manifest 与镜像配置。容器启动和镜像拉取检查由成功的发布工作流执行。未读取需要 GitHub 登录的完整任务日志，因此不将历史测试条数写成本轮 CI 条数。
+
+本轮未执行：重复本地测试、类型检查或构建，真实 Android/OpenWrt/fnOS 验收、独立执行器镜像构建和实机部署。主镜像不包含独立 Python 执行器；特殊字符 Token 的双端更新要求及媒体依赖待处理边界仍适用。发布后的补记仅包含文档与公开状态/摘要证据，沿用 `process/**` 忽略规则，不重复触发镜像构建。

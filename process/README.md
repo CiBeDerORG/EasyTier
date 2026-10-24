@@ -2,9 +2,9 @@
 
 |需求|状态|进度及问题|
 |---|---|---|
-|[自动化中心执行器设置](automation-executor-settings-in-progress/README.md)|代码与模拟验证完成|管理员设置、加密保存、即时生效、手动连接检查；Rust 405 项、浏览器 8 项、执行器 11 项通过，前端构建通过。未推送或发布部署。|
+|[自动化中心执行器设置](automation-executor-settings-in-progress/README.md)|代码与模拟验证完成，镜像已发布|管理员设置、加密保存、即时生效、手动连接检查；第 1 轮 Rust 405 项、浏览器 8 项、执行器 11 项通过，前端构建通过。合并提交 `72119aee` 已推送，#26 全成功 13 分 45 秒，amd64 镜像标签与摘要已核实；未部署实机，独立执行器需另行更新。|
 |[镜像构建提速](image-build-acceleration-in-progress/README.md)|滚动/整包复用与单次回归均已验证，镜像已发布|`f37049ec` 的#25全成功10分56秒；原生整包精确复用13秒、无重编，前端1分钟；13项缓存边界和31项Rust回归通过，仅一次Cargo。本轮新分区测试冷编译9分14秒，未承诺固定耗时。#24已验证源码变化后的滚动恢复/保存；镜像已匿名拉取核实，未部署。|
-|[自动化中心 push 自动构建](automation-push-build-in-progress/README.md)|自动构建与发布通过|`feat/automation-center` 已连续通过 push 自动构建；最新 #25 对应 `f37049ec`，amd64 镜像发布及拉取验证成功。沿用纯文档变更忽略规则，详细实测见构建提速记录。|
+|[自动化中心 push 自动构建](automation-push-build-in-progress/README.md)|自动构建与发布通过|`feat/automation-center` 已连续通过 push 自动构建；最新 #26 对应 `72119aee`，amd64 镜像构建、发布及工作流拉取验证成功，远端摘要与提交号已核实。沿用纯文档变更忽略规则；本轮见[执行器设置发布记录](automation-executor-settings-in-progress/task/test-report.md)，构建提速实测保留历史记录。|
 |[全局完整性审计](global-integrity-audit-in-progress/README.md)|发现未闭环，修复待跟进|包含地图合并后的当前分支、关联 deploy Agent 和手机执行器；测试通过与实际缺口分开记录，见[报告](global-integrity-audit-in-progress/task/test-report.md)。用户已确认手动服务导入为必做范围。|
 |[OpenWrt发现同步与手机ADB联动](openwrt-discovery-sync-in-progress/README.md)|接入检查已修复并发布|feat/automation-center；普通发现/覆盖、唯一ADB服务、公开目标同步、单机退出和画面恢复已实现。受限 easyadb 的已保存接入检查已修复，11项客户端回归通过，#25镜像已发布；[验证记录](openwrt-discovery-sync-in-progress/task/test-report.md)、[升级回退](openwrt-discovery-sync-in-progress/task/delivery-record.md)。实机部署验收另行安排。|
 |[自动化中心](automation-center-in-progress/README.md)|模拟验证通过，待实机|feat/automation-center 已包含技术控制台页面优化、手机墙与悬浮控制、有限脚本；本轮通过 OpenWrt 联动接入唯一 ADB 服务与单设备退出，模拟证据见上项；真实媒体和实机仍待验收。|
