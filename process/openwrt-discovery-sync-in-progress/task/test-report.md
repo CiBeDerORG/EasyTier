@@ -122,3 +122,16 @@ ODS-T01–T20 完成；ODS-T21 按用户指示另行实机安排；ODS-T22 的�
 - 已查看截图：1440px 桌面一行 3 张卡片，390px 移动端自动单列，两种宽度均无页面横向溢出。[桌面效果](artifacts/automated/service-cards-desktop.png)、[移动效果](artifacts/automated/service-cards-mobile.png)。
 - `git diff --check` 通过。沿用已有构建体积/Browserslist 提示；未新增业务逻辑或测试用例，仅同步现有测试的卡片选择器。
 - 本轮提交至 `feat/automation-center`，使用 `[skip ci]`，未发布镜像或部署。此前后端与执行器测试结果仍只对应前一轮代码范围。
+
+## 开发第 4 轮：2026-10-24 · 服务导航卡片网格
+
+- 用户确认将“服务导航里面的列表”做成卡片形式，基于 `aa83b7de` 修改 `ServiceNavigation.vue` 及 `ServiceCard.vue` 布局。
+- 服务统一显示在自适应多列网格中，沿用已有服务卡片及控制台主题；保留节点/设备筛选和卡片内的设备归属。网格使用保留空列的布局，单个筛选结果也维持普通卡片宽度。
+- 加载占位同步使用卡片网格，同行卡片的底部地址栏对齐。前端构建及浏览器交互和桌面/移动布局检查通过；后端、执行器及实机验证未重复执行，本轮仅涉及前端布局。
+
+### 本轮验证结果
+
+- `PATH=/workspace/toolchains/protoc/bin:$PATH pnpm --dir easytier-web/frontend build:ci` 通过，包含 Vue 类型检查和生产构建；[构建日志](artifacts/automated/navigation-cards-build.log)。
+- 前端目录执行 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium WEB_SCREENSHOT_DIR=/tmp/navigation-cards-final node --test --test-name-pattern='device-owned navigation works|service navigation locates|asset-backed 3D map and services' tests/network-space.test.mjs`：**3 passed / 0 failed**。覆盖服务访问、搜索/移出导航、设备定位和中英文页面、桌面/移动布局；[浏览器日志](artifacts/automated/navigation-cards-browser.log)。
+- 已查看截图，1440px 桌面统一 3 列、卡片地址栏对齐；390px 移动端自适应单列，无页面横向溢出。[桌面效果](artifacts/automated/navigation-cards-desktop.png)、[移动效果](artifacts/automated/navigation-cards-mobile.png)。
+- `git diff --check` 通过。本轮没有新增测试用例；沿用前端构建体积和 Browserslist 提示。提交到 `feat/automation-center`，使用 `[skip ci]`，未发布镜像或部署。

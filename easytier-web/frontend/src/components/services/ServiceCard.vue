@@ -37,10 +37,10 @@ const href = computed(() => safeServiceUrl(props.service.access_url || ''));
 </template>
 
 <style scoped>
-.service-card { min-width: 0; position: relative; border: 1px solid var(--console-border); border-radius: 13px; background: var(--console-panel); transition: border-color .18s, box-shadow .18s, transform .18s; overflow: hidden; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--p-text-color) 3%, transparent); }
+.service-card { display: flex; flex-direction: column; min-width: 0; position: relative; border: 1px solid var(--console-border); border-radius: 13px; background: var(--console-panel); transition: border-color .18s, box-shadow .18s, transform .18s; overflow: hidden; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--p-text-color) 3%, transparent); }
 .service-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--p-primary-color) 60%, var(--console-border)); box-shadow: var(--console-glow, 0 8px 24px rgb(0 0 0 / 7%)); }
 .service-card:focus-within { border-color: var(--p-primary-color); box-shadow: var(--console-glow, none); }
-.service-card-link { display: flex; align-items: flex-start; gap: 18px; padding: 25px 24px 22px; min-height: 144px; color: var(--p-text-color); text-decoration: none; }
+.service-card-link { flex: 1; display: flex; align-items: flex-start; gap: 18px; padding: 25px 24px 22px; min-height: 144px; color: var(--p-text-color); text-decoration: none; }
 .service-card-link:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: -3px; }
 .service-card-link[aria-disabled="true"] { cursor: not-allowed; }
 .service-card-icon { --service-color: var(--p-primary-color); width: 58px; height: 58px; border-radius: 15px; display: inline-flex; align-items: center; justify-content: center; flex: none; background: color-mix(in srgb, var(--service-color) 10%, var(--console-panel)); color: var(--service-color); border: 1px solid color-mix(in srgb, var(--service-color) 23%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--service-color) 12%, transparent); }

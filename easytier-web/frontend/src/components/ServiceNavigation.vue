@@ -32,15 +32,6 @@ const deviceCount = computed(() => new Set(visibleServices.value.map(service => 
 const filtered = computed(() => visibleServices.value.filter(service =>
     (!selectedNode.value || service.machine_id === selectedNode.value) && (!selectedDevice.value || service.device_id === selectedDevice.value)
     && matchesAssetService(service, search.value)));
-const sections = computed(() => {
-    const grouped = new Map<string, AssetServiceCatalogEntry[]>();
-    for (const service of filtered.value) {
-        const entries = grouped.get(service.device_id) ?? [];
-        entries.push(service);
-        grouped.set(service.device_id, entries);
-    }
-    return [...grouped.entries()].map(([id, entries]) => ({ id, name: `${entries[0].device_name} · ${entries[0].node_name}`, entries }));
-});
 const menuItems = computed(() => [
     { label: t('edit'), icon: 'pi pi-pencil', disabled: busy.value, command: () => actionService.value && router.push({ name: 'serviceManagement', query: { owner: String(actionService.value.owner_user_id), edit: actionService.value.id } }) },
     { label: t('locateDevice'), icon: 'pi pi-desktop', command: () => {
@@ -111,7 +102,7 @@ function clearFilters() { search.value = ''; selectedNode.value = null; selected
                 <button type="button" :class="{ active: selectedDevice === null }" :aria-pressed="selectedDevice === null" @click="selectedDevice = null">{{ t('allDevices') }}</button>
                 <button v-for="group in groups" :key="group.id" type="button" :class="{ active: selectedDevice === group.id }" :aria-pressed="selectedDevice === group.id" @click="selectedDevice = group.id">{{ group.label }}</button>
             </div>
-            <div v-if="loading && services === undefined" class="service-navigation-grid" :aria-label="t('loading')"><Skeleton v-for="i in 4" :key="i" height="190px" /></div>
+            <div v-if="loading && services === undefined" class="service-navigation-grid" :aria-label="t('loading')"><Skeleton v-for="i in 6" :key="i" height="190px" /></div>
             <section v-else-if="services !== undefined && visibleServices.length === 0" class="service-empty">
                 <i class="pi pi-th-large" aria-hidden="true"></i><h2>{{ t('empty') }}</h2><p>{{ t('emptyHint') }}</p>
                 <Button :label="t('management')" icon="pi pi-sliders-h" @click="router.push({ name: 'serviceManagement', query: ownerQuery })" />
@@ -119,9 +110,8 @@ function clearFilters() { search.value = ''; selectedNode.value = null; selected
             <section v-else-if="services !== undefined && filtered.length === 0" class="service-empty">
                 <i class="pi pi-search" aria-hidden="true"></i><h2>{{ t('noResults') }}</h2><p>{{ t('noResultsHint') }}</p><Button :label="t('clear')" outlined @click="clearFilters" />
             </section>
-            <section v-for="section in sections" :key="section.id" class="service-group-section">
-                <header><i class="pi pi-desktop" aria-hidden="true"></i><h2>{{ section.name }}</h2><span>{{ section.entries.length }}</span></header>
-                <div class="service-navigation-grid"><ServiceCard v-for="service in section.entries" :key="service.id" :service="service" @actions="openActions" /></div>
+            <section v-else-if="filtered.length" class="service-navigation-grid" :aria-label="t('navigation')">
+                <ServiceCard v-for="service in filtered" :key="service.id" :service="service" @actions="openActions" />
             </section>
             <RouterLink v-if="ownerId === context?.actor.id" :to="{ name: 'networkMap' }" class="service-map-link">
                 <span class="service-map-icon"><i class="pi pi-globe" aria-hidden="true"></i></span><span><strong>{{ t('map') }}</strong><span class="service-map-hint">{{ t('mapHint') }}</span></span><span class="service-map-action">{{ t('openMap') }}<i class="pi pi-arrow-right" aria-hidden="true"></i></span>
@@ -154,12 +144,7 @@ function clearFilters() { search.value = ''; selectedNode.value = null; selected
 .service-group-filters button:hover { color: var(--p-text-color); background: var(--console-panel-raised, var(--console-stripe)); }
 .service-group-filters button.active { background: var(--console-accent-soft, var(--p-highlight-background)); color: var(--p-primary-color); border-color: color-mix(in srgb, var(--p-primary-color) 30%, var(--console-border)); }
 .service-group-filters button:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 2px; }
-.service-group-section { display: flex; flex-direction: column; gap: 15px; }
-.service-group-section > header { display: flex; align-items: center; gap: 9px; }
-.service-group-section > header > .pi { font-size: 13px; color: var(--console-muted); }
-.service-group-section h2 { font-size: 14px; font-weight: 600; }
-.service-group-section > header > span { font-size: 11px; color: var(--console-muted); padding: 1px 7px; border-radius: 5px; background: var(--console-panel-raised, var(--console-panel)); border: 1px solid var(--console-border); }
-.service-navigation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 18px; }
+.service-navigation-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 16px; }
 .service-empty { padding: 76px 24px; text-align: center; background: var(--console-panel); border: 1px solid var(--console-border); border-radius: 14px; box-shadow: var(--console-shadow, none); }
 .service-empty > .pi { display: inline-flex; align-items: center; justify-content: center; width: 76px; height: 76px; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 22px; font-size: 30px; color: var(--p-primary-color); background: var(--console-accent-soft, var(--p-highlight-background)); margin-bottom: 26px; }
 .service-empty h2 { font-size: 21px; font-weight: 600; margin-bottom: 10px; }

@@ -1,0 +1,11 @@
+✔ device-owned navigation works without central networks and toggles only the same service flag (2474.883633ms)
+✔ service navigation locates the registered node and same asset device without a central network selector (2969.590539ms)
+✔ asset-backed 3D map and services remain usable on Chinese desktop and mobile layouts (9985.808801ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 15910.148821
