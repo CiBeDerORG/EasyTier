@@ -208,7 +208,11 @@ function safeAccessUrl(value: string | null): string | null {
                                 <span>{{ t('assets.publication.configured') }}</span>
                                 <small>{{ service.publication.server_name || service.publication.machine_id }}</small>
                                 <small>{{ service.publication.network_name || service.publication.instance_id }}</small>
-                                <code>{{ service.publication.bind_ip.includes(':') ? `[${service.publication.bind_ip}]` : service.publication.bind_ip }}:{{ service.publication.bind_port }}</code>
+                                <small>{{ t('assets.publication.publicAccess') }}</small>
+                                <code v-if="service.publication.public_ip">{{ service.publication.public_ip.includes(':') ? `[${service.publication.public_ip}]` : service.publication.public_ip }}:{{ service.publication.bind_port }}</code>
+                                <small v-else>{{ t('assets.publication.publicIpMissing') }}</small>
+                                <small>{{ t('assets.publication.overlayAccess') }}</small>
+                                <code>{{ service.publication.dst_ip.includes(':') ? `[${service.publication.dst_ip}]` : service.publication.dst_ip }}:{{ service.publication.dst_port }}</code>
                             </div>
                             <span v-else class="service-muted">{{ t('assets.publication.notPublished') }}</span>
                         </td>

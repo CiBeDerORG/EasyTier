@@ -22,7 +22,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
     cancel: [];
-    confirmed: [publication: ServicePublicationInput, labels: { server_name: string; network_name: string }];
+    confirmed: [publication: ServicePublicationInput, labels: { server_name: string; network_name: string; public_ip: string | null }];
     'context-error': [error: unknown];
 }>();
 const { t } = useI18n();
@@ -42,6 +42,11 @@ const fieldId = (field: string) => `${props.formId}-${field}`;
 const selectedServer = computed(() => servers.value.find(server => server.machine_id === form.machine_id));
 const selectedNetwork = computed(() => networks.value.find(network => network.instance_id === form.instance_id));
 const protocolLabel = computed(() => props.protocols.map(protocol => protocol.toUpperCase()).join(' / '));
+const endpoint = (ip: string, port: number) => `${ip.includes(':') ? `[${ip}]` : ip}:${port}`;
+const publicAccess = computed(() => selectedServer.value?.public_ip && form.bind_port
+    ? endpoint(selectedServer.value.public_ip, form.bind_port) : null);
+const overlayAccess = computed(() => props.targetIp && form.dst_port
+    ? endpoint(props.targetIp, form.dst_port) : null);
 let generation = 0, serverRequest = 0, networkRequest = 0;
 let disposed = false;
 const unavailableReasonKeys: Record<string, string> = {
@@ -205,6 +210,7 @@ function confirm() {
     }, {
         server_name: selectedServer.value!.alias || selectedServer.value!.hostname || form.machine_id!,
         network_name: selectedNetwork.value!.network_name || selectedNetwork.value!.display_name || form.instance_id!,
+        public_ip: selectedServer.value!.public_ip ?? null,
     });
 }
 
@@ -306,6 +312,15 @@ function cancel() {
                     <small v-if="errors.dst_port" :id="fieldId('target-port-error')" class="field-error">{{ errors.dst_port }}</small>
                 </div>
             </div>
+            <div class="publication-access-preview" aria-live="polite">
+                <strong>{{ t('assets.publication.publicAccess') }}</strong>
+                <code v-if="publicAccess">{{ publicAccess }}</code>
+                <small v-else>{{ t('assets.publication.publicIpMissing') }}</small>
+                <strong>{{ t('assets.publication.overlayAccess') }}</strong>
+                <code v-if="overlayAccess">{{ overlayAccess }}</code>
+                <small v-else>{{ t('assets.publication.targetMissing') }}</small>
+                <small>{{ t('assets.publication.accessPreviewHint') }}</small>
+            </div>
         </form>
         <template #footer>
             <Button :label="t('assets.services.cancel')" type="button" severity="secondary" :disabled="disabled" @click="cancel" />
@@ -328,5 +343,8 @@ function cancel() {
 .publication-hint { margin: 0; font-size: 0.875rem; }
 .field-error, .publication-field small.field-error { color: var(--p-red-600, #dc2626); }
 .publication-status { overflow-wrap: anywhere; }
+.publication-access-preview { display: grid; gap: 0.4rem; padding: 0.75rem; border: 1px solid var(--console-border, var(--p-content-border-color)); border-radius: 0.5rem; min-width: 0; }
+.publication-access-preview code { overflow-wrap: anywhere; }
+.publication-access-preview small { color: var(--console-muted, var(--p-text-muted-color)); }
 @media (max-width: 480px) { .publication-fields-row { grid-template-columns: 1fr; } }
 </style>

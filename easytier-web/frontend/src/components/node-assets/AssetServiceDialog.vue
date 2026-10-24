@@ -39,7 +39,7 @@ const addressError = ref('');
 const publicationEnabled = ref(false);
 const publicationEditorVisible = ref(false);
 const publication = ref<ServicePublicationInput | null>(null);
-const publicationLabels = reactive({ server_name: '', network_name: '' });
+const publicationLabels = reactive({ server_name: '', network_name: '', public_ip: null as string | null });
 let publicationWasEnabled = false;
 let revision = 0;
 let addressRevision = 0;
@@ -109,6 +109,7 @@ const resetDraft = () => {
     publicationEditorVisible.value = false;
     publicationLabels.server_name = configured?.server_name ?? '';
     publicationLabels.network_name = configured?.network_name ?? '';
+    publicationLabels.public_ip = configured?.public_ip ?? null;
 };
 
 watch([() => props.device.overlay_ip, () => props.device.lan_ip], adoptDeviceAddresses, { flush: 'sync' });
@@ -145,7 +146,7 @@ function cancelPublication() {
     publicationEnabled.value = publicationWasEnabled;
 }
 
-function confirmPublication(value: ServicePublicationInput, labels: { server_name: string; network_name: string }) {
+function confirmPublication(value: ServicePublicationInput, labels: { server_name: string; network_name: string; public_ip: string | null }) {
     publication.value = { ...value };
     publicationEnabled.value = true;
     publicationEditorVisible.value = false;
@@ -315,7 +316,11 @@ function close() {
                 </div>
                 <div v-if="publicationEnabled && publication" class="service-publication-summary">
                     <span>{{ publicationLabels.server_name || publication.machine_id }} · {{ publicationLabels.network_name || publication.instance_id }}</span>
-                    <code>{{ endpoint(publication.bind_ip, publication.bind_port) }} → {{ endpoint(addresses.overlay_ip, publication.dst_port) }}</code>
+                    <small>{{ t('assets.publication.publicAccess') }}</small>
+                     <code v-if="publicationLabels.public_ip">{{ endpoint(publicationLabels.public_ip, publication.bind_port) }}</code>
+                     <small v-else>{{ t('assets.publication.publicIpMissing') }}</small>
+                     <small>{{ t('assets.publication.overlayAccess') }}</small>
+                     <code>{{ endpoint(addresses.overlay_ip, publication.dst_port) }}</code>
                 </div>
                 <small v-if="publicationEnabled">{{ t('assets.publication.applyHint') }}</small>
                 <small v-else-if="service?.publication">{{ t('assets.publication.disableHint') }}</small>
