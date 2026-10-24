@@ -14,3 +14,7 @@ NASA imagery is used for geographic visualization under the
 The imagery is a static Earth basemap, not live satellite imagery. Network nodes,
 links, and traffic are separate data-driven layers. Link arcs express logical
 network connections and do not claim to trace physical fiber routes.
+
+Country and first-order administrative boundaries are bundled separately from
+the imagery. See [administrative data](administrative-data.md) for the fixed
+Natural Earth source, public-domain terms, generation steps, and accuracy limits.

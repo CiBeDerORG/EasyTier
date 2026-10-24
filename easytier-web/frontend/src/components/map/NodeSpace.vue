@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { MapLanDevice } from '../../modules/network-space';
+import { nodeSpaceCenterGateway } from '../../modules/node-map-assets';
 
 const props = withDefaults(defineProps<{
     devices: MapLanDevice[];
@@ -25,16 +26,21 @@ const words = computed(() => chinese.value ? {
     unavailable: '此浏览器暂时无法显示 3D 空间', fallback: '仍可从设备列表查看关联设备。',
     retry: '重新加载', gateway: '网络节点', empty: '该节点还没有资产设备',
     region: '网络节点、网关与资产设备的三维关系', illustrative: '示意摆放，不代表实际房间',
+    merged: '网关与自身设备合并显示', site: '站点连接点',
 } : {
     home: 'Illustrative layout', topology: 'Device topology', configured: 'Asset relationships',
     hint: 'Drag to orbit · Scroll to zoom', reset: 'Reset view', zoomIn: 'Zoom in', zoomOut: 'Zoom out',
     unavailable: '3D space is unavailable in this browser', fallback: 'Connected devices remain available in the list.',
     retry: 'Reload', gateway: 'Network node', empty: 'This node has no asset devices',
     region: '3D network node, gateway and asset device relationships', illustrative: 'Illustrative placement, not actual rooms',
+    merged: 'Gateway and self device shown together', site: 'Site connection point',
 });
 
-interface LabelAnchor { id: string; name: string; position: THREE.Vector3; gateway?: boolean; node?: boolean; selectable?: boolean }
-interface ScreenLabel { id: string; name: string; x: number; y: number; gateway?: boolean; node?: boolean; selectable?: boolean }
+const centerGateway = computed(() => nodeSpaceCenterGateway(props.devices));
+const outerDevices = computed(() => props.devices.filter(device => device.id !== centerGateway.value?.id));
+
+interface LabelAnchor { id: string; name: string; title?: string; position: THREE.Vector3; gateway?: boolean; node?: boolean; selectable?: boolean }
+interface ScreenLabel { id: string; name: string; title?: string; x: number; y: number; gateway?: boolean; node?: boolean; selectable?: boolean }
 const labels = shallowRef<ScreenLabel[]>([]);
 let anchors: LabelAnchor[] = [];
 let scene: THREE.Scene | undefined;
@@ -211,10 +217,10 @@ function displayRoom(device: MapLanDevice, index: number): MapLanDevice['room'] 
         ? illustrativeRooms[index % illustrativeRooms.length]! : device.room;
 }
 
-function devicePositions(): THREE.Vector3[] {
+function devicePositions(devices: readonly MapLanDevice[]): THREE.Vector3[] {
     if (props.layout === 'topology') {
-        const count = props.devices.length;
-        return props.devices.map((_, i) => {
+        const count = devices.length;
+        return devices.map((_, i) => {
             const layer = Math.floor(i / 12);
             const inLayer = Math.min(12, count - layer * 12);
             const angle = ((i % 12) / inLayer) * Math.PI * 2 - Math.PI / 2;
@@ -229,12 +235,12 @@ function devicePositions(): THREE.Vector3[] {
     // Asset records have no physical room coordinates. Distribute them across
     // this template solely for legibility and label the view as illustrative.
     const roomCounts = new Map<string, number>();
-    const roomTotals = props.devices.reduce<Record<string, number>>((counts, device, index) => {
+    const roomTotals = devices.reduce<Record<string, number>>((counts, device, index) => {
         const room = displayRoom(device, index);
         counts[room] = (counts[room] ?? 0) + 1;
         return counts;
     }, {});
-    return props.devices.map((device, deviceIndex) => {
+    return devices.map((device, deviceIndex) => {
         const room = displayRoom(device, deviceIndex);
         const [x, z, width, depth] = rooms[room] ?? rooms.living;
         const index = roomCounts.get(room) ?? 0;
@@ -270,7 +276,7 @@ function rebuild() {
     deviceObjects = [];
     if (props.layout === 'home') addApartment(content);
     else {
-        const radius = Math.max(3.2, 3 + Math.floor(Math.max(0, props.devices.length - 1) / 12) * 1.15);
+        const radius = Math.max(3.2, 3 + Math.floor(Math.max(0, outerDevices.value.length - 1) / 12) * 1.15);
         const floor = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, .11, 72), material('#1b303b', .95));
         floor.position.y = -.08;
         floor.receiveShadow = true;
@@ -281,18 +287,33 @@ function rebuild() {
         content.add(rim);
     }
     const gatewayPosition = props.layout === 'home' ? new THREE.Vector3(.25, .42, .83) : new THREE.Vector3(0, .05, 0);
-    const gateway = hardware('server');
-    gateway.position.copy(gatewayPosition);
-    content.add(gateway);
-    addMarker(content, gatewayPosition, true, true);
-    anchors.push({ id: '__node__', name: props.gatewayName || words.value.gateway, position: gatewayPosition.clone().add(new THREE.Vector3(0, .82, 0)), node: true, selectable: false });
+    if (!centerGateway.value) {
+        // The node is a logical site anchor, not an extra physical server. Each
+        // gateway keeps its own model and self asset when several groups exist.
+        const hub = new THREE.Group();
+        const disc = new THREE.Mesh(new THREE.CylinderGeometry(.18, .18, .035, 32),
+            new THREE.MeshBasicMaterial({ color: '#31bda6', transparent: true, opacity: .75 }));
+        hub.add(disc);
+        const frame = new THREE.Mesh(new THREE.TorusGeometry(.26, .012, 8, 40),
+            new THREE.MeshBasicMaterial({ color: '#67e5ce' }));
+        frame.rotation.x = -Math.PI / 2;
+        hub.add(frame);
+        hub.position.copy(gatewayPosition);
+        content.add(hub);
+        anchors.push({ id: '__node__', name: props.gatewayName || words.value.gateway,
+            title: `${props.gatewayName || words.value.gateway} · ${words.value.site}`,
+            position: gatewayPosition.clone().add(new THREE.Vector3(0, .3, 0)), node: true, selectable: false });
+    }
 
-    const positions = devicePositions();
-    const positionById = new Map(props.devices.map((device, index) => [device.id, positions[index]!]));
+    const positions = devicePositions(outerDevices.value);
+    const positionById = new Map(outerDevices.value.map((device, index) => [device.id, positions[index]!]));
+    if (centerGateway.value) positionById.set(centerGateway.value.id, gatewayPosition);
     props.devices.forEach((device, index) => {
-        const position = positions[index]!;
-        const roomCount = props.devices.filter((other, otherIndex) => displayRoom(other, otherIndex) === displayRoom(device, index)).length;
-        const scale = props.layout === 'home' ? Math.min(1, Math.max(.22, 2 / Math.sqrt(roomCount))) : 1;
+        const position = positionById.get(device.id)!;
+        const central = device.id === centerGateway.value?.id;
+        const outerIndex = outerDevices.value.findIndex(other => other.id === device.id);
+        const roomCount = central ? 1 : outerDevices.value.filter((other, otherIndex) => displayRoom(other, otherIndex) === displayRoom(device, outerIndex)).length;
+        const scale = props.layout === 'home' && !central ? Math.min(1, Math.max(.22, 2 / Math.sqrt(Math.max(1, roomCount)))) : 1;
         const model = hardware(device.kind, device.is_gateway);
         model.position.copy(position);
         model.scale.setScalar(scale);
@@ -307,11 +328,13 @@ function rebuild() {
         const parentPosition = device.parent_id ? positionById.get(device.parent_id) : gatewayPosition;
         if (index < 12 || selected || device.is_gateway) anchors.push({
             id: device.id, name: device.name,
+            title: device.is_gateway && device.group_name && device.group_name !== device.name
+                ? `${device.group_name} · ${device.name}` : device.name,
             position: position.clone().add(new THREE.Vector3(0, (device.kind === 'server' ? .8 : .6) * scale, 0)),
             gateway: device.is_gateway, selectable: !!device.asset_device_id,
         });
         // A missing parent is not evidence of a direct node connection.
-        if (!parentPosition || device.parent_id === device.id) return;
+        if (central || !parentPosition || device.parent_id === device.id) return;
         const start = parentPosition.clone().add(new THREE.Vector3(0, .1, 0));
         const end = position.clone().add(new THREE.Vector3(0, .1 * scale, 0));
         const middle = start.clone().lerp(end, .5);
@@ -347,7 +370,7 @@ function projectLabels() {
             y -= 28;
         }
         if (y < 42 || overlap) continue;
-        screen.push({ id: anchor.id, name: anchor.name, x, y, gateway: anchor.gateway, node: anchor.node, selectable: anchor.selectable });
+        screen.push({ id: anchor.id, name: anchor.name, title: anchor.title, x, y, gateway: anchor.gateway, node: anchor.node, selectable: anchor.selectable });
     }
     labels.value = screen;
 }
@@ -400,7 +423,7 @@ function contextLost(event: Event) {
 
 function resetView() {
     if (!camera || !controls) return;
-    const radius = 3 + Math.floor(Math.max(0, props.devices.length - 1) / 12) * 1.15;
+    const radius = 3 + Math.floor(Math.max(0, outerDevices.value.length - 1) / 12) * 1.15;
     const scale = props.layout === 'topology' ? Math.max(1, radius / 3.2) : 1;
     camera.position.set(8.6 * scale, 8.4 * scale, 10.6 * scale);
     controls.target.set(0, .15, 0);
@@ -510,7 +533,7 @@ defineExpose({ resetView, zoomIn: () => zoom(.85), zoomOut: () => zoom(1.18) });
 watch(() => [props.devices, props.selectedDeviceId, props.gatewayName, props.locale], rebuild, { deep: true });
 // Asset reads arrive after the scene mounts. Fit the changed device extent,
 // while preserving camera interaction for selection and same-size refreshes.
-watch(() => props.devices.length, resetView);
+watch(() => outerDevices.value.length, resetView);
 watch(() => props.layout, () => { rebuild(); resetView(); });
 onMounted(() => {
     motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -537,14 +560,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="host" class="node-space" role="group" :aria-label="words.region" :data-layout="layout">
-        <div class="space-caption"><span>{{ layout === 'home' ? words.home : words.topology }}</span><span class="relationship-caption">{{ words.configured }}</span></div>
+    <div ref="host" class="node-space" role="group" :aria-label="words.region" :data-layout="layout" :data-center-gateway="centerGateway?.id">
+        <div class="space-caption"><span>{{ layout === 'home' ? words.home : words.topology }}</span><span class="relationship-caption">{{ centerGateway ? words.merged : words.configured }}</span></div>
         <template v-if="!failure">
             <div class="space-label-layer">
                 <template v-for="label in labels" :key="label.id">
-                    <span v-if="!label.selectable" class="space-label gateway-label" :style="{ left: `${label.x}px`, top: `${label.y}px` }" :title="label.name"><i :class="['pi', label.node ? 'pi-server' : 'pi-wifi']" aria-hidden="true"></i>{{ label.name }}</span>
+                    <span v-if="!label.selectable" class="space-label gateway-label" :style="{ left: `${label.x}px`, top: `${label.y}px` }" :title="label.title || label.name"><i :class="['pi', label.node ? 'pi-sitemap' : 'pi-wifi']" aria-hidden="true"></i>{{ label.name }}</span>
                     <button v-else type="button" class="space-label" :class="{ selected: selectedDeviceId === label.id, 'gateway-label': label.gateway }"
-                        :style="{ left: `${label.x}px`, top: `${label.y}px` }" :title="label.name"
+                        :style="{ left: `${label.x}px`, top: `${label.y}px` }" :title="label.title || label.name"
                         :aria-pressed="selectedDeviceId === label.id" @pointerdown.stop @click.stop="emit('select-device', label.id)">
                         <i :class="['pi', label.gateway ? 'pi-wifi' : 'pi-server']" aria-hidden="true"></i>{{ label.name }}
                     </button>

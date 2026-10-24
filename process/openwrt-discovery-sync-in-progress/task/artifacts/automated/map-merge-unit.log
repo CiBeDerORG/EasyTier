@@ -1,0 +1,44 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+$ node --test --experimental-strip-types tests/network-space-unit.test.mjs tests/registered-map-topology.test.mjs tests/node-map-assets.test.mjs tests/globe-geometry.test.mjs
+✔ nearby markers separate deterministically while keeping their true anchors unchanged (8.11833ms)
+✔ marker expansion respects the visible globe near the horizon (0.326652ms)
+✔ route lanes are stable for parallel and reversed endpoint pairs (1.791521ms)
+✔ nearby routes with different endpoint IDs use geometric direction to remain separate (0.218091ms)
+✔ co-located reversed routes share a bundle and use their expanded display direction (0.234315ms)
+✔ local curves stay above the surface and below a close camera while preserving exact endpoints (0.504053ms)
+✔ co-located nodes keep an anchored, finite relationship loop (0.263659ms)
+✔ date-line and nearly antipodal arcs retain their actual destinations (0.87506ms)
+✔ relay routes retain every observed hop without inventing a direct edge (2.295985ms)
+✔ traffic uses counter deltas, deduplicates two peer reports and handles resets (0.498374ms)
+✔ protobuf uint64 strings produce real traffic and latency, including omitted zero fields (0.361793ms)
+✔ large protobuf counters retain exact small deltas without unsafe-number spikes (0.391708ms)
+✔ omitted protobuf connection arrays do not invent edges or interrupt aggregation (0.178563ms)
+✔ a relay path is stale when its terminal node is offline or failed (0.351408ms)
+✔ offline and expired observations cannot animate traffic (0.332881ms)
+✔ failed partial samples cannot become a traffic baseline when a node recovers (0.172404ms)
+✔ ambiguous identities and unmanaged peers never become guessed map nodes (0.268346ms)
+✔ geographic arcs cross the date line and remain above the globe at the antipodes (4.115909ms)
+✔ service links accept web destinations and reject executable schemes or credentials (0.329776ms)
+✔ node space preserves gateway-self, group children and ordinary node devices (8.181873ms)
+✔ missing or foreign parents never become an invented direct connection (0.410956ms)
+✔ device hardware comes from declared types, and unknown types stay generic (1.141443ms)
+✔ a sole gateway self asset remains selectable as the combined site center (0.352439ms)
+✔ multiple gateways keep a logical site center even when only one has a self asset (0.364627ms)
+✔ virtual, missing and foreign gateway identities are never treated as a real merged self device (0.273774ms)
+✔ registered map isolates overlapping peer IDs, addresses and hostnames by observed remote instance (11.141195ms)
+✔ one shared instance UUID can identify different machines through their own peer IDs (0.366731ms)
+✔ missing, nil, conflicting or ambiguous instance evidence never guesses a target (1.165959ms)
+✔ only registered nodes can appear, even when an observation proves another remote identity (0.183271ms)
+✔ multiple instance transports sum once per connection and keep separate counter baselines (0.631521ms)
+✔ adding or removing unrelated samples does not change stable connection counter identity (0.486748ms)
+✔ relay traversal stays on the proven instance even when a host has another overlapping overlay (0.580806ms)
+✔ offline, expired and failed observations cannot animate registered-map traffic (0.505035ms)
+✔ uint64 counter precision and restarts remain safe through the instance adapter (0.369044ms)
+ℹ tests 34
+ℹ suites 0
+ℹ pass 34
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 265.66979

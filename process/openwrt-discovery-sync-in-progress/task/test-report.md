@@ -135,3 +135,19 @@ ODS-T01–T20 完成；ODS-T21 按用户指示另行实机安排；ODS-T22 的�
 - 前端目录执行 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium WEB_SCREENSHOT_DIR=/tmp/navigation-cards-final node --test --test-name-pattern='device-owned navigation works|service navigation locates|asset-backed 3D map and services' tests/network-space.test.mjs`：**3 passed / 0 failed**。覆盖服务访问、搜索/移出导航、设备定位和中英文页面、桌面/移动布局；[浏览器日志](artifacts/automated/navigation-cards-browser.log)。
 - 已查看截图，1440px 桌面统一 3 列、卡片地址栏对齐；390px 移动端自适应单列，无页面横向溢出。[桌面效果](artifacts/automated/navigation-cards-desktop.png)、[移动效果](artifacts/automated/navigation-cards-mobile.png)。
 - `git diff --check` 通过。本轮没有新增测试用例；沿用前端构建体积和 Browserslist 提示。提交到 `feat/automation-center`，使用 `[skip ci]`，未发布镜像或部署。
+
+## 开发第 5 轮：2026-10-24 · 合并地图交互并开启构建
+
+- 用户明确要求将 `feat/map-detail-interactions` 合并到 `feat/automation-center`，并开启构建。目标基线 `3f8baf31`，来源分支最新提交 `c23534da`，共同基线 `509a787f`。
+- `git merge --no-ff --no-commit origin/feat/map-detail-interactions` 自动合并成功，无文本冲突。地图缩放、离线行政边界、同址节点/线路选择、网关自身设备合并与可辨识度调整已引入；目标分支服务管理/导航卡片布局及新版选择器保留。
+- 前端类型检查和生产构建通过，单元测试 34/34 通过，关键浏览器交互回归 7/7 通过。后端与执行器代码没有合并改动，本轮未重复其测试；实机验收未执行。
+- 沿用 `.github/workflows/node-attributes-image.yml` 的 push 触发器，合并提交不带跳过 CI 标记，计划通过推送自动启动 `linux/amd64` GHCR 构建。未修改工作流或部署配置，未部署实机。
+- 当前环境 `api.github.com` 不在网络允许列表，已改为读取 GitHub Actions 网页确认状态；Git 推送与 Actions 网页可访问。具体运行记录在推送后补充。
+
+### 合并后本地验证
+
+- `PATH=/workspace/toolchains/protoc/bin:$PATH pnpm --dir easytier-web/frontend build:ci`：通过；[构建日志](artifacts/automated/map-merge-build.log)。
+- 前端目录 `pnpm test:unit`：**34 passed / 0 failed**；[单元测试日志](artifacts/automated/map-merge-unit.log)。
+- 前端目录 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium WEB_SCREENSHOT_DIR=/tmp/map-merge-screenshots node --test --test-name-pattern='device-owned navigation works|global editing updates|globe reaches|co-located and nearby|a gateway self device|multiple gateways remain|asset-backed 3D map and services' tests/network-space.test.mjs`：**7 passed / 0 failed**，约 45.92 秒；[浏览器日志](artifacts/automated/map-merge-browser.log)。
+- 验证服务访问/卡片操作、服务编辑删除、区域与城市缩放/行政标签、同址/邻近节点与线路选择、单/多网关自身设备及桌面/移动布局。使用模拟 API 和 Chromium WebGL，无真实设备写入。
+- `git diff --check` 通过。保留来源分支已有的离线行政数据大包提示，以及现有 Browserslist/pnpm 提示；未调整依赖、构建脚本或数据精度。

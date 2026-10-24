@@ -1,0 +1,15 @@
+✔ device-owned navigation works without central networks and toggles only the same service flag (2410.758709ms)
+✔ global editing updates the device service, preserves a failed draft, and deletion removes its navigation card (3347.762372ms)
+✔ globe reaches regional and city views with real localized administrative labels and preserves zoom on selection (14516.889123ms)
+✔ co-located and nearby nodes keep small selectable markers and every actual route remains selectable (8526.065867ms)
+✔ a gateway self device is the single selectable center in both space layouts and retains its services (2694.596164ms)
+✔ multiple gateways remain distinct even when only one group has a self device (2832.261456ms)
+✔ asset-backed 3D map and services remain usable on Chinese desktop and mobile layouts (11073.741727ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 45919.958914

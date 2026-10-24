@@ -34,7 +34,7 @@ export function buildNodeSpaceDevices(
             display.push({
                 id: anchorId, gateway_device_id: nodeId, name: group.name,
                 address: group.overlay_ip ?? '', kind: 'router', room: 'living',
-                is_gateway: true, group_name: group.name,
+                is_gateway: true, gateway_group_id: group.id, group_name: group.name,
             });
         }
     }
@@ -53,7 +53,7 @@ export function buildNodeSpaceDevices(
             // Assets have no room field. The renderer uses an explicitly
             // illustrative placement; this value is not a room assignment.
             room: 'living', is_gateway: device.is_gateway_self,
-            ...(group ? { group_name: group.name } : {}),
+            ...(group ? { gateway_group_id: group.id, group_name: group.name } : {}),
             ...(device.gateway_group_id && anchor !== device.id ? {
                 // Preserve an unresolved parent instead of inventing a direct
                 // relationship to the node when a catalog read is incomplete.
@@ -62,4 +62,12 @@ export function buildNodeSpaceDevices(
         });
     }
     return display;
+}
+
+/** The sole gateway and its self asset share the site's central display object.
+ * A second gateway (including a virtual group without a self asset) keeps the
+ * node as a separate logical hub, so unrelated gateway devices are not merged. */
+export function nodeSpaceCenterGateway(devices: readonly MapLanDevice[]): MapLanDevice | undefined {
+    const gateways = devices.filter(device => device.is_gateway && device.gateway_group_id && !device.parent_id);
+    return gateways.length === 1 && gateways[0]?.asset_device_id ? gateways[0] : undefined;
 }
