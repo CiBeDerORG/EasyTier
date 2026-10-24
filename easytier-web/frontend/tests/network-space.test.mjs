@@ -218,7 +218,7 @@ async function capture(page, name) {
 }
 async function assertNoOverflow(page) { assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'page must not overflow horizontally'); }
 const assetDialog = page => page.getByRole('dialog', { name: 'Edit service', exact: true });
-const serviceRow = (page, serviceId) => page.locator(`.service-management-row[data-service-id="${serviceId}"]`);
+const serviceRow = (page, serviceId) => page.locator(`.service-management-card[data-service-id="${serviceId}"]`);
 
 test('device-owned navigation works without central networks and toggles only the same service flag', async t => {
     const { page, state, context } = await open(t);
@@ -470,7 +470,7 @@ test('administrator catalogs remain owner-specific and revoked access clears the
     await serviceRow(page, id(402)).waitFor();
     await selectOption(page, 'Account', 'other-owner');
     await serviceRow(page, id(406)).waitFor();
-    assert.equal(await page.locator('.service-management-row').count(), 1);
+    assert.equal(await page.locator('.service-management-card').count(), 1);
     await page.getByRole('button', { name: 'Service actions: Other owner service' }).click();
     assert.equal(await page.getByRole('menuitem', { name: 'Locate node on map' }).count(), 0);
     await page.getByRole('menuitem', { name: 'Open owning device' }).waitFor();

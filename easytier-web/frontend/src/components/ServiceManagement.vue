@@ -181,15 +181,25 @@ function clearFilters() { search.value = ''; selectedNode.value = null; selected
             </div>
             <section class="console-panel service-list-panel">
                 <div class="list-toolbar service-list-toolbar"><div class="search-field"><i class="pi pi-search" aria-hidden="true"></i><InputText v-model="search" :placeholder="t('search')" :aria-label="t('search')" /></div><Select v-model="selectedNode" :placeholder="t('allNodes')" :options="nodeOptions" option-label="label" option-value="value" :aria-label="t('node')" class="service-management-filter" @update:model-value="selectedDevice = null" /><Select v-model="selectedDevice" :placeholder="t('allDevices')" :options="deviceOptions" option-label="label" option-value="value" :aria-label="t('assetDevice')" class="service-management-filter" /><span class="table-count">{{ t('filterCount', { count: filtered.length }) }}</span></div>
-                <div v-if="loading && services === undefined" class="loading-rows" :aria-label="t('loading')"><Skeleton v-for="i in 4" :key="i" height="64px" /></div>
+                <div v-if="loading && services === undefined" class="service-management-grid" :aria-label="t('loading')"><Skeleton v-for="i in 6" :key="i" height="190px" /></div>
                 <div v-else-if="services !== undefined && !services.length" class="service-management-empty"><i class="pi pi-box" aria-hidden="true"></i><h2>{{ t('noServices') }}</h2><p>{{ t('noServicesHint') }}</p><Button :label="t('addOnDevice')" icon="pi pi-plus" @click="openDevice()" /></div>
                 <div v-else-if="services !== undefined && !filtered.length" class="service-management-empty"><i class="pi pi-search" aria-hidden="true"></i><h2>{{ t('noResults') }}</h2><p>{{ t('noResultsHint') }}</p><Button :label="t('clear')" outlined @click="clearFilters" /></div>
-                <ul v-else class="service-management-list" :aria-label="t('management')">
-                    <li v-for="service in filtered" :key="service.id" :data-service-id="service.id" class="service-management-row">
-                        <span class="service-management-icon"><i :class="assetServiceIconClass(service.icon)" aria-hidden="true"></i></span>
-                        <div class="service-management-identity"><button type="button" class="service-name-button" :disabled="busy" @click="openEdit(service)">{{ service.name }}</button><a v-if="safeServiceUrl(service.access_url || '')" :href="safeServiceUrl(service.access_url || '') || undefined" target="_blank" rel="noopener noreferrer" class="service-url" :title="service.access_url || undefined">{{ service.access_url }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i></a><span v-else class="service-network-name">{{ t('navigationUrlRequired') }}</span><button type="button" class="service-name-button service-network-name" @click="openDevice(service)">{{ service.node_name }} · {{ service.device_name }}</button></div>
-                        <div class="service-management-state"><button type="button" class="service-navigation-toggle" role="switch" :aria-checked="service.show_in_navigation" :aria-label="`${t('show')}: ${service.name}`" :disabled="busy" @click="toggleNavigation(service)"><Tag :value="service.show_in_navigation ? t('enabled') : t('hidden')" :severity="service.show_in_navigation ? 'success' : 'secondary'" :icon="service.show_in_navigation ? 'pi pi-check' : 'pi pi-minus'" /></button><span class="service-unchecked" :title="t('uncheckedHint')">{{ t('unchecked') }}</span></div>
-                        <Button icon="pi pi-ellipsis-h" text rounded severity="secondary" :aria-label="`${t('actions')}: ${service.name}`" aria-haspopup="menu" :disabled="busy" @click="openActions(service, $event)" />
+                <ul v-else class="service-management-grid" :aria-label="t('management')">
+                    <li v-for="service in filtered" :key="service.id" :data-service-id="service.id" class="service-management-card">
+                        <div class="service-management-card-header">
+                            <span class="service-management-icon"><i :class="assetServiceIconClass(service.icon)" aria-hidden="true"></i></span>
+                            <button type="button" class="service-name-button" :disabled="busy" @click="openEdit(service)">{{ service.name }}</button>
+                            <Button icon="pi pi-ellipsis-h" text rounded severity="secondary" :aria-label="`${t('actions')}: ${service.name}`" aria-haspopup="menu" :disabled="busy" @click="openActions(service, $event)" />
+                        </div>
+                        <div class="service-management-identity">
+                            <a v-if="safeServiceUrl(service.access_url || '')" :href="safeServiceUrl(service.access_url || '') || undefined" target="_blank" rel="noopener noreferrer" class="service-url" :title="service.access_url || undefined">{{ service.access_url }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i></a>
+                            <span v-else class="service-network-name">{{ t('navigationUrlRequired') }}</span>
+                            <button type="button" class="service-name-button service-network-name" @click="openDevice(service)">{{ service.node_name }} · {{ service.device_name }}</button>
+                        </div>
+                        <div class="service-management-state">
+                            <button type="button" class="service-navigation-toggle" role="switch" :aria-checked="service.show_in_navigation" :aria-label="`${t('show')}: ${service.name}`" :disabled="busy" @click="toggleNavigation(service)"><Tag :value="service.show_in_navigation ? t('enabled') : t('hidden')" :severity="service.show_in_navigation ? 'success' : 'secondary'" :icon="service.show_in_navigation ? 'pi pi-check' : 'pi pi-minus'" /></button>
+                            <span class="service-unchecked" :title="t('uncheckedHint')">{{ t('unchecked') }}</span>
+                        </div>
                     </li>
                 </ul>
             </section>
@@ -219,21 +229,23 @@ function clearFilters() { search.value = ''; selectedNode.value = null; selected
 .service-management-filter { min-width: 190px; }
 .service-list-toolbar .search-field { max-width: 480px; }
 .service-list-toolbar .table-count { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.service-management-list { margin: 0; padding: 0; list-style: none; }
-.service-management-row { display: flex; align-items: center; gap: 18px; padding: 22px; border-bottom: 1px solid var(--console-border); transition: background .18s; }
-.service-management-row:hover { background: color-mix(in srgb, var(--console-panel-raised, var(--console-panel)) 70%, transparent); }
-.service-management-row:last-child { border-bottom: 0; }
+.service-management-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 16px; margin: 0; padding: 20px; list-style: none; }
+.service-management-card { display: flex; flex-direction: column; gap: 16px; min-width: 0; padding: 18px; border: 1px solid var(--console-border); border-radius: 12px; background: var(--console-panel); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--p-text-color) 3%, transparent); transition: border-color .18s, box-shadow .18s; }
+.service-management-card:hover, .service-management-card:focus-within { border-color: color-mix(in srgb, var(--p-primary-color) 60%, var(--console-border)); box-shadow: var(--console-glow, 0 8px 24px rgb(0 0 0 / 7%)); }
+.service-management-card-header { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.service-management-card-header > .service-name-button { flex: 1; min-width: 0; align-self: center; }
+.service-management-card-header > .p-button { flex: none; margin-right: -6px; }
 .service-management-icon { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; flex: none; border: 1px solid color-mix(in srgb, var(--p-primary-color) 20%, var(--console-border)); border-radius: 13px; background: var(--console-accent-soft, var(--p-highlight-background)); color: var(--p-primary-color); }
 .service-management-icon .pi { font-size: 22px; }
-.service-management-identity { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.service-management-identity { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .service-name-button { text-align: left; align-self: flex-start; font-size: 15px; font-weight: 600; background: transparent; color: var(--p-text-color); overflow-wrap: anywhere; }
 .service-name-button:hover { color: var(--p-primary-color); }
 .service-name-button:focus-visible, .service-navigation-toggle:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 3px; border-radius: 3px; }
-.service-url { display: inline-flex; align-items: center; gap: 7px; color: var(--console-muted); font-size: 12px; overflow-wrap: anywhere; }
+.service-url { display: block; max-width: 100%; color: var(--console-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .service-url:hover { color: var(--p-primary-color); }
-.service-url .pi { font-size: 10px; flex: none; }
+.service-url .pi { font-size: 10px; margin-left: 7px; }
 .service-network-name { color: var(--console-muted); font-size: 11px; overflow-wrap: anywhere; }
-.service-management-state { display: flex; flex-direction: column; gap: 9px; align-items: flex-end; flex: none; }
+.service-management-state { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 9px; padding-top: 14px; border-top: 1px solid var(--console-border); }
 .service-navigation-toggle { background: transparent; cursor: pointer; border-radius: 6px; }
 .service-navigation-toggle :deep(.p-tag) { padding: 5px 9px; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); font-size: 11px; font-weight: 500; }
 .service-navigation-toggle:hover { box-shadow: 0 0 0 3px var(--console-accent-soft, var(--p-highlight-background)); }
@@ -243,6 +255,6 @@ function clearFilters() { search.value = ''; selectedNode.value = null; selected
 .service-management-empty > .pi { display: inline-flex; align-items: center; justify-content: center; width: 68px; height: 68px; font-size: 28px; color: var(--p-primary-color); margin-bottom: 24px; border: 1px solid var(--console-border-strong, var(--console-border)); border-radius: 19px; background: var(--console-accent-soft, var(--p-highlight-background)); }
 .service-management-empty h2 { font-size: 19px; font-weight: 600; margin-bottom: 10px; }
 .service-management-empty p { color: var(--console-muted); margin-bottom: 24px; line-height: 1.7; }
-@media (max-width: 650px) { .service-page-heading { flex-wrap: wrap; align-items: flex-start; } .service-heading-identity { gap: 12px; } .service-page-mark { width: 42px; height: 42px; } .service-management-row { flex-wrap: wrap; gap: 12px; padding: 18px 16px; } .service-management-identity { flex-basis: calc(100% - 109px); } .service-management-row > .p-button { order: 2; } .service-management-state { order: 3; flex-direction: row; align-items: center; width: 100%; padding-left: 60px; } .service-management-filter { width: 100%; } .service-list-toolbar .search-field { max-width: none; width: 100%; } .service-list-toolbar .table-count { margin-left: 0; } .service-management-overview { gap: 13px 20px; } }
-@media (prefers-reduced-motion: reduce) { .service-management-row { transition: none; } }
+@media (max-width: 650px) { .service-page-heading { flex-wrap: wrap; align-items: flex-start; } .service-heading-identity { gap: 12px; } .service-page-mark { width: 42px; height: 42px; } .service-management-grid { padding: 14px; gap: 14px; } .service-management-card { padding: 16px; } .service-management-filter { width: 100%; } .service-list-toolbar .search-field { max-width: none; width: 100%; } .service-list-toolbar .table-count { margin-left: 0; } .service-management-overview { gap: 13px 20px; } }
+@media (prefers-reduced-motion: reduce) { .service-management-card { transition: none; } }
 </style>

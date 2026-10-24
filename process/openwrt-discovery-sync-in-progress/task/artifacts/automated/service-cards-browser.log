@@ -1,0 +1,12 @@
+✔ device-owned navigation works without central networks and toggles only the same service flag (2360.37628ms)
+✔ global editing updates the device service, preserves a failed draft, and deletion removes its navigation card (3217.694618ms)
+✔ administrator catalogs remain owner-specific and revoked access clears the other owner records (1355.130743ms)
+✔ asset-backed 3D map and services remain usable on Chinese desktop and mobile layouts (9865.039954ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 17253.099503

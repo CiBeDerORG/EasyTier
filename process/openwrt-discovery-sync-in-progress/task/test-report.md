@@ -108,3 +108,17 @@ node --test tests/discovery.test.mjs
 | `git diff --check` | 通过 | 提交前执行，无空白错误 |
 
 ODS-T01–T20 完成；ODS-T21 按用户指示另行实机安排；ODS-T22 的升级/回退材料已提供，发布部署未执行。本轮没有真实设备验收通过结论。
+
+## 开发第 3 轮：2026-10-24 · 服务管理卡片布局
+
+- 用户要求服务管理一行展示多个服务卡片。基于 `28b46da3` 调整 `ServiceManagement.vue`，保留技术控制台主题。
+- 服务列表采用自适应多列网格；卡片依次展示图标/名称/菜单、访问地址/所属设备和导航开关/未检测标记。加载占位也采用卡片排列；长地址省略展示且保留完整 title。
+- 现有浏览器用例同步卡片选择器。前端构建及相关浏览器回归通过，结果如下。后端、执行器和实机测试未重复执行，本轮只改前端展示。
+
+### 本轮验证结果
+
+- `PATH=/workspace/toolchains/protoc/bin:$PATH pnpm --dir easytier-web/frontend build:ci`：通过（类型检查和生产构建），[构建日志](artifacts/automated/service-cards-build.log)。
+- 前端目录运行 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium WEB_SCREENSHOT_DIR=/tmp/service-cards-screenshots node --test --test-name-pattern='device-owned navigation works|global editing updates|administrator catalogs|asset-backed 3D map and services' tests/network-space.test.mjs`：**4 passed / 0 failed**，验证编辑/删除、导航开关、账号范围及桌面/移动布局，[浏览器日志](artifacts/automated/service-cards-browser.log)。
+- 已查看截图：1440px 桌面一行 3 张卡片，390px 移动端自动单列，两种宽度均无页面横向溢出。[桌面效果](artifacts/automated/service-cards-desktop.png)、[移动效果](artifacts/automated/service-cards-mobile.png)。
+- `git diff --check` 通过。沿用已有构建体积/Browserslist 提示；未新增业务逻辑或测试用例，仅同步现有测试的卡片选择器。
+- 本轮提交至 `feat/automation-center`，使用 `[skip ci]`，未发布镜像或部署。此前后端与执行器测试结果仍只对应前一轮代码范围。
