@@ -1,5 +1,16 @@
 # 文档检查与后续验证记录
 
+## 2026-10-24 · 直接 HTTP 发现接入
+
+- 用户明确要求“直接 http 连接”。基于远端最新 `feat/automation-center@89349546`，修改 LuCI 端点校验与传输，支持显式 HTTP/HTTPS `/ubus`；已有 HTTPS 证书验证继续生效，不自动切协议或跟随跳转。
+- HTTP 接入隐藏证书栏，保存时清空旧 CA；HTTPS 空白 CA 使用默认信任库。页面说明授权密钥应填写在密码栏，并提示 HTTP 常用端口为 80。密码内容不做 trim。
+- 新增真实环回 HTTP LuCI 夹具，覆盖保存/能力检查/普通补发现/ADB 服务同步与重放；补充重定向不跟随、HTTPS 信任校验和页面协议切换用例。仅连接隔离模拟服务，未连接用户的 `10.10.10.3`，未改路由器配置。
+- Rust：`cargo test -p easytier-web discovery -- --nocapture` **21 passed / 0 failed**，378 filtered out，4.17 秒；[日志](artifacts/automated/http-discovery-rust.log)。包含实际 HTTP 和 HTTPS 的 LuCI 环回服务、账号隔离、能力检查不扫描、ADB 一次普通补采/同步及重放无 RPC，保留 HTTPS 不信任证书拒绝检查；另覆盖 HTTP 307 不跟随及非 HTTP(S)/URL 凭据拒绝。使用此前记录的 `/workspace/toolchains` 工具链环境变量。
+- 前端：`PATH=/workspace/toolchains/protoc/bin:$PATH pnpm --dir easytier-web/frontend build:ci` **通过**，含 Vue 类型检查及 Vite 生产构建；[日志](artifacts/automated/http-discovery-build.log)。保留原有大 chunk/Browserslist 提示。
+- 浏览器：前端目录 `node --test tests/discovery.test.mjs` **4 passed / 0 failed**，11.03 秒；[日志](artifacts/automated/http-discovery-browser.log)。新增 HTTP 保存、隐藏/清空旧证书、精确保留密码空格、点击触发两类扫描、切回 HTTPS 处理空白 CA；原移动端与无空闲轮询回归通过。
+- `git diff --check` 通过。未重复运行无关全量套件；未测试真实路由器监听端口、防火墙和 HTTP→HTTPS 强制跳转配置，未部署生产环境。
+- 发布：准备将本轮代码推送到 `feat/automation-center`，沿用已授权的 push 镜像构建；构建/发布结果待平台回执，当前没有本轮镜像成功结论。
+
 ## 第1轮：2026-10-24（北京时间）需求与任务拆分
 
 - 操作范围：新增本需求的汇总、8个需求、10个计划、22个任务、公共契约和索引，更新process总索引。

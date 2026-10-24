@@ -124,7 +124,7 @@ impl Store {
         )?;
         let endpoint = body["endpoint_url"]
             .as_str()
-            .ok_or_else(|| AssetError::field("endpoint_url", "An HTTPS endpoint is required."))?;
+            .ok_or_else(|| AssetError::field("endpoint_url", "An HTTP or HTTPS endpoint is required."))?;
         let ca = body["ca_pem"].as_str().unwrap_or("");
         if ca.len() > 128 * 1024 {
             return Err(AssetError::field(
@@ -132,6 +132,8 @@ impl Store {
                 "Certificate bundle exceeds 128 KiB.",
             ));
         }
+        let url = luci_client::endpoint(endpoint)?;
+        let ca = if url.scheme() == "https" { ca.trim() } else { "" };
         luci_client::LuciClient::new(endpoint, ca)?;
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         self.gateway_on(&mut tx, g.owner, &g.id).await?;

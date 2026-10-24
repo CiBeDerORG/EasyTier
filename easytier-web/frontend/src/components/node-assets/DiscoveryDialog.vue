@@ -8,6 +8,9 @@ const props = defineProps<{ gateway: AssetDevice; ownerId: number; initialAction
 const emit = defineEmits<{ close: []; changed: [] }>();
 const api = new DiscoveryApi();
 const settings = ref<DiscoveryAccess>();
+const accessScheme = computed(() => {
+    try { return new URL(settings.value?.endpoint_url ?? '').protocol; } catch { return ''; }
+});
 const history = ref<{id:string;kind:string;status:string;created_at:string}[]>([]);
 const selectedOperation = ref('');
 const statusLabel = (state?: string) => ({pending:'待处理',confirmed:'已确认',connected:'已连接',applied:'已应用',failed:'失败',saved:'已保存',skipped:'已跳过',superseded:'已被新目标替代',not_applicable:'无需处理',choose_endpoint:'请选择端口',pending_device:'待处理设备'}[state ?? ''] ?? state ?? '—');
@@ -44,7 +47,7 @@ async function loadAccess() {
 async function save() {
     await guarded(async () => {
         if (!settings.value) return;
-        const body = { endpoint_url: settings.value.endpoint_url, ca_pem: settings.value.ca_pem, expected_revision: settings.value.config_revision, secret_action: secretAction.value, ...(secretAction.value === 'replace' ? { secret: secret.value } : {}) };
+        const body = { endpoint_url: settings.value.endpoint_url, ca_pem: accessScheme.value === 'http:' ? '' : settings.value.ca_pem.trim(), expected_revision: settings.value.config_revision, secret_action: secretAction.value, ...(secretAction.value === 'replace' ? { secret: secret.value } : {}) };
         const result = await api.request<DiscoveryAccess>(props.ownerId, props.gateway.id, '/access', 'PUT', body);
         if (!active()) return; settings.value = result; secret.value = ''; secretAction.value = 'preserve'; notice.value = '接入设置已保存。';
     });
@@ -118,11 +121,12 @@ onBeforeUnmount(() => { disposed = true; secret.value = ''; stopEvents?.(); });
                 <Button v-if="pending" label="查询 / 重试原请求" severity="warn" :disabled="busy" @click="guarded(() => post(pending!.path, pending!.body))" />
             </div>
             <fieldset v-if="showAccess && settings" :disabled="busy" class="access-grid"><legend>网关接入</legend>
-                <label>HTTPS /ubus 地址<InputText v-model="settings.endpoint_url" /></label>
+                <label>HTTP / HTTPS /ubus 地址<InputText v-model="settings.endpoint_url" placeholder="http://10.10.10.3:80/ubus" /></label>
                 <label>账号<InputText value="easyadb" readonly /></label>
+                <small v-if="accessScheme === 'http:'" class="wide">HTTP 无需证书。请填写路由器实际 HTTP 端口（通常为 80）；443 通常用于 HTTPS。</small>
                 <label>授权密码<select v-model="secretAction" aria-label="授权密码"><option value="preserve">保留{{ settings.has_secret ? '已保存密码' : '（尚未保存）' }}</option><option value="replace">替换密码</option><option value="clear">清除密码</option></select></label>
-                <label v-if="secretAction === 'replace'">新密码（保留原始字符）<InputText v-model="secret" type="password" autocomplete="new-password" /></label>
-                <label class="wide">私有 CA 证书（PEM，可选）<Textarea v-model="settings.ca_pem" rows="3" /></label>
+                <label v-if="secretAction === 'replace'">新密码（保留原始字符）<InputText v-model="secret" type="password" autocomplete="new-password" /><small>填写 OpenWrt 发现插件生成的 easyadb 授权密钥。</small></label>
+                <label v-if="accessScheme === 'https:'" class="wide">私有 CA 证书（PEM，可选）<Textarea v-model="settings.ca_pem" rows="3" /><small>填写完整的 BEGIN CERTIFICATE 证书内容；留空使用默认证书库。授权密钥填写在密码栏。</small></label>
                 <div class="actions wide"><Button label="保存接入设置" @click="save" /><Button label="检查已保存接入" outlined @click="scan('check')" /></div>
             </fieldset>
             <div class="actions"><label>最近操作<select v-model="selectedOperation" aria-label="最近操作" :disabled="busy" @change="guarded(() => reload(selectedOperation))"><option value="">选择已保存的操作</option><option v-for="entry in history" :key="entry.id" :value="entry.id">{{ new Date(entry.created_at).toLocaleString() }} · {{ entry.kind }} · {{ entry.id.slice(0, 8) }}</option></select></label><Button label="读取操作记录" text :disabled="busy" @click="guarded(loadHistory)" /></div>

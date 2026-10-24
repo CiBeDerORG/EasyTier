@@ -26,7 +26,7 @@ async function open(t,mobile=false){
   else if(path==='/assets/gateway-groups')result={items:[{id:id(3),name:'Home group',subnets:['192.168.1.0/24'],binding}]};
   else if(path==='/assets/devices')result={items:[gateway],total:1,page:1,page_size:20};
   else if(path===`/assets/devices/${id(1)}`)result=gateway;
-  else if(path.endsWith('/access')){if(method==='PUT')state.saved=body;result={endpoint_url:'https://10.0.0.1/ubus',ca_pem:'',has_secret:!!state.saved,config_revision:state.saved?1:0};}
+  else if(path.endsWith('/access')){if(method==='PUT')state.saved=body;result={endpoint_url:state.saved?.endpoint_url??'https://10.0.0.1/ubus',ca_pem:state.saved?.ca_pem??'',has_secret:!!state.saved,config_revision:state.saved?1:0};}
   else if(path.endsWith('/devices/scan'))result=op;
   else if(path.endsWith('/adb/scan')){op={...op,kind:'adb',rows:[],result:{rows:[{row_id:id(11),ip:'192.168.1.20',state:'choose_endpoint',endpoints:[{endpoint_id:'first',port:37001},{endpoint_id:'second',port:37002}]}]}};result=op;}
   else if(path.endsWith('/devices/apply')){state.applied=body;row.applied={state:'saved',device_id:id(12)};result={operation_id:id(10),rows:[row.applied]};}
@@ -49,9 +49,41 @@ test('explicit scan, reviewed apply and saved endpoint selection with no idle po
 });
 test('mobile access settings preserve exact secret and never scan on save',async t=>{
  const {page,requests,state}=await open(t,true);await page.locator('button[title="编辑设备"]').click();
- await page.getByRole('button',{name:'OpenWrt 发现接入设置'}).click();const dialog=page.getByRole('dialog',{name:'OpenWrt 发现 · Home OpenWrt'});await dialog.getByText('HTTPS /ubus 地址',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'OpenWrt 发现接入设置'}).click();const dialog=page.getByRole('dialog',{name:'OpenWrt 发现 · Home OpenWrt'});await dialog.getByText('HTTP / HTTPS /ubus 地址',{exact:true}).waitFor();
  await dialog.getByLabel('授权密码',{exact:true}).selectOption('replace');const secret='  ! $ ` 中文 password  ';await dialog.getByLabel('新密码（保留原始字符）').fill(secret);await dialog.getByRole('button',{name:'保存接入设置'}).click();await dialog.getByText('接入设置已保存。').waitFor();assert.equal(state.saved.secret,secret);assert.equal(requests.filter(r=>r.path.endsWith('/scan')).length,0);
  assert.ok(await dialog.evaluate(e=>e.getBoundingClientRect().width<=window.innerWidth));await mkdir('/tmp/ods-screenshots',{recursive:true});await page.screenshot({path:'/tmp/ods-screenshots/discovery-mobile.png',fullPage:true});
+});
+test('explicit HTTP access hides and clears CA, preserves the secret and scans only on click',async t=>{
+ const {page,requests,state}=await open(t);
+ await page.locator('button[title="编辑设备"]').click();
+ await page.getByRole('button',{name:'OpenWrt 发现接入设置'}).click();
+ const dialog=page.getByRole('dialog',{name:'OpenWrt 发现 · Home OpenWrt'});
+ await dialog.locator('textarea').fill('previous non-PEM text');
+ await dialog.getByLabel('HTTP / HTTPS /ubus 地址',{exact:true}).fill('http://10.10.10.3:80/ubus');
+ assert.equal(await dialog.locator('textarea').count(),0);
+ await dialog.getByText('HTTP 无需证书。',{exact:false}).waitFor();
+ await dialog.getByLabel('授权密码',{exact:true}).selectOption('replace');
+ const secret='  exact 密钥  ';
+ await dialog.getByLabel('新密码（保留原始字符）',{exact:false}).fill(secret);
+ await dialog.getByRole('button',{name:'保存接入设置',exact:true}).click();
+ await dialog.getByText('接入设置已保存。').waitFor();
+ assert.equal(state.saved.endpoint_url,'http://10.10.10.3:80/ubus');
+ assert.equal(state.saved.ca_pem,'');
+ assert.equal(state.saved.secret,secret);
+ assert.equal(requests.filter(r=>r.path.endsWith('/scan')).length,0);
+ await dialog.getByRole('button',{name:'立即同步',exact:true}).click();
+ await dialog.getByText('Phone A',{exact:false}).waitFor();
+ await dialog.getByRole('button',{name:'ADB 发现',exact:true}).click();
+ await dialog.locator('.adb-results select').waitFor();
+ assert.equal(requests.filter(r=>r.path.endsWith('/devices/scan')).length,1);
+ assert.equal(requests.filter(r=>r.path.endsWith('/adb/scan')).length,1);
+ await dialog.getByLabel('HTTP / HTTPS /ubus 地址',{exact:true}).fill('https://10.10.10.3:443/ubus');
+ await dialog.locator('textarea').fill(' \n\t ');
+ await dialog.getByRole('button',{name:'保存接入设置',exact:true}).click();
+ await dialog.getByText('接入设置已保存。').waitFor();
+ assert.equal(state.saved.ca_pem,'');
+ assert.equal(state.saved.secret_action,'preserve');
+ assert.equal(requests.filter(r=>r.path.endsWith('/scan')).length,2);
 });
 test('endpoint events restore only the still-watched screen and never replay input',async t=>{
  const {page}=await open(t);const calls=[];

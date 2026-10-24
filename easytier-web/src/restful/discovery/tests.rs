@@ -101,15 +101,30 @@ impl Fixture {
 
 #[tokio::test]
 async fn http_adb_scans_once_imports_only_missing_ips_and_replay_does_no_rpc() {
+    adb_discovery_over_transport(true).await;
+}
+
+#[tokio::test]
+async fn plain_http_access_check_and_adb_discovery_use_no_certificate() {
+    adb_discovery_over_transport(false).await;
+}
+
+async fn adb_discovery_over_transport(https: bool) {
     use axum::http::{Method, StatusCode};
     let f = Fixture::new().await;
-    let mock = crate::discovery::luci_client::tests::Mock::start();
+    let mock = if https { crate::discovery::luci_client::tests::Mock::start() } else { crate::discovery::luci_client::tests::Mock::start_http() };
     std::fs::write(mock.root.join("mode.json"),json!({"password":"  exact 密码  ",
    "easy-discovery.adb":{"schema_version":1,"has_snapshot":true,"status":"ok","source":"avahi","devices":[ep("192.168.1.20",37001),ep("192.168.1.21",37002)],"errors":[]},
    "easy-discovery.devices":{"schema_version":1,"has_snapshot":true,"status":"ok","source":"network-aggregate","devices":[{"ipv4":["192.168.1.20"],"hostname":"phone"},{"ipv4":["192.168.1.99"],"hostname":"unrelated"}],"errors":[]}
  }).to_string()).unwrap();
-    let (status,_)=f.http("ods-owner",Method::PUT,"access",Some(json!({"endpoint_url":mock.url,"ca_pem":mock.ca,"secret_action":"replace","secret":"  exact 密码  ","expected_revision":0}))).await;
+    let (status,saved)=f.http("ods-owner",Method::PUT,"access",Some(json!({"endpoint_url":mock.url,"ca_pem":if https { mock.ca.as_str() } else { "previous non-PEM text" },"secret_action":"replace","secret":"  exact 密码  ","expected_revision":0}))).await;
     assert_eq!(status, StatusCode::OK);
+    if !https { assert_eq!(saved["ca_pem"], ""); }
+    assert!(mock.requests().is_empty(), "Saving access must not contact the router");
+    let (status, checked) = f.http("ods-owner", Method::POST, "access/check", Some(json!({"request_id":Uuid::new_v4()}))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(checked["result"]["capabilities"]["adb.scan"], true, "{checked}");
+    assert!(!mock.requests().iter().any(|r| r["params"][2] == "scan"));
     let request = json!({"request_id":Uuid::new_v4()});
     let (status, _) = f
         .http("outsider", Method::POST, "adb/scan", Some(request.clone()))
@@ -138,7 +153,7 @@ async fn http_adb_scans_once_imports_only_missing_ips_and_replay_does_no_rpc() {
     assert_eq!(replay["operation_id"], result["operation_id"]);
     assert_eq!(mock.requests().len(), count);
     let (_, history) = f.http("ods-owner", Method::GET, "operations", None).await;
-    assert_eq!(history["items"].as_array().unwrap().len(), 2);
+    assert_eq!(history["items"].as_array().unwrap().len(), 3);
     assert_eq!(mock.requests().len(), count);
     let scans: Vec<_> = mock
         .requests()

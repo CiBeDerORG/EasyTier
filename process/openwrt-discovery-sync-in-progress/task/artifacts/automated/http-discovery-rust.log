@@ -1,0 +1,30 @@
+   Compiling easytier-core v2.7.0 (/workspace/EasyTier/easytier-core)
+   Compiling easytier-web v2.7.0 (/workspace/EasyTier/easytier-web)
+   Compiling easytier v2.7.0 (/workspace/EasyTier/easytier)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 09s
+     Running unittests src/main.rs (target/debug/deps/easytier_web-83febaf6176bb881)
+
+running 21 tests
+test db::discovery::tests::adb_failed_snapshot_cannot_mutate_and_ambiguity_requires_saved_choice ... ok
+test db::discovery::tests::failed_or_wrong_source_adb_arrays_never_become_targets ... ok
+test db::discovery::tests::cleanup_failure_blocks_connect_and_explicit_stage_retry_does_not_repeat_success ... ok
+test db::discovery::tests::adb_publication_keeps_listener_and_identity_through_port_change_and_replacement ... ok
+test db::discovery::tests::credentials_preserve_exact_bytes_and_never_leave_read_api ... ok
+test db::discovery::tests::manual_name_and_phone_type_survive_unknown_discovery_fields ... ok
+test db::discovery::tests::preview_is_read_only_and_applies_cached_with_derived_address ... ok
+test db::discovery::tests::overwrite_keeps_selected_service_identity_and_rolls_back_invalid_selection ... ok
+test db::discovery::tests::port_change_revokes_only_one_device_in_a_two_device_run ... ok
+test db::discovery::tests::request_replay_and_stale_service_review ... ok
+test discovery::luci_client::tests::endpoint_supports_explicit_http_and_https_only ... ok
+test discovery::luci_client::tests::http_ignores_ca_and_never_follows_a_redirect ... ok
+test db::discovery::tests::supplemental_partial_review_only_finalizes_reviewed_ips_and_expiry_blocks_writes ... ok
+test db::discovery::tests::same_ip_is_allowed_only_across_gateway_groups ... ok
+test discovery::luci_client::tests::https_accepts_blank_ca_but_still_validates_certificates ... ok
+test migrator::merge_upgrade_tests::discovery_upgrade_preserves_services_and_automation_history_without_guessing_types ... ok
+test db::discovery::tests::withdrawal_before_dispatch_keeps_other_phone_dispatchable ... ok
+test restful::oidc::tests::reqwest_adapter_supports_discovery_and_token_exchange ... ok
+test discovery::luci_client::tests::https_login_and_capability_check_do_not_scan_and_failed_scans_remain_non_authoritative ... ok
+test restful::discovery::tests::plain_http_access_check_and_adb_discovery_use_no_certificate ... ok
+test restful::discovery::tests::http_adb_scans_once_imports_only_missing_ips_and_replay_does_no_rpc ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 378 filtered out; finished in 4.17s

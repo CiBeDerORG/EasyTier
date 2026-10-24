@@ -1,4 +1,5 @@
-//! Fixed authenticated LuCI RPCs only; no scan retries, redirects, or TLS downgrade.
+//! Fixed authenticated LuCI RPCs over the explicitly configured HTTP(S) endpoint.
+//! No scan retries, redirects, or automatic protocol fallback.
 use crate::db::assets::common::{AssetError, AssetResult};
 use reqwest::Client;
 use serde_json::{Value, json};
@@ -6,8 +7,8 @@ use std::time::Duration;
 
 pub(crate) fn endpoint(raw: &str) -> AssetResult<url::Url> {
     let url = url::Url::parse(raw)
-        .map_err(|_| AssetError::field("endpoint_url", "Use an HTTPS /ubus endpoint."))?;
-    if url.scheme() != "https"
+        .map_err(|_| AssetError::field("endpoint_url", "Use an HTTP or HTTPS /ubus endpoint."))?;
+    if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
@@ -17,7 +18,7 @@ pub(crate) fn endpoint(raw: &str) -> AssetResult<url::Url> {
     {
         return Err(AssetError::field(
             "endpoint_url",
-            "Use HTTPS with the /ubus path, without URL credentials, query or fragment.",
+            "Use HTTP or HTTPS with the /ubus path, without URL credentials, query or fragment.",
         ));
     }
     Ok(url)
@@ -37,7 +38,8 @@ impl LuciClient {
             .timeout(Duration::from_secs(30))
             .pool_max_idle_per_host(0)
             .tcp_keepalive(None);
-        if !ca.is_empty() {
+        let ca = ca.trim();
+        if url.scheme() == "https" && !ca.is_empty() {
             let certs = reqwest::Certificate::from_pem_bundle(ca.as_bytes()).map_err(|_| {
                 AssetError::field("ca_pem", "The trusted certificate must be valid PEM.")
             })?;
@@ -55,7 +57,7 @@ impl LuciClient {
             AssetError::new(
                 500,
                 "discovery_transport_unavailable",
-                "Cannot initialize HTTPS transport.",
+                "Cannot initialize the LuCI transport.",
             )
         })?;
         Ok(Self { client, url })
@@ -68,12 +70,25 @@ impl LuciClient {
         args: Value,
     ) -> AssetResult<Value> {
         let mut response=self.client.post(self.url.clone()).json(&json!({"jsonrpc":"2.0","id":1,"method":"call","params":[session,object,method,args]})).send().await
-            .map_err(|error|AssetError::new(502,if error.is_timeout(){"discovery_timeout"}else{"discovery_tls_or_connection_failed"},"LuCI HTTPS failed. Check reachability, certificate trust and the endpoint; credentials were not sent to a fallback address."))?;
+            .map_err(|error| {
+                let https = self.url.scheme() == "https";
+                AssetError::new(502,
+                    if error.is_timeout() { "discovery_timeout" } else if https { "discovery_tls_or_connection_failed" } else { "discovery_connection_failed" },
+                    if https { "LuCI HTTPS failed. Check reachability, certificate trust and the HTTPS port." }
+                    else { "LuCI HTTP failed. Check reachability and the router's HTTP listening port (usually 80)." })
+            })?;
+        if response.status().is_redirection() {
+            return Err(AssetError::new(
+                502,
+                "discovery_redirect",
+                "LuCI redirected the request. Configure an address that serves /ubus directly, and check the router's HTTP-to-HTTPS redirect setting.",
+            ));
+        }
         if !response.status().is_success() {
             return Err(AssetError::new(
                 502,
                 "discovery_http_error",
-                "LuCI did not accept the HTTPS request.",
+                "LuCI did not accept the HTTP(S) request.",
             ));
         }
         let mut bytes = Vec::new();
@@ -247,39 +262,49 @@ pub(crate) mod tests {
     }
     impl Mock {
         pub(crate) fn start() -> Self {
+            Self::start_with_scheme("https")
+        }
+        pub(crate) fn start_http() -> Self {
+            Self::start_with_scheme("http")
+        }
+        fn start_with_scheme(scheme: &str) -> Self {
             easytier::utils::init_crypto_provider();
             let root = std::env::temp_dir().join(format!("ods-luci-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir(&root).unwrap();
-            assert!(
-                Command::new("openssl")
-                    .args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout"])
-                    .arg(root.join("key.pem"))
-                    .arg("-out")
-                    .arg(root.join("cert.pem"))
-                    .args([
-                        "-days",
-                        "1",
-                        "-subj",
-                        "/CN=127.0.0.1",
-                        "-addext",
-                        "subjectAltName=IP:127.0.0.1",
-                        "-addext",
-                        "basicConstraints=critical,CA:FALSE",
-                        "-addext",
-                        "extendedKeyUsage=serverAuth"
-                    ])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .unwrap()
-                    .success()
-            );
+            std::fs::write(root.join("requests.jsonl"), "").unwrap();
+            if scheme == "https" {
+                assert!(
+                    Command::new("openssl")
+                        .args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout"])
+                        .arg(root.join("key.pem"))
+                        .arg("-out")
+                        .arg(root.join("cert.pem"))
+                        .args([
+                            "-days",
+                            "1",
+                            "-subj",
+                            "/CN=127.0.0.1",
+                            "-addext",
+                            "subjectAltName=IP:127.0.0.1",
+                            "-addext",
+                            "basicConstraints=critical,CA:FALSE",
+                            "-addext",
+                            "extendedKeyUsage=serverAuth"
+                        ])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .unwrap()
+                        .success()
+                );
+            }
             let mut child = Command::new("python3")
                 .arg(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/tests/fixtures/luci_mock.py"
                 ))
                 .arg(&root)
+                .arg(scheme)
                 .stdout(Stdio::piped())
                 .spawn()
                 .unwrap();
@@ -287,11 +312,11 @@ pub(crate) mod tests {
             BufReader::new(child.stdout.take().unwrap())
                 .read_line(&mut port)
                 .unwrap();
-            let ca = std::fs::read_to_string(root.join("cert.pem")).unwrap();
+            let ca = if scheme == "https" { std::fs::read_to_string(root.join("cert.pem")).unwrap() } else { String::new() };
             let mock = Self {
                 child,
                 root,
-                url: format!("https://127.0.0.1:{}/ubus", port.trim()),
+                url: format!("{scheme}://127.0.0.1:{}/ubus", port.trim()),
                 ca,
             };
             mock.mode("ok");
@@ -342,6 +367,34 @@ pub(crate) mod tests {
         );
         let untrusted = LuciClient::new(&mock.url, "").unwrap();
         assert!(untrusted.login("  exact 密码  ").await.is_err());
-        assert!(endpoint("http://127.0.0.1/ubus").is_err());
+    }
+    #[test]
+    fn endpoint_supports_explicit_http_and_https_only() {
+        assert_eq!(endpoint("http://10.10.10.3/ubus").unwrap().port_or_known_default(), Some(80));
+        assert_eq!(endpoint("https://10.10.10.3/ubus").unwrap().port_or_known_default(), Some(443));
+        assert_eq!(endpoint("http://10.10.10.3:8080/ubus").unwrap().port(), Some(8080));
+        for url in ["ftp://10.10.10.3/ubus", "http://user:secret@10.10.10.3/ubus", "http://10.10.10.3/cgi-bin/luci", "http://10.10.10.3/ubus?key=value", "http://10.10.10.3/ubus#fragment"] {
+            assert!(endpoint(url).is_err(), "{url}");
+        }
+    }
+    #[tokio::test]
+    async fn http_ignores_ca_and_never_follows_a_redirect() {
+        let mock = Mock::start_http();
+        let target = Mock::start_http();
+        let client = LuciClient::new(&mock.url, "old non-PEM text").unwrap();
+        assert_eq!(client.check("  exact 密码  ").await.unwrap()["capabilities"]["adb.scan"], true);
+        assert_eq!(client.login("wrong").await.unwrap_err().code, "discovery_login_failed");
+        std::fs::write(mock.root.join("mode.json"), json!({"redirect": target.url}).to_string()).unwrap();
+        assert_eq!(client.login("  exact 密码  ").await.unwrap_err().code, "discovery_redirect");
+        assert!(target.requests().is_empty());
+        assert!(!mock.requests().iter().any(|r| r["params"][2] == "scan"));
+    }
+    #[tokio::test]
+    async fn https_accepts_blank_ca_but_still_validates_certificates() {
+        let mock = Mock::start();
+        let untrusted = LuciClient::new(&mock.url, " \n\t ").unwrap();
+        assert_eq!(untrusted.login("  exact 密码  ").await.unwrap_err().code, "discovery_tls_or_connection_failed");
+        assert!(mock.requests().is_empty());
+        assert_eq!(LuciClient::new(&mock.url, "authorization-key").err().unwrap().field_errors["ca_pem"], "The trusted certificate must be valid PEM.");
     }
 }

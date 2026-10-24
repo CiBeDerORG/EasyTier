@@ -1,0 +1,12 @@
+✔ explicit scan, reviewed apply and saved endpoint selection with no idle polling (4113.601801ms)
+✔ mobile access settings preserve exact secret and never scan on save (1698.060146ms)
+✔ explicit HTTP access hides and clears CA, preserves the secret and scans only on click (1774.659082ms)
+✔ endpoint events restore only the still-watched screen and never replay input (2995.759308ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11027.77458
