@@ -25,3 +25,10 @@
 ## Git 提交语言
 
 - 所有项目的 Git 提交标题和正文必须使用中文；合并、修复、回滚等提交同样适用。
+
+## 自动化中心分支的推送与镜像
+
+- 用户已指定 `feat/automation-center` 为当前交付分支；`feat-automation-center` 是镜像标签，不是 Git 分支名。
+- 用户已要求该分支在 push 后自动构建镜像。获准推送代码或工作流改动时，允许触发现有 `EasyTier GHCR Image` 流程，不默认附加 `[skip ci]` 等跳过标记；用户后续明确要求跳过时以其指令为准。这项授权不扩展为本地测试或部署授权。
+- 沿用 `.github/workflows/node-attributes-image.yml` 的纯文档路径忽略规则；自动构建平台为 `linux/amd64`，目标镜像为 `ghcr.io/cibederorg/easytier:feat-automation-center`。
+- 推送成功、Actions 已启动和镜像发布成功分别核实。GitHub 暂停工作流时明确报告平台状态，不把 push 成功写成镜像更新成功。
