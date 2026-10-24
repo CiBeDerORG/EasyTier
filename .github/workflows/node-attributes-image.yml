@@ -27,7 +27,8 @@ permissions:
 
 concurrency:
   group: ghcr-image-${{ github.ref }}
-  cancel-in-progress: false
+  # A newer push/dispatch supersedes earlier running and queued builds of this branch.
+  cancel-in-progress: true
 
 defaults:
   run:
