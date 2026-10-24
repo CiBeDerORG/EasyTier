@@ -109,6 +109,7 @@ async fn delete_user(
     auth: AuthSession,
     Extension(service): Service,
     Extension(config): Config,
+    discovery: Option<Extension<std::sync::Arc<crate::discovery::Runtime>>>,
     path: Result<Path<i32>, PathRejection>,
 ) -> HttpResult<Json<Value>> {
     require_available(&config)?;
@@ -133,9 +134,11 @@ async fn delete_user(
     // existing configuration lock; its failure cannot undo account deletion.
     drop(_mutation);
     let automation_service = service.clone();
-    tokio::spawn(async move {
-        super::automation::revoke_actor_or_owner(&automation_service, user_id).await;
-    });
+    if let Some(Extension(discovery)) = discovery {
+        tokio::spawn(async move {
+            super::automation::revoke_actor_or_owner(&automation_service, &discovery.settings, user_id).await;
+        });
+    }
     Ok(Json(json!({
         "user_id": deleted.user_id,
         "deleted_at": deleted.deleted_at,

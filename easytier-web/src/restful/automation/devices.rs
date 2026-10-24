@@ -15,6 +15,7 @@ pub(super) async fn context(auth: AuthSession, Extension(service): Service, Exte
         "runner_configured":runtime.runner.is_some(),
         "actor":{"id":actor_id,"username":auth.user.as_ref().map(|user| &user.db_user.username)},
         "can_manage_others":admin && !config.webhook_auth,
+        "can_manage_settings":admin && !config.webhook_auth,
         "protocol_version":1,
     })))
 }

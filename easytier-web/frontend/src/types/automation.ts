@@ -12,7 +12,18 @@ export interface AutomationStep {
 }
 export interface AutomationContext {
     available: boolean; runner_configured: boolean; can_manage_others: boolean;
+    can_manage_settings: boolean;
     actor: { id: number; username: string }; protocol_version: number;
+}
+export interface AutomationRunnerSettings {
+    endpoint: string; token_configured: boolean; configured: boolean;
+    source: 'database' | 'environment' | 'none'; revision: number; updated_at: string | null;
+}
+export interface AutomationRunnerSettingsInput {
+    endpoint: string; token_action: 'preserve' | 'replace'; token?: string; revision: number;
+}
+export interface AutomationRunnerCheck {
+    reachable: boolean; executor_id: string; protocol_version: number; checked_at: string;
 }
 export interface AutomationConnection { enabled: boolean; adb_port: number; connection_mode: 'tcp' | 'wireless' }
 export interface AutomationDevice {

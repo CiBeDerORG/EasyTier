@@ -1,0 +1,17 @@
+test_legacy_ascii_tokens_keep_bearer_compatibility (test_auth.CredentialTransportTests.test_legacy_ascii_tokens_keep_bearer_compatibility) ... ok
+test_malformed_and_wrong_schemes_fail_without_exceptions (test_auth.CredentialTransportTests.test_malformed_and_wrong_schemes_fail_without_exceptions) ... ok
+test_spaces_quotes_and_unicode_round_trip_without_normalization (test_auth.CredentialTransportTests.test_spaces_quotes_and_unicode_round_trip_without_normalization) ... ok
+test_early_withdraw_survives_restart_and_does_not_cancel_other_phone (test_device_exit.JournalTests.test_early_withdraw_survives_restart_and_does_not_cancel_other_phone) ... ok
+test_wrong_fingerprint_cannot_fence_a_known_run (test_device_exit.JournalTests.test_wrong_fingerprint_cannot_fence_a_known_run) ... ok
+test_adb_disconnect_uses_serial_not_global_disconnect (test_device_exit.RuntimeTests.test_adb_disconnect_uses_serial_not_global_disconnect) ... ok
+test_disconnect_is_target_specific_and_does_not_disconnect_new_owner (test_device_exit.RuntimeTests.test_disconnect_is_target_specific_and_does_not_disconnect_new_owner) ... ok
+test_restart_helper_cleanup_requires_owned_process_exit_proof (test_device_exit.RuntimeTests.test_restart_helper_cleanup_requires_owned_process_exit_proof) ... ok
+test_retire_cancels_inflight_preparation_before_target_disconnect (test_device_exit.RuntimeTests.test_retire_cancels_inflight_preparation_before_target_disconnect) ... ok
+test_session_identity_rejects_replacement_executor_before_side_effects (test_device_exit.RuntimeTests.test_session_identity_rejects_replacement_executor_before_side_effects) ... Executing <Task finished name='Task-22' coro=<RuntimeTests.asyncSetUp() done, defined at /workspace/EasyTier/automation-executor/tests/test_device_exit.py:50> result=None created at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/runners.py:100> took 0.100 seconds
+ok
+test_withdraw_running_phone_preserves_other_phone_and_its_second_step (test_device_exit.RuntimeTests.test_withdraw_running_phone_preserves_other_phone_and_its_second_step) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.413s
+
+OK

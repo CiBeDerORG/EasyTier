@@ -4,6 +4,7 @@ mod devices;
 pub(crate) mod runner;
 mod runs;
 mod scripts;
+pub(crate) mod settings;
 pub(crate) mod sessions;
 
 use std::{collections::HashSet, sync::Arc};
@@ -19,15 +20,14 @@ use super::AppStateInner;
 
 pub(crate) struct AutomationRuntime {
     pub(crate) runner: Option<runner::Runner>,
-    pub(crate) controls: Mutex<HashSet<String>>,
+    pub(crate) controls: Arc<Mutex<HashSet<String>>>,
 }
 
-pub(crate) fn router() -> Router<AppStateInner> {
-    let runtime = Arc::new(AutomationRuntime {
-        runner: runner::Runner::from_environment(),
-        controls: Mutex::new(HashSet::new()),
-    });
+pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner> {
+    let controls = Arc::new(Mutex::new(HashSet::<String>::new()));
     Router::new()
+        .route("/api/v1/automation/settings", get(settings::get).put(settings::save))
+        .route("/api/v1/automation/settings/check", post(settings::check))
         .route("/api/v1/automation/context", get(devices::context))
         .route("/api/v1/automation/devices", get(devices::list))
         .route("/api/v1/automation/devices/{id}/connection", put(devices::connection))
@@ -47,14 +47,37 @@ pub(crate) fn router() -> Router<AppStateInner> {
         .route("/api/v1/automation/internal/authorize", post(runs::internal_authorize))
         .route("/api/v1/automation/internal/events", post(runs::internal_event))
         .layer(DefaultBodyLimit::max(512 * 1024))
-        .layer(Extension(runtime))
+        .layer(axum::middleware::from_fn_with_state(controls, with_runner))
+        .layer(Extension(settings))
+}
+
+async fn with_runner(
+    axum::extract::State(controls): axum::extract::State<Arc<Mutex<HashSet<String>>>>,
+    Extension(settings): Extension<Arc<settings::Settings>>,
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = request.uri().path();
+    let settings_request = path.starts_with("/api/v1/automation/settings");
+    // Callbacks must not wait behind a configuration writer while a dispatch
+    // holds a read lease and is waiting for that same callback.
+    let _operation = if settings_request || path.starts_with("/api/v1/automation/internal/") {
+        None
+    } else { Some(settings.operations.read().await) };
+    request.extensions_mut().insert(Arc::new(AutomationRuntime { runner:settings.runner(), controls }));
+    let mut response = next.run(request).await;
+    if settings_request {
+        response.headers_mut().insert(axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-store"));
+    }
+    response
 }
 
 /// Best-effort notification after the account retirement transaction commits.
 /// The transaction triggers, per-command checks and finite Runner grants remain
 /// authoritative when this network notification cannot be delivered.
-pub(super) async fn revoke_actor_or_owner(service: &CentralNetworkService, user_id: i32) -> Value {
-    let runtime = AutomationRuntime { runner:runner::Runner::from_environment(),controls:Mutex::new(HashSet::new()) };
+pub(super) async fn revoke_actor_or_owner(service: &CentralNetworkService, settings: &settings::Settings, user_id: i32) -> Value {
+    let _operation = settings.operations.read().await;
+    let runtime = AutomationRuntime { runner:settings.runner(),controls:Arc::new(Mutex::new(HashSet::new())) };
     let Some(runner) = runtime.runner.as_ref() else {
         return json!({"requested":true,"confirmed":false,"reason":"runner_not_configured"});
     };

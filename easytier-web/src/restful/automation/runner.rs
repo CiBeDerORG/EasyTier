@@ -5,6 +5,7 @@ use axum::http::{HeaderMap, StatusCode};
 use reqwest::{Client, Method};
 use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use super::common::{HttpResult, error};
 
@@ -16,6 +17,18 @@ pub(crate) struct Runner {
 }
 
 impl Runner {
+    pub(crate) fn endpoint(&self) -> &str { self.base.as_str() }
+    pub(crate) fn token(&self) -> &str { &self.token }
+    fn authorization(&self) -> String {
+        // HTTP field whitespace and non-ASCII header conversions must not
+        // change a user-selected credential. Keep legacy Bearer for the
+        // existing printable-ASCII tokens; encode other UTF-8 values losslessly.
+        if self.token.bytes().all(|byte| (0x21..=0x7e).contains(&byte)) {
+            format!("Bearer {}", self.token)
+        } else {
+            format!("AutomationToken {}", STANDARD.encode(self.token.as_bytes()))
+        }
+    }
     pub(crate) fn from_environment() -> Option<Self> {
         let raw = std::env::var("EASYTIER_AUTOMATION_RUNNER_URL").ok()?;
         let token = std::env::var("EASYTIER_AUTOMATION_RUNNER_TOKEN").ok()?;
@@ -42,9 +55,12 @@ impl Runner {
     }
 
     pub(crate) fn authenticate(&self, headers: &HeaderMap) -> HttpResult<()> {
-        let supplied = headers.get(axum::http::header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer "));
-        let valid = supplied.is_some_and(|value| value.as_bytes().ct_eq(self.token.as_bytes()).into());
+        let supplied = headers.get(axum::http::header::AUTHORIZATION).and_then(|value| {
+            let raw = value.as_bytes();
+            if let Some(encoded) = raw.strip_prefix(b"AutomationToken ") { STANDARD.decode(encoded).ok() }
+            else { raw.strip_prefix(b"Bearer ").map(|token| token.to_vec()) }
+        });
+        let valid = supplied.is_some_and(|value| value.as_slice().ct_eq(self.token.as_bytes()).into());
         if !valid {
             return Err(error(StatusCode::UNAUTHORIZED,"runner_authentication_required","执行器认证失败。"));
         }
@@ -60,7 +76,7 @@ impl Runner {
             else if path.ends_with("/renew") { 5 }
             else if path.ends_with("/close") { 15 }
             else { 10 };
-        let mut request = self.client.request(method, url).bearer_auth(&self.token)
+        let mut request = self.client.request(method, url).header(axum::http::header::AUTHORIZATION, self.authorization())
             .timeout(Duration::from_secs(seconds));
         if let Some(body) = body { request = request.json(body); }
         let mut response = request.send().await.map_err(|_| error(StatusCode::BAD_GATEWAY,"runner_unreachable","无法确认执行器响应。请检查连接并查询结果，不要重复执行未知操作。"))?;
@@ -114,7 +130,7 @@ impl Runner {
     pub(crate) async fn artifact(&self, run_id: &str, artifact_id: &str) -> HttpResult<(String,Vec<u8>)> {
         let url = self.base.join(&format!("internal/v1/runs/{run_id}/artifacts/{artifact_id}"))
             .map_err(|_|error(StatusCode::SERVICE_UNAVAILABLE,"runner_not_configured","执行器地址配置无效。"))?;
-        let mut response = self.client.get(url).bearer_auth(&self.token).timeout(Duration::from_secs(15)).send().await
+        let mut response = self.client.get(url).header(axum::http::header::AUTHORIZATION, self.authorization()).timeout(Duration::from_secs(15)).send().await
             .map_err(|_|error(StatusCode::BAD_GATEWAY,"artifact_unavailable","暂时无法读取执行截图。"))?;
         if response.status() == StatusCode::NOT_FOUND {
             return Err(error(StatusCode::NOT_FOUND,"artifact_not_found","该执行截图不存在或已清理。"));

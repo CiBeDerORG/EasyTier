@@ -1,0 +1,40 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+$ vue-tsc -b && vite build
+vite v5.4.21 building for production...
+transforming...
+Browserslist: browsers data (caniuse-lite) is 13 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+✓ 790 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                   0.55 kB │ gzip:     0.34 kB
+dist/assets/easytier-B8oGRBhv.png                21.11 kB
+dist/assets/network-atmosphere-D0MJ8cxM.webp     93.21 kB
+dist/assets/earth-night-DunbJrcB.jpg            715.00 kB
+dist/assets/earth-blue-marble-CClELF0E.jpg    1,461.88 kB
+dist/assets/NodeSpace-QfaboZKw.css                3.54 kB │ gzip:     1.11 kB
+dist/assets/DeployAgents-Bs1N4Mhj.css             4.53 kB │ gzip:     1.15 kB
+dist/assets/ServiceManagement-pu-36yNB.css        6.60 kB │ gzip:     1.49 kB
+dist/assets/NetworkGlobe-DP3AyCkw.css             7.85 kB │ gzip:     2.04 kB
+dist/assets/ServiceNavigation-BhX2DFA_.css       11.28 kB │ gzip:     2.22 kB
+dist/assets/AutomationCenter-Cf9bd1LZ.css        24.36 kB │ gzip:     4.52 kB
+dist/assets/NetworkMap-CosUoMD-.css              28.43 kB │ gzip:     4.47 kB
+dist/assets/index-DL_VO5zN.css                1,046.93 kB │ gzip:   386.64 kB
+dist/assets/service-catalog-BI_U8XFM.js           2.01 kB │ gzip:     0.94 kB
+dist/assets/ServiceNavigation-9UGfmTXE.js        10.05 kB │ gzip:     3.53 kB
+dist/assets/ServiceManagement-CVP-hRAH.js        12.68 kB │ gzip:     4.30 kB
+dist/assets/NodeSpace-BOjZ65KG.js                16.54 kB │ gzip:     7.24 kB
+dist/assets/DeployAgents-qEXOGOyP.js             18.75 kB │ gzip:     7.46 kB
+dist/assets/NetworkMap-CmakD0Pq.js               44.07 kB │ gzip:    16.23 kB
+dist/assets/AutomationCenter-BYeail5N.js        113.51 kB │ gzip:    39.07 kB
+dist/assets/leaflet-src-DTmlu4rB.js             150.16 kB │ gzip:    43.59 kB
+dist/assets/OrbitControls-DFfD2xd4.js           514.26 kB │ gzip:   128.97 kB
+dist/assets/index-c_NL2Lgp.js                 2,559.96 kB │ gzip:   627.42 kB
+dist/assets/NetworkGlobe-tLmLxn6M.js          7,286.47 kB │ gzip: 3,005.30 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 13.52s

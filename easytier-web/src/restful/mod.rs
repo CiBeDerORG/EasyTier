@@ -358,7 +358,7 @@ impl RestfulServer {
             // Asset handlers authenticate the session themselves so errors use
             // their JSON contract, including unauthenticated requests.
             .merge(assets::router())
-            .merge(automation::router())
+            .merge(automation::router(discovery_runtime.settings.clone()))
             .merge(discovery::router())
             .merge(user_admin::router())
             .merge(auth::router().layer(Extension(self.feature_flags.clone())))

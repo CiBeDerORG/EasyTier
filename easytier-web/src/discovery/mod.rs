@@ -10,17 +10,19 @@ use std::{
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard, broadcast};
 
 pub(crate) struct Runtime {
-    pub(crate) runner: Option<crate::restful::automation::runner::Runner>,
-    pub(crate) credentials: deploy_agent::Service,
+    pub(crate) settings: Arc<crate::restful::automation::settings::Settings>,
+    pub(crate) credentials: Arc<deploy_agent::Service>,
     pub(crate) events: broadcast::Sender<Value>,
     locks: Mutex<HashMap<String, Weak<AsyncMutex<()>>>>,
 }
 impl Runtime {
     pub(crate) async fn new(db: Db) -> anyhow::Result<Self> {
         let (events, _) = broadcast::channel(256);
+        let credentials = Arc::new(deploy_agent::Service::new(db.clone()).await?);
+        let settings = Arc::new(crate::restful::automation::settings::Settings::new(db, credentials.clone()).await?);
         Ok(Self {
-            runner: crate::restful::automation::runner::Runner::from_environment(),
-            credentials: deploy_agent::Service::new(db).await?,
+            settings,
+            credentials,
             events,
             locks: Mutex::new(HashMap::new()),
         })

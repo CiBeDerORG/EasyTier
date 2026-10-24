@@ -1,0 +1,12 @@
+✔ administrator saves exact credentials, sees immediate configuration and probes only on click (2226.736061ms)
+✔ mobile settings retain drafts across tabs and keep input after a version conflict (1370.715278ms)
+✔ connection errors remain visible without automatic retry (1226.841477ms)
+✔ ordinary accounts have no global settings entry or requests (930.746241ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6182.626057

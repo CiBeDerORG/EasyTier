@@ -53,6 +53,7 @@ pub(crate) async fn advance(
     requested: Option<(&str, &str)>,
 ) -> Result<Value, crate::db::assets::AssetError> {
     use crate::db::assets::AssetError;
+    let _configuration = runtime.settings.operations.read().await;
     let _device = runtime.lock(format!("device:{owner}:{device}")).await;
     let pool = service.db.inner();
     let row=sqlx::query("SELECT * FROM discovery_endpoint_events WHERE owner_user_id=? AND device_id=? ORDER BY seq DESC LIMIT 1").bind(owner).bind(device).fetch_optional(&pool).await?.ok_or_else(AssetError::not_found)?;
@@ -70,8 +71,8 @@ pub(crate) async fn advance(
         .unwrap_or(json!({"state":"pending"}));
     let _=runtime.events.send(json!({"event_id":event,"owner_user_id":owner,"device_id":device,"endpoint_revision":revision,"cleanup":cleanup,"connection":connection}));
     let automation = AutomationRuntime {
-        runner: runtime.runner.clone(),
-        controls: Mutex::new(HashSet::new()),
+        runner: runtime.settings.runner(),
+        controls: Arc::new(Mutex::new(HashSet::new())),
     };
     if requested.is_some_and(|(_, stage)| stage == "connection") && cleanup["state"] != "confirmed"
     {

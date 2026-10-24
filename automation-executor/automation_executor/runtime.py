@@ -29,6 +29,7 @@ class Session:
 class Runtime:
     def __init__(self, settings):
         from .media import MediaManager
+        from .auth import authorization
         self.settings = settings
         settings.data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.artifact_dir = settings.data_dir / "artifacts"
@@ -37,7 +38,7 @@ class Runtime:
         self.journal.recover()
         self.media = MediaManager()
         self.http = httpx.AsyncClient(timeout=8, follow_redirects=False, trust_env=False,
-                                     headers={b"Authorization": ("Bearer " + settings.token).encode()})
+                                     headers={"Authorization": authorization(settings.token)})
         self.sessions: dict[str, Session] = {}
         self.tasks: dict[str, asyncio.Task] = {}
         self.cancellations: dict[str, asyncio.Event] = {}

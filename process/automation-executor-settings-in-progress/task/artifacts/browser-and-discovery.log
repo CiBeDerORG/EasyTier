@@ -1,0 +1,16 @@
+✔ administrator saves exact credentials, sees immediate configuration and probes only on click (2876.787298ms)
+✔ mobile settings retain drafts across tabs and keep input after a version conflict (1617.718864ms)
+✔ connection errors remain visible without automatic retry (1640.485602ms)
+✔ ordinary accounts have no global settings entry or requests (1152.368067ms)
+✔ explicit scan, reviewed apply and saved endpoint selection with no idle polling (5018.955941ms)
+✔ mobile access settings preserve exact secret and never scan on save (2109.662955ms)
+✔ explicit HTTP access hides and clears CA, preserves the secret and scans only on click (1742.584928ms)
+✔ endpoint events restore only the still-watched screen and never replay input (3084.057362ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12569.208823

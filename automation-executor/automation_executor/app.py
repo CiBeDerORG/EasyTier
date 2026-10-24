@@ -1,7 +1,6 @@
 """Private, authenticated execution API. Run exactly one uvicorn worker."""
 from contextlib import asynccontextmanager
 import fcntl
-import secrets
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -11,6 +10,7 @@ from .config import Settings
 from .errors import ExecutorError
 from .runtime import Runtime
 from .validation import identifier
+from .auth import authenticated
 
 
 @asynccontextmanager
@@ -38,8 +38,7 @@ async def lifespan(app):
 
 async def authenticate(request: Request):
     supplied = request.headers.get("authorization", "")
-    expected = "Bearer " + request.app.state.settings.token
-    if not secrets.compare_digest(supplied.encode("latin-1"), expected.encode()):
+    if not authenticated(supplied, request.app.state.settings.token):
         raise ExecutorError("authentication_required", "执行器认证失败", 401)
 
 
@@ -53,8 +52,7 @@ async def bounded_request(request: Request, call_next):
     # Bound both content-length and chunked bodies before JSON parsing.
     if request.method in ("POST", "PUT", "PATCH"):
         supplied = request.headers.get("authorization", "")
-        expected = "Bearer " + request.app.state.settings.token
-        if not secrets.compare_digest(supplied.encode("latin-1"), expected.encode()):
+        if not authenticated(supplied, request.app.state.settings.token):
             return JSONResponse({"code": "authentication_required", "message": "执行器认证失败"}, status_code=401)
         chunks, size = [], 0
         async for chunk in request.stream():

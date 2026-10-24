@@ -731,9 +731,9 @@ async fn cleanup_failure_blocks_connect_and_explicit_stage_retry_does_not_repeat
         .route("/internal/v1/prepare", post(prepare))
         .with_state(mock.clone());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let mut runtime = Runtime::new(f.db.clone()).await.unwrap();
-    runtime.runner =
-        Runner::configured(&format!("http://127.0.0.1:{port}"), "test-token".repeat(8));
+    let runtime = Runtime::new(f.db.clone()).await.unwrap();
+    runtime.settings.set_runner_for_test(
+        Runner::configured(&format!("http://127.0.0.1:{port}"), "test-token".repeat(8)));
     let first = reconnect::advance(&manager, &service, &runtime, f.g.owner, &did, None)
         .await
         .unwrap();

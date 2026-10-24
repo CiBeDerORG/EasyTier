@@ -2,6 +2,7 @@ import { getApiBase } from './api-host';
 import type {
     AutomationConnection, AutomationContext, AutomationDevice, AutomationPrepareResult,
     AutomationRun, AutomationRunInput, AutomationScript, AutomationScriptInput, AutomationSession,
+    AutomationRunnerSettings, AutomationRunnerSettingsInput, AutomationRunnerCheck,
 } from '../types/automation';
 
 export class AutomationApiError extends Error {
@@ -33,6 +34,9 @@ export default class AutomationApi {
         return data as T;
     }
     context() { return this.request<AutomationContext>('/context'); }
+    runnerSettings() { return this.request<AutomationRunnerSettings>('/settings'); }
+    saveRunnerSettings(body: AutomationRunnerSettingsInput) { return this.request<AutomationRunnerSettings>('/settings', undefined, 'PUT', body); }
+    checkRunner(revision: number) { return this.request<AutomationRunnerCheck>('/settings/check', undefined, 'POST', { revision }); }
     async accounts(): Promise<{ items: { id: number; username: string }[] }> {
         const response = await fetch(`${getApiBase()}/api/v1/assets/accounts`, { credentials: 'include', cache: 'no-store' });
         const data = await response.json();
