@@ -7,8 +7,9 @@ import ApiClient from '../modules/api';
 import type { AssetNode } from '../types/node-assets';
 import { nodeLocationErrors, normalizeNodeLocation } from '../modules/node-location';
 import NodeLocationEditor from './NodeLocationEditor.vue';
+import { getAssetError } from '../composables/useAssetMutation';
 
-type EditableAttributes = Pick<Utils.DeviceAttributes, 'device_model' | 'geo_location'> & { is_public_server: boolean };
+type EditableAttributes = Pick<Utils.DeviceAttributes, 'device_model' | 'geo_location'> & { is_public_server: boolean; public_ip: string | null };
 const props = defineProps<{ device: Utils.DeviceInfo; node: AssetNode; api?: ApiClient }>();
 const emit = defineEmits<{
     close: [];
@@ -24,11 +25,14 @@ const savedAttributes = ref<EditableAttributes>({
     device_model: props.node.device_model ?? null,
     geo_location: normalizeNodeLocation(props.node.geo_location),
     is_public_server: props.node.is_public_server,
+    public_ip: props.node.public_ip ?? null,
 });
 const someChangesSaved = ref(false);
 const deviceModel = ref(props.node.device_model ?? '');
 const geoLocation = ref<Utils.NodeGeoLocation | null>(normalizeNodeLocation(props.node.geo_location));
 const isPublicServer = ref(props.node.is_public_server);
+const publicIp = ref(props.node.public_ip ?? '');
+const publicIpServerError = ref('');
 const geoLookupPending = ref(false);
 const saving = ref(false);
 const saveError = ref('');
@@ -46,9 +50,20 @@ const aliasError = computed(() => aliasLength.value > 64 ? t('web.device.attribu
 const aliasChanged = computed(() => alias.value.trim() !== savedAlias.value);
 const attributesChanged = computed(() => deviceModel.value.trim() !== (savedAttributes.value.device_model ?? '')
     || isPublicServer.value !== savedAttributes.value.is_public_server
+    || (isPublicServer.value ? publicIp.value.trim() || null : null) !== savedAttributes.value.public_ip
     || JSON.stringify(normalizeNodeLocation(geoLocation.value)) !== JSON.stringify(normalizeNodeLocation(savedAttributes.value.geo_location)));
 const hasChanges = computed(() => aliasChanged.value || attributesChanged.value);
 const modelError = computed(() => fieldError(deviceModel.value, 128));
+const publicIpError = computed(() => {
+    if (!isPublicServer.value || !publicIp.value.trim()) return '';
+    const ip = publicIp.value.trim();
+    const ipv4 = ip.split('.');
+    if (ipv4.length === 4 && ipv4.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return '';
+    if (ip.includes(':') && /^[0-9a-fA-F:.]+$/.test(ip)) {
+        try { new URL(`http://[${ip}]/`); return ''; } catch { /* invalid IPv6 */ }
+    }
+    return t('assets.page.public_ip_invalid');
+});
 const geoInvalid = computed(() => Object.keys(nodeLocationErrors(geoLocation.value, (key, values) => values ? t(key, values) : t(key))).length > 0);
 const ipLocationText = computed(() => {
     const parts = [props.device.ip_country, props.device.ip_region, props.device.ip_city].filter(Boolean);
@@ -69,7 +84,7 @@ const observedAt = computed(() => {
 
 const close = () => { if (!saving.value) emit('close'); };
 const save = async () => {
-    if (saving.value || !props.api || !hasChanges.value || aliasError.value || modelError.value || geoInvalid.value || geoLookupPending.value) return;
+    if (saving.value || !props.api || !hasChanges.value || aliasError.value || modelError.value || publicIpError.value || geoInvalid.value || geoLookupPending.value) return;
     const machineId = props.device.machine_id;
     if (props.node.machine_id !== machineId) return;
     const scope = { owner_user_id: props.node.owner_user_id, machine_id: machineId };
@@ -92,19 +107,24 @@ const save = async () => {
                 device_model: deviceModel.value.trim() || null,
                 geo_location: normalizeNodeLocation(geoLocation.value),
                 is_public_server: isPublicServer.value,
+                public_ip: isPublicServer.value ? publicIp.value.trim() || null : null,
             });
             if (disposed || props.device.machine_id !== machineId) return;
             savedAttributes.value = {
                 device_model: attributes.device_model ?? null,
                 geo_location: normalizeNodeLocation(attributes.geo_location),
                 is_public_server: attributes.is_public_server,
+                public_ip: attributes.public_ip ?? null,
             };
+            publicIp.value = attributes.public_ip ?? '';
+            publicIpServerError.value = '';
             someChangesSaved.value = true;
             emit('updated', machineId, savedAttributes.value);
         }
         emit('saved', machineId);
     } catch (error: any) {
         if (disposed || props.device.machine_id !== machineId) return;
+        publicIpServerError.value = getAssetError(error).field_errors.public_ip ?? '';
         saveError.value = t(error?.response?.status === 404
             ? 'web.device.attributes_not_found'
             : 'web.device.attributes_save_failed');
@@ -145,6 +165,15 @@ const save = async () => {
                     <label for="device-public-node">{{ t('assets.page.public_node') }}</label>
                 </div>
                 <small>{{ t('assets.page.public_hint') }}</small>
+                <template v-if="isPublicServer">
+                    <label for="device-public-ip">{{ t('assets.page.public_ip') }}</label>
+                    <InputText id="device-public-ip" v-model="publicIp" :disabled="saving" autocomplete="off"
+                        :placeholder="t('assets.page.public_ip_hint')" :aria-invalid="!!(publicIpError || publicIpServerError)"
+                        aria-describedby="device-public-ip-help" @update:modelValue="publicIpServerError = ''" />
+                    <small id="device-public-ip-help" :class="{ 'attribute-error': publicIpError || publicIpServerError }">
+                        {{ publicIpError || publicIpServerError || t('assets.page.public_ip_hint') }}
+                    </small>
+                </template>
             </div>
             <NodeLocationEditor v-model="geoLocation" :api="api" id-prefix="device-node-geo" :disabled="saving" @lookup-pending="geoLookupPending = $event" />
             <dl class="automatic-attributes">
@@ -158,7 +187,7 @@ const save = async () => {
         <template #footer>
             <Button :label="t('web.common.cancel')" severity="secondary" :disabled="saving" @click="close" />
             <Button :label="t('web.common.save')" icon="pi pi-check" type="submit" form="device-attributes-form"
-                :loading="saving" :disabled="saving || !api || !hasChanges || !!aliasError || !!modelError || geoInvalid || geoLookupPending" />
+                :loading="saving" :disabled="saving || !api || !hasChanges || !!aliasError || !!modelError || !!publicIpError || geoInvalid || geoLookupPending" />
         </template>
     </Dialog>
 </template>

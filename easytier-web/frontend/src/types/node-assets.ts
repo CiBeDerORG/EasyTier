@@ -29,11 +29,13 @@ export interface AssetNode extends AssetScope {
     ip_region: string | null;
     ip_city: string | null;
     is_public_server: boolean;
+    public_ip: string | null;
     device_count: number;
 }
 
 export interface AssetNodeUpdate {
     is_public_server: boolean;
+    public_ip?: string | null;
     site_location: string | null;
     device_model: string | null;
     geo_location?: Utils.NodeGeoLocation | null;
@@ -304,6 +306,8 @@ export interface ServicePublicationInput {
 }
 
 export interface ServicePublication extends ServicePublicationInput {
+    /** Resolved from current public server metadata, not a saved mapping snapshot. */
+    public_ip: string | null;
     server_name: string;
     network_name: string;
     readonly protocols: AssetProtocol[];
