@@ -4,7 +4,7 @@ mod publication;
 pub(crate) mod publication_apply;
 pub(crate) mod runtime;
 
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 
 use axum::{
     Extension, Json, Router,
@@ -252,7 +252,7 @@ const NODE_COLUMNS: &str = "SELECT d.user_id AS owner_user_id, d.machine_id, d.h
     d.site_location, d.device_model, d.connection_ip, d.ip_country, d.ip_region, d.ip_city, \
     g.owner_user_id AS geo_owner_user_id, g.country AS geo_country, g.region AS geo_region, \
     g.city AS geo_city, g.district AS geo_district, g.latitude AS geo_latitude, g.longitude AS geo_longitude, \
-    COALESCE(m.is_public_server, 0) AS is_public_server, \
+    COALESCE(m.is_public_server, 0) AS is_public_server, m.public_ip, \
     (SELECT COUNT(*) FROM asset_devices a WHERE a.owner_user_id = d.user_id AND a.machine_id = d.machine_id) AS device_count \
     FROM devices d LEFT JOIN node_asset_metadata m ON m.owner_user_id = d.user_id AND m.machine_id = d.machine_id \
     LEFT JOIN node_geo_locations g ON g.owner_user_id = d.user_id AND g.machine_id = d.machine_id";
@@ -271,6 +271,7 @@ fn node_json(row: SqliteRow) -> HttpResult<Value> {
         "ip_region": row.try_get::<Option<String>, _>("ip_region").map_err(database_error)?,
         "ip_city": row.try_get::<Option<String>, _>("ip_city").map_err(database_error)?,
         "is_public_server": row.try_get::<i64, _>("is_public_server").map_err(database_error)? != 0,
+        "public_ip": row.try_get::<Option<String>, _>("public_ip").map_err(database_error)?,
         "device_count": row.try_get::<i64, _>("device_count").map_err(database_error)?,
     }))
 }
@@ -332,6 +333,26 @@ fn manual_attribute(body: &Value, field: &str, max: usize) -> HttpResult<Option<
     }
 }
 
+fn public_node_ip(value: &Value) -> HttpResult<Option<String>> {
+    let Some(raw) = value.as_str() else {
+        if value.is_null() { return Ok(None); }
+        return Err(asset_error(AssetError::field("public_ip", "Enter an IPv4/IPv6 address or clear the field.")));
+    };
+    let raw = raw.trim();
+    if raw.is_empty() { return Ok(None); }
+    let ip = raw.parse::<IpAddr>().map_err(|_| asset_error(AssetError::field("public_ip", "Enter a plain IPv4/IPv6 address, without scheme or port.")))?;
+    let valid = match ip {
+        IpAddr::V4(ip) => !ip.is_private() && !ip.is_loopback() && !ip.is_link_local()
+            && !ip.is_unspecified() && !ip.is_multicast() && !ip.is_broadcast(),
+        IpAddr::V6(ip) => !ip.is_loopback() && !ip.is_unspecified() && !ip.is_multicast()
+            && !ip.is_unique_local() && !ip.is_unicast_link_local(),
+    };
+    if !valid {
+        return Err(asset_error(AssetError::field("public_ip", "Use a public IP, not a local, private, wildcard or multicast address.")));
+    }
+    Ok(Some(ip.to_string()))
+}
+
 async fn update_node(
     auth: AuthSession,
     Extension(service): Service,
@@ -346,7 +367,7 @@ async fn update_node(
     let body = body_value(body)?;
     let object = body.as_object().ok_or_else(|| asset_error(AssetError::field("body", "Expected an object.")))?;
     for key in object.keys() {
-        if !["is_public_server", "site_location", "device_model", "geo_location"].contains(&key.as_str()) {
+        if !["is_public_server", "public_ip", "site_location", "device_model", "geo_location"].contains(&key.as_str()) {
             return Err(asset_error(AssetError::field(key, "This field is not editable.")));
         }
     }
@@ -354,6 +375,8 @@ async fn update_node(
         .ok_or_else(|| asset_error(AssetError::field("is_public_server", "Select a valid node role.")))?;
     let location = manual_attribute(&body, "site_location", 256)?;
     let model = manual_attribute(&body, "device_model", 128)?;
+    // Older clients omit public_ip; keep an existing manual address in that case.
+    let supplied_ip = body.get("public_ip").map(public_node_ip).transpose()?;
     let geo_location = body.get("geo_location").map(node_geo::parse_geo_location).transpose()
         .map_err(|error| asset_error(AssetError::field(&error.field, &error.message)))?;
     let _mutation = service.lock_mutations().await;
@@ -367,11 +390,20 @@ async fn update_node(
     if updated.rows_affected() == 0 {
         return Err(asset_error(AssetError::new(404, "asset_node_not_found", "The selected node no longer exists.")));
     }
+    let public_ip = if !is_public {
+        None
+    } else if let Some(value) = supplied_ip {
+        value
+    } else {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT public_ip FROM node_asset_metadata WHERE owner_user_id = ? AND machine_id = ?"
+        ).bind(query.owner_user_id).bind(&node).fetch_optional(&mut *transaction).await.map_err(database_error)?.flatten()
+    };
     sqlx::query(
-        "INSERT INTO node_asset_metadata(owner_user_id, machine_id, is_public_server) VALUES (?, ?, ?) \
-         ON CONFLICT(owner_user_id, machine_id) DO UPDATE SET is_public_server = excluded.is_public_server",
+        "INSERT INTO node_asset_metadata(owner_user_id, machine_id, is_public_server, public_ip) VALUES (?, ?, ?, ?) \
+         ON CONFLICT(owner_user_id, machine_id) DO UPDATE SET is_public_server = excluded.is_public_server, public_ip = excluded.public_ip",
     )
-    .bind(query.owner_user_id).bind(&node).bind(is_public)
+    .bind(query.owner_user_id).bind(&node).bind(is_public).bind(public_ip)
     .execute(&mut *transaction).await.map_err(database_error)?;
     if let Some(location) = geo_location {
         node_geo::write_location(&mut transaction, query.owner_user_id, &node, location.as_ref())

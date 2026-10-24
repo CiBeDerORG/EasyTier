@@ -388,6 +388,12 @@ pub(crate) async fn response(connection: &mut SqliteConnection, owner: i32, node
     result["server_name"] = json!(row.try_get::<String,_>("server_name")?);
     result["network_name"] = json!(row.try_get::<String,_>("network_name")?);
     result["dst_ip"] = json!(row.try_get::<String,_>("dst_ip")?);
+    // Resolve from the server metadata on read: a later IP correction updates
+    // every published service without rewriting port-forward ownership records.
+    let public_ip: Option<String> = sqlx::query_scalar(
+        "SELECT CASE WHEN is_public_server = 1 THEN public_ip ELSE NULL END FROM node_asset_metadata WHERE owner_user_id = ? AND machine_id = ?"
+    ).bind(owner).bind(&publication.machine_id).fetch_optional(&mut *connection).await?.flatten();
+    result["public_ip"] = json!(public_ip);
     result["protocols"] = json!(publication.rules.iter().filter_map(|rule| rule["proto"].as_str()).collect::<Vec<_>>());
     Ok(result)
 }
