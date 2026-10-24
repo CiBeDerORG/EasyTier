@@ -2,7 +2,7 @@
 
 |需求|状态|进度及问题|
 |---|---|---|
-|[镜像构建提速](image-build-acceleration-in-progress/README.md)|第二阶段实现中|`feat/automation-center` 合并 Web 原生编译、并行执行发布回归测试、按源码版本滚动保存 Cargo 产物；保留网页管理及两个 Web 启动入口，等待本轮 push 自动构建实测。|
+|[镜像构建提速](image-build-acceleration-in-progress/README.md)|第二阶段构建、测试与发布通过|`38fa65f9` 的自动运行 #23 全部成功，13分30秒，比最近旧流程 #22 的23分45秒减少43.2%；13个缓存边界测试和20个publication回归通过，amd64镜像已发布验证、未部署。首次测试缓存已保存，后续热缓存收益尚未实测。|
 |[自动化中心 push 自动构建](automation-push-build-in-progress/README.md)|自动触发已恢复，构建中|`44e21624` 已通过 push 启动运行 #21，14:18 查询时前端/原生编译进行中；amd64 镜像尚未确认发布。|
 |[全局完整性审计](global-integrity-audit-in-progress/README.md)|发现未闭环，修复待跟进|包含地图合并后的当前分支、关联 deploy Agent 和手机执行器；测试通过与实际缺口分开记录，见[报告](global-integrity-audit-in-progress/task/test-report.md)。用户已确认手动服务导入为必做范围。|
 |[OpenWrt发现同步与手机ADB联动](openwrt-discovery-sync-in-progress/README.md)|代码和模拟验证通过|feat/automation-center；普通发现/覆盖、唯一ADB服务、公开目标同步、单机退出和画面恢复已实现；[验证记录](openwrt-discovery-sync-in-progress/task/test-report.md)、[升级回退](openwrt-discovery-sync-in-progress/task/delivery-record.md)。实机验收另行安排，未发布部署。|
