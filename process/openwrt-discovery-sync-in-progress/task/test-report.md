@@ -27,8 +27,12 @@
 - 本地测试、构建、类型检查、lint、语法检查及手动 Actions：**未执行**，沿用项目本轮 push 自动构建路径。
 - 修复提交 `724d09bc113fad29d35fb5dfc3dd650ff76e75c4` 已推送至 `feat/automation-center`；自动 [EasyTier GHCR Image #24](https://github.com/CiBeDerORG/EasyTier/actions/runs/40076510493) 于北京时间 16:02:54 启动。
 - 已读取 [#24 回归任务完整日志](https://github.com/CiBeDerORG/EasyTier/actions/runs/40076510493/job/120820881668)：**11 项 LuCI 客户端回归全部通过（0.38 秒）**，同时 **20 项 publication 通过（0.22 秒）、13 项缓存边界通过（0.390 秒）**。这是真实环回 HTTP/HTTPS 测试，包含受限角色拒绝额外 `session.access` 的场景；不是用户路由器实测。
-- #24 单次原生生产编译已经成功，用时 9 分 16 秒；镜像装配与发布结果待本次运行结束后补记。
+- #24 所有任务已成功，UTC 08:02:54–08:15:06，全流程 **12 分 12 秒**；单次原生生产编译 9 分 16 秒，镜像装配与烟测任务 55 秒。已发布并验证 `ghcr.io/cibederorg/easytier:feat-automation-center` 的 amd64 镜像，索引摘要 `sha256:5758dfbed4185a2d02d7793d648e029e0353217672b2fef244f33f49768c0af4`；发布日志确认匿名拉取验证成功。
 - 日志同时发现两个连续 Cargo 测试命令分别重新编译 3 分 13 秒和 3 分 07 秒。后续仅将测试脚本改为单次 Cargo、在 libtest 中取两组筛选的并集，保留业务修复及所有 31 项回归；对应脚本执行与镜像结果将单独补记，见[构建提速记录](../../image-build-acceleration-in-progress/task/test-report.md)。
+- 测试调度修正已随 `f37049eccfcde64df0abd59cd86f2cc365ab4b74` 推送，自动 [#25](https://github.com/CiBeDerORG/EasyTier/actions/runs/40077317133) 全部成功，UTC **08:15:20–08:26:16，共 10 分 56 秒**。原生任务在 **13 秒**内完成，精确复用上述业务修复版本的整包产物，并保留原始来源 `724d09bc`；前端任务 1 分钟，镜像装配与烟测任务 50 秒。
+- [#25 回归日志](https://github.com/CiBeDerORG/EasyTier/actions/runs/40077317133/job/120823368047) 确认只有一次 Cargo 编译和一次测试程序执行，**31 项通过、0 失败，0.69 秒**；逐条通过记录包含 20 项 publication 与 11 项 LuCI。另有 **13 项缓存边界测试通过，0.474 秒**。两组至少执行一项真实测试的门禁也已通过。
+- #25 测试缓存的构建环境分区与 #24 不同，正式恢复明确未命中，未恢复源码时间戳；本次冷缓存测试编译用时 **9 分 14 秒**。成功后记录 666 项输入并保存新分区缓存。已证明单次 Cargo 消除了第二次编译，但不能把本轮冷缓存耗时当作同环境热缓存提速实测。
+- 最新已发布镜像仍为 `ghcr.io/cibederorg/easytier:feat-automation-center`，`linux/amd64`；[发布与拉取验证](https://github.com/CiBeDerORG/EasyTier/actions/runs/40077317133/job/120825356374) 通过，索引摘要 **`sha256:36c2fca0d951ea6c710d5322ff9426ade9b1306bb4765582db8242119e57e535`**，镜像 revision 为 `f37049ec`，原生业务程序来源为 `724d09bc`。
 - 用户路由器、真实 OpenWrt 扫描、NAS 容器更新：**未执行**。本轮不修改路由器授权、不替换用户密码、不部署生产容器。
 
 ### 后续确认范围
