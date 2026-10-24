@@ -1,6 +1,6 @@
 # EasyTier 手机执行器
 
-本目录是执行器源码和部署材料。本轮已完成 journal、调度和退出协议的模拟测试；媒体依赖集、镜像构建与实机测试未执行。以下部署命令供实机验收时使用，结果见 [本轮验证记录](../process/openwrt-discovery-sync-in-progress/task/test-report.md)。
+本目录是独立手机执行器源码与部署材料。主服务镜像不包含执行器。`feat/automation-center` 推送执行器相关变更会独立构建并在冒烟检查通过后发布 `linux/amd64` 镜像到 `ghcr.io/cibederorg/easytier-automation-executor:feat-automation-center`；也提供 `sha-<完整提交号>` 固定版本标签。镜像构建及真机验收结果以对应 Actions 为准，不将配置文件存在视为已部署。历史验证见 [记录](../process/openwrt-discovery-sync-in-progress/task/test-report.md)。
 
 ## 部署位置与配置
 
@@ -29,11 +29,15 @@ token示例故意留空，必须填写随机私有值后才能启动。视频会
 凭证传输保留原值：普通可打印 ASCII Token 继续使用原有 Bearer；含空格或非 ASCII 字符的 Token 使用 `AutomationToken <UTF-8 Base64>`，防止 HTTP 头裁剪空白或改变编码。此类 Token 需要主服务和执行器同时更新；两端均兼容原有 Bearer 认证。Base64 仅是传输编码，连接保护仍取决于 HTTP/HTTPS 和部署网络。
 
 ```sh
-docker compose build
+cd automation-executor
+cp .env.example .env
+# 填入 AUTOMATION_TOKEN（至少 32 字节）、实际 AUTOMATION_CALLBACK_URL；
+# 跨主机访问时明确设置 AUTOMATION_BIND_IP 为可达的受信任私网监听地址。
+docker compose pull
 docker compose up -d
 ```
 
-以上操作本轮未执行。启动时用文件锁拒绝第二个管理进程；不得设置多个uvicorn workers或让多个容器共用该数据卷运行。生产站点浏览器只访问Rust入口，执行器HTTP只开放可信私网接口，不对浏览器发放其token。ADB server的5037端口不对外发布。
+独立镜像由 [Automation Executor Image](../.github/workflows/automation-executor-image.yml) 在执行器源码或自身工作流变化时构建发布，不需要重新编译 Rust 主服务。仅本地开发需要源码重建时，可以在此目录执行 `docker build -t ghcr.io/cibederorg/easytier-automation-executor:feat-automation-center .` 后再执行 `docker compose up -d --pull never`。以上部署操作还需在实际主机验收。启动时用文件锁拒绝第二个管理进程；不得设置多个uvicorn workers或让多个容器共用该数据卷运行。生产站点浏览器只访问Rust入口，执行器HTTP只开放可信私网接口，不对浏览器发放其token。ADB server的5037端口不对外发布。
 
 自动化页面与Rust API目前要求同源。反向代理须保留Host并转发WebSocket Upgrade；Rust与Runner需私网互通，AUTOMATION_CALLBACK_URL必须从Runner可达Rust。信令HTTP连通不代表WebRTC ICE媒体路径已经可达。
 
@@ -65,7 +69,7 @@ docker compose up -d
 
 ## 版本与维护
 
-直接Python依赖已固定在requirements.txt；transitive依赖锁和镜像构建尚未验证。uiautomator2 3.7.1依据本地已读取仓库tag，aiortc1.13/PyAV14组合来自现有编码包适配方向。scrcpy-server5.0.1固定并校验摘要；platform-tools固定35.0.2下载URL，独立制品摘要还需在交付验证时固化。
+直接 Python 依赖已固定在 requirements.txt；`aiortc==1.13.0` 搭配具备 Python 3.12 / Linux x86_64 wheel 的 `av==14.2.0`，Docker 构建要求 PyAV 使用预编译包，避免原 `av==14.4.0` 缺 wheel 时在精简镜像上源码编译失败。传递依赖锁与真机 H.264 媒体验证仍待完成。uiautomator2 3.7.1 依据本地已读取仓库 tag。scrcpy-server5.0.1固定并校验摘要；platform-tools固定35.0.2下载URL，独立制品摘要还需在交付验证时固化。
 
 升级前手动停止接纳和完成/取消任务，备份execution.sqlite3及其WAL一致快照、artifacts和ADB密钥。不会自动恢复旧任务。journal或磁盘故障不返回“任务接收成功”。文件容量满时截图步骤明确失败，不掩盖已有任务记录。
 
