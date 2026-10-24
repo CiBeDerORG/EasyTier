@@ -151,3 +151,11 @@ ODS-T01–T20 完成；ODS-T21 按用户指示另行实机安排；ODS-T22 的�
 - 前端目录 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium WEB_SCREENSHOT_DIR=/tmp/map-merge-screenshots node --test --test-name-pattern='device-owned navigation works|global editing updates|globe reaches|co-located and nearby|a gateway self device|multiple gateways remain|asset-backed 3D map and services' tests/network-space.test.mjs`：**7 passed / 0 failed**，约 45.92 秒；[浏览器日志](artifacts/automated/map-merge-browser.log)。
 - 验证服务访问/卡片操作、服务编辑删除、区域与城市缩放/行政标签、同址/邻近节点与线路选择、单/多网关自身设备及桌面/移动布局。使用模拟 API 和 Chromium WebGL，无真实设备写入。
 - `git diff --check` 通过。保留来源分支已有的离线行政数据大包提示，以及现有 Browserslist/pnpm 提示；未调整依赖、构建脚本或数据精度。
+
+### 推送结果与云端构建阻塞
+
+- 合并提交 [`d2423142`](https://github.com/CiBeDerORG/EasyTier/commit/d2423142cd1bf744d34c427b7e079d966cfd0821) 已成功推送到 `feat/automation-center`，远端引用经 `git ls-remote` 确认一致。两个父提交分别为目标基线 `3f8baf31` 和来源分支 `c23534da`，工作区干净。
+- 推送后多次读取 GitHub Actions 工作流页及分支列表，仍只看到旧运行，没有发现合并提交对应的新运行；未确认 push 自动触发成功，原因尚未确定。
+- 已尝试 `gh workflow run node-attributes-image.yml --repo CiBeDerORG/EasyTier --ref feat/automation-center -f architecture=amd64`，包括申请额外执行权限后重试，均在读取 GitHub API 时返回 `Forbidden`，尚未发送成功的 workflow_dispatch 请求。当前环境网络允许列表不含 `api.github.com`；这不是自动审批拒绝，也不代表仓库构建失败。
+- **云端镜像构建尚未确认启动，未发布或部署。** 本地前端构建通过不能代替云端镜像构建成功。待允许访问 GitHub API 后可重试上述命令，或在 [EasyTier GHCR Image](https://github.com/CiBeDerORG/EasyTier/actions/workflows/node-attributes-image.yml) 页面选择 `feat/automation-center`、`amd64` 后点击 Run workflow。
+- 构建成功后预期更新镜像 `ghcr.io/cibederorg/easytier:feat-automation-center`。本条记录通过独立的纯文档提交保存，使用 `[skip ci]`，不重复修改功能代码或工作流。
