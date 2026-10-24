@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { v4 as uuid } from 'uuid';
 import { Button, Dialog, InputText, Message } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
@@ -38,6 +39,16 @@ async function perform(action?: 'pair' | 'connect' | 'inspect' | 'automation') {
         if (!action) return;
         const body = action === 'pair' ? { action, pairing_port: pairingPort.value, code: pairingCode.value } : { action };
         pairingCode.value = '';
+        // Pairing must not bypass the saved-endpoint retirement fence. Retry its
+        // durable cleanup event first and only pair after the server confirms it.
+        if (action === 'pair' && target.endpoint_event?.cleanup?.state !== 'confirmed') {
+            const event = target.endpoint_event;
+            if (!event?.event_id) throw new Error(t('endpointCleanupPending'));
+            const cleanup = await api.retryEndpoint(owner, target.id, event.event_id, {
+                request_id: uuid(), stage: 'cleanup',
+            }) as { cleanup?: { state?: string } };
+            if (cleanup?.cleanup?.state !== 'confirmed') throw new Error(t('endpointCleanupPending'));
+        }
         const observed = await api.prepare(owner, target.id, body);
         if (mine !== generation) return;
         result.value = observed;
