@@ -177,14 +177,14 @@ impl Store {
                 "Another service uses this TCP port. Confirm its service type in the device service editor.",
             ));
         }
-        let mut phone:Option<String>=sqlx::query_scalar("SELECT id FROM asset_device_types WHERE owner_user_id=? AND semantic_kind='phone' ORDER BY id LIMIT 1").bind(g.owner).fetch_optional(&mut *tx).await?;
+        let mut phone:Option<String>=sqlx::query_scalar("SELECT id FROM asset_device_types WHERE owner_user_id=? AND EXISTS (SELECT 1 FROM json_each(semantic_kinds) WHERE value='phone') ORDER BY id LIMIT 1").bind(g.owner).fetch_optional(&mut *tx).await?;
         if phone.is_none() {
             let id = Uuid::new_v4().to_string();
-            sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,semantic_kind,created_at,updated_at) VALUES(?,?,?,'phone',?,?)").bind(&id).bind(g.owner).bind(format!("手机 · {}",&id[..8])).bind(now()).bind(now()).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,semantic_kind,semantic_kinds,created_at,updated_at) VALUES(?,?,?,'phone','["phone"]',?,?)").bind(&id).bind(g.owner).bind(format!("手机 · {}",&id[..8])).bind(now()).bind(now()).execute(&mut *tx).await?;
             phone = Some(id);
         }
         // Preserve an existing confirmed phone subtype; never choose an unclassified name.
-        sqlx::query("UPDATE asset_devices SET device_type_id=?,updated_at=? WHERE id=? AND NOT EXISTS(SELECT 1 FROM asset_device_types WHERE id=asset_devices.device_type_id AND semantic_kind='phone')").bind(phone).bind(now()).bind(&did).execute(&mut *tx).await?;
+        sqlx::query("UPDATE asset_devices SET device_type_id=?,updated_at=? WHERE id=? AND NOT EXISTS(SELECT 1 FROM asset_device_types WHERE id=asset_devices.device_type_id AND EXISTS (SELECT 1 FROM json_each(semantic_kinds) WHERE value='phone'))").bind(phone).bind(now()).bind(&did).execute(&mut *tx).await?;
         let changed = service.as_ref().is_none_or(|s| {
             s.get::<i64, _>("port") != port || s.get::<String, _>("connection_mode") != "wireless"
         });
