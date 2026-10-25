@@ -60,3 +60,13 @@ CARGO_NET_OFFLINE=true cargo test -p easytier-web
 本机未执行 Docker 拉取/运行；上述匿名远端核验范围是 manifest 与镜像配置。容器启动和镜像拉取检查由成功的发布工作流执行。未读取需要 GitHub 登录的完整任务日志，因此不将历史测试条数写成本轮 CI 条数。
 
 本轮未执行：重复本地测试、类型检查或构建，真实 Android/OpenWrt/fnOS 验收、独立执行器镜像构建和实机部署。主镜像不包含独立 Python 执行器；特殊字符 Token 的双端更新要求及媒体依赖待处理边界仍适用。发布后的补记仅包含文档与公开状态/摘要证据，沿用 `process/**` 忽略规则，不重复触发镜像构建。
+
+## 2026-10-25 执行器容量迁入 EasyTier 设置
+
+- 需求：管理员在「自动化中心 → 设置 → 执行器容量」配置运行并发、待处理任务、投屏会话、投屏启动并发；只提供建议值，不使用此前 5/30/10/2 等任意固定上限。
+- 设计：新增独立的管理员专用 GET/PUT `/api/v1/automation/settings/capacity`，Rust 转发到已配置且认证的执行器 `/internal/v1/settings/capacity`，核验 executor_id，保存时执行 revision CAS。
+- 执行器：容量保存在已有 `execution.sqlite3` 的 metadata；变更 `FairDeviceSlots` 可直接增加/减少运行槽，媒体启动槽也改为动态公平槽，媒体会话数和 pending limit 读取运行时配置。收缩容量时不终止正在运行的设备动作。容器重启后从 SQLite 恢复。
+- 前端：新增 `ExecutorCapacitySettings.vue`，展示推荐值 5/30/10/2，允许输入更大正整数并在超过推荐时提示资源风险；脚本运行/重跑取消写死的五路并发 cap。
+- 部署：`CiBeDerORG/deploy` main 同步移除部署脚本四个资源参数硬范围，保留首次安装 env 默认值；页面保存后以执行器数据库为准。
+- 验证：新执行器配置热更新、重启持久化、降低并发不打断已执行作业等自动化单元测试已加入。首次执行器 CI #40185082950 中新测试通过，旧 PhantomRegistrationTests 的 SimpleNamespace 依赖未同步导致 3 项失败；已修复后重新启动 #40185248849，需以后续真实结果为准。
+- 风险/待验收：主服务 Rust/Vue CI 结果及 GHCR 完整发布待确认；FnOS 实际数据卷持久化、管理员鉴权、最大资源压力仍待真机验证。不得将用户可填较大的数解释为无限 CPU/内存。
