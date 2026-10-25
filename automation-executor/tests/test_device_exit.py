@@ -87,7 +87,10 @@ class JournalTests(unittest.TestCase):
 class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.directory=tempfile.TemporaryDirectory()
-        media=ModuleType('automation_executor.media');media.MediaManager=lambda:SimpleNamespace(close_all=AsyncMock())
+        media=ModuleType('automation_executor.media')
+        media.MediaManager=lambda:SimpleNamespace(
+            close_all=AsyncMock(), _max_sessions=10,
+            _starting=FairDeviceSlots(2), _lock=asyncio.Lock())
         self.media_patch=patch.dict(sys.modules,{'automation_executor.media':media});self.media_patch.start()
         settings=SimpleNamespace(data_dir=Path(self.directory.name),token='x'*32,max_running=3,max_pending=10,
                                  callback_url='http://test.invalid',adb_binary='adb',max_artifact_bytes=10000000)
@@ -97,6 +100,49 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.runtime.shutdown();self.media_patch.stop();self.adb_patch.stop();self.directory.cleanup()
+
+    async def test_capacity_settings_have_no_arbitrary_cap_and_survive_restart(self):
+        first = self.runtime.runtime_limits()
+        self.assertEqual(first["max_running"], 3)
+        request = {
+            "revision": first["revision"], "max_running": 25,
+            "max_pending": 200, "max_media_sessions": 50, "max_media_starting": 8,
+        }
+        saved = await self.runtime.save_runtime_limits(request)
+        self.assertEqual(saved["max_running"], 25)
+        self.assertEqual(self.runtime.capacity.limit, 25)
+        self.assertEqual(self.runtime.media._max_sessions, 50)
+        self.assertEqual(self.runtime.media._starting.limit, 8)
+        with self.assertRaises(ExecutorError) as conflict:
+            await self.runtime.save_runtime_limits(request)
+        self.assertEqual(conflict.exception.code, "limits_revision_conflict")
+        # Re-open the SQLite journal using a new runtime, without replaying
+        # previous actions and without changing the persistent executor id.
+        other = Runtime(self.runtime.settings)
+        try:
+            self.assertEqual(other.runtime_limits()["max_pending"], 200)
+            self.assertEqual(other.runtime_limits()["max_running"], 25)
+            self.assertEqual(other.runtime_limits()["executor_id"], saved["executor_id"])
+        finally:
+            await other.shutdown()
+
+    async def test_reducing_capacity_does_not_abort_active_device(self):
+        slots = self.runtime.capacity
+        await slots.acquire("A")
+        await slots.acquire("B")
+        await self.runtime.save_runtime_limits({
+            "revision": 0, "max_running": 1, "max_pending": 10,
+            "max_media_sessions": 10, "max_media_starting": 2,
+        })
+        self.assertEqual(slots.running, 2)
+        blocked = asyncio.create_task(slots.acquire("C"))
+        await asyncio.sleep(0)
+        self.assertFalse(blocked.done())
+        await slots.release()
+        self.assertFalse(blocked.done())
+        await slots.release()
+        await asyncio.wait_for(blocked, 1)
+        await slots.release()
 
     async def test_session_identity_rejects_replacement_executor_before_side_effects(self):
         runtime=self.runtime; sid=str(uuid4()); a=target()
