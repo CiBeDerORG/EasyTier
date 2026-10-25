@@ -83,6 +83,16 @@ async def unexpected_error(_request, exc):
     return JSONResponse({"code": "executor_error", "message": "执行器未能完成操作，结果需核实"}, status_code=500)
 
 
+@app.get("/internal/v1/settings/capacity")
+async def capacity_settings(request: Request):
+    return request.app.state.runtime.runtime_limits()
+
+
+@app.put("/internal/v1/settings/capacity")
+async def save_capacity_settings(request: Request, body: dict):
+    return await request.app.state.runtime.save_runtime_limits(body)
+
+
 @app.get("/internal/v1/health")
 async def health(request: Request):
     return request.app.state.runtime.health()
