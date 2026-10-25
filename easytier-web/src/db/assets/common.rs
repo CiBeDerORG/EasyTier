@@ -95,12 +95,20 @@ pub(crate) async fn ensure_device(connection: &mut SqliteConnection, owner: i32,
     Ok(())
 }
 
+pub(crate) fn parse_semantic_kinds(raw: &str) -> AssetResult<Vec<String>> {
+    serde_json::from_str(raw).map_err(|error| {
+        tracing::error!(%error, "Invalid stored device semantic kinds");
+        AssetError::new(500, "asset_semantics_corrupt", "The device type semantics could not be loaded.")
+    })
+}
+
 pub(crate) fn type_json(row: &SqliteRow) -> AssetResult<Value> {
     Ok(json!({
         "id": row.try_get::<String, _>("id")?,
         "owner_user_id": row.try_get::<i32, _>("owner_user_id")?,
         "name": row.try_get::<String, _>("name")?,
         "semantic_kind": row.try_get::<Option<String>, _>("semantic_kind")?,
+        "semantic_kinds": parse_semantic_kinds(&row.try_get::<String, _>("semantic_kinds")?)?,
         "created_at": row.try_get::<String, _>("created_at")?,
         "updated_at": row.try_get::<String, _>("updated_at")?,
     }))
@@ -151,8 +159,17 @@ pub(crate) async fn device_json(connection: &mut SqliteConnection, row: &SqliteR
     let name: String = row.try_get("name")?;
     let group: Option<String> = row.try_get("gateway_group_id")?;
     let lan: Option<String> = row.try_get("lan_ip")?;
-    let semantic: Option<String> = sqlx::query_scalar("SELECT semantic_kind FROM asset_device_types WHERE id=? AND owner_user_id=?")
-        .bind(row.try_get::<Option<String>,_>("device_type_id")?).bind(owner).fetch_optional(&mut *connection).await?.flatten();
+    let type_row = sqlx::query("SELECT semantic_kind,semantic_kinds FROM asset_device_types WHERE id=? AND owner_user_id=?")
+        .bind(row.try_get::<Option<String>,_>("device_type_id")?).bind(owner).fetch_optional(&mut *connection).await?;
+    let semantic: Option<String> = type_row.as_ref()
+        .map(|record| record.try_get::<Option<String>, _>("semantic_kind"))
+        .transpose()?.flatten();
+    let semantic_kinds = type_row.as_ref()
+        .map(|record| record.try_get::<String, _>("semantic_kinds"))
+        .transpose()?
+        .map(|raw| parse_semantic_kinds(&raw))
+        .transpose()?
+        .unwrap_or_default();
     let discovery: Option<String> = row.try_get("discovery_json")?;
     let mode: String = row.try_get("address_mode")?;
     let instance: Option<String> = row.try_get("network_instance_id")?;
@@ -172,7 +189,7 @@ pub(crate) async fn device_json(connection: &mut SqliteConnection, row: &SqliteR
         }
     }
     Ok(json!({"id":id,"owner_user_id":owner,"machine_id":node,"name":name,
-        "semantic_kind":semantic,"endpoint_revision":row.try_get::<i64,_>("endpoint_revision")?,
+        "semantic_kind":semantic,"semantic_kinds":semantic_kinds,"endpoint_revision":row.try_get::<i64,_>("endpoint_revision")?,
         "discovery":discovery.as_deref().and_then(|s|serde_json::from_str::<Value>(s).ok()),
         "display_name_manual":row.try_get::<bool,_>("display_name_manual")?,
         "gateway_group_id":group,"device_type_id":row.try_get::<Option<String>,_>("device_type_id")?,
