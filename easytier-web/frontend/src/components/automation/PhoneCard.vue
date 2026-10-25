@@ -33,7 +33,6 @@ const floatingStyle = computed(() => ({
         : menuOpen.value ? '4px' : '-24px',
     top: `${anchorFraction.value * 100}%`,
 }));
-const menuDirection = computed(() => anchorFraction.value < 0.48 ? 'down' : 'up');
 let drag: { id: number; firstX: number; firstY: number; firstFraction: number; moved: boolean } | null = null;
 let suppressOrbClick = false;
 let frameCallback: number | null = null;
