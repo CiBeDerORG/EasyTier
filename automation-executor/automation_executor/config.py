@@ -28,7 +28,7 @@ class Settings:
         return cls(
             token, callback, Path(os.environ.get("AUTOMATION_DATA_DIR", "/var/lib/easytier-automation")),
             os.environ.get("AUTOMATION_ADB_BINARY", "adb"),
-            min(5, max(1, int(os.environ.get("AUTOMATION_MAX_RUNNING", "3")))),
-            min(100, max(1, int(os.environ.get("AUTOMATION_MAX_PENDING", "30")))),
+            max(1, int(os.environ.get("AUTOMATION_MAX_RUNNING", "3"))),
+            max(1, int(os.environ.get("AUTOMATION_MAX_PENDING", "30"))),
             min(1024 * 1024 * 1024, max(1024 * 1024, int(os.environ.get("AUTOMATION_ARTIFACT_BYTES", "104857600")))),
         )
