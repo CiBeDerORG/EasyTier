@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test:agent": "pnpm build && node --test tests/deploy-agents.test.mjs",
     "test:agent:integration": "node tests/deploy-agent-integration.mjs",
-    "test:unit": "node --test --experimental-strip-types tests/network-space-unit.test.mjs tests/registered-map-topology.test.mjs tests/node-map-assets.test.mjs tests/globe-geometry.test.mjs",
+    "test:unit": "node --test --experimental-strip-types tests/network-space-unit.test.mjs tests/registered-map-topology.test.mjs tests/node-map-assets.test.mjs tests/globe-geometry.test.mjs tests/service-public-links.test.mjs",
     "test:network-space": "pnpm build && node --test tests/network-space.test.mjs",
     "test:browser": "pnpm build && node --test tests/dashboard.test.mjs tests/network-space.test.mjs",
     "test:e2e": "pnpm build && cargo build -p easytier-web --features embed && node --test tests/central-e2e.test.mjs"
