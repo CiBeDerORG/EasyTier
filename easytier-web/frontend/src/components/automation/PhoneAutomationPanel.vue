@@ -22,6 +22,7 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 const activeStates = new Set(['queued', 'running', 'cancel_requested']);
 const labels: Record<string,string> = {
     ready:'已就绪', not_prepared:'未准备', preparing:'准备中',
+    checking:'查询中', query_failed:'查询失败',
     adb_unavailable:'ADB离线', unavailable:'控件不可用',
     queued:'排队中', running:'初始化中', cancel_requested:'停止中',
     succeeded:'准备成功', failed:'准备失败', interrupted:'已中断',
