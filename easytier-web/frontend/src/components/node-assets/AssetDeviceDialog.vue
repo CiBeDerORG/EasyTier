@@ -296,7 +296,7 @@ onBeforeUnmount(() => { disposed = true; generation += 1; previewGeneration += 1
                     <span>{{ t('assets.deviceLanIp') }}: <code>{{ device.lan_ip || '—' }}</code></span>
                 </div>
                 <template v-if="showMetadata">
-                    <div v-if="device?.is_gateway_self && device.semantic_kind === 'openwrt'" class="field"><Button label="OpenWrt 发现接入设置" icon="pi pi-cog" outlined type="button" :disabled="locked" @click="showDiscovery = true" /></div>
+                    <div v-if="device?.is_gateway_self && (device.semantic_kinds?.includes('openwrt') || device.semantic_kind === 'openwrt')" class="field"><Button label="OpenWrt 发现接入设置" icon="pi pi-cog" outlined type="button" :disabled="locked" @click="showDiscovery = true" /></div>
                     <div class="device-field full-width">
                         <label for="asset-device-name">{{ t('assets.deviceName') }} *</label>
                         <InputText id="asset-device-name" v-model="form.name" autocomplete="off" :disabled="locked"
