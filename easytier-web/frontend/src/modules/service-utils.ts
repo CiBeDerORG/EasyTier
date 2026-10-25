@@ -1,4 +1,5 @@
 import type { ServiceEntry, ServiceInput } from './network-space';
+import type { AssetService } from '../types/node-assets';
 
 export const serviceIcons = {
     home: 'pi-home', photos: 'pi-images', media: 'pi-play-circle', chart: 'pi-chart-line',
@@ -15,6 +16,37 @@ export function safeServiceUrl(value: string): string | null {
     } catch {
         return null;
     }
+}
+
+export type ServiceAccessLink = { kind: 'internal' | 'public'; url: string };
+
+ /** Browser access to a public mapping uses the actual selected public-server IP and listener port.
+  * Keep the service's scheme, path, query and fragment: the port forward only changes its authority.
+  * Do not invent a browser URL for a UDP-only mapping or a non-HTTP service.
+  */
+export function publicServiceUrl(service: Pick<AssetService, 'access_url' | 'publication'>): string | null {
+    const internal = safeServiceUrl(service.access_url || '');
+    const publication = service.publication;
+    if (!internal || !publication?.public_ip || !publication.protocols?.includes('tcp')
+        || !Number.isInteger(publication.bind_port) || publication.bind_port < 1 || publication.bind_port > 65535) return null;
+    const ip = publication.public_ip.trim().replace(/^\[|\]$/g, '');
+    if (!ip || !/^[a-z0-9.:-]+$/i.test(ip)) return null;
+    try {
+        const original = new URL(internal);
+        const host = ip.includes(':') ? `[${ip}]` : ip;
+        const publicUrl = new URL(`${original.protocol}//${host}:${publication.bind_port}${original.pathname}${original.search}${original.hash}`);
+        const safe = safeServiceUrl(publicUrl.href);
+        return safe && safe !== internal ? safe : null;
+    } catch {
+        return null;
+    }
+}
+
+export function serviceAccessLinks(service: Pick<AssetService, 'access_url' | 'publication'>): ServiceAccessLink[] {
+    const internal = safeServiceUrl(service.access_url || '');
+    const published = publicServiceUrl(service);
+    return [...(internal ? [{ kind: 'internal' as const, url: internal }] : []),
+        ...(published ? [{ kind: 'public' as const, url: published }] : [])];
 }
 
 export function serviceInput(entry: ServiceEntry): ServiceInput {
