@@ -12,6 +12,7 @@ from uuid import uuid4
 from automation_executor.errors import ExecutorError
 from automation_executor.journal import Journal
 from automation_executor.runtime import Runtime
+from automation_executor.scheduler import FairDeviceSlots
 
 
 def target(ip='10.60.1.20'):
@@ -30,6 +31,37 @@ def run_body(journal, targets):
     return dict(id=str(uuid4()), name='two phones', owner_user_id=1, actor_user_id=1,
                 expected_executor_id=journal.executor_id, targets=targets, concurrency=2, parameters={},
                 steps=[dict(id=str(uuid4()), type='key', key='HOME'), dict(id=str(uuid4()), type='key', key='BACK')])
+
+
+class FairSchedulingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_round_robin_across_runs_and_cancelled_waiter_does_not_leak(self):
+        slots = FairDeviceSlots(1)
+        await slots.acquire("hold")
+        completed = []
+        async def wait(run_id, token):
+            await slots.acquire(run_id)
+            try:
+                completed.append(token)
+            finally:
+                await slots.release()
+        a1 = asyncio.create_task(wait("A", "A1"))
+        a2 = asyncio.create_task(wait("A", "A2"))
+        b1 = asyncio.create_task(wait("B", "B1"))
+        b2 = asyncio.create_task(wait("B", "B2"))
+        await asyncio.sleep(0)
+        await slots.release()
+        await asyncio.wait_for(asyncio.gather(a1,a2,b1,b2), 2)
+        self.assertEqual(completed, ["A1", "B1", "A2", "B2"])
+        self.assertEqual(slots.running, 0)
+        await slots.acquire("hold")
+        cancelled = asyncio.create_task(slots.acquire("C"))
+        await asyncio.sleep(0)
+        cancelled.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await cancelled
+        await slots.release()
+        self.assertEqual(slots.running, 0)
+        self.assertEqual(len(slots._waiting), 0)
 
 
 class JournalTests(unittest.TestCase):

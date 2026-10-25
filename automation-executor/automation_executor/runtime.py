@@ -11,6 +11,7 @@ from . import PROTOCOL_VERSION
 from . import adb, validation
 from .errors import ExecutorError, invalid
 from .journal import Journal, TERMINAL, now
+from .scheduler import FairDeviceSlots
 from .worker import PreparedHelper, cleanup_record, execute_step
 
 
@@ -48,7 +49,7 @@ class Runtime:
         self.preparations: dict[tuple[str,str], asyncio.Task] = {}
         self.preparation_tasks: dict[str, asyncio.Task] = {}
         self.admission = asyncio.Lock()
-        self.capacity = asyncio.Semaphore(settings.max_running)
+        self.capacity = FairDeviceSlots(settings.max_running)
         self.artifact_lock = asyncio.Lock()
         self.shutting_down = False
 
@@ -515,7 +516,7 @@ class Runtime:
             async with asyncio.timeout(300):
                 await limit.acquire()
                 try:
-                    await self.capacity.acquire()
+                    await self.capacity.acquire(rid)
                 except BaseException:
                     limit.release()
                     raise
@@ -604,7 +605,7 @@ class Runtime:
             clean = self.journal.worker_record(holder) is None
             self.journal.release(holder, clean=clean)
             if acquired:
-                self.capacity.release()
+                await self.capacity.release()
                 limit.release()
             if clean and (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)):
                 # This device's execution path is finished and cannot send another action.
