@@ -2,7 +2,7 @@ export const automationMessages = {
     cn: {
         title: '自动化中心', description: '查看手机实时画面，操作选中的设备，制作和运行脚本。',
         workbench: '设备工作台', scripts: '脚本库', history: '执行记录', settings: '设置', owner: '管理账号', managing: '当前管理账号',
-        query: '查询', refresh: '重新查询', allNodes: '全部网络节点', node: '网络节点', allGroups: '全部网关组', group: '网关组',
+        query: '查询', refresh: '重新查询', allNodes: '全部网络节点', node: '网络节点', allGroups: '全部网关组', group: '网关组', ungrouped: 'Ungrouped', ungrouped: '未分组',
         allTypes: '全部设备类型', deviceType: '设备类型', keyword: '名称、型号或 IP', search: '搜索设备',
         unavailable: '当前认证模式不支持自动化中心。', noRunner: '手机执行器尚未配置。请管理员部署执行器后，在自动化中心的设置中填写服务器地址和 Token。',
         noAssets: '还没有登记实体设备', noAssetsDetail: '先在节点详情中登记手机，再配置它的 ADB 连接。', toAssets: '前往节点详情',

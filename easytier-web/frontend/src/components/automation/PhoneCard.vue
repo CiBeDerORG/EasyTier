@@ -241,7 +241,7 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
             <Button icon="pi pi-cog" text rounded :aria-label="t('configure')" :title="t('configure')" :disabled="pending || session.state.phase === 'live'" @click="emit('configure', device)" />
         </header>
         <div class="device-meta">
-            <span class="node-name" :title="device.node_name">{{ device.node_name }}</span>
+            <span class="node-name" :title="device.gateway_name || t('ungrouped')">{{ device.gateway_name || t('ungrouped') }}</span>
             <button type="button" class="adb-port" :disabled="!runnerAvailable || !device.connection.enabled || pending"
                 :title="t(ready ? 'close' : 'open')" :aria-label="t('adbPort') + ': ' + device.connection.adb_port"
                 @click="emit('toggle-screen', device.id)">
