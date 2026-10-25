@@ -512,6 +512,43 @@ class Runtime:
         self.journal.update_device(rid,did,values)
         return self.journal.run(rid)
 
+    async def verify_unused_target(self, did, body):
+        """Read-only proof for a phantom registration before first ADB pairing.
+
+        Never clear retired-target refusals or declare an unknown worker idle.
+        """
+        did = validation.identifier(did)
+        validation.object_fields(body, {"event_id", "expected_executor_id", "target"},
+                                 {"event_id", "expected_executor_id", "target"})
+        target = validation.target(body["target"])
+        event_id = validation.identifier(body["event_id"])
+        if target["device_id"] != did or body["expected_executor_id"] != self.journal.executor_id:
+            raise ExecutorError("target_mismatch", "清理目标或执行器身份不一致")
+        import json
+        async with self.admission:
+            idle = not self.journal.target_refused(target) and self.journal.control(target) is None
+            idle = idle and not any(k[0] == did and not task.done() for k,task in self.preparations.items())
+            idle = idle and not any(s.target["device_id"] == did or validation.endpoint(s.target) == validation.endpoint(target) for s in self.sessions.values())
+            idle = idle and not any(h.target["device_id"] == did or validation.endpoint(h.target) == validation.endpoint(target) for h in self.helpers.values())
+            idle = idle and self.journal.worker_record("helper:"+did) is None and not self.journal.prepared(target)
+            if idle:
+                for row in self.journal.db.execute("SELECT target FROM sessions WHERE state NOT IN ('closed','failed')"):
+                    saved = json.loads(row["target"])
+                    if saved["device_id"] == did or validation.endpoint(saved) == validation.endpoint(target):
+                        idle = False
+                        break
+            if idle:
+                for row in self.journal.db.execute("SELECT target FROM run_targets WHERE device_id=?", (did,)):
+                    saved = json.loads(row["target"])
+                    if saved["target_fingerprint"] == target["target_fingerprint"]:
+                        idle = False
+                        break
+            if idle:
+                status, listing, _ = await adb.command(self.settings.adb_binary, "devices", timeout=8)
+                idle = status == 0 and all(line.split()[0] != adb.serial(target) for line in listing.splitlines()[1:] if line.split())
+            return {"device_id": did, "event_id": event_id, "executor_id": self.journal.executor_id,
+                    "target_fingerprint": target["target_fingerprint"], "unused_confirmed": bool(idle)}
+
     async def retire_target(self, did, body):
         did=validation.identifier(did)
         validation.object_fields(body,{"event_id","expected_executor_id","target"},{"event_id","expected_executor_id","target"})

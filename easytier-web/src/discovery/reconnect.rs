@@ -162,6 +162,7 @@ pub(crate) async fn advance(
     }
     if cleanup["state"] != "confirmed" {
         let mut clean = true;
+        let no_local_execution = withdrawals.is_empty() && sessions.is_empty();
         for withdrawal in withdrawals {
             if withdrawal["cleanup_confirmed"] == true {
                 continue;
@@ -194,6 +195,31 @@ pub(crate) async fn advance(
             }
         }
         for target in unique.into_values() {
+            // Existing Web revisions might have registered a target before a
+            // failed *first-ever* pair/connect. Ask the original Runner for an
+            // authenticated idle proof before permanently refusing its
+            // fingerprint. This is never inferred from an empty Web table.
+            if no_local_execution {
+                let proof=runner.post(
+                    &format!("targets/{device}/verify-unused"),
+                    &json!({"event_id":event,"expected_executor_id":executor,"target":wire_target(&target)})
+                ).await;
+                if proof.as_ref().is_ok_and(|p|p["unused_confirmed"]==true
+                    && p["event_id"]==event && p["device_id"]==device
+                    && p["executor_id"]==executor
+                    && p["target_fingerprint"]==target["target_fingerprint"])
+                {
+                    sqlx::query("UPDATE discovery_targets SET retired=1 WHERE owner_user_id=? AND device_id=? AND executor_id=? AND target_fingerprint=?")
+                        .bind(owner).bind(device).bind(&executor).bind(target["target_fingerprint"].as_str()).execute(&pool).await?;
+                    continue;
+                }
+                // Never retire an as-yet-current fingerprint as "old"; the
+                // Runner's retirement refusal would prevent pairing forever.
+                if target["endpoint_revision"] == revision {
+                    clean = false;
+                    continue;
+                }
+            }
             let v=runner.post(&format!("targets/{device}/retire"),&json!({"event_id":event,"expected_executor_id":executor,"target":wire_target(&target)})).await;
             let retired = v.is_ok_and(|v| {
                 v["cleanup_confirmed"] == true
@@ -238,7 +264,6 @@ pub(crate) async fn advance(
             match observed_store(manager, service, owner, Some(&[device.to_owned()])).await {
                 Ok(store) => match store.target(owner, device).await {
                     Ok(target) => {
-                        remember_target(service, &target, &executor).await?;
                         let result = runner
                             .post(
                                 "prepare",
@@ -251,10 +276,14 @@ pub(crate) async fn advance(
                         } else {
                             match result {
                                 Ok(v) if v["state"] == "connected" => {
+                                    remember_target(service, &target, &executor).await?;
                                     json!({"state":"connected","target_fingerprint":target["target_fingerprint"]})
                                 }
                                 Ok(v) => json!({"state":"pending","detail":v}),
                                 Err((_, v)) => {
+                                    if matches!(v.0["code"].as_str(), Some("runner_unreachable" | "runner_response_incomplete" | "runner_response_invalid")) {
+                                        remember_target(service, &target, &executor).await?;
+                                    }
                                     json!({"state":"pending","code":v.0["code"],"message":v.0["message"]})
                                 }
                             }

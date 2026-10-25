@@ -147,6 +147,11 @@ async def withdraw_device(request: Request, rid: str, did: str, body: dict):
     return await request.app.state.runtime.withdraw_device(identifier(rid),identifier(did),body)
 
 
+@app.post("/internal/v1/targets/{did}/verify-unused")
+async def verify_unused_target(request: Request, did: str, body: dict):
+    return await request.app.state.runtime.verify_unused_target(identifier(did), body)
+
+
 @app.post("/internal/v1/targets/{did}/retire")
 async def retire_target(request: Request, did: str, body: dict):
     return await request.app.state.runtime.retire_target(identifier(did),body)

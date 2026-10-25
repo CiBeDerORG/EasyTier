@@ -63,10 +63,24 @@ pub(super) async fn prepare(auth: AuthSession, State(manager): State<AppStateInn
     let mut outbound = payload;
     outbound["target"] = wire_target(&target);
     let executor=runner(&runtime)?.identity().await?;
-    crate::discovery::reconnect::remember_target(&service,&target,&executor).await.map_err(|e|store_error(e.into()))?;
-    let result=runner(&runtime)?.post("prepare",&outbound).await?;
+    // A failed first pairing or a read-only inspection must not become a
+    // historical "connected target". Preserve uncertain transport outcomes.
+    let reply = runner(&runtime)?.post("prepare",&outbound).await;
+    let result = match reply {
+        Ok(value) => value,
+        Err(cause) => {
+            if matches!(cause.1.0["code"].as_str(), Some("runner_unreachable" | "runner_response_incomplete" | "runner_response_invalid")) {
+                crate::discovery::reconnect::remember_target(&service,&target,&executor).await.map_err(|e|store_error(e.into()))?;
+            }
+            return Err(cause);
+        }
+    };
     if result["state"]!=expected_state {
+        crate::discovery::reconnect::remember_target(&service,&target,&executor).await.map_err(|e|store_error(e.into()))?;
         return Err(error(StatusCode::BAD_GATEWAY,"runner_response_invalid","设备准备结果尚未确认，请手动检查设备状态。"));
+    }
+    if action != "inspect" {
+        crate::discovery::reconnect::remember_target(&service,&target,&executor).await.map_err(|e|store_error(e.into()))?;
     }
     Ok(Json(result))
 }

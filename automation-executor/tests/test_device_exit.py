@@ -148,3 +148,51 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             command.assert_awaited_once_with('adb','disconnect','10.60.1.20:37001',timeout=8)
 
 if __name__=='__main__': unittest.main()
+
+
+class PhantomRegistrationTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        media = ModuleType('automation_executor.media')
+        media.MediaManager = lambda: SimpleNamespace(close_all=AsyncMock())
+        self.media_patch = patch.dict(sys.modules, {'automation_executor.media': media})
+        self.media_patch.start()
+        self.settings = SimpleNamespace(data_dir=Path(self.directory.name), token='x'*32,
+            max_running=2, max_pending=10, callback_url='', adb_binary='adb',
+            max_artifact_bytes=10000000)
+        self.runtime = Runtime(self.settings)
+
+    async def asyncTearDown(self):
+        await self.runtime.shutdown()
+        self.media_patch.stop()
+        self.directory.cleanup()
+
+    async def test_unconnected_pre_pairing_target_can_be_verified_without_retiring_it(self):
+        a=target()
+        body={'event_id':str(uuid4()),'expected_executor_id':self.runtime.journal.executor_id,'target':a}
+        with patch('automation_executor.runtime.adb.command',new=AsyncMock(return_value=(0,'List of devices attached\\n\\n',''))):
+            result=await self.runtime.verify_unused_target(a['device_id'],body)
+        self.assertTrue(result['unused_confirmed'])
+        self.assertFalse(self.runtime.journal.target_refused(a))
+        with patch('automation_executor.runtime.adb.command',new=AsyncMock(return_value=(0,'List of devices attached\\n'+a['ip']+':37001\\tdevice\\n',''))):
+            result=await self.runtime.verify_unused_target(a['device_id'],body)
+        self.assertFalse(result['unused_confirmed'])
+
+    async def test_offline_serial_is_not_proof_of_unused_target(self):
+        a=target()
+        body={'event_id':str(uuid4()),'expected_executor_id':self.runtime.journal.executor_id,'target':a}
+        with patch('automation_executor.runtime.adb.command',new=AsyncMock(return_value=(0,'List of devices attached\\n'+a['ip']+':37001\\toffline\\n',''))):
+            result=await self.runtime.verify_unused_target(a['device_id'],body)
+        self.assertFalse(result['unused_confirmed'])
+
+    async def test_disconnect_unknown_serial_needs_fresh_absence_proof(self):
+        from automation_executor import adb
+        a=target()
+        with patch('automation_executor.adb.command',new=AsyncMock(side_effect=[
+            (1,'','not connected'),(0,'List of devices attached\\n\\n','')
+        ])):
+            await adb.disconnect('adb',a)
+        with patch('automation_executor.adb.command',new=AsyncMock(side_effect=[
+            (1,'','not connected'),(0,'List of devices attached\\n'+a['ip']+':37001\\toffline\\n','')
+        ])):
+            with self.assertRaises(ExecutorError): await adb.disconnect('adb',a)

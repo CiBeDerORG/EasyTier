@@ -63,5 +63,11 @@ async def prepare(binary, target, action, pairing_port=None, code=None):
 
 async def disconnect(binary, target):
     status, _, _ = await command(binary,"disconnect",serial(target),timeout=8)
-    if status != 0:
-        raise ExecutorError("cleanup_pending", "旧设备 ADB 连接尚未确认清理")
+    if status == 0:
+        return
+    # A never-paired target may fail "adb disconnect" even though no
+    # transport exists. A new ADB listing must prove its exact serial absent.
+    check, listing, _ = await command(binary, "devices", timeout=8)
+    if check == 0 and all(line.split()[0] != serial(target) for line in listing.splitlines()[1:] if line.split()):
+        return
+    raise ExecutorError("cleanup_pending", "旧设备 ADB 连接尚未确认清理")
