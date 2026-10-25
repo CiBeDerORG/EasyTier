@@ -10,7 +10,7 @@ import { getApiBase } from '../modules/api-host';
 import type { AssetDevice, AssetNode, GatewayGroup } from '../types/node-assets';
 import DiscoveryDialog from './node-assets/DiscoveryDialog.vue';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../modules/automation-api';
-import type { AutomationContext, AutomationControl, AutomationControlReply, AutomationDevice, AutomationRun, AutomationStep, AutomationMediaSettings } from '../types/automation';
+import type { AutomationContext, AutomationControl, AutomationControlReply, AutomationDevice, AutomationRun, AutomationStep, AutomationMediaSettings, AutomationComponentStatus } from '../types/automation';
 import PhoneCard from './automation/PhoneCard.vue';
 import ConnectionDialog from './automation/ConnectionDialog.vue';
 import ScriptLibrary from './automation/ScriptLibrary.vue';
@@ -63,6 +63,14 @@ const tabs = computed(() => context.value?.can_manage_settings
     : ['workbench', 'scripts', 'history'] as const);
 const busy = ref(false); const connecting = ref(false); const error = ref(''); const notice = ref('');
 const phoneConnecting = ref(false);
+const componentChecking = ref(false);
+const componentStatuses = ref<Record<string, AutomationComponentStatus>>({});
+const componentStatusResults = ref<{ id: string; name: string; state: string; message?: string }[]>([]);
+const componentStateLabel: Record<string, string> = {
+    ready: '已就绪', not_prepared: '未准备', preparing: '准备中',
+    adb_unavailable: 'ADB离线', unavailable: '控件不可用',
+    checking: '查询中', query_failed: '查询失败',
+};
 const phoneConnections = ref<Record<string, 'connecting' | 'connected' | 'failed'>>({});
 const phoneConnectionErrors = ref<Record<string, string>>({});
 const discoveryGateway = ref<AssetDevice | null>(null);
@@ -187,7 +195,13 @@ async function loadDevices() {
     try {
         const response = await api.devices(owner);
         if (disposed || request !== loadGeneration || owner !== ownerId.value) return;
+        // A cached component state belongs to one exact ADB target revision.
+        const previousTargets = new Map(devices.value.map(item => [item.id, item.target_fingerprint]));
         devices.value = response.items; sourceIssues.value = response.issues ?? []; subscribeEndpoints();
+        for (const id of Object.keys(componentStatuses.value)) {
+            const device = response.items.find(item => item.id === id);
+            if (!device || previousTargets.get(id) !== device.target_fingerprint) delete componentStatuses.value[id];
+        }
         void loadGatewayCatalog(owner);
         const currentIds = new Set(devices.value.map(device => device.id));
         selectedIds.value = initialSelectionDone
@@ -217,6 +231,7 @@ async function changeOwner(id: number) {
     ++workspaceGeneration; ++loadGeneration;
     await closeAll();
     ownerId.value = id; devices.value = []; selectedIds.value = []; phases.value = {}; results.value = [];
+    componentStatuses.value = {}; componentStatusResults.value = [];
     initialSelectionDone = false; initialConnectDone = false;
     ++catalogGeneration; catalogOwner = 0; catalogNodes.value = []; catalogGroups.value = [];
     phoneConnections.value = {}; phoneConnectionErrors.value = {}; discoveryGateway.value = null;
@@ -262,6 +277,40 @@ async function connectPhones(ids: string[]) {
     };
     try { await Promise.all([worker(), worker()]); }
     finally { phoneConnecting.value = false; }
+}
+async function querySelectedComponentStatuses() {
+    if (!runnerAvailable.value || componentChecking.value || !selectedIds.value.length) return;
+    const owner = ownerId.value, generation = workspaceGeneration;
+    const targets = [...new Set(selectedIds.value)]
+        .map(id => devices.value.find(device => device.id === id))
+        .filter((device): device is AutomationDevice => !!device);
+    if (!targets.length) return;
+    componentChecking.value = true;
+    componentStatusResults.value = targets.map(device => ({
+        id: device.id, name: device.name, state: 'checking',
+    }));
+    const queue = [...targets];
+    const worker = async () => {
+        while (queue.length && generation === workspaceGeneration && !disposed) {
+            const device = queue.shift()!;
+            try {
+                // Explicit read-only status query. Never prepare, pair or start UiAutomator.
+                const response = await api.componentStatus(owner, device.id);
+                if (disposed || generation !== workspaceGeneration || owner !== ownerId.value) return;
+                if (devices.value.find(item => item.id === device.id)?.target_fingerprint !== device.target_fingerprint) continue;
+                if (response.device_id !== device.id) throw new Error('执行器返回了不匹配的手机状态');
+                componentStatuses.value[device.id] = response;
+                const entry = componentStatusResults.value.find(item => item.id === device.id);
+                if (entry) entry.state = response.state;
+            } catch (cause) {
+                if (disposed || generation !== workspaceGeneration || owner !== ownerId.value) return;
+                const entry = componentStatusResults.value.find(item => item.id === device.id);
+                if (entry) { entry.state = 'query_failed'; entry.message = automationErrorMessage(cause); }
+            }
+        }
+    };
+    try { await Promise.all([worker(), worker(), worker()]); }
+    finally { componentChecking.value = false; }
 }
 async function discoverAdb() {
     const group = filters.value.group || applied.value.group;
@@ -525,6 +574,8 @@ function onRunCreated(run: AutomationRun) {
 function savedConnection(device: AutomationDevice) {
     delete phoneConnections.value[device.id];
     delete phoneConnectionErrors.value[device.id];
+    delete componentStatuses.value[device.id];
+    componentStatusResults.value = componentStatusResults.value.filter(item => item.id !== device.id);
     devices.value = devices.value.map(item => item.id === device.id ? device : item);
     if (connectionDevice.value?.id === device.id) connectionDevice.value = device;
 }
@@ -586,14 +637,24 @@ onBeforeUnmount(() => { stopEvents?.();
                 </form>
                 <div class="workbench-toolbar">
                     <div class="summary"><span>{{ t('registered') }} <strong>{{ visibleDevices.length }}</strong></span><span>{{ t('selected') }} <strong>{{ selectedIds.length }}</strong></span><span>{{ t('live') }} <strong>{{ liveCount }}</strong></span></div>
-                    <div class="toolbar-actions"><Button :label="t('selectShown')" text size="small" @click="selectedIds = [...new Set([...selectedIds, ...visibleDevices.map(device => device.id)])]" /><Button :label="t('clearSelection')" text size="small" @click="selectedIds = []" /><label class="quality" :title="t('qualityHint')"><span>{{ t('resolution') }}</span><select v-model.number="mediaSettings.max_size"><option :value="640">640</option><option :value="960">960</option><option :value="1280">1280</option><option :value="1920">1920</option><option :value="2560">2560</option><option :value="3840">3840</option><option :value="0">{{ t('originalResolution') }}</option></select></label><label class="quality"><span>{{ t('bitrate') }}</span><select v-model.number="mediaSettings.video_bit_rate"><option :value="1000000">1 Mbps</option><option :value="2000000">2 Mbps</option><option :value="4000000">4 Mbps</option><option :value="8000000">8 Mbps</option><option :value="12000000">12 Mbps</option><option :value="16000000">16 Mbps</option><option :value="20000000">20 Mbps</option><option :value="24000000">24 Mbps</option></select></label><label class="quality"><span>FPS</span><select v-model.number="mediaSettings.max_fps"><option :value="15">15</option><option :value="24">24</option><option :value="30">30</option><option :value="60">60</option><option :value="90">90</option><option :value="120">120</option></select></label><label class="media-toggle"><input v-model="mediaSettings.low_latency" type="checkbox" />{{ t('lowLatency') }}</label><label class="media-toggle"><input v-model="mediaSettings.screen_off" type="checkbox" />{{ t('screenOff') }}</label><Button v-if="filters.group || applied.group" :label="t('discoverAdb')" icon="pi pi-search" size="small" outlined :loading="discoveryBusy" :disabled="discoveryBusy" @click="discoverAdb" /><span class="screen-action-pair"><Button :label="t('openSelected')" icon="pi pi-play" size="small" :loading="connecting" :disabled="!runnerAvailable || !selectedIds.length" @click="openSelected" /><Button :label="t('closeSelected')" icon="pi pi-stop" outlined size="small" :disabled="!selectedIds.length" @click="closeSelected" /></span><Button :label="t('connect')" icon="pi pi-link" size="small" :loading="phoneConnecting" :disabled="!runnerAvailable || !selectedIds.length" @click="connectPhones([...selectedIds])" /><Button :label="t('releaseManual')" icon="pi pi-unlock" text size="small" :disabled="!selectedIds.length" @click="releaseManual([...selectedIds])" /></div>
+                    <div class="toolbar-actions"><Button :label="t('selectShown')" text size="small" @click="selectedIds = [...new Set([...selectedIds, ...visibleDevices.map(device => device.id)])]" /><Button :label="t('clearSelection')" text size="small" @click="selectedIds = []" /><label class="quality" :title="t('qualityHint')"><span>{{ t('resolution') }}</span><select v-model.number="mediaSettings.max_size"><option :value="640">640</option><option :value="960">960</option><option :value="1280">1280</option><option :value="1920">1920</option><option :value="2560">2560</option><option :value="3840">3840</option><option :value="0">{{ t('originalResolution') }}</option></select></label><label class="quality"><span>{{ t('bitrate') }}</span><select v-model.number="mediaSettings.video_bit_rate"><option :value="1000000">1 Mbps</option><option :value="2000000">2 Mbps</option><option :value="4000000">4 Mbps</option><option :value="8000000">8 Mbps</option><option :value="12000000">12 Mbps</option><option :value="16000000">16 Mbps</option><option :value="20000000">20 Mbps</option><option :value="24000000">24 Mbps</option></select></label><label class="quality"><span>FPS</span><select v-model.number="mediaSettings.max_fps"><option :value="15">15</option><option :value="24">24</option><option :value="30">30</option><option :value="60">60</option><option :value="90">90</option><option :value="120">120</option></select></label><label class="media-toggle"><input v-model="mediaSettings.low_latency" type="checkbox" />{{ t('lowLatency') }}</label><label class="media-toggle"><input v-model="mediaSettings.screen_off" type="checkbox" />{{ t('screenOff') }}</label><Button v-if="filters.group || applied.group" :label="t('discoverAdb')" icon="pi pi-search" size="small" outlined :loading="discoveryBusy" :disabled="discoveryBusy" @click="discoverAdb" /><span class="screen-action-pair"><Button :label="t('openSelected')" icon="pi pi-play" size="small" :loading="connecting" :disabled="!runnerAvailable || !selectedIds.length" @click="openSelected" /><Button :label="t('closeSelected')" icon="pi pi-stop" outlined size="small" :disabled="!selectedIds.length" @click="closeSelected" /></span><Button :label="t('connect')" icon="pi pi-link" size="small" :loading="phoneConnecting" :disabled="!runnerAvailable || !selectedIds.length" @click="connectPhones([...selectedIds])" /><Button label="查询控件状态" icon="pi pi-microchip" size="small" outlined :loading="componentChecking" :disabled="!runnerAvailable || !selectedIds.length || componentChecking" title="只读查询勾选手机的 UiAutomator 状态，不初始化组件" @click="querySelectedComponentStatuses" /><Button :label="t('releaseManual')" icon="pi pi-unlock" text size="small" :disabled="!selectedIds.length" @click="releaseManual([...selectedIds])" /></div>
                 </div>
+                <section v-if="componentStatusResults.length" class="console-panel component-results" aria-live="polite">
+                    <div class="component-results-heading"><strong>控件状态查询结果</strong><Button label="收起" icon="pi pi-times" text size="small" :disabled="componentChecking" @click="componentStatusResults = []" /></div>
+                    <div class="component-result-list">
+                        <div v-for="item in componentStatusResults" :key="item.id" class="component-result">
+                            <strong>{{ item.name }}</strong>
+                            <span :class="['component-result-state', item.state]">{{ componentStateLabel[item.state] || item.state }}</span>
+                            <small v-if="item.message">{{ item.message }}</small>
+                        </div>
+                    </div>
+                </section>
                 <div v-if="sync" class="activity-banner sync-banner" role="status"><div><strong>{{ t('syncRunning', { count: sync.deviceIds.length }) }}</strong><p>{{ t('master') }}：{{ deviceNames[sync.masterId] }} · {{ t('syncFixed') }}</p></div><Button :label="t('stopSync')" severity="danger" icon="pi pi-stop-circle" @click="stopSync" /></div>
                 <div v-if="recordingId" class="activity-banner recording-banner" role="status"><div><strong>{{ recordingPaused ? t('recordPaused') : t('recordRunning', { name: recordingName }) }}</strong><p>{{ t('recordedCount', { count: recordedSteps.length }) }} · {{ t('recordHint') }}</p></div><div class="record-actions"><Button :label="t(recordingPaused ? 'resume' : 'pause')" :icon="recordingPaused ? 'pi pi-play' : 'pi pi-pause'" outlined @click="pauseRecording" /><Button :label="t('editRecording')" severity="danger" icon="pi pi-stop" @click="finishRecording(true)" /></div></div>
                 <div v-if="!devices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-mobile" aria-hidden="true" /><h2>{{ t('noAssets') }}</h2><p>{{ t('noAssetsDetail') }}</p><Button :label="t('toAssets')" outlined @click="router.push({ name: 'nodeAssets' })" /></div>
                 <div v-else-if="!visibleDevices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-search" aria-hidden="true" /><h2>{{ t('noResults') }}</h2><Button :label="t('reset')" text @click="filters = { node: '', group: '', type: '', keyword: '' }; query()" /></div>
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
-                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @text="id => showText([id])" @record="toggleRecord" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
+                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @text="id => showText([id])" @record="toggleRecord" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
                 <button v-if="globalOpen && !fullscreenActive" class="global-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="globalOpen = false" />
                 <div v-if="devices.length && !fullscreenActive" class="global-controls" @pointerdown.stop @click.stop @keydown.esc="globalOpen = false">
@@ -615,6 +676,7 @@ onBeforeUnmount(() => { stopEvents?.();
 
 <style scoped>
 .automation-tabs button{white-space:nowrap}
+.component-results{padding:12px 16px}.component-results-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px}.component-result-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px 16px;margin-top:8px}.component-result{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;padding:6px 0;border-bottom:1px solid var(--console-border)}.component-result strong{min-width:0;overflow-wrap:anywhere}.component-result small{flex-basis:100%;color:var(--p-red-500);overflow-wrap:anywhere}.component-result-state{margin-left:auto;color:var(--console-muted);white-space:nowrap}.component-result-state.ready{color:var(--p-green-500)}.component-result-state.preparing{color:var(--p-primary-color)}.component-result-state.query_failed,.component-result-state.adb_unavailable,.component-result-state.unavailable{color:var(--p-red-500)}
 .workbench-view{display:flex;flex-direction:column;gap:20px}.manual-release-hint{font-size:12px;color:var(--console-muted)}.automation-center{position:relative;padding-bottom:70px}.owner-caption{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--console-muted);white-space:nowrap}.owner-caption strong{color:var(--p-text-color)}.workspace-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.automation-tabs{display:flex;gap:4px;padding:4px;background:var(--console-panel-raised);border:1px solid var(--console-border);border-radius:10px}.automation-tabs button{padding:9px 17px;border:0;border-radius:7px;color:var(--console-muted);background:transparent;cursor:pointer;font-weight:550}.automation-tabs button.active{background:var(--console-accent-soft);color:var(--p-primary-color);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--p-primary-color) 25%,transparent)}.owner-select{display:flex;align-items:center;gap:9px;font-size:12px}.filters{padding:18px;display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}.filters label{display:flex;flex-direction:column;gap:7px;font-size:11px;color:var(--console-muted);flex:1;min-width:145px}.filters .keyword-field{flex:1.5;min-width:180px}select{padding:9px 10px;border:1px solid var(--console-border-strong);border-radius:7px;background:var(--console-panel);color:var(--p-text-color);max-width:100%;min-width:0;font-size:13px}.workbench-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.summary{display:flex;gap:16px;font-size:12px;color:var(--console-muted)}.summary strong{color:var(--p-text-color);margin-left:5px;font-size:16px}.toolbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.screen-action-pair{display:inline-flex;align-items:center;gap:5px;flex-wrap:nowrap}.quality,.media-toggle{display:flex;align-items:center;gap:7px;color:var(--console-muted);font-size:11px;white-space:nowrap}.media-toggle input{accent-color:var(--p-primary-color)} .media-toggle{cursor:pointer}.quality select{font-size:12px;padding:7px 9px}.phone-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px}.activity-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 18px;border:1px solid var(--p-primary-color);border-radius:12px;background:var(--console-accent-soft)}.activity-banner strong{font-size:14px}.activity-banner p{color:var(--console-muted);font-size:12px;margin-top:5px}.recording-banner{border-color:var(--p-red-400);background:color-mix(in srgb,var(--p-red-400) 7%,var(--console-panel))}.record-actions{display:flex;gap:8px;flex-shrink:0}.results-panel ul{padding:8px 18px}.results-panel li{display:grid;grid-template-columns:1fr auto;gap:5px 16px;padding:10px 0;border-bottom:1px solid var(--console-border);font-size:12px}.results-panel li:last-child{border:0}.results-panel p{grid-column:1 / -1;color:var(--console-muted);overflow-wrap:anywhere}.results-panel .failed{color:var(--p-orange-500)}.global-controls{position:fixed;bottom:30px;right:30px;z-index:46;display:flex;flex-direction:column;align-items:flex-end;gap:10px}.global-controls :deep(.p-button){width:46px;height:46px;border-radius:50%;box-shadow:0 4px 20px #0003;border:1px solid color-mix(in srgb,var(--p-primary-color) 45%,var(--console-border));backdrop-filter:blur(12px)}.global-controls :deep(.global-orb){width:56px;height:56px;box-shadow:0 4px 28px color-mix(in srgb,var(--p-primary-color) 35%,transparent)}.global-actions{display:grid;grid-template-columns:46px 46px;gap:8px;justify-items:end}.global-scope{grid-column:1 / -1;font-size:11px;white-space:nowrap;padding:6px 10px;background:var(--console-panel);border:1px solid var(--console-border);border-radius:20px;box-shadow:var(--console-shadow)}.target-badge{position:absolute;bottom:40px;right:-3px;min-width:22px;height:22px;padding:1px 5px;border:2px solid var(--console-panel);background:var(--p-primary-contrast-color);color:var(--p-primary-color);font-size:11px;font-weight:700;border-radius:20px;text-align:center;pointer-events:none}.global-dismiss{position:fixed;inset:0;background:transparent;z-index:45;border:0;cursor:default}.modal-content{display:flex;flex-direction:column;gap:16px}.modal-content label{display:flex;flex-direction:column;gap:8px;font-size:13px}.modal-content p,.modal-content li{font-size:12px}.modal-content ul{padding-left:18px;list-style:disc}.modal-content :deep(textarea){width:100%}
 @media(max-width:700px){.page-heading{align-items:flex-start;flex-direction:column}.workspace-header{align-items:stretch;flex-direction:column}.owner-select{justify-content:space-between}.owner-select select{flex:1}.automation-tabs button{flex:1;padding:9px 12px}.filters{padding:14px}.phone-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}.toolbar-actions{width:100%}.activity-banner{align-items:flex-start;flex-direction:column}.record-actions{flex-wrap:wrap}.global-controls{bottom:20px;right:18px}}
 </style>

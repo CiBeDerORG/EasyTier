@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
 import type { AutomationComponentStatus, AutomationDevice, AutomationPreparation, AutomationPreparationLog } from '../../types/automation';
 
-const props = defineProps<{ device: AutomationDevice; ownerId: number; runnerAvailable: boolean }>();
+const props = defineProps<{ device: AutomationDevice; ownerId: number; runnerAvailable: boolean; observedStatus?: AutomationComponentStatus }>();
 const api = new AutomationApi();
 const visible = ref(false);
 const status = ref<AutomationComponentStatus | null>(null);
@@ -102,6 +102,11 @@ async function cancel() {
     finally { busy.value = false; }
 }
 function date(value: string) { return new Date(value).toLocaleString(); }
+watch(() => props.observedStatus, value => {
+    if (!value || value.device_id !== props.device.id) return;
+    status.value = value;
+    queried.value = true;
+});
 watch(visible, open => {
     if (open) void query();
     else { stopPolling(); ++epoch; busy.value = false; }

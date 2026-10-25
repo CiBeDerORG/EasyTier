@@ -4,7 +4,7 @@ import { Button, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
 import AutomationApi from '../../modules/automation-api';
-import type { AutomationControl, AutomationDevice, AutomationMediaSettings } from '../../types/automation';
+import type { AutomationControl, AutomationDevice, AutomationMediaSettings, AutomationComponentStatus } from '../../types/automation';
 import { automationMessages } from './messages';
 import type { EndpointEvent } from '../../modules/discovery-api';
 import { usePhoneSession } from './usePhoneSession';
@@ -13,6 +13,7 @@ import PhoneAutomationPanel from './PhoneAutomationPanel.vue';
 const props = defineProps<{
     device: AutomationDevice; ownerId: number; selected: boolean; runnerAvailable: boolean;
     phoneConnection?: 'connecting' | 'connected' | 'failed'; phoneConnectionError?: string;
+    componentStatus?: AutomationComponentStatus;
     syncRole?: 'master' | 'follower'; syncActive: boolean; recording: boolean;
 }>();
 const emit = defineEmits<{
@@ -244,7 +245,7 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
         <div class="device-meta">
             <span class="node-name" :title="device.gateway_name || t('ungrouped')">{{ device.gateway_name || t('ungrouped') }}</span>
             <div class="device-meta-actions">
-                <PhoneAutomationPanel :device="device" :owner-id="ownerId" :runner-available="runnerAvailable" />
+                <PhoneAutomationPanel :device="device" :owner-id="ownerId" :runner-available="runnerAvailable" :observed-status="componentStatus" />
             <button type="button" class="adb-port" :disabled="!runnerAvailable || !device.connection.enabled || pending"
                 :title="t(ready ? 'close' : 'open')" :aria-label="t('adbPort') + ': ' + device.connection.adb_port"
                 @click="emit('toggle-screen', device.id)">
