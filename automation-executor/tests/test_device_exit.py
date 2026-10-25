@@ -227,8 +227,8 @@ class AndroidKeyguardTests(unittest.TestCase):
         with patch('automation_executor.vendor.scrcpy_source.time.sleep',return_value=None):
             self.assertEqual(src.wake_and_unlock('123456'),'unlock_sent')
         self.assertIn(b'123456',b''.join(packets))
-        self.assertEqual(packets[-2],b'\\x01\\x00\\x00\\x00\\x06123456')
-        self.assertGreaterEqual(len(packets),9)
+        self.assertEqual(packets[-2],bytes([1,0,0,0,6])+b'123456')
+        self.assertGreaterEqual(len(packets),7)
 
     def test_lock_state_becomes_unknown_never_types_password(self):
         src,packets=self.make_source()

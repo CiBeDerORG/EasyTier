@@ -285,7 +285,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .floating-actions>div{position:absolute;pointer-events:auto;display:flex;gap:4px;align-items:center;border-radius:12px;padding:3px;background:color-mix(in srgb,#081b30 82%,transparent);box-shadow:0 4px 16px #0006;backdrop-filter:blur(9px)}
 .input-actions{bottom:calc(100% + 10px);left:0;flex-direction:column}
 .nav-actions{top:calc(100% + 10px);left:0;flex-direction:column}
-.side-actions{top:0;flex-direction:row}
+.side-actions{top:0;flex-direction:row}.side-actions :deep(.p-button){width:37px;height:37px;min-width:37px}
 .dock-right .side-actions{right:calc(100% + 7px)}
 .dock-left .side-actions{left:calc(100% + 7px)}
 .control-dismiss{position:absolute;inset:0;z-index:5;background:transparent;border:0;cursor:default}

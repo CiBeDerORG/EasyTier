@@ -232,6 +232,7 @@ async function save() {
     const current = revision;
     let reviewPublication = false;
     saveError.value = '';
+    savingEdit.value = true;
     try {
         let result: AssetService;
         if (serviceId) {
