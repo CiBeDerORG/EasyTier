@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { Button, Checkbox, Dialog, InputNumber, InputText, Select, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import type ApiClient from '../../modules/api';
+import AutomationApi from '../../modules/automation-api';
 import type { AssetDevice, AssetIcon, AssetProtocol, AssetScope, AssetService, AssetServiceInput, ServicePublicationInput } from '../../types/node-assets';
 import { formatAssetError, getAssetError, useAssetMutation } from '../../composables/useAssetMutation';
 import { ASSET_SERVICE_ICON_OPTIONS, assetServiceIconClass } from '../../constants/asset-service-icons';
@@ -21,6 +22,22 @@ const emit = defineEmits<{ close: []; saved: [service: AssetService]; 'context-e
 const { t, locale } = useI18n();
 const navigationCopy = computed(() => locale.value === 'cn' || locale.value.startsWith('zh') ? serviceMessages.cn : serviceMessages.en);
 const attempt = useAssetMutation<AssetServiceInput, AssetService>();
+const automationApi = new AutomationApi();
+const unlockPassword = ref('');
+const unlockRemove = ref(false);
+const unlockConfigured = ref<boolean | null>(null);
+const persistedServiceId = ref<string | null>(null);
+async function loadUnlockStatus() {
+    const current = revision;
+    const serviceId = props.service?.id;
+    if (!props.visible || !serviceId || props.service?.service_type !== 'adb') return;
+    try {
+        const status = await automationApi.unlockStatus(props.scope.owner_user_id, serviceId);
+        if (current === revision && props.visible) unlockConfigured.value = status.configured;
+    } catch {
+        if (current === revision && props.visible) unlockConfigured.value = null;
+    }
+}
 const editing = computed(() => !!props.service);
 const contextKey = computed(() => `${props.scope.owner_user_id}:${props.scope.machine_id}:${props.device.id}`);
 const form = reactive({
@@ -92,6 +109,8 @@ const resetDraft = () => {
     saveError.value = '';
     fieldErrors.value = {};
     const record = props.service;
+    persistedServiceId.value = record?.id ?? null;
+    unlockPassword.value = ''; unlockRemove.value = false; unlockConfigured.value = null;
     form.name = record?.name ?? '';
     form.service_type = record?.service_type ?? 'generic'; form.connection_mode = record?.connection_mode ?? 'tcp';
     form.protocols = record ? [...record.protocols] : ['tcp'];
@@ -119,6 +138,7 @@ watch(() => [props.visible, contextKey.value, props.service?.id] as const, () =>
     if (props.visible) {
         resetDraft();
         void loadDeviceAddresses();
+        void loadUnlockStatus();
     } else {
         revision++;
         attempt.reset();
@@ -177,6 +197,10 @@ function validate(): AssetServiceInput | null {
         if (!safeServiceUrl(accessUrl)) errors.access_url = t('assets.services.urlInvalid');
         if (Array.from(accessUrl).length > 2048) errors.access_url = t('assets.services.urlTooLong');
     }
+    if (form.service_type === 'adb' && unlockPassword.value &&
+        (unlockPassword.value.length < 4 || unlockPassword.value.length > 64 || !/^[\x21-\x7e]+$/.test(unlockPassword.value))) {
+        errors.unlock_password = '开屏密码需要 4～64 位无空格 ASCII 字符，支持数字 PIN。';
+    }
     if (form.show_in_navigation && !safeServiceUrl(accessUrl)) {
         errors.show_in_navigation = navigationCopy.value.navigationUrlRequired;
     }
@@ -204,7 +228,7 @@ async function save() {
     if (!payload) return;
     const scope = { ...props.scope };
     const deviceId = props.device.id;
-    const serviceId = props.service?.id;
+    const serviceId = persistedServiceId.value;
     const current = revision;
     let reviewPublication = false;
     saveError.value = '';
@@ -219,6 +243,20 @@ async function save() {
                 `${contextKey.value}:service`);
         }
         if (current !== revision || !props.visible) return;
+        persistedServiceId.value = result.id;
+        if (payload.service_type === 'adb' && (unlockPassword.value || unlockRemove.value)) {
+            try {
+                const secretStatus = await automationApi.saveUnlock(scope.owner_user_id, result.id,
+                    unlockRemove.value ? {action:'clear'} : {action:'replace', password:unlockPassword.value});
+                if (current !== revision || !props.visible) return;
+                unlockConfigured.value = secretStatus.configured;
+                unlockPassword.value = ''; unlockRemove.value = false;
+            } catch (cause) {
+                if (current === revision && props.visible)
+                    saveError.value = `ADB 服务资料已保存，但开屏密码尚未保存：${cause instanceof Error ? cause.message : '请求失败'}`;
+                return;
+            }
+        }
         emit('saved', result);
     } catch (error: unknown) {
         if (current !== revision || !props.visible) return;
@@ -253,6 +291,20 @@ function close() {
         <form :id="formId" class="service-form" @submit.prevent="save">
             <div class="service-field"><label :for="fieldId('service-type')">服务类型</label><select :id="fieldId('service-type')" v-model="form.service_type" :disabled="fieldsDisabled"><option value="generic">普通服务</option><option value="adb" :disabled="device.semantic_kind !== 'phone'">ADB（已确认的手机）</option></select><small v-if="device.semantic_kind !== 'phone'">请先在设备类型管理中确认“手机”语义，再选择 ADB 服务。</small></div>
             <div v-if="form.service_type === 'adb'" class="service-field"><label :for="fieldId('connection-mode')">ADB 连接方式（TCP 单端口）</label><select :id="fieldId('connection-mode')" v-model="form.connection_mode" :disabled="fieldsDisabled"><option value="tcp">传统 TCP</option><option value="wireless">无线调试</option></select><small>自动化中心统一使用此服务端口。修改目标会停止本手机的旧任务并尝试重新连接。</small></div>
+            <div v-if="form.service_type === 'adb'" class="service-field">
+                <label :for="fieldId('unlock-password')">手机开屏密码（可选）</label>
+                <InputText :id="fieldId('unlock-password')" v-model="unlockPassword" type="password"
+                    autocomplete="new-password" maxlength="64" :disabled="fieldsDisabled || unlockRemove"
+                    placeholder="留空保留原密码，数字 PIN 也支持" />
+                <small v-if="unlockConfigured === true">已加密保存。打开画面时将唤醒屏幕并尝试自动解锁；密码不可查看。</small>
+                <small v-else-if="unlockConfigured === false">未设置开屏密码；打开画面时仍自动唤醒。</small>
+                <small v-else>未读取到密码状态；已保存的密码不会显示在页面。</small>
+                <label v-if="persistedServiceId" class="protocol-option">
+                    <Checkbox :inputId="fieldId('unlock-remove')" v-model="unlockRemove" binary :disabled="fieldsDisabled" />
+                    清除原开屏密码
+                </label>
+                <small v-if="fieldErrors.unlock_password" class="field-error">{{ fieldErrors.unlock_password }}</small>
+            </div>
             <p class="service-context">{{ t('assets.services.deviceContext', { name: device.name }) }}</p>
             <div class="service-field">
                 <label :for="fieldId('name')">{{ t('assets.services.name') }} <span aria-hidden="true">*</span></label>
