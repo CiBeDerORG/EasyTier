@@ -20,6 +20,12 @@ def target(ip='10.60.1.20'):
                 route_context='default', adb_service_id=str(uuid4()), endpoint_revision=1)
 
 
+def _spawned_prepared_helper_probe(channel, gate, parent_pid, target, adb_binary):
+    # Match PreparedHelper's five-argument entrypoint without touching Android.
+    from automation_executor.worker import _isolation_probe
+    _isolation_probe(channel, gate, parent_pid, adb_binary)
+
+
 def run_body(journal, targets):
     return dict(id=str(uuid4()), name='two phones', owner_user_id=1, actor_user_id=1,
                 expected_executor_id=journal.executor_id, targets=targets, concurrency=2, parameters={},
@@ -380,7 +386,7 @@ class HelperStartupTests(unittest.IsolatedAsyncioTestCase):
             clear_worker=lambda *args: None,
             worker_record=lambda *args: None,
         )
-        with patch.object(worker, "_helper_entry", worker._isolation_probe):
+        with patch.object(worker, "_helper_entry", _spawned_prepared_helper_probe):
             helper = worker.PreparedHelper(journal, target(), "adb")
         try:
             gc.collect()  # Trigger the premature SemLock unlink from the old code.
