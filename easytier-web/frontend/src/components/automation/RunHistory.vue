@@ -42,9 +42,36 @@ let disposed = false;
 let progressTimer: ReturnType<typeof setTimeout> | undefined;
 let progressPolling = false;
 let progressFailures = 0;
-const progressStates = new Set(['dispatch_pending', 'queued', 'accepted', 'starting', 'running', 'cancel_requested']);
-
+let refreshCursor = 0;
+const overviewMode = ref<'runs' | 'devices'>('runs');
+const progressStates = new Set(['dispatch_pending', 'queued', 'accepted', 'starting', 'running', 'cancel_requested', 'cleanup_pending']);
+const deviceBusyStates = new Set(['starting', 'running', 'accepted']);
+const deviceQueuedStates = new Set(['dispatch_pending', 'queued']);
+const settledSteps = new Set(['completed', 'succeeded', 'action_sent', 'action_completed', 'assertion_passed', 'passed', 'failed', 'cancelled', 'interrupted', 'outcome_unknown', 'skipped']);
+const activeRuns = computed(() => runs.value.filter(run => progressStates.has(run.state)));
+const activeDevices = computed(() => activeRuns.value.flatMap(run => run.devices.map(device => ({ run, device }))));
+const summary = computed(() => ({
+    runs: activeRuns.value.length,
+    running: activeDevices.value.filter(({device}) => deviceBusyStates.has(device.state)).length,
+    queued: activeDevices.value.filter(({device}) => deviceQueuedStates.has(device.state)).length,
+    failed: activeDevices.value.filter(({device}) => ['failed','interrupted','outcome_unknown','cleanup_pending'].includes(device.state)).length,
+}));
 const selected = computed(() => runs.value.find(run => run.id === selectedId.value));
+function settledCount(device: AutomationRunDevice): number {
+    return device.steps?.filter(step => settledSteps.has(step.state)).length ?? 0;
+}
+function deviceProgress(run: AutomationRun, device: AutomationRunDevice): string {
+    const total = run.script_snapshot?.steps?.length ?? 0;
+    return text(`${settledCount(device)}/${total} 步`, `${settledCount(device)}/${total} steps`);
+}
+function devicePercent(run: AutomationRun, device: AutomationRunDevice): number {
+    const total = run.script_snapshot?.steps?.length ?? 0;
+    return total ? Math.min(100, Math.round(settledCount(device) / total * 100)) : 0;
+}
+function focusDevice(run: AutomationRun, id: string) {
+    selectRun(run);
+    expandedDevices.value = new Set([id]);
+}
 
 function stopProgressRefresh() {
     if (progressTimer !== undefined) clearTimeout(progressTimer);
@@ -52,40 +79,67 @@ function stopProgressRefresh() {
 }
 function scheduleProgressRefresh() {
     stopProgressRefresh();
-    const run = selected.value;
-    if (disposed || !run || !progressStates.has(run.state)) return;
+    if (disposed || props.ownerId <= 0 || activeRuns.value.length === 0) return;
     progressTimer = setTimeout(() => { void pollRunProgress(); }, 3500);
 }
 async function pollRunProgress() {
     progressTimer = undefined;
-    const run = selected.value;
-    if (disposed || !run || !progressStates.has(run.state)) return;
-    // No overlapping reads, and never interfere with an explicit mutation.
+    if (disposed || props.ownerId <= 0 || !activeRuns.value.length) return;
+    // Independent tasks must not wait for the currently selected row.
     if (progressPolling || busy.value || loading.value || document.hidden) {
         scheduleProgressRefresh();
         return;
     }
     progressPolling = true;
-    const owner = props.ownerId, scope = scopeRevision, id = run.id;
+    const owner = props.ownerId, scope = scopeRevision;
+    const current = () => !disposed && owner === props.ownerId && scope === scopeRevision;
+    let problems = 0;
     try {
-        // The executor is authoritative for running jobs. GET on the Web
-        // database alone would keep a missed callback stuck at "queued".
-        const fresh = await api.refreshRun(owner, id);
-        if (disposed || owner !== props.ownerId || scope !== scopeRevision || id !== selectedId.value) return;
-        mergeRun(fresh);
-        progressFailures = 0;
-        if (notice.value.includes(text('自动查询执行器失败', 'Automatic executor refresh failed'))) notice.value = '';
-    } catch (cause) {
-        if (disposed || owner !== props.ownerId || scope !== scopeRevision || id !== selectedId.value) return;
-        if (++progressFailures >= 2) {
-            notice.value = text('自动查询执行器失败，当前显示上次记录。可点击“查询执行器”查看具体错误。', 'Automatic executor refresh failed. Showing the last saved result; use Query executor for details.');
+        // Catch tasks started in another tab and receive completed device states.
+        const response = await api.listRuns(owner);
+        if (!current()) return;
+        for (const run of response.items) mergeRun(run);
+        const active = activeRuns.value;
+        if (active.length) {
+            // Bounded fairness: at most six task refreshes per tick. Rotate
+            // across all active runs so one long run never starves another.
+            const selectedBatch: AutomationRun[] = [];
+            for (let i = 0; i < Math.min(6, active.length); i++) {
+                selectedBatch.push(active[(refreshCursor + i) % active.length]);
+            }
+            refreshCursor = (refreshCursor + selectedBatch.length) % active.length;
+            const queue = [...selectedBatch];
+            await Promise.all(Array.from({length: Math.min(3, queue.length)}, async () => {
+                while (queue.length && current()) {
+                    const run = queue.shift()!;
+                    try {
+                        const updated = await api.refreshRun(owner, run.id);
+                        if (current()) mergeRun(updated);
+                    } catch {
+                        // Do not block other runs; keep their latest durable result.
+                        problems++;
+                    }
+                }
+            }));
         }
+        if (!current()) return;
+        progressFailures = problems ? progressFailures + 1 : 0;
+        if (progressFailures >= 2) {
+            notice.value = text('部分任务未能查询执行器，其他任务仍持续更新；失败任务保留上次记录。', 'Some executor queries failed. Other runs continue updating; failed queries keep their previous result.');
+        } else if (notice.value.includes(text('部分任务未能查询执行器', 'Some executor queries failed'))) {
+            notice.value = '';
+        }
+    } catch {
+        if (!current()) return;
+        if (++progressFailures >= 2) notice.value = text(
+            '自动刷新任务列表失败，保留上次执行记录，请检查网络或手动刷新。',
+            'Automatic task list refresh failed. Previous records were kept; check the network or refresh manually.');
     } finally {
         progressPolling = false;
-        if (!disposed && owner === props.ownerId && scope === scopeRevision) scheduleProgressRefresh();
+        if (current()) scheduleProgressRefresh();
     }
 }
-watch(() => [selected.value?.id, selected.value?.state] as const, scheduleProgressRefresh, { immediate: true });
+watch(() => activeRuns.value.map(run => run.id + ':' + run.state).join('|'), scheduleProgressRefresh, { immediate: true });
 const retryableStates = new Set(['failed', 'cancelled', 'interrupted']);
 const retryableDevices = computed(() => rerunSource.value?.devices.filter(device => retryableStates.has(device.state) && !hasUnconfirmedOutcome(device)) ?? []);
 const parameterNames = computed(() => [...new Set((rerunSource.value?.script_snapshot?.steps ?? [])
@@ -143,8 +197,11 @@ function date(value: string | undefined): string {
     return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString(cn.value ? 'zh-CN' : 'en-US');
 }
 function mergeRun(run: AutomationRun) {
-    const existing = runs.value.findIndex(record => record.id === run.id);
-    if (existing < 0) runs.value = [run, ...runs.value];
+    const existing = runs.value.find(record => record.id === run.id);
+    // A delayed list read or another device's callback must never rewind a
+    // newer executor revision on the page.
+    if (existing && (existing.executor_revision ?? -1) > (run.executor_revision ?? -1)) return;
+    if (!existing) runs.value = [run, ...runs.value];
     else runs.value = runs.value.map(record => record.id === run.id ? run : record);
 }
 function selectRun(run: AutomationRun) {
@@ -335,7 +392,7 @@ watch([() => props.ownerId, () => props.focusRunId] as const, ([owner, focus], o
     if (!old || owner !== old[0]) {
         scopeRevision++; requestSequence++; runs.value = []; selectedId.value = undefined;
         loading.value = false; working.value = null; error.value = ''; notice.value = '';
-        progressFailures = 0; stopProgressRefresh();
+        progressFailures = 0; refreshCursor = 0; overviewMode.value = 'runs'; stopProgressRefresh();
         expandedDevices.value = new Set(); cancelVisible.value = false; rerunVisible.value = false;
         rerunPending.value = undefined; rerunUncertain.value = false; rerunParameters.value = Object.create(null); rerunSource.value = undefined;
         previewVisible.value = false; releasePreview();
@@ -351,6 +408,46 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
         <div class="history-intro"><p class="muted">{{ text('正在排队或执行的任务每几秒自动向执行器同步状态；已结束的任务保留历史结果，可手动查询。', 'Queued and running tasks automatically refresh from the executor; completed records can still be queried manually.') }}</p><Button icon="pi pi-refresh" :label="text('刷新记录列表', 'Refresh records')" outlined size="small" :loading="loading" :disabled="busy" @click="loadRuns()" /></div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
         <p v-if="notice" class="notice-message" role="status">{{ notice }}</p>
+        <section v-if="activeRuns.length" class="console-panel parallel-overview" :aria-label="text('并行执行总览', 'Parallel run overview')">
+            <div class="parallel-heading">
+                <h2>{{ text('并行执行总览', 'Parallel run overview') }}</h2>
+                <div class="parallel-view-switch">
+                    <Button :label="text('按任务', 'By run')" size="small" :outlined="overviewMode !== 'runs'" @click="overviewMode = 'runs'" />
+                    <Button :label="text('按设备', 'By device')" size="small" :outlined="overviewMode !== 'devices'" @click="overviewMode = 'devices'" />
+                </div>
+            </div>
+            <div class="parallel-metrics">
+                <div><strong>{{ summary.runs }}</strong><span>{{ text('活跃任务', 'Active runs') }}</span></div>
+                <div><strong>{{ summary.running }}</strong><span>{{ text('执行设备', 'Running devices') }}</span></div>
+                <div><strong>{{ summary.queued }}</strong><span>{{ text('排队设备', 'Queued devices') }}</span></div>
+                <div><strong>{{ summary.failed }}</strong><span>{{ text('异常设备', 'Problem devices') }}</span></div>
+            </div>
+            <div v-if="overviewMode === 'runs'" class="parallel-run-grid">
+                <article v-for="run in activeRuns" :key="run.id" class="parallel-run-card">
+                    <header>
+                        <button type="button" class="parallel-title" @click="selectRun(run)">{{ run.name }}</button>
+                        <Tag :value="statusLabel(run.state)" :severity="severity(run.state)" />
+                    </header>
+                    <small>{{ text(`${run.devices.length} 台设备 · 并发 ${run.concurrency ?? '—'}`, `${run.devices.length} devices · concurrency ${run.concurrency ?? '—'}`) }}</small>
+                    <div class="parallel-device-list">
+                        <button v-for="device in run.devices" :key="device.device_id" type="button" class="parallel-device-row" @click="focusDevice(run, device.device_id)">
+                            <span class="parallel-device-name">{{ device.name }}</span>
+                            <span class="parallel-meter"><span :style="{ width: devicePercent(run, device) + '%' }" /></span>
+                            <span class="parallel-step-count">{{ deviceProgress(run, device) }}</span>
+                            <Tag :value="statusLabel(device.state)" :severity="severity(device.state)" />
+                        </button>
+                    </div>
+                </article>
+            </div>
+            <div v-else class="parallel-device-grid">
+                <button v-for="item in activeDevices" :key="item.run.id + ':' + item.device.device_id" type="button" class="parallel-device-card" @click="focusDevice(item.run, item.device.device_id)">
+                    <strong>{{ item.device.name }}</strong>
+                    <small>{{ item.run.name }}</small>
+                    <span class="parallel-meter"><span :style="{ width: devicePercent(item.run, item.device) + '%' }" /></span>
+                    <span class="parallel-device-footer"><span>{{ deviceProgress(item.run, item.device) }}</span><Tag :value="statusLabel(item.device.state)" :severity="severity(item.device.state)" /></span>
+                </button>
+            </div>
+        </section>
         <div v-if="!loading && !runs.length" class="console-panel console-empty-state"><i class="pi pi-history" aria-hidden="true" /><h2>{{ text('还没有执行记录', 'No runs yet') }}</h2><p>{{ text('在脚本库试跑或运行脚本后，会在这里保留逐台结果。', 'Trial and batch runs from the script library appear here with individual results.') }}</p></div>
         <div v-else class="history-columns">
             <aside class="console-panel run-list-panel">
@@ -399,6 +496,33 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
 <style scoped>
 .run-history { display: grid; gap: 16px; }
 .history-intro { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.parallel-overview{padding:16px;display:grid;gap:14px}
+.parallel-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.parallel-heading h2{font-size:15px;margin:0}
+.parallel-view-switch{display:flex;gap:6px}
+.parallel-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.parallel-metrics>div{display:grid;gap:4px;padding:12px;background:var(--console-panel-raised);border-radius:8px}
+.parallel-metrics strong{font-size:22px;line-height:1.1;font-variant-numeric:tabular-nums}
+.parallel-metrics span{font-size:11px;color:var(--console-muted)}
+.parallel-run-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:12px}
+.parallel-run-card{display:grid;align-content:start;gap:10px;border:1px solid var(--console-border);border-radius:9px;padding:12px;min-width:0}
+.parallel-run-card header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.parallel-title{color:var(--p-text-color);font-size:13px;font-weight:600;text-align:left;overflow-wrap:anywhere}
+.parallel-title:hover{text-decoration:underline}
+.parallel-run-card>small,.parallel-device-card>small{color:var(--console-muted);font-size:11px;overflow-wrap:anywhere}
+.parallel-device-list{display:grid;gap:4px}
+.parallel-device-row{display:flex;align-items:center;gap:7px;padding:6px 0;border-top:1px solid var(--console-border);font-size:11px;text-align:left;min-width:0}
+.parallel-device-row:hover,.parallel-device-card:hover{color:var(--p-primary-color)}
+.parallel-device-name{min-width:65px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.parallel-meter{display:block;flex:1;height:7px;min-width:20px;background:var(--console-ground);border-radius:6px;overflow:hidden}
+.parallel-meter>span{display:block;height:100%;background:var(--p-primary-color);border-radius:6px}
+.parallel-step-count{min-width:48px;text-align:right;white-space:nowrap;color:var(--console-muted)}
+.parallel-device-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr));gap:10px}
+.parallel-device-card{display:grid;gap:8px;padding:12px;border:1px solid var(--console-border);border-radius:8px;text-align:left}
+.parallel-device-card strong{font-size:13px;overflow-wrap:anywhere}
+.parallel-device-footer{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:11px}
+@media(max-width:560px){.parallel-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.parallel-device-row{flex-wrap:wrap}}
+
 .history-columns { display: grid; grid-template-columns: minmax(230px, .75fr) minmax(0, 2fr); gap: 20px; align-items: start; }
 .run-list { list-style: none; margin: 0; padding: 0; max-height: 700px; overflow: auto; }
 .run-list li { border-bottom: 1px solid var(--console-border); }
