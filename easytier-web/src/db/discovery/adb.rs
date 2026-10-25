@@ -180,7 +180,7 @@ impl Store {
         let mut phone:Option<String>=sqlx::query_scalar("SELECT id FROM asset_device_types WHERE owner_user_id=? AND EXISTS (SELECT 1 FROM json_each(semantic_kinds) WHERE value='phone') ORDER BY id LIMIT 1").bind(g.owner).fetch_optional(&mut *tx).await?;
         if phone.is_none() {
             let id = Uuid::new_v4().to_string();
-            sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,semantic_kind,semantic_kinds,created_at,updated_at) VALUES(?,?,?,'phone','["phone"]',?,?)").bind(&id).bind(g.owner).bind(format!("手机 · {}",&id[..8])).bind(now()).bind(now()).execute(&mut *tx).await?;
+            sqlx::query(r#"INSERT INTO asset_device_types(id,owner_user_id,name,semantic_kind,semantic_kinds,created_at,updated_at) VALUES(?,?,?,'phone','["phone"]',?,?)"#).bind(&id).bind(g.owner).bind(format!("手机 · {}",&id[..8])).bind(now()).bind(now()).execute(&mut *tx).await?;
             phone = Some(id);
         }
         // Preserve an existing confirmed phone subtype; never choose an unclassified name.
