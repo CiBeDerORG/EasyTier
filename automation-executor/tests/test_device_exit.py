@@ -116,8 +116,9 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(self.runtime.preparation_logs(accepted['id'])['items'])
             history = self.runtime.preparation_history(a['device_id'],a['owner_user_id'])
             self.assertEqual(history['items'][0]['id'],accepted['id'])
-            self.assertEqual((await self.runtime.automation_status({'target':a}))['state'],'unavailable')
         self.runtime.helpers.clear()
+        # Read-only queries never bootstrap an absent helper or contact a real phone.
+        self.assertEqual((await self.runtime.automation_status({'target':a}))['state'],'not_prepared')
 
     async def test_native_only_script_never_bootstraps_uiautomator(self):
         a=target()
