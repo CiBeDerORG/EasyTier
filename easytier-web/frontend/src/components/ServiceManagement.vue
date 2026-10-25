@@ -6,7 +6,7 @@ import { Button, ConfirmDialog, InputText, Menu, Message, Select, Skeleton, Tag,
 import type ApiClient from '../modules/api';
 import type { AssetDevice, AssetService, AssetServiceCatalogEntry } from '../types/node-assets';
 import { serviceMessages } from '../modules/service-messages';
-import { safeServiceUrl, serviceError } from '../modules/service-utils';
+import { safeServiceUrl, serviceAccessLinks, serviceError } from '../modules/service-utils';
 import { assetServiceScope, matchesAssetService, sortAssetServices, useServiceCatalog } from '../modules/service-catalog';
 import { assetServiceIconClass } from '../constants/asset-service-icons';
 import { publicationFeedback } from '../modules/publication-sync';
@@ -192,7 +192,13 @@ function clearFilters() { search.value = ''; selectedNode.value = null; selected
                             <Button icon="pi pi-ellipsis-h" text rounded severity="secondary" :aria-label="`${t('actions')}: ${service.name}`" aria-haspopup="menu" :disabled="busy" @click="openActions(service, $event)" />
                         </div>
                         <div class="service-management-identity">
-                            <a v-if="safeServiceUrl(service.access_url || '')" :href="safeServiceUrl(service.access_url || '') || undefined" target="_blank" rel="noopener noreferrer" class="service-url" :title="service.access_url || undefined">{{ service.access_url }}<i class="pi pi-arrow-up-right" aria-hidden="true"></i></a>
+                            <div v-if="serviceAccessLinks(service).length" class="service-access-links">
+                                <a v-for="link in serviceAccessLinks(service)" :key="link.kind" :href="link.url"
+                                    target="_blank" rel="noopener noreferrer" class="service-url" :title="link.url">
+                                    <span class="service-access-label">{{ t(link.kind === 'public' ? 'publicAccess' : 'internalAccess') }}</span>
+                                    <span class="service-access-address">{{ link.url }}</span><i class="pi pi-arrow-up-right" aria-hidden="true"></i>
+                                </a>
+                            </div>
                             <span v-else class="service-network-name">{{ t('navigationUrlRequired') }}</span>
                             <button type="button" class="service-name-button service-network-name" @click="openDevice(service)">{{ service.node_name }} · {{ service.device_name }}</button>
                         </div>
@@ -241,7 +247,10 @@ function clearFilters() { search.value = ''; selectedNode.value = null; selected
 .service-name-button { text-align: left; align-self: flex-start; font-size: 15px; font-weight: 600; background: transparent; color: var(--p-text-color); overflow-wrap: anywhere; }
 .service-name-button:hover { color: var(--p-primary-color); }
 .service-name-button:focus-visible, .service-navigation-toggle:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 3px; border-radius: 3px; }
-.service-url { display: block; max-width: 100%; color: var(--console-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.service-access-links { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.service-url { display: flex; align-items: baseline; gap: 7px; max-width: 100%; color: var(--console-muted); font-size: 12px; text-decoration: none; }
+.service-access-label { flex: none; white-space: nowrap; font-size: 11px; }
+.service-access-address { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .service-url:hover { color: var(--p-primary-color); }
 .service-url .pi { font-size: 10px; margin-left: 7px; }
 .service-network-name { color: var(--console-muted); font-size: 11px; overflow-wrap: anywhere; }
