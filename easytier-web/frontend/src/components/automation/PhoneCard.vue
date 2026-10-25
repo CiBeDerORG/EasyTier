@@ -4,7 +4,7 @@ import { Button, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
 import AutomationApi from '../../modules/automation-api';
-import type { AutomationControl, AutomationDevice, AutomationMediaSettings, AutomationComponentStatus } from '../../types/automation';
+import type { AutomationControl, AutomationDevice, AutomationMediaSettings, AutomationComponentStatus, AutomationPhoneConnectionState } from '../../types/automation';
 import { automationMessages } from './messages';
 import type { EndpointEvent } from '../../modules/discovery-api';
 import { usePhoneSession } from './usePhoneSession';
@@ -12,7 +12,7 @@ import PhoneAutomationPanel from './PhoneAutomationPanel.vue';
 
 const props = defineProps<{
     device: AutomationDevice; ownerId: number; selected: boolean; runnerAvailable: boolean;
-    phoneConnection?: 'connecting' | 'connected' | 'failed'; phoneConnectionError?: string;
+    phoneConnection?: AutomationPhoneConnectionState; phoneConnectionError?: string;
     componentStatus?: AutomationComponentStatus;
     syncRole?: 'master' | 'follower'; syncActive: boolean; recording: boolean;
 }>();
@@ -115,6 +115,17 @@ const ready = computed(() => session.state.phase === 'live' && session.state.con
 const manualAllowed = computed(() => ready.value && !props.syncRole);
 const touchAllowed = computed(() => ready.value && props.syncRole !== 'follower');
 const pending = computed(() => ['opening', 'connecting'].includes(session.state.phase));
+const adbConnectionHint = computed(() => {
+    if (props.phoneConnectionError) return props.phoneConnectionError;
+    const hints: Record<string,string> = {
+        checking: '正在查询 ADB 连接状态', connected: 'ADB 已连接',
+        offline: 'ADB 离线', unauthorized: 'ADB 未授权',
+        disconnected: 'ADB 未连接', unavailable: 'ADB 状态查询超时',
+        query_failed: 'ADB 查询失败', connecting: '正在连接 ADB',
+        failed: 'ADB 连接失败',
+    };
+    return hints[props.phoneConnection || ''] || t('phoneNotConnected');
+});
 const canOpen = computed(() => props.runnerAvailable && props.device.connection.enabled && !props.device.availability_reason && !props.device.active_session && !pending.value && session.state.phase !== 'live' && session.state.phase !== 'cleanup_pending');
 watch(() => session.state.phase, phase => emit('state', props.device.id, phase));
 watch(session.stream, value => {
@@ -235,7 +246,7 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
                 <span class="device-model" :title="device.model || device.type_name || ''">{{ device.model || device.type_name || '—' }}</span>
                 <button type="button" class="adb-status" :class="phoneConnection || 'unknown'"
                     :disabled="!runnerAvailable || !device.connection.enabled || phoneConnection === 'connecting'"
-                    :aria-label="t('connect')" :title="phoneConnectionError || t(phoneConnection === 'connected' ? 'phoneConnected' : phoneConnection === 'failed' ? 'phoneConnectionFailed' : phoneConnection === 'connecting' ? 'phoneConnecting' : 'phoneNotConnected')"
+                    :aria-label="'ADB：' + adbConnectionHint" :title="adbConnectionHint"
                     @click="emit('connect', device.id)">
                     <span class="adb-status-dot" aria-hidden="true" /><span class="sr-only">{{ t(phoneConnection === 'connected' ? 'phoneConnected' : phoneConnection === 'failed' ? 'phoneConnectionFailed' : phoneConnection === 'connecting' ? 'phoneConnecting' : 'phoneNotConnected') }}</span>
                 </button>
@@ -311,7 +322,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .adb-status:hover:not(:disabled){background:var(--console-accent-soft)}.adb-status:disabled{cursor:default;opacity:.6}
 .adb-status-dot{width:9px;height:9px;border-radius:50%;background:var(--console-muted);box-shadow:0 0 0 2px color-mix(in srgb,var(--console-muted) 20%,transparent)}
 .adb-status.connected .adb-status-dot{background:var(--p-green-500);box-shadow:0 0 0 2px color-mix(in srgb,var(--p-green-500) 22%,transparent)}
-.adb-status.failed .adb-status-dot{background:var(--p-red-500)}.adb-status.connecting .adb-status-dot{background:var(--p-blue-500);animation:adb-pulse 1s ease-in-out infinite}
+.adb-status.failed .adb-status-dot,.adb-status.query_failed .adb-status-dot,.adb-status.disconnected .adb-status-dot,.adb-status.offline .adb-status-dot{background:var(--p-red-500)}.adb-status.unauthorized .adb-status-dot,.adb-status.unavailable .adb-status-dot{background:var(--p-orange-500)}.adb-status.connecting .adb-status-dot,.adb-status.checking .adb-status-dot{background:var(--p-blue-500);animation:adb-pulse 1s ease-in-out infinite}
 @keyframes adb-pulse{50%{opacity:.35}}.adb-port{border:0;background:transparent;color:var(--console-muted);font:inherit;white-space:nowrap;cursor:pointer;padding:3px 0;display:inline-flex;align-items:center;gap:4px}
 .adb-port:hover:not(:disabled){color:var(--p-primary-color);text-decoration:underline}.adb-port:disabled{cursor:default;opacity:.6}
 .adb-port strong{color:var(--p-text-color);font-weight:600}.adb-port .pi{font-size:9px}

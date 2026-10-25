@@ -10,7 +10,7 @@ import { getApiBase } from '../modules/api-host';
 import type { AssetDevice, AssetNode, GatewayGroup } from '../types/node-assets';
 import DiscoveryDialog from './node-assets/DiscoveryDialog.vue';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../modules/automation-api';
-import type { AutomationContext, AutomationControl, AutomationControlReply, AutomationDevice, AutomationRun, AutomationStep, AutomationMediaSettings, AutomationComponentStatus } from '../types/automation';
+import type { AutomationContext, AutomationControl, AutomationControlReply, AutomationDevice, AutomationRun, AutomationStep, AutomationMediaSettings, AutomationComponentStatus, AutomationPhoneConnectionState } from '../types/automation';
 import PhoneCard from './automation/PhoneCard.vue';
 import ConnectionDialog from './automation/ConnectionDialog.vue';
 import ScriptLibrary from './automation/ScriptLibrary.vue';
@@ -71,7 +71,9 @@ const componentStateLabel: Record<string, string> = {
     adb_unavailable: 'ADB离线', unavailable: '控件不可用',
     checking: '查询中', query_failed: '查询失败',
 };
-const phoneConnections = ref<Record<string, 'connecting' | 'connected' | 'failed'>>({});
+const phoneConnections = ref<Record<string, AutomationPhoneConnectionState>>({});
+const adbActionVersions = new Map<string, number>();
+let statusQueryGeneration = 0;
 const phoneConnectionErrors = ref<Record<string, string>>({});
 const discoveryGateway = ref<AssetDevice | null>(null);
 const discoveryBusy = ref(false);
@@ -200,7 +202,12 @@ async function loadDevices() {
         devices.value = response.items; sourceIssues.value = response.issues ?? []; subscribeEndpoints();
         for (const id of Object.keys(componentStatuses.value)) {
             const device = response.items.find(item => item.id === id);
-            if (!device || previousTargets.get(id) !== device.target_fingerprint) delete componentStatuses.value[id];
+            if (!device || previousTargets.get(id) !== device.target_fingerprint) {
+                delete componentStatuses.value[id];
+                delete phoneConnections.value[id];
+                delete phoneConnectionErrors.value[id];
+                adbActionVersions.set(id, (adbActionVersions.get(id) ?? 0) + 1);
+            }
         }
         void loadGatewayCatalog(owner);
         const currentIds = new Set(devices.value.map(device => device.id));
@@ -219,16 +226,56 @@ async function loadDevices() {
     } catch (cause) { if (!disposed && request === loadGeneration) handleError(cause); }
     finally { if (request === loadGeneration) busy.value = false; }
 }
+function queryVisibleDeviceStatuses() {
+    if (!runnerAvailable.value) return;
+    // Read-only, per-device ADB and UIA probes start independently.
+    // A timeout on one device cannot delay another device's status update.
+    const owner = ownerId.value;
+    const workspace = workspaceGeneration;
+    const generation = ++statusQueryGeneration;
+    for (const device of [...visibleDevices.value]) {
+        const { id, target_fingerprint: fingerprint } = device;
+        const valid = () => !disposed && owner === ownerId.value &&
+            workspace === workspaceGeneration && generation === statusQueryGeneration &&
+            devices.value.some(item => item.id === id && item.target_fingerprint === fingerprint);
+        const actionVersion = adbActionVersions.get(id) ?? 0;
+        if (phoneConnections.value[id] !== 'connecting') phoneConnections.value[id] = 'checking';
+        delete phoneConnectionErrors.value[id];
+        componentStatuses.value[id] = { device_id:id, executor_id:'', state:'checking' };
+        void api.adbStatus(owner, id).then(response => {
+            if (!valid() || response.device_id !== id || (adbActionVersions.get(id) ?? 0) !== actionVersion) return;
+            if (phoneConnections.value[id] !== 'connecting') {
+                phoneConnections.value[id] = response.state;
+                if (response.code) phoneConnectionErrors.value[id] = response.code;
+            }
+        }).catch(cause => {
+            if (!valid() || (adbActionVersions.get(id) ?? 0) !== actionVersion) return;
+            if (phoneConnections.value[id] !== 'connecting') {
+                phoneConnections.value[id] = 'query_failed';
+                phoneConnectionErrors.value[id] = automationErrorMessage(cause);
+            }
+        });
+        void api.componentStatus(owner, id).then(response => {
+            if (!valid() || response.device_id !== id) return;
+            componentStatuses.value[id] = response;
+        }).catch(() => {
+            if (!valid()) return;
+            componentStatuses.value[id] = { device_id:id, executor_id:'', state:'query_failed' };
+        });
+    }
+}
 async function query() {
     applied.value = { ...filters.value };
     await loadDevices();
+    queryVisibleDeviceStatuses();
     if (sync.value?.deviceIds.some(id => !visibleIds.value.has(id))) await stopSync();
     for (const [id, card] of cards) if (!visibleIds.value.has(id)) await card.close();
 }
 async function changeOwner(id: number) {
     if (id === ownerId.value || busy.value || connecting.value || switchingTab.value) return;
     stopEvents?.(); stopEvents = undefined;
-    ++workspaceGeneration; ++loadGeneration;
+    ++workspaceGeneration; ++loadGeneration; ++statusQueryGeneration;
+    adbActionVersions.clear();
     await closeAll();
     ownerId.value = id; devices.value = []; selectedIds.value = []; phases.value = {}; results.value = [];
     componentStatuses.value = {}; componentStatusResults.value = [];
@@ -257,7 +304,11 @@ async function connectPhones(ids: string[]) {
         return device?.connection.enabled && !device.availability_reason;
     });
     const queue = [...targets];
-    for (const id of targets) { phoneConnections.value[id] = 'connecting'; delete phoneConnectionErrors.value[id]; }
+    for (const id of targets) {
+        adbActionVersions.set(id, (adbActionVersions.get(id) ?? 0) + 1);
+        phoneConnections.value[id] = 'connecting';
+        delete phoneConnectionErrors.value[id];
+    }
     // Explicit ADB connect only. Never silently pair, retry credentials or
     // open a video session. At most two requests can be in flight.
     const worker = async () => {
@@ -572,6 +623,7 @@ function onRunCreated(run: AutomationRun) {
     focusRunId.value = run.id; ++historyKey.value; tab.value = 'history';
 }
 function savedConnection(device: AutomationDevice) {
+    adbActionVersions.set(device.id, (adbActionVersions.get(device.id) ?? 0) + 1);
     delete phoneConnections.value[device.id];
     delete phoneConnectionErrors.value[device.id];
     delete componentStatuses.value[device.id];
@@ -606,7 +658,7 @@ onMounted(async () => {
     } catch (cause) { if (!disposed) handleError(cause); }
 });
 onBeforeUnmount(() => { stopEvents?.();
-    disposed = true; ++workspaceGeneration; ++loadGeneration; ++catalogGeneration;
+    disposed = true; ++workspaceGeneration; ++loadGeneration; ++catalogGeneration; ++statusQueryGeneration;
     document.removeEventListener('visibilitychange', visibilityChanged);
     document.removeEventListener('fullscreenchange', fullScreenChanged);
     window.removeEventListener('blur', releaseOnBlur);

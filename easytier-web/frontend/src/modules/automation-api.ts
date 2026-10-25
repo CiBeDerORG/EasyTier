@@ -3,7 +3,7 @@ import type {
     AutomationConnection, AutomationContext, AutomationDevice, AutomationPrepareResult,
     AutomationRun, AutomationRunInput, AutomationScript, AutomationScriptInput, AutomationSession,
     AutomationRunnerSettings, AutomationRunnerSettingsInput, AutomationRunnerCheck, AutomationMediaSettings,
-    AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog,
+    AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog, AutomationAdbStatus,
 } from '../types/automation';
 
 export class AutomationApiError extends Error {
@@ -47,6 +47,9 @@ export default class AutomationApi {
     devices(ownerId: number) { return this.request<{ items: AutomationDevice[]; issues?: {device_id:string;machine_id:string;name:string;reason:string}[] }>('/devices', ownerId); }
     saveConnection(ownerId: number, id: string, body: AutomationConnection) { return this.request<AutomationDevice>(`/devices/${encodeURIComponent(id)}/connection`, ownerId, 'PUT', body); }
     prepare(ownerId: number, id: string, body: { action: 'connect' | 'pair' | 'inspect' | 'automation'; pairing_port?: number; code?: string }) { return this.request<AutomationPrepareResult>(`/devices/${encodeURIComponent(id)}/prepare`, ownerId, 'POST', body); }
+    adbStatus(ownerId: number, id: string) {
+        return this.request<AutomationAdbStatus>(`/devices/${encodeURIComponent(id)}/adb-status`,ownerId);
+    }
     componentStatus(ownerId: number, id: string) {
         return this.request<AutomationComponentStatus>(`/devices/${encodeURIComponent(id)}/automation-status`,ownerId);
     }

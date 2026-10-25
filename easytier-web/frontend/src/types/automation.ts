@@ -40,8 +40,13 @@ export interface AutomationPreparation {
     target_fingerprint: string; state: string; stage: string; code: string | null; message: string | null;
     executor_generation: string; created_at: string; updated_at: string;
 }
+export type AutomationAdbConnectionState = 'connected' | 'offline' | 'unauthorized' | 'disconnected' | 'unavailable';
+export type AutomationPhoneConnectionState = AutomationAdbConnectionState | 'connecting' | 'checking' | 'failed' | 'query_failed';
+export interface AutomationAdbStatus {
+    device_id: string; state: AutomationAdbConnectionState; code?: string;
+}
 export interface AutomationComponentStatus {
-    device_id: string; state: 'ready' | 'not_prepared' | 'preparing' | 'adb_unavailable' | 'unavailable';
+    device_id: string; state: 'ready' | 'not_prepared' | 'preparing' | 'adb_unavailable' | 'unavailable' | 'checking' | 'query_failed';
     executor_id: string; preparation_id?: string; stage?: string;
 }
 export interface AutomationPreparationLog {
