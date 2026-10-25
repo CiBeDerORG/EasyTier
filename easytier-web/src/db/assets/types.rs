@@ -18,9 +18,10 @@ impl AssetsStore {
             .bind(owner).fetch_one(&mut *transaction).await?;
         if exists == 0 {
             let timestamp = now();
-            for (name, semantic) in [("OpenWrt","openwrt"), ("手机","phone"), ("电脑","other"), ("NAS","other"), ("智能家居","other"), ("其他","other")] {
-                sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,created_at,updated_at,semantic_kind) VALUES(?,?,?,?,?,?)")
-                    .bind(uuid::Uuid::new_v4().to_string()).bind(owner).bind(name).bind(&timestamp).bind(&timestamp).bind(semantic)
+            for (name, semantic) in [("OpenWrt","openwrt"), ("手机","phone"), ("电脑","other"), ("NAS","other"), ("智能家居","other"), ("其他","other"), ("服务器","server")] {
+                sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,created_at,updated_at,semantic_kind,semantic_kinds) VALUES(?,?,?,?,?,?,?)")
+                    .bind(uuid::Uuid::new_v4().to_string()).bind(owner).bind(name).bind(&timestamp).bind(&timestamp)
+                    .bind(if semantic == "server" { None } else { Some(semantic) }).bind(json!([semantic]).to_string())
                     .execute(&mut *transaction).await?;
             }
             sqlx::query("INSERT INTO asset_catalog_state(owner_user_id,initialized_at) VALUES(?,?)")
@@ -44,8 +45,12 @@ impl AssetsStore {
         ensure_owner(&mut transaction, owner).await?;
         let id = uuid::Uuid::new_v4().to_string();
         let timestamp = now();
-        sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,created_at,updated_at,semantic_kind) VALUES(?,?,?,?,?,?)")
-            .bind(&id).bind(owner).bind(payload["name"].as_str()).bind(&timestamp).bind(&timestamp).bind(payload["semantic_kind"].as_str())
+        let kinds = &payload["semantic_kinds"];
+        let legacy = kinds.as_array().and_then(|values| values.iter()
+            .filter_map(Value::as_str).find(|value| *value != "server"));
+        sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,created_at,updated_at,semantic_kind,semantic_kinds) VALUES(?,?,?,?,?,?,?)")
+            .bind(&id).bind(owner).bind(payload["name"].as_str()).bind(&timestamp).bind(&timestamp)
+            .bind(legacy).bind(kinds.to_string())
             .execute(&mut *transaction).await?;
         let row = sqlx::query("SELECT * FROM asset_device_types WHERE id = ? AND owner_user_id = ?")
             .bind(&id).bind(owner).fetch_one(&mut *transaction).await?;
@@ -59,8 +64,12 @@ impl AssetsStore {
         let payload = validation::type_payload(&body, false)?;
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         ensure_type(&mut transaction, owner, id).await?;
-        sqlx::query("UPDATE asset_device_types SET name = ?, updated_at = ?, semantic_kind = CASE WHEN ? THEN ? ELSE semantic_kind END WHERE id = ? AND owner_user_id = ?")
-            .bind(payload["name"].as_str()).bind(now()).bind(payload.get("semantic_kind").is_some()).bind(payload["semantic_kind"].as_str()).bind(id).bind(owner).execute(&mut *transaction).await?;
+        let kinds = payload.get("semantic_kinds");
+        let legacy = kinds.and_then(Value::as_array).and_then(|values| values.iter()
+            .filter_map(Value::as_str).find(|value| *value != "server"));
+        sqlx::query("UPDATE asset_device_types SET name = ?, updated_at = ?, semantic_kind = CASE WHEN ? THEN ? ELSE semantic_kind END, semantic_kinds = COALESCE(?, semantic_kinds) WHERE id = ? AND owner_user_id = ?")
+            .bind(payload["name"].as_str()).bind(now()).bind(kinds.is_some()).bind(legacy)
+            .bind(kinds.map(Value::to_string)).bind(id).bind(owner).execute(&mut *transaction).await?;
         let row = sqlx::query("SELECT * FROM asset_device_types WHERE id = ? AND owner_user_id = ?")
             .bind(id).bind(owner).fetch_one(&mut *transaction).await?;
         let response = type_json(&row)?;
