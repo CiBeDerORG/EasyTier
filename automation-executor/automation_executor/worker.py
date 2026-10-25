@@ -51,10 +51,8 @@ def _helper_entry(channel, gate, parent_pid, target, adb_binary):
         stage = "connect_device"
         channel.send({"stage": stage})
         device = u2.connect_usb(f'{target["ip"]}:{target["adb_port"]}')
-        # The private _jsonrpc_call assumes a running device-side server and
-        # does not initialize it. The public Device.info starts/probes the
-        # pinned UiAutomator service. This startup is read-only for the user
-        # interface (but may push/start the Android automation helper).
+        # Unlike raw JSON-RPC, these public APIs can initialize the
+        # device-side UiAutomator service. They avoid Android 17 deviceInfo.
         stage = "start_uiautomator"
         channel.send({"stage": stage})
         # ADB-backed dimensions and a real UI hierarchy prove readiness without
@@ -128,8 +126,16 @@ class PreparedHelper:
         self.ready_flag = False
         self.closed = False
         self.close_lock = asyncio.Lock()
-        gate = context.Event()
-        self.process = context.Process(target=_helper_entry, args=(child, gate, os.getpid(), target, adb_binary), daemon=True)
+        # A spawned child unpickles the named SemLock asynchronously. Keep the
+        # Event alive on the long-lived helper until the child has exited:
+        # releasing a local gate at __init__ return can unlink its semaphore
+        # before multiprocessing.spawn has rebuilt it in the child.
+        self.start_gate = context.Event()
+        self.process = context.Process(
+            target=_helper_entry,
+            args=(child, self.start_gate, os.getpid(), target, adb_binary),
+            daemon=True,
+        )
         self.process.start()
         child.close()
         try:
@@ -139,7 +145,7 @@ class PreparedHelper:
             self.process.join(2)
             self.channel.close()
             raise
-        gate.set()  # No device-side preparation can happen before durable ownership.
+        self.start_gate.set()  # Never release this Event until the child is reaped.
 
     def alive(self):
         return not self.closed and self.process.is_alive()
@@ -222,6 +228,7 @@ class PreparedHelper:
             if clean:
                 self.journal.clear_worker(self.holder)
                 self.process.close()
+                self.start_gate = None  # Safe to unlink the semaphore after child exit.
                 self.closed = True
             return clean
 

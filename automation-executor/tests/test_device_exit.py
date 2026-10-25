@@ -370,6 +370,36 @@ class HelperStartupTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.to_thread(process.join, 2)
             process.close()
 
+    async def test_prepared_helper_retains_spawn_semaphore_until_worker_exit(self):
+        # Reproduces the production ownership pattern, with a real spawned
+        # process and no ADB or phone access.
+        import gc
+        from automation_executor import worker
+        journal = SimpleNamespace(
+            worker=lambda *args: None,
+            clear_worker=lambda *args: None,
+            worker_record=lambda *args: None,
+        )
+        with patch.object(worker, "_helper_entry", worker._isolation_probe):
+            helper = worker.PreparedHelper(journal, target(), "adb")
+        try:
+            gc.collect()  # Trigger the premature SemLock unlink from the old code.
+            self.assertIsNotNone(helper.start_gate)
+            self.assertTrue(helper.start_gate.is_set())
+            messages = []
+            for _ in range(3):
+                self.assertTrue(await asyncio.to_thread(helper.channel.poll, 5))
+                messages.append(helper.channel.recv())
+            self.assertEqual(
+                [event.get("stage") for event in messages[:2]],
+                ["isolate_process", "wait_for_gate"],
+            )
+            self.assertEqual(messages[2], {"ok": True})
+        finally:
+            clean = await helper.close()
+        self.assertTrue(clean)
+        self.assertIsNone(helper.start_gate)
+
     async def test_pipe_eof_reports_process_signal_not_android_timeout(self):
         from automation_executor.worker import PreparedHelper
         helper = object.__new__(PreparedHelper)
