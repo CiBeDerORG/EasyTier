@@ -250,6 +250,8 @@ export interface GatewayGroup extends AssetScope, GatewayGroupInput {
 }
 
 export interface DeviceTypeInput {
+    /** Multi-select semantic roles. Legacy semantic_kind remains accepted. */
+    semantic_kinds?: SemanticTag[];
     semantic_kind?: SemanticKind;
     name: string;
 }
