@@ -87,6 +87,7 @@ export interface AutomationRunDevice {
 }
 export interface AutomationRun {
     id: string; name: string; state: string; created_at: string; updated_at: string;
+    executor_revision?: number; concurrency?: number;
     script_snapshot: { name?: string; revision?: number; steps: AutomationStep[] };
     devices: AutomationRunDevice[];
 }
