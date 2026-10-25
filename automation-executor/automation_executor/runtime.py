@@ -100,33 +100,44 @@ class Runtime:
             if action == "automation":
                 if body.get("code") is not None or body.get("pairing_port") is not None:
                     raise invalid()
-                await adb.require_connected(self.settings.adb_binary, target)
-                if any(did != target["device_id"] and validation.endpoint(helper.target) == validation.endpoint(target)
-                       for did, helper in self.helpers.items()):
-                    raise ExecutorError("target_alias_conflict", "同一 ADB 地址已由另一设备资料准备，请先修正重复目标")
-                old = self.helpers.pop(target["device_id"], None)
-                if old and not await old.close():
-                    self.helpers[target["device_id"]] = old
-                    raise ExecutorError("cleanup_pending", "之前的控件组件尚未完成清理")
-                if len(self.helpers) >= 30:
-                    raise ExecutorError("executor_capacity", "控件准备容量已满", 429)
-                old_record = self.journal.worker_record("helper:" + target["device_id"])
-                if not await asyncio.to_thread(cleanup_record, old_record):
-                    raise ExecutorError("cleanup_pending", "旧控件进程尚未完成清理")
-                helper = PreparedHelper(self.journal, target, self.settings.adb_binary)
-                try:
-                    result = await helper.ready()
-                except BaseException:
-                    if not await helper.close():
-                        self.helpers[target["device_id"]] = helper
-                    raise
-                self.helpers[target["device_id"]] = helper
-                self.journal.mark_prepared(target)
-                return result
+                return await self._prepare_automation_helper(target)
             return await adb.prepare(self.settings.adb_binary, target, action, body.get("pairing_port"), body.get("code"))
         finally:
             self.preparations.pop((target["device_id"],target["target_fingerprint"]), None)
             self.journal.release(holder, clean=self.journal.worker_record(holder) is None)
+
+    async def _prepare_automation_helper(self, target):
+        """Share the exact same uiautomator2 readiness and cleanup process
+        between explicit preparation and a newly accepted script run.
+
+        The caller must already hold a journal control claim for this target
+        (prepare or script). A script never pairs or reconnects ADB implicitly.
+        """
+        self.journal.ensure_target(target)
+        await adb.require_connected(self.settings.adb_binary, target)
+        if any(did != target["device_id"] and validation.endpoint(helper.target) == validation.endpoint(target)
+               for did, helper in self.helpers.items()):
+            raise ExecutorError("target_alias_conflict", "同一 ADB 地址已由另一设备资料准备，请先修正重复目标")
+        old = self.helpers.pop(target["device_id"], None)
+        if old and not await old.close():
+            self.helpers[target["device_id"]] = old
+            raise ExecutorError("cleanup_pending", "之前的控件组件尚未完成清理")
+        if len(self.helpers) >= 30:
+            raise ExecutorError("executor_capacity", "控件准备容量已满", 429)
+        old_record = self.journal.worker_record("helper:" + target["device_id"])
+        if not await asyncio.to_thread(cleanup_record, old_record):
+            raise ExecutorError("cleanup_pending", "旧控件进程尚未完成清理")
+        helper = PreparedHelper(self.journal, target, self.settings.adb_binary)
+        try:
+            result = await helper.ready()
+            self.journal.ensure_target(target)
+        except BaseException:
+            if not await helper.close():
+                self.helpers[target["device_id"]] = helper
+            raise
+        self.helpers[target["device_id"]] = helper
+        self.journal.mark_prepared(target)
+        return result
 
     async def create_session(self, body):
         validation.object_fields(body, {"id", "target", "quality", "media", "unlock_password", "lease_seconds", "expected_executor_id"}, {"id", "target", "quality", "lease_seconds", "expected_executor_id"})
@@ -380,10 +391,19 @@ class Runtime:
                 await self._update(rid, did, {"state": "cancelled", "steps": results})
                 return
             self.journal.claim(target, holder, "script")
-            if not self.prepared(target):
-                raise ExecutorError("capability_missing", "该设备尚未准备脚本控制")
+            # Authorize before any helper-side effects. If a valid helper is
+            # not running, prepare it once under this run's exclusive claim.
             await self._authorize(rid, target)
             await adb.require_connected(self.settings.adb_binary, target)
+            if not self.prepared(target):
+                await self._update(rid, did, {"state": "starting", "steps": results})
+                await self._prepare_automation_helper(target)
+                if not self.prepared(target):
+                    raise ExecutorError("automation_prepare_failed", "手机脚本控制组件未能确认就绪")
+            if cancel.is_set() or self.journal.cancelled(rid) or self.journal.withdrawn(rid, did):
+                await self._update(rid, did, {"state": "cancelled", "steps": results})
+                return
+            await self._authorize(rid, target)
             await self._update(rid, did, {"state": "running", "steps": results})
             for index, step in enumerate(body["steps"]):
                 if cancel.is_set() or (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)):
