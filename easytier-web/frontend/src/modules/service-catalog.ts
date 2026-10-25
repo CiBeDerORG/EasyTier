@@ -2,7 +2,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type ApiClient from './api';
 import type { AssetAccount, AssetContextResponse, AssetScope, AssetServiceCatalogEntry } from '../types/node-assets';
-import { serviceError } from './service-utils';
+import { serviceAccessLinks, serviceError } from './service-utils';
 
 /** Service management and navigation read the same device-owned service records. */
 export function useServiceCatalog(api: ApiClient, fallback: () => string) {
@@ -80,7 +80,7 @@ export function sortAssetServices(entries: AssetServiceCatalogEntry[]): AssetSer
 }
 
 export function matchesAssetService(service: AssetServiceCatalogEntry, query: string): boolean {
-    return `${service.name} ${service.remarks || ''} ${service.access_url || ''} ${service.node_name} ${service.device_name}`
+    return `${service.name} ${service.remarks || ''} ${serviceAccessLinks(service).map(link => link.url).join(' ')} ${service.node_name} ${service.device_name}`
         .toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
 }
 
