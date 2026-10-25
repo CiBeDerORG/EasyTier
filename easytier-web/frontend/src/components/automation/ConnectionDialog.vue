@@ -27,7 +27,7 @@ function dismiss() {
     pairingCode.value = ''; result.value = null; ++generation; emit('close');
 }
 function validPort(port: unknown): port is number { return typeof port === 'number' && Number.isInteger(port) && port > 0 && port < 65536; }
-async function perform(action?: 'pair' | 'connect' | 'inspect' | 'automation') {
+async function perform(action?: 'pair' | 'connect' | 'inspect') {
     if (!props.device || busy.value) return;
     error.value = ''; notice.value = ''; result.value = null;
     if (!validPort(form.value.adb_port)) { error.value = t('portInvalid'); return; }
@@ -77,7 +77,6 @@ async function perform(action?: 'pair' | 'connect' | 'inspect' | 'automation') {
                 <Button :label="t('pair')" icon="pi pi-link" :loading="busy" :disabled="!runnerAvailable" @click="perform('pair')" />
             </fieldset>
             <div class="prepare-actions"><Button :label="t('connect')" icon="pi pi-link" :loading="busy" :disabled="!runnerAvailable" @click="perform('connect')" /><Button :label="t('inspect')" icon="pi pi-info-circle" outlined :disabled="busy || !runnerAvailable" @click="perform('inspect')" /></div>
-            <div class="script-prepare"><p>{{ t('prepareHint') }}</p><Button :label="t('prepareAutomation')" icon="pi pi-bolt" outlined :disabled="busy || !runnerAvailable" @click="perform('automation')" /></div>
             <dl v-if="result?.metadata" class="metadata"><template v-for="(value, key) in result.metadata" :key="key"><dt>{{ key }}</dt><dd>{{ value ?? '—' }}</dd></template></dl>
         </div>
         <template #footer><Button :label="t('closeDialog')" text :disabled="busy" @click="dismiss" /></template>

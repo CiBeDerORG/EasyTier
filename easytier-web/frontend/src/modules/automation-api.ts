@@ -3,6 +3,7 @@ import type {
     AutomationConnection, AutomationContext, AutomationDevice, AutomationPrepareResult,
     AutomationRun, AutomationRunInput, AutomationScript, AutomationScriptInput, AutomationSession,
     AutomationRunnerSettings, AutomationRunnerSettingsInput, AutomationRunnerCheck, AutomationMediaSettings,
+    AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog,
 } from '../types/automation';
 
 export class AutomationApiError extends Error {
@@ -46,6 +47,24 @@ export default class AutomationApi {
     devices(ownerId: number) { return this.request<{ items: AutomationDevice[]; issues?: {device_id:string;machine_id:string;name:string;reason:string}[] }>('/devices', ownerId); }
     saveConnection(ownerId: number, id: string, body: AutomationConnection) { return this.request<AutomationDevice>(`/devices/${encodeURIComponent(id)}/connection`, ownerId, 'PUT', body); }
     prepare(ownerId: number, id: string, body: { action: 'connect' | 'pair' | 'inspect' | 'automation'; pairing_port?: number; code?: string }) { return this.request<AutomationPrepareResult>(`/devices/${encodeURIComponent(id)}/prepare`, ownerId, 'POST', body); }
+    componentStatus(ownerId: number, id: string) {
+        return this.request<AutomationComponentStatus>(`/devices/${encodeURIComponent(id)}/automation-status`,ownerId);
+    }
+    startPreparation(ownerId: number, id: string, requestId: string) {
+        return this.request<AutomationPreparation>(`/devices/${encodeURIComponent(id)}/preparations`,ownerId,'POST',{request_id:requestId});
+    }
+    preparationHistory(ownerId: number, id: string) {
+        return this.request<{items:AutomationPreparation[]}>(`/devices/${encodeURIComponent(id)}/preparations`,ownerId);
+    }
+    preparationDetail(ownerId: number, id: string, pid: string) {
+        return this.request<AutomationPreparation>(`/devices/${encodeURIComponent(id)}/preparations/${encodeURIComponent(pid)}`,ownerId);
+    }
+    preparationLogs(ownerId: number, id: string, pid: string) {
+        return this.request<{items:AutomationPreparationLog[]}>(`/devices/${encodeURIComponent(id)}/preparations/${encodeURIComponent(pid)}/logs`,ownerId);
+    }
+    cancelPreparation(ownerId: number, id: string, pid: string) {
+        return this.request<AutomationPreparation>(`/devices/${encodeURIComponent(id)}/preparations/${encodeURIComponent(pid)}/cancel`,ownerId,'POST',{});
+    }
     unlockStatus(ownerId: number, serviceId: string) { return this.request<{ configured: boolean }>(`/adb-services/${encodeURIComponent(serviceId)}/unlock`, ownerId); }
     saveUnlock(ownerId: number, serviceId: string, body: {action:'replace';password:string}|{action:'clear'}) { return this.request<{ configured: boolean }>(`/adb-services/${encodeURIComponent(serviceId)}/unlock`,ownerId,'PUT',body); }
     retryEndpoint(ownerId: number, device: string, event: string, body: {request_id: string; stage: 'cleanup'|'connection'|'publication'}) { return this.request(`/devices/${encodeURIComponent(device)}/endpoint-events/${encodeURIComponent(event)}/retry`, ownerId, 'POST', body); }

@@ -35,6 +35,18 @@ export interface AutomationDevice {
     connection: AutomationConnection; target_fingerprint: string | null; availability_reason: string | null;
     active_session?: { id: string; state: string; actor_user_id: number; expires_at: string } | null;
 }
+export interface AutomationPreparation {
+    id: string; request_id: string; device_id: string; owner_user_id: number;
+    target_fingerprint: string; state: string; stage: string; code: string | null; message: string | null;
+    executor_generation: string; created_at: string; updated_at: string;
+}
+export interface AutomationComponentStatus {
+    device_id: string; state: 'ready' | 'not_prepared' | 'preparing' | 'adb_unavailable' | 'unavailable';
+    executor_id: string; preparation_id?: string; stage?: string;
+}
+export interface AutomationPreparationLog {
+    seq: number; at: string; level: string; stage: string; message: string;
+}
 export interface AutomationPrepareResult {
     state: string; message: string; metadata?: Record<string, unknown>;
     capabilities?: Record<string, unknown> | string[];

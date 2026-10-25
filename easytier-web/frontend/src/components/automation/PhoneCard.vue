@@ -8,6 +8,7 @@ import type { AutomationControl, AutomationDevice, AutomationMediaSettings } fro
 import { automationMessages } from './messages';
 import type { EndpointEvent } from '../../modules/discovery-api';
 import { usePhoneSession } from './usePhoneSession';
+import PhoneAutomationPanel from './PhoneAutomationPanel.vue';
 
 const props = defineProps<{
     device: AutomationDevice; ownerId: number; selected: boolean; runnerAvailable: boolean;
@@ -242,12 +243,15 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
         </header>
         <div class="device-meta">
             <span class="node-name" :title="device.gateway_name || t('ungrouped')">{{ device.gateway_name || t('ungrouped') }}</span>
+            <div class="device-meta-actions">
+                <PhoneAutomationPanel :device="device" :owner-id="ownerId" :runner-available="runnerAvailable" />
             <button type="button" class="adb-port" :disabled="!runnerAvailable || !device.connection.enabled || pending"
                 :title="t(ready ? 'close' : 'open')" :aria-label="t('adbPort') + ': ' + device.connection.adb_port"
                 @click="emit('toggle-screen', device.id)">
                 {{ t('adbPort') }}: <strong>{{ device.connection.adb_port || '—' }}</strong>
                 <i class="pi" :class="ready ? 'pi-stop' : 'pi-play'" aria-hidden="true" />
             </button>
+            </div>
         </div>
         <div ref="screen" class="phone-screen" :style="currentGeometry.width && currentGeometry.height ? { aspectRatio: `${currentGeometry.width} / ${currentGeometry.height}` } : undefined" @keydown.esc="menuOpen = false">
             <video ref="video" autoplay muted playsinline :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent />
@@ -300,6 +304,7 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
 .phone-card.master{box-shadow:0 0 0 2px var(--p-primary-color)}
 header{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 0 14px;gap:8px}.device-heading{display:flex;align-items:center;gap:6px;min-width:0;flex:1}.device-selection{display:flex;align-items:center;gap:8px;min-width:0;font-weight:600}.device-selection .device-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.device-model{flex:0 1 auto;min-width:0;max-width:95px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:400;color:var(--console-muted)}.device-selection input{accent-color:var(--p-primary-color);width:16px;height:16px;flex-shrink:0}
 .device-meta{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--console-muted);padding:1px 14px 10px}
+.device-meta-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
 .device-meta .node-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .adb-status{border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;padding:0;cursor:pointer;flex-shrink:0;border-radius:50%}
 .adb-status:hover:not(:disabled){background:var(--console-accent-soft)}.adb-status:disabled{cursor:default;opacity:.6}
