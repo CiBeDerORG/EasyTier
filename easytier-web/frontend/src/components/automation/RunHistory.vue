@@ -79,12 +79,13 @@ function stopProgressRefresh() {
 }
 function scheduleProgressRefresh() {
     stopProgressRefresh();
-    if (disposed || props.ownerId <= 0 || activeRuns.value.length === 0) return;
-    progressTimer = setTimeout(() => { void pollRunProgress(); }, 3500);
+    if (disposed || props.ownerId <= 0) return;
+    // Discover runs started in another tab even if this tab was idle.
+    progressTimer = setTimeout(() => { void pollRunProgress(); }, activeRuns.value.length ? 3500 : 10000);
 }
 async function pollRunProgress() {
     progressTimer = undefined;
-    if (disposed || props.ownerId <= 0 || !activeRuns.value.length) return;
+    if (disposed || props.ownerId <= 0) return;
     // Independent tasks must not wait for the currently selected row.
     if (progressPolling || busy.value || loading.value || document.hidden) {
         scheduleProgressRefresh();
@@ -224,7 +225,11 @@ async function loadRuns(focusId?: string) {
     try {
         const result = await api.listRuns(owner);
         if (disposed || scope !== scopeRevision || request !== requestSequence) return;
-        runs.value = result.items;
+        const previous = new Map(runs.value.map(run => [run.id, run]));
+        runs.value = result.items.map(run => {
+            const cached = previous.get(run.id);
+            return cached && (cached.executor_revision ?? -1) > (run.executor_revision ?? -1) ? cached : run;
+        });
         const wanted = focusId ?? selectedId.value;
         if (wanted && !runs.value.some(run => run.id === wanted)) {
             const found = await api.getRun(owner, wanted);
