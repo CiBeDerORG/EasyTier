@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .vendor.scrcpy_source import ScrcpySource, SourceError, PROFILES
+from .scheduler import FairDeviceSlots
 
 
 class MediaError(Exception):
@@ -84,12 +85,22 @@ class _Session:
     close_task: asyncio.Task | None = None
 
 
+def _positive_env(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError as exc:
+        raise MediaError("media_config_invalid", f"{name} 必须为整数", 503) from exc
+    if value < 1:
+        raise MediaError("media_config_invalid", f"{name} 必须是正整数", 503)
+    return value
+
+
 class MediaManager:
     def __init__(self) -> None:
         self._sessions: dict[str, _Session] = {}
         self._lock = asyncio.Lock()
-        self._max_sessions = _bounded_env("AUTOMATION_MAX_MEDIA_SESSIONS", 10, 32)
-        self._starting = asyncio.Semaphore(_bounded_env("AUTOMATION_MAX_MEDIA_STARTING", 2, 4))
+        self._max_sessions = _positive_env("AUTOMATION_MAX_MEDIA_SESSIONS", 10)
+        self._starting = FairDeviceSlots(_positive_env("AUTOMATION_MAX_MEDIA_STARTING", 2))
         self._ice = _ice_config()
         self._turn_secret = os.environ.get("AUTOMATION_TURN_SECRET", "")
         self._turn_ttl = _bounded_env("AUTOMATION_TURN_TTL_SECONDS", 3600, 86400)
@@ -201,7 +212,7 @@ class MediaManager:
                 raise MediaError("media_dependencies_missing", "执行器缺少 aiortc/PyAV 视频依赖", 503) from exc
             session.offer_sdp, session.state = sdp, "starting"
             try:
-                await asyncio.wait_for(self._starting.acquire(), timeout=15)
+                await asyncio.wait_for(self._starting.acquire(session_id), timeout=15)
             except asyncio.TimeoutError as exc:
                 session.state, session.offer_sdp = "created", None
                 raise MediaError("media_start_busy", "其他画面正在启动，请稍后手动重试", 429) from exc
@@ -273,7 +284,7 @@ class MediaManager:
                 await self.close(session_id)
                 raise session.error from exc
             finally:
-                self._starting.release()
+                await self._starting.release()
 
     async def command(self, session_id: str, message: dict) -> dict:
         session = self._get(session_id)
