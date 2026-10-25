@@ -28,7 +28,7 @@ async def command(binary, *args, timeout=8, stdin=None):
 
 
 async def require_connected(binary, target):
-    code, output, stderr = await command(binary, "-s", serial(target), "get-state", timeout=5)
+    code, output, _ = await command(binary, "-s", serial(target), "get-state", timeout=5)
     if code != 0 or output.strip() != "device":
         raise ExecutorError("adb_unauthorized", "手机尚未连接或未授权，请先完成手机授权并手动连接", 409)
 
@@ -36,7 +36,7 @@ async def require_connected(binary, target):
 async def connection_status(binary, target):
     """A bounded, read-only ADB transport probe; never pairs or connects."""
     try:
-        code, output, _ = await command(binary, "-s", serial(target), "get-state", timeout=5)
+        code, output, stderr = await command(binary, "-s", serial(target), "get-state", timeout=5)
     except ExecutorError as exc:
         if exc.code == "adb_timeout":
             return {"device_id": target["device_id"], "state": "unavailable", "code": exc.code}
