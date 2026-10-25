@@ -60,7 +60,7 @@ pub(super) async fn prepare(auth: AuthSession, State(manager): State<AppStateInn
     let target = observed_store(&manager,&service,owner,Some(&[id.clone()])).await?.target(owner,&id).await.map_err(store_error)?;
     authorize(&auth,&config,&service,owner).await?;
     let expected_state=match action {"pair"=>"paired","automation"=>"automation_ready",_=>"connected"};
-    let mut outbound = payload;
+    let mut outbound = payload.clone();
     outbound["target"] = wire_target(&target);
     let executor=runner(&runtime)?.identity().await?;
     // A failed first pairing or a read-only inspection must not become a
