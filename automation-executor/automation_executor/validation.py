@@ -153,7 +153,7 @@ def run_request(body):
     integer(body["owner_user_id"], 1, 2 ** 31 - 1)
     integer(body["actor_user_id"], 1, 2 ** 31 - 1)
     result["steps"] = steps(body["steps"])
-    integer(body["concurrency"], 1, 5)
+    integer(body["concurrency"], 1, 2 ** 63 - 1)
     if not isinstance(body["parameters"], dict) or len(body["parameters"]) > 30:
         raise invalid("运行参数无效")
     for key, value in body["parameters"].items():
