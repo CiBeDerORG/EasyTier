@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { Button, InputText, Message } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
+import ExecutorCapacitySettings from './ExecutorCapacitySettings.vue';
 import type { AutomationRunnerCheck, AutomationRunnerSettings } from '../../types/automation';
 
 const props = defineProps<{ liveCount: number }>();
@@ -122,6 +123,7 @@ onMounted(load);
             <dl v-if="saved" class="settings-meta"><div><dt>{{ t('source') }}</dt><dd>{{ t(saved.source) }}</dd></div><div v-if="saved.updated_at"><dt>{{ t('updated') }}</dt><dd>{{ date(saved.updated_at) }}</dd></div></dl>
         </form>
         <div class="settings-side">
+            <ExecutorCapacitySettings :enabled="!!saved?.configured" :connection-revision="saved?.revision ?? 0" />
             <section class="console-panel settings-card" aria-live="polite">
                 <h2>{{ t('connection') }}</h2><p class="hint">{{ t('checkHint') }}</p>
                 <Message v-if="checkError" severity="error" :closable="false">{{ t('checkFailed') }}：{{ checkError }}</Message>
