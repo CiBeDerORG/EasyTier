@@ -384,7 +384,9 @@ class PhantomRegistrationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.directory = tempfile.TemporaryDirectory()
         media = ModuleType('automation_executor.media')
-        media.MediaManager = lambda: SimpleNamespace(close_all=AsyncMock())
+        media.MediaManager = lambda: SimpleNamespace(
+            close_all=AsyncMock(), _max_sessions=10,
+            _starting=FairDeviceSlots(2), _lock=asyncio.Lock())
         self.media_patch = patch.dict(sys.modules, {'automation_executor.media': media})
         self.media_patch.start()
         self.settings = SimpleNamespace(data_dir=Path(self.directory.name), token='x'*32,
