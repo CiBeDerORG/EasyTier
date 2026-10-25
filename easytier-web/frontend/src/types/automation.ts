@@ -22,6 +22,17 @@ export interface AutomationRunnerSettings {
 export interface AutomationRunnerSettingsInput {
     endpoint: string; token_action: 'preserve' | 'replace'; token?: string; revision: number;
 }
+export interface AutomationExecutorCapacity {
+    executor_id: string; revision: number; source: 'database' | 'environment';
+    max_running: number; max_pending: number;
+    max_media_sessions: number; max_media_starting: number;
+    recommended: { max_running: number; max_pending: number;
+        max_media_sessions: number; max_media_starting: number };
+}
+export type AutomationExecutorCapacityInput = Pick<AutomationExecutorCapacity,
+    'revision' | 'max_running' | 'max_pending' | 'max_media_sessions' | 'max_media_starting'> & {
+        expected_executor_id: string;
+    };
 export interface AutomationRunnerCheck {
     reachable: boolean; executor_id: string; protocol_version: number; checked_at: string;
 }
