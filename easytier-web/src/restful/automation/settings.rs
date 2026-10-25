@@ -74,6 +74,15 @@ impl Settings {
         })
     }
 
+    // AEAD associated data binds this ciphertext to one account and ADB service.
+    pub(crate) fn seal_unlock_password(&self, owner:i32, service_id:&str, secret:&str)->Result<String,deploy_agent::Error>{
+        self.credentials.seal(&format!("adb-unlock:v1:{owner}:{service_id}"),secret.as_bytes())
+    }
+    pub(crate) fn open_unlock_password(&self, owner:i32, service_id:&str, cipher:&str)->Result<String,deploy_agent::Error>{
+        let bytes=self.credentials.open(&format!("adb-unlock:v1:{owner}:{service_id}"),cipher)?;
+        String::from_utf8(bytes).map_err(|_|deploy_agent::Error::Credential)
+    }
+
     pub(crate) fn runner(&self) -> Option<Runner> {
         self.saved
             .read()

@@ -1,6 +1,7 @@
 //! Session-authenticated automation APIs. Media never traverses these routes.
 pub(crate) mod common;
 mod devices;
+mod unlock;
 pub(crate) mod runner;
 mod runs;
 mod scripts;
@@ -31,6 +32,7 @@ pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner>
         .route("/api/v1/automation/context", get(devices::context))
         .route("/api/v1/automation/devices", get(devices::list))
         .route("/api/v1/automation/devices/{id}/connection", put(devices::connection))
+        .route("/api/v1/automation/adb-services/{id}/unlock", get(unlock::get).put(unlock::save))
         .route("/api/v1/automation/devices/{id}/prepare", post(devices::prepare))
         .route("/api/v1/automation/sessions", post(sessions::create))
         .route("/api/v1/automation/sessions/{id}/offer", post(sessions::offer))

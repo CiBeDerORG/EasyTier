@@ -23,6 +23,7 @@ mod m20261024_000019_openwrt_discovery;
 mod m20261024_000020_adb_service_events;
 mod m20261024_000021_automation_settings;
 mod m20261025_000022_public_node_ip;
+mod m20261025_000023_adb_unlock_secrets;
 
 #[cfg(test)]
 mod merge_upgrade_tests;
@@ -55,6 +56,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261024_000020_adb_service_events::Migration),
             Box::new(m20261024_000021_automation_settings::Migration),
             Box::new(m20261025_000022_public_node_ip::Migration),
+            Box::new(m20261025_000023_adb_unlock_secrets::Migration),
         ]
     }
 }

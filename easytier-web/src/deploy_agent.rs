@@ -95,7 +95,7 @@ impl Service {
                     "invalid Agent credential key length"
                 );
             } else {
-                let records: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM deploy_agents)+(SELECT COUNT(*) FROM discovery_gateway_access WHERE secret_cipher IS NOT NULL)+(SELECT COUNT(*) FROM automation_runner_settings)")
+                let records: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM deploy_agents)+(SELECT COUNT(*) FROM discovery_gateway_access WHERE secret_cipher IS NOT NULL)+(SELECT COUNT(*) FROM automation_runner_settings)+(SELECT COUNT(*) FROM adb_service_unlock_secrets)")
                     .fetch_one(&db.inner())
                     .await?;
                 anyhow::ensure!(

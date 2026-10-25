@@ -173,6 +173,10 @@ impl AssetsStore {
             .bind(payload["name"].as_str()).bind(payload["port"].as_i64()).bind(payload["remarks"].as_str())
             .bind(payload["access_url"].as_str()).bind(payload["icon"].as_str()).bind(show_in_navigation).bind(now()).bind(payload["service_type"].as_str()).bind(payload["connection_mode"].as_str()).bind(id).bind(owner).bind(node)
             .execute(&mut *transaction).await?;
+        if payload["service_type"] != "adb" {
+            sqlx::query("DELETE FROM adb_service_unlock_secrets WHERE service_id=? AND owner_user_id=?")
+                .bind(id).bind(owner).execute(&mut *transaction).await?;
+        }
         insert_bindings(&mut transaction, owner, node, &device, id, &payload).await?;
         publications::sync_service(&mut transaction, owner, node, &device, id, &payload, self.publication_runtime_proof.as_ref()).await?;
         let row = sqlx::query(
