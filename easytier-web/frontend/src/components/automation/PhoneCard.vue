@@ -209,7 +209,7 @@ async function cleanupSaved() {
     cleaningSaved.value = true;
     try {
         const result = await api.closeSession(props.ownerId, props.device.active_session.id);
-        if (result.cleanup_pending) { session.state.phase = 'failed'; session.state.error = t('cleanupFirst'); }
+        if (result.cleanup_pending) { session.state.phase = 'failed'; session.state.error = result.message || t('cleanupFirst'); }
         else { session.state.phase = 'closed'; session.state.error = ''; }
         emit('refresh');
     } catch (cause) { session.state.error = cause instanceof Error ? cause.message : t('actionFailed'); }

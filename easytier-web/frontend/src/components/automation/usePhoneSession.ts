@@ -65,6 +65,7 @@ export function usePhoneSession(api: AutomationApi) {
                 const result = await api.closeSession(sessionOwner, current.id);
                 if (result.cleanup_pending || result.state === 'cleanup_pending') {
                     state.phase = 'cleanup_pending';
+                    state.error = result.message || '执行器尚未确认会话清理，暂不能新建投屏。';
                     return;
                 }
                 session = null;

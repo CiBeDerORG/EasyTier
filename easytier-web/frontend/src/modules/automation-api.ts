@@ -70,7 +70,7 @@ export default class AutomationApi {
     retryEndpoint(ownerId: number, device: string, event: string, body: {request_id: string; stage: 'cleanup'|'connection'|'publication'}) { return this.request(`/devices/${encodeURIComponent(device)}/endpoint-events/${encodeURIComponent(event)}/retry`, ownerId, 'POST', body); }
     createSession(ownerId: number, body: { device_id: string; quality: 'wall' | 'focus'; media?: AutomationMediaSettings }) { return this.request<AutomationSession>('/sessions', ownerId, 'POST', body); }
     offer(ownerId: number, id: string, body: RTCSessionDescriptionInit) { return this.request<{ sdp: string; type: 'answer'; width: number; height: number; unlock_state?: string }>(`/sessions/${encodeURIComponent(id)}/offer`, ownerId, 'POST', body); }
-    closeSession(ownerId: number, id: string) { return this.request<{ id: string; state: string; cleanup_pending?: boolean }>(`/sessions/${encodeURIComponent(id)}/close`, ownerId, 'POST', {}); }
+    closeSession(ownerId: number, id: string) { return this.request<{ id: string; state: string; cleanup_pending?: boolean; code?: string; message?: string }>(`/sessions/${encodeURIComponent(id)}/close`, ownerId, 'POST', {}); }
     controlUrl(ownerId: number, id: string): string {
         const url = new URL(this.url(`/sessions/${encodeURIComponent(id)}/control`, ownerId));
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';

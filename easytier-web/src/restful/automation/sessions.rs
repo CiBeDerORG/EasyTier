@@ -156,8 +156,20 @@ pub(crate) async fn close_remote(service: &CentralNetworkService, runtime: &Auto
     store.update_session(session_id,"cleanup_pending").await.map_err(store_error)?;
     let expected:Option<String>=sqlx::query_scalar("SELECT executor_identity FROM automation_sessions WHERE id=?").bind(session_id).fetch_one(&service.db.inner()).await.map_err(|e|store_error(e.into()))?;
     let Some(expected)=expected else{return Ok(json!({"id":session_id,"state":"cleanup_pending","cleanup_pending":true,"code":"legacy_executor_unconfirmed","message":"旧会话没有执行器身份记录，请先完成旧执行器清理验收。"}));};
+    // Never reinterpret a new executor's empty session table as proof that a
+    // previous executor has released its process or ADB forwards.
     let remote = match runner(runtime) {
-        Ok(runner) => runner.post(&format!("sessions/{session_id}/close"),&json!({"expected_executor_id":expected})).await,
+        Ok(runner) => match runner.identity().await {
+            Ok(current) if current != expected => {
+                return Ok(json!({
+                    "id":session_id,"state":"cleanup_pending","cleanup_pending":true,
+                    "code":"executor_identity_changed",
+                    "message":"原投屏会话绑定的执行器身份与当前执行器不一致。请恢复原执行器数据卷并完成清理，不能直接释放这条旧会话。"
+                }));
+            },
+            Ok(_) => runner.post(&format!("sessions/{session_id}/close"),&json!({"expected_executor_id":expected})).await,
+            Err(cause) => Err(cause),
+        },
         Err(cause) => Err(cause),
     };
     match remote {
@@ -165,8 +177,20 @@ pub(crate) async fn close_remote(service: &CentralNetworkService, runtime: &Auto
             store.update_session(session_id,"closed").await.map_err(store_error)?;
             Ok(json!({"id":session_id,"state":"closed","cleanup_pending":false}))
         }
-        _ => Ok(json!({"id":session_id,"state":"cleanup_pending","cleanup_pending":true,
-            "message":"关闭请求已记录，执行器清理尚未确认。"})),
+        Ok(result) => {
+            let code=result["code"].as_str().filter(|s|s.len()<=80).unwrap_or("executor_cleanup_unconfirmed");
+            let message=result["message"].as_str().filter(|s|s.len()<=1024)
+                .unwrap_or("执行器尚未确认投屏进程及资源清理完成，请检查执行器日志后重试。");
+            Ok(json!({"id":session_id,"state":"cleanup_pending","cleanup_pending":true,
+                "code":code,"message":message}))
+        }
+        Err((_,Json(detail))) => {
+            let code=detail["code"].as_str().filter(|s|s.len()<=80).unwrap_or("executor_cleanup_unreachable");
+            let message=detail["message"].as_str().filter(|s|s.len()<=1024)
+                .unwrap_or("未能取得执行器清理确认，请检查执行器服务及数据卷。");
+            Ok(json!({"id":session_id,"state":"cleanup_pending","cleanup_pending":true,
+                "code":code,"message":message}))
+        }
     }
 }
 
