@@ -395,7 +395,12 @@ class Runtime:
             # not running, prepare it once under this run's exclusive claim.
             await self._authorize(rid, target)
             await adb.require_connected(self.settings.adb_binary, target)
-            if not self.prepared(target):
+            # HOME/BACK/RECENT/WAKE and launching an app are native ADB
+            # operations. Don't start/install the heavy UiAutomator helper
+            # merely to execute these steps. Selector/touch/text/screenshot
+            # scripts still require the authenticated helper.
+            needs_ui = any(step["type"] not in ("key", "launch_app") for step in body["steps"])
+            if needs_ui and not self.prepared(target):
                 await self._update(rid, did, {"state": "starting", "steps": results})
                 await self._prepare_automation_helper(target)
                 if not self.prepared(target):

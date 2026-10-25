@@ -17,13 +17,37 @@ class StepFailure(Exception):
 
 def execute(target, step, parameters, artifact_path=None):
     import adbutils
-    from uiautomator2.core import DEFAULT_SERVER_PORT, _jsonrpc_call
-    from uiautomator2._selector import Selector
 
     address = f'{target["ip"]}:{target["adb_port"]}'
     dev = adbutils.adb.device(serial=address)
     if dev.get_state() != "device":
         raise StepFailure("adb_unauthorized", "手机未连接或未授权")
+    kind = step["type"]
+    # Native-only actions must not call UiAutomator's RPC or attempt to
+    # bootstrap its service. Every shell command targets the exact serial.
+    if kind in ("key", "launch_app"):
+        try:
+            if kind == "key":
+                code = {"HOME": 3, "BACK": 4, "RECENT": 187, "WAKE": 224}[step["key"]]
+                response = dev.shell2(["input", "keyevent", str(code)], timeout=8)
+                if response.returncode != 0:
+                    raise StepFailure("device_action_unconfirmed", "按键是否执行无法确认，请查看手机",
+                                      outcome_unknown=True)
+            else:
+                response = dev.shell2(["am", "start", "-a", "android.intent.action.MAIN",
+                                       "-c", "android.intent.category.LAUNCHER", "-p", step["package"]], timeout=10)
+                if response.returncode != 0 or "Error:" in response.output:
+                    raise StepFailure("app_start_failed", "无法打开指定应用，请检查是否已安装且提供启动入口")
+        except StepFailure:
+            raise
+        except Exception:
+            raise StepFailure("device_action_unconfirmed",
+                              "ADB 动作是否执行无法确认，请检查手机后处理",
+                              outcome_unknown=True) from None
+        return {"state": "action_sent", "message": "动作已交给设备；应用结果需通过后续断言确认"}
+
+    from uiautomator2.core import DEFAULT_SERVER_PORT, _jsonrpc_call
+    from uiautomator2._selector import Selector
     def rpc(method, *params, timeout=8):
         # No exception text/params escape into logs or user-facing errors.
         readonly = method in ("count", "objInfo", "deviceInfo", "takeScreenshot")
@@ -54,7 +78,6 @@ def execute(target, step, parameters, artifact_path=None):
             # Bounded read-only waiting inside this explicit step, not a scanner.
             time.sleep(min(.2, max(0, deadline - time.monotonic())))
 
-    kind = step["type"]
     if kind in ("wait_for", "assert"):
         find(step["selector"], step["timeout_ms"])
         return {"state": "assertion_passed", "message": "指定控件条件检查通过"}
@@ -88,13 +111,6 @@ def execute(target, step, parameters, artifact_path=None):
             rpc("setText", selected, value)
         else:
             rpc("clearTextField", selected)
-    elif kind == "key":
-        code = {"HOME": 3, "BACK": 4, "RECENT": 187, "WAKE": 224}[step["key"]]
-        rpc("pressKeyCode", code)
-    elif kind == "launch_app":
-        response = dev.shell2(["am", "start", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-p", step["package"]], timeout=10)
-        if response.returncode != 0 or "Error:" in response.output:
-            raise StepFailure("app_start_failed", "无法打开指定应用，请检查是否已安装且提供启动入口")
     elif kind == "screenshot":
         encoded = rpc("takeScreenshot", 1, 80)
         if not isinstance(encoded, str) or not encoded or len(encoded) > 12 * 1024 * 1024:

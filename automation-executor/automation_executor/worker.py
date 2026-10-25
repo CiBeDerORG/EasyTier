@@ -32,28 +32,44 @@ def _isolate(parent_pid, adb_binary):
 
 def _helper_entry(channel, gate, parent_pid, target, adb_binary):
     device = None
+    stage = "launch_worker"
     try:
         _isolate(parent_pid, adb_binary)
         if not gate.wait(5):
             return
+        stage = "import_sdk"
+        channel.send({"stage": stage})
         import uiautomator2 as u2
-        from uiautomator2.core import DEFAULT_SERVER_PORT, _jsonrpc_call
+        stage = "connect_device"
+        channel.send({"stage": stage})
         device = u2.connect_usb(f'{target["ip"]}:{target["adb_port"]}')
-        info = _jsonrpc_call(device.adb_device, DEFAULT_SERVER_PORT, "deviceInfo", (), 8, False)
+        # The private _jsonrpc_call assumes a running device-side server and
+        # does not initialize it. The public Device.info starts/probes the
+        # pinned UiAutomator service. This startup is read-only for the user
+        # interface (but may push/start the Android automation helper).
+        stage = "start_uiautomator"
+        channel.send({"stage": stage})
+        info = device.info
+        if not isinstance(info, dict):
+            raise RuntimeError("invalid device metadata")
         channel.send({"ok": True, "result": {"state": "automation_ready",
                      "message": "控件组件已准备；中文通过控件文本设置，不自动切换输入法",
                      "capabilities": {"automation": True, "input_text": True, "selectors": True},
                      "display": {"width": info.get("displayWidth"), "height": info.get("displayHeight")}}})
-        # Keep the uiautomator2 server's stream alive. No device polling or input.
+        # Keep the device-side server alive until explicit release.
         channel.recv()
     except ModuleNotFoundError:
-        channel.send({"ok": False, "code": "automation_unavailable", "message": "执行器缺少控件执行依赖"})
+        channel.send({"ok": False, "stage": stage, "code": "automation_unavailable",
+                      "message": "执行器缺少 UiAutomator 依赖"})
     except (EOFError, BrokenPipeError):
         pass
     except BaseException:
         try:
-            channel.send({"ok": False, "code": "automation_prepare_failed", "message": "手机控件组件未准备完成，请检查调试授权或系统兼容性"})
-        except (OSError, EOFError):
+            # Never send exception text, shell arguments, or SDK logs to the
+            # browser. A fixed stage is sufficient for targeted diagnostics.
+            channel.send({"ok": False, "stage": stage, "code": "automation_prepare_failed",
+                          "message": "控件服务启动失败（阶段：" + stage + "），请检查手机授权、系统限制或执行器状态"})
+        except (OSError, EOFError, BrokenPipeError):
             pass
     finally:
         if device is not None:
@@ -91,15 +107,45 @@ class PreparedHelper:
     def alive(self):
         return not self.closed and self.process.is_alive()
 
-    async def ready(self):
-        try:
-            response = await asyncio.wait_for(asyncio.to_thread(self.channel.recv), 45)
-            if not response.get("ok"):
-                raise ExecutorError(response.get("code", "automation_prepare_failed"), response.get("message", "控件组件未准备完成"), 502)
-            self.ready_flag = True
-            return response["result"]
-        except (asyncio.TimeoutError, EOFError, OSError):
-            raise ExecutorError("automation_prepare_failed", "手机控件组件准备超时或中断", 502) from None
+    async def ready(self, timeout=75):
+        # A first install may require device-side service initialization.
+        # Poll the pipe in bounded increments instead of leaving a recv()
+        # blocked forever in the default thread pool after a timeout.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        stages = {
+            "launch_worker": "启动执行进程",
+            "import_sdk": "加载控件 SDK",
+            "connect_device": "绑定 ADB 设备",
+            "start_uiautomator": "启动手机控件服务",
+        }
+        stage = "launch_worker"
+        while loop.time() < deadline:
+            try:
+                has_message = await asyncio.to_thread(self.channel.poll, min(.5, max(0, deadline - loop.time())))
+                if has_message:
+                    response = self.channel.recv()
+                    if not isinstance(response, dict):
+                        raise ExecutorError("automation_prepare_invalid", "控件进程返回格式无效", 502)
+                    if "stage" in response and response["stage"] in stages:
+                        stage = response["stage"]
+                    if "ok" not in response:
+                        continue
+                    if not response["ok"]:
+                        raise ExecutorError(response.get("code", "automation_prepare_failed"),
+                                            response.get("message", "控件组件未准备完成"), 502)
+                    if response.get("result", {}).get("state") != "automation_ready":
+                        raise ExecutorError("automation_prepare_invalid", "控件组件未确认就绪", 502)
+                    self.ready_flag = True
+                    return response["result"]
+                if not self.process.is_alive():
+                    raise ExecutorError("automation_worker_exited",
+                                        f"控件执行进程已退出（阶段：{stages[stage]}），请检查执行器运行环境", 502)
+            except (EOFError, OSError):
+                raise ExecutorError("automation_worker_interrupted",
+                                    f"控件执行进程通信中断（阶段：{stages[stage]}）", 502) from None
+        raise ExecutorError("automation_prepare_timeout",
+                            f"手机控件服务初始化超时（阶段：{stages[stage]}）；ADB 可连接，但请检查手机控件服务启动限制", 504)
 
     async def close(self):
         async with self.close_lock:
