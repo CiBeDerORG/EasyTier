@@ -124,10 +124,10 @@ impl AutomationStore {
             targets.push(target);
         }
         let concurrency=match body.get("concurrency") {
-            None=>1,
-            Some(value)=>value.as_i64().ok_or_else(||AutomationError::field("concurrency","Choose an integer from one to three."))?,
+            None=>3,
+            Some(value)=>value.as_i64().ok_or_else(||AutomationError::field("concurrency","Choose an integer from one to five."))?,
         };
-        if !(1..=3).contains(&concurrency){return Err(AutomationError::field("concurrency","Choose one to three simultaneous devices."));}
+        if !(1..=5).contains(&concurrency){return Err(AutomationError::field("concurrency","Choose one to five simultaneous devices."));}
         if body.get("script_id").is_some_and(|value|!value.is_string()) {return Err(AutomationError::field("script_id","Use a saved script identifier or omit it for inline steps."));}
         let mut tx=self.pool.begin_with("BEGIN IMMEDIATE").await?;
         authorized(&mut tx,actor,owner).await?;

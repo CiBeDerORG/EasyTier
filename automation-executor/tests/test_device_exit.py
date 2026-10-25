@@ -82,6 +82,50 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(closed['executor_id'],runtime.journal.executor_id)
         self.assertFalse(closed['cleanup_pending'])
 
+    async def test_three_phones_start_concurrently_and_finish_independently(self):
+        devices = [target(f'10.60.2.{number}') for number in range(21, 24)]
+        body = run_body(self.runtime.journal, devices)
+        body['concurrency'] = 3
+        started = {device['device_id']: asyncio.Event() for device in devices}
+        release = asyncio.Event()
+        async def execute(journal, holder, target_item, step, *args):
+            started[target_item['device_id']].set()
+            await release.wait()
+            return {'state': 'succeeded'}
+        with patch('automation_executor.runtime.execute_step', new=execute):
+            accepted = await self.runtime.create_run(body)
+            self.assertEqual(accepted['state'], 'queued')
+            try:
+                # All three must enter the first device action before any finishes.
+                await asyncio.wait_for(asyncio.gather(*(flag.wait() for flag in started.values())), 3)
+                mid = self.runtime.journal.run(body['id'])
+                self.assertEqual(sum(device['state'] == 'running' for device in mid['devices']), 3)
+            finally:
+                release.set()
+            await asyncio.wait_for(self.runtime.tasks[body['id']], 3)
+        final = self.runtime.journal.run(body['id'])
+        self.assertEqual(final['state'], 'completed')
+        self.assertTrue(all(device['state'] == 'completed' for device in final['devices']))
+
+    async def test_two_distinct_runs_progress_in_parallel(self):
+        first, second = target('10.60.3.31'), target('10.60.3.32')
+        runs = [run_body(self.runtime.journal, [first]), run_body(self.runtime.journal, [second])]
+        started = {d['device_id']: asyncio.Event() for d in (first,second)}
+        release = asyncio.Event()
+        async def execute(journal, holder, t, step, *args):
+            started[t['device_id']].set()
+            await release.wait()
+            return {'state': 'succeeded'}
+        with patch('automation_executor.runtime.execute_step', new=execute):
+            for body in runs:
+                await self.runtime.create_run(body)
+            try:
+                await asyncio.wait_for(asyncio.gather(*(flag.wait() for flag in started.values())), 3)
+            finally:
+                release.set()
+            await asyncio.wait_for(asyncio.gather(*(self.runtime.tasks[body['id']] for body in runs)), 3)
+        self.assertTrue(all(self.runtime.journal.run(body['id'])['state'] == 'completed' for body in runs))
+
     async def test_withdraw_running_phone_preserves_other_phone_and_its_second_step(self):
         a,b=target(),target('10.60.1.21'); body=run_body(self.runtime.journal,[a,b])
         started={a['device_id']:asyncio.Event(),b['device_id']:asyncio.Event()};release_b=asyncio.Event();calls=[]
