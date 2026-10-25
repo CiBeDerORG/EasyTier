@@ -86,6 +86,34 @@ pub(crate) async fn advance(
     let withdrawals = store.withdraw_device_runs(owner, device, &event).await?;
     let sessions=sqlx::query("SELECT id,target_json FROM automation_sessions WHERE owner_user_id=? AND device_id=? AND state NOT IN ('closed','failed')").bind(owner).bind(device).fetch_all(&pool).await?;
     let old_targets:Vec<String>=sqlx::query_scalar("SELECT target_json FROM discovery_targets WHERE owner_user_id=? AND device_id=? AND retired=0 UNION SELECT d.target_json FROM automation_run_devices d JOIN automation_runs r ON r.id=d.run_id WHERE r.owner_user_id=? AND d.device_id=? AND d.withdraw_requested=1 AND d.cleanup_confirmed=0 UNION SELECT target_json FROM automation_sessions WHERE owner_user_id=? AND device_id=? AND state NOT IN ('closed','failed')").bind(owner).bind(device).bind(owner).bind(device).bind(owner).bind(device).fetch_all(&pool).await?;
+    // Creating the FIRST ADB service also creates a pending endpoint event.
+    // Confirm cleanup directly when there are provably no prior sessions, runs
+    // or registered targets, rather than waiting for an unrelated Runner health
+    // check or requiring a manual retry. Never bypass predecessor cleanup.
+    let predecessor = row.try_get::<Option<String>, _>("predecessor_device_id")?;
+    let predecessor_pending = if let Some(id) = predecessor.as_deref() {
+        let proof: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT json_extract(cleanup_json,'$.state') FROM discovery_endpoint_events WHERE owner_user_id=? AND device_id=? ORDER BY seq DESC LIMIT 1"
+        ).bind(owner).bind(id).fetch_optional(&pool).await?.flatten();
+        proof.as_deref() != Some("confirmed")
+    } else { false };
+    let no_previous_resources = withdrawals.is_empty() && sessions.is_empty() && old_targets.is_empty();
+    if no_previous_resources {
+        if predecessor_pending {
+            cleanup = json!({"state":"pending","code":"predecessor_cleanup_pending"});
+            stage(service, &event, "cleanup_json", &cleanup).await?;
+        } else if cleanup["state"] != "confirmed" {
+            cleanup = json!({"state":"confirmed","code":"no_previous_resources"});
+            stage(service, &event, "cleanup_json", &cleanup).await?;
+        }
+        if requested.is_some_and(|(_, stage)| stage == "cleanup") {
+            // A cleanup-only request must not fail because an unrelated
+            // attempt to contact the remote ADB Runner is unavailable.
+            let result = json!({"event_id":event,"owner_user_id":owner,"device_id":device,"endpoint_revision":revision,"cleanup":cleanup,"connection":connection});
+            let _ = runtime.events.send(result.clone());
+            return Ok(result);
+        }
+    }
     let Some(runner) = automation.runner.as_ref() else {
         cleanup = if withdrawals.is_empty() && sessions.is_empty() && old_targets.is_empty() {
             json!({"state":"confirmed","code":"no_previous_resources"})
@@ -109,13 +137,22 @@ pub(crate) async fn advance(
         let _ = runtime.events.send(result.clone());
         return Ok(result);
     };
-    let executor = runner.identity().await.map_err(|(_, v)| {
-        AssetError::new(
-            502,
-            "runner_unreachable",
-            v.0["message"].as_str().unwrap_or("Executor unavailable."),
-        )
-    })?;
+    let executor = match runner.identity().await {
+        Ok(identity) => identity,
+        Err((_, error)) if cleanup["state"] == "confirmed" && !predecessor_pending => {
+            // No pending retirement: surface Runner unavailability as a
+            // connection-stage issue, not a fictitious old-target blocker.
+            connection = json!({"state":"pending","code":error.0["code"].as_str().unwrap_or("runner_unreachable")});
+            stage(service, &event, "connection_json", &connection).await?;
+            let result = json!({"event_id":event,"owner_user_id":owner,"device_id":device,"endpoint_revision":revision,"cleanup":cleanup,"connection":connection});
+            let _ = runtime.events.send(result.clone());
+            return Ok(result);
+        }
+        Err((_, error)) => return Err(AssetError::new(
+            502, "runner_unreachable",
+            error.0["message"].as_str().unwrap_or("Executor unavailable."),
+        )),
+    };
     let old_executors:Vec<String>=sqlx::query_scalar("SELECT DISTINCT executor_id FROM discovery_targets WHERE owner_user_id=? AND device_id=? AND retired=0").bind(owner).bind(device).fetch_all(&pool).await?;
     if cleanup["state"] != "confirmed" && old_executors.iter().any(|id| id != &executor) {
         return Err(AssetError::conflict(
@@ -173,9 +210,8 @@ pub(crate) async fn advance(
         stage(service, &event, "cleanup_json", &cleanup).await?;
     }
     // A replacement cannot connect until its predecessor's resources are retired.
-    if let Some(predecessor) = row.try_get::<Option<String>, _>("predecessor_device_id")? {
-        let predecessor_cleanup:Option<String>=sqlx::query_scalar("SELECT json_extract(cleanup_json,'$.state') FROM discovery_endpoint_events WHERE owner_user_id=? AND device_id=? ORDER BY seq DESC LIMIT 1").bind(owner).bind(&predecessor).fetch_optional(&pool).await?;
-        if predecessor_cleanup.as_deref() != Some("confirmed") {
+    if let Some(predecessor) = predecessor {
+        if predecessor_pending {
             cleanup = json!({"state":"pending","code":"predecessor_cleanup_pending","predecessor_device_id":predecessor});
             stage(service, &event, "cleanup_json", &cleanup).await?;
             let result = json!({"event_id":event,"owner_user_id":owner,"device_id":device,"endpoint_revision":revision,"cleanup":cleanup,"connection":connection});

@@ -792,3 +792,45 @@ async fn cleanup_failure_blocks_connect_and_explicit_stage_retry_does_not_repeat
     );
     server.abort();
 }
+
+#[tokio::test]
+async fn first_adb_publication_cleanup_needs_no_runner_health_when_no_resources_exist() {
+    use crate::{
+        central_network::service::CentralNetworkService,
+        client_manager::{ClientManager, HeartbeatPolicy},
+        discovery::reconnect,
+        restful::automation::runner::Runner,
+    };
+    use std::sync::Arc;
+    let f = Fixture::new().await;
+    let did = f.import("192.168.1.20").await;
+    f.adb(json!([ep("192.168.1.20", 37001)]), "ok").await;
+    // No pairing, session, run or registered old endpoint has EVER existed.
+    let old_targets: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM discovery_targets WHERE device_id=? AND retired=0"
+    ).bind(&did).fetch_one(&f.db.inner()).await.unwrap();
+    assert_eq!(old_targets, 0);
+    let manager = Arc::new(ClientManager::new(
+        f.db.clone(), None, HeartbeatPolicy::default(),
+        Arc::new(crate::FeatureFlags::default()),
+        Arc::new(crate::webhook::WebhookConfig::new(None, None, None, None, None)),
+    ));
+    let service = CentralNetworkService::new(f.db.clone(), manager.clone());
+    let runtime = Runtime::new(f.db.clone()).await.unwrap();
+    // Runner configuration exists but is not reachable during this first
+    // registration; that must not be misreported as pending old-target cleanup.
+    runtime.settings.set_runner_for_test(
+        Runner::configured("http://127.0.0.1:1", "test-token".repeat(8)),
+    );
+    let result = reconnect::advance(&manager, &service, &runtime, f.g.owner, &did, None).await.unwrap();
+    assert_eq!(result["cleanup"]["state"], "confirmed", "{result}");
+    assert_eq!(result["cleanup"]["code"], "no_previous_resources");
+    assert_eq!(result["connection"]["state"], "pending", "{result}");
+    let event = result["event_id"].as_str().unwrap();
+    let retry = reconnect::advance(
+        &manager, &service, &runtime, f.g.owner, &did, Some((event, "cleanup"))
+    ).await.unwrap();
+    assert_eq!(retry["cleanup"]["state"], "confirmed");
+    // First user-initiated pairing now passes the old-target retirement fence.
+    assert!(AutomationStore::new(f.db.clone()).target(f.g.owner, &did).await.is_ok());
+}
