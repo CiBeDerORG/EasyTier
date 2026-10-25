@@ -76,6 +76,19 @@ class Journal:
                 holder TEXT PRIMARY KEY, pid INTEGER NOT NULL, start_tick TEXT,
                 state TEXT NOT NULL, updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS preparation_jobs (
+                id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, device_id TEXT NOT NULL,
+                owner_user_id INTEGER NOT NULL, target_fingerprint TEXT NOT NULL,
+                target TEXT NOT NULL, state TEXT NOT NULL, stage TEXT NOT NULL,
+                code TEXT, message TEXT, executor_generation TEXT NOT NULL,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS preparation_by_device ON preparation_jobs(device_id,created_at DESC);
+            CREATE TABLE IF NOT EXISTS preparation_events (
+                preparation_id TEXT NOT NULL, seq INTEGER NOT NULL, at TEXT NOT NULL,
+                level TEXT NOT NULL, stage TEXT NOT NULL, message TEXT NOT NULL,
+                PRIMARY KEY(preparation_id,seq)
+            );
         """)
         self.db.execute("INSERT OR IGNORE INTO metadata VALUES ('executor_id',?)", (str(uuid4()),))
         self.executor_id = self.db.execute("SELECT value FROM metadata WHERE key='executor_id'").fetchone()[0]
@@ -114,6 +127,12 @@ class Journal:
             db.execute("UPDATE sessions SET state='interrupted',updated_at=? WHERE state NOT IN ('closed','failed')", (now(),))
             db.execute("UPDATE controls SET state='cleanup_pending'")
             db.execute("UPDATE workers SET state='cleanup_pending' WHERE state='active'")
+            for row in db.execute("SELECT id FROM preparation_jobs WHERE state IN ('queued','running','cancel_requested')").fetchall():
+                stamp = now()
+                db.execute("UPDATE preparation_jobs SET state='interrupted',stage='interrupted',code='executor_restarted',message='执行器重启，准备结果未确认',updated_at=? WHERE id=?", (stamp,row["id"]))
+                seq = db.execute("SELECT COALESCE(MAX(seq),0)+1 FROM preparation_events WHERE preparation_id=?", (row["id"],)).fetchone()[0]
+                db.execute("INSERT INTO preparation_events VALUES (?,?,?,?,?,?)",
+                           (row["id"],seq,stamp,"warning","interrupted","执行器重启，任务未自动恢复"))
 
     def close(self):
         with self._lock:
@@ -170,6 +189,53 @@ class Journal:
     def mark_prepared(self, target):
         with self.transaction() as db:
             db.execute("INSERT OR REPLACE INTO prepared VALUES (?,?,?)", (target["device_id"], target["target_fingerprint"], now()))
+
+    def preparation(self, pid):
+        row = self.db.execute("SELECT * FROM preparation_jobs WHERE id=?", (pid,)).fetchone()
+        if not row:
+            raise ExecutorError("preparation_not_found", "初始化记录不存在", 404)
+        value = dict(row)
+        value.pop("target", None)
+        return value
+
+    def preparation_by_request(self, request_id):
+        row = self.db.execute("SELECT id FROM preparation_jobs WHERE request_id=?", (request_id,)).fetchone()
+        return self.preparation(row[0]) if row else None
+
+    def active_preparation(self, did):
+        row = self.db.execute("SELECT id FROM preparation_jobs WHERE device_id=? AND state IN ('queued','running','cancel_requested') ORDER BY created_at DESC LIMIT 1", (did,)).fetchone()
+        return self.preparation(row[0]) if row else None
+
+    def create_preparation(self, pid, request_id, target):
+        stamp = now()
+        with self.transaction() as db:
+            db.execute("INSERT INTO preparation_jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (pid,request_id,target["device_id"],target["owner_user_id"],target["target_fingerprint"],
+                        encode(target),"queued","queued",None,None,self.generation,stamp,stamp))
+            db.execute("INSERT INTO preparation_events VALUES (?,?,?,?,?,?)",
+                       (pid,1,stamp,"info","queued","预处理任务已接收"))
+        return self.preparation(pid)
+
+    def preparation_update(self, pid, state, stage, code=None, message=None):
+        with self.transaction() as db:
+            db.execute("UPDATE preparation_jobs SET state=?,stage=?,code=?,message=?,updated_at=? WHERE id=?",
+                       (state,stage,code,message,now(),pid))
+
+    def preparation_event(self, pid, level, stage, message):
+        with self.transaction() as db:
+            seq = db.execute("SELECT COALESCE(MAX(seq),0)+1 FROM preparation_events WHERE preparation_id=?", (pid,)).fetchone()[0]
+            db.execute("INSERT INTO preparation_events VALUES (?,?,?,?,?,?)",
+                       (pid,seq,now(),level,stage,message))
+
+    def preparation_history(self, did, owner):
+        rows = self.db.execute("SELECT id FROM preparation_jobs WHERE device_id=? AND owner_user_id=? ORDER BY created_at DESC LIMIT 20", (did,owner)).fetchall()
+        return [self.preparation(row[0]) for row in rows]
+
+    def preparation_logs(self, pid, after_seq=0):
+        self.preparation(pid)
+        return [dict(row) for row in self.db.execute(
+            "SELECT seq,at,level,stage,message FROM preparation_events WHERE preparation_id=? AND seq>? ORDER BY seq ASC LIMIT 200",
+            (pid,after_seq)).fetchall()]
 
     def accept_run(self, body, *, allow_new=True):
         request_digest = digest(body)

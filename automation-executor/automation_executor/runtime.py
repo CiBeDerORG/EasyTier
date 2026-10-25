@@ -46,6 +46,7 @@ class Runtime:
         self.device_cancellations: dict[tuple[str,str], asyncio.Event] = {}
         self.helpers: dict[str, PreparedHelper] = {}
         self.preparations: dict[tuple[str,str], asyncio.Task] = {}
+        self.preparation_tasks: dict[str, asyncio.Task] = {}
         self.admission = asyncio.Lock()
         self.capacity = asyncio.Semaphore(settings.max_running)
         self.artifact_lock = asyncio.Lock()
@@ -67,6 +68,120 @@ class Runtime:
             raise ExecutorError("session_expired", "会话已关闭或授权到期，请重新打开画面", 410)
         self.journal.ensure_target(current.target)
         return current
+
+    async def start_preparation(self, body):
+        validation.object_fields(body, {"target", "request_id"}, {"target", "request_id"})
+        target = validation.target(body["target"])
+        request_id = validation.identifier(body["request_id"])
+        self.journal.ensure_target(target)
+        if self.shutting_down:
+            raise ExecutorError("executor_stopping", "执行器正在停止", 503)
+        async with self.admission:
+            existing = self.journal.preparation_by_request(request_id)
+            if existing:
+                if existing["device_id"] != target["device_id"] or existing["target_fingerprint"] != target["target_fingerprint"]:
+                    raise ExecutorError("idempotency_conflict", "请求编号已经绑定其他目标", 409)
+                return existing
+            active = self.journal.active_preparation(target["device_id"])
+            if active:
+                if active["target_fingerprint"] != target["target_fingerprint"]:
+                    raise ExecutorError("device_busy", "旧设备目标仍在准备，请先确认其结束", 409)
+                return active
+            pid = str(uuid4())
+            holder = "prepare:" + pid
+            self.journal.claim(target, holder, "prepare")
+            try:
+                result = self.journal.create_preparation(pid, request_id, target)
+                task = asyncio.create_task(self._execute_preparation(pid, target, holder))
+                self.preparation_tasks[pid] = task
+                self.preparations[(target["device_id"],target["target_fingerprint"])] = task
+                task.add_done_callback(lambda _, key=pid: self.preparation_tasks.pop(key, None))
+                return result
+            except BaseException:
+                self.journal.release(holder)
+                raise
+
+    async def _execute_preparation(self, pid, target, holder):
+        stage = "starting"
+        def progress(code, label):
+            nonlocal stage
+            stage = code
+            self.journal.preparation_update(pid, "running", code)
+            self.journal.preparation_event(pid, "info", code, label)
+        try:
+            self.journal.preparation_update(pid, "running", stage)
+            self.journal.preparation_event(pid, "info", stage, "开始检查 ADB 和手机控件组件")
+            result = await self._prepare_automation_helper(target, on_stage=progress)
+            if not self.prepared(target):
+                raise ExecutorError("automation_prepare_invalid", "组件未能确认就绪", 502)
+            self.journal.preparation_update(pid, "succeeded", "ready", message=result.get("message"))
+            self.journal.preparation_event(pid, "success", "ready", "控件服务已就绪")
+        except asyncio.CancelledError:
+            self.journal.preparation_update(pid, "cancelled", "cancelled", "preparation_cancelled", "初始化任务已停止")
+            self.journal.preparation_event(pid, "warning", stage, "任务被取消或执行器正在停止")
+        except ExecutorError as exc:
+            self.journal.preparation_update(pid, "failed", stage, exc.code, exc.message)
+            self.journal.preparation_event(pid, "error", stage, f"{exc.code}：{exc.message}")
+        except Exception:
+            self.journal.preparation_update(pid, "failed", stage, "automation_prepare_failed", "初始化异常，已停止准备")
+            self.journal.preparation_event(pid, "error", stage, "初始化出现未分类异常")
+        finally:
+            self.preparations.pop((target["device_id"],target["target_fingerprint"]), None)
+            helper = self.helpers.get(target["device_id"])
+            clean = not helper or helper.ready_flag or not helper.alive()
+            self.journal.release(holder, clean=clean)
+            if not clean:
+                self.journal.preparation_update(pid, "cleanup_pending", stage, "cleanup_pending", "旧控件进程尚未确认清理")
+                self.journal.preparation_event(pid, "warning", stage, "等待确认旧控件进程清理")
+
+    def preparation(self, pid):
+        return self.journal.preparation(validation.identifier(pid))
+
+    def preparation_logs(self, pid, after_seq=0):
+        return {"items": self.journal.preparation_logs(validation.identifier(pid), after_seq)}
+
+    def preparation_history(self, device_id, owner):
+        return {"items": self.journal.preparation_history(validation.identifier(device_id), owner)}
+
+    async def cancel_preparation(self, pid):
+        pid = validation.identifier(pid)
+        record = self.journal.preparation(pid)
+        task = self.preparation_tasks.get(pid)
+        if task and not task.done():
+            self.journal.preparation_update(pid, "cancel_requested", record["stage"], message="已申请停止")
+            task.cancel()
+        return self.journal.preparation(pid)
+
+    async def automation_status(self, body):
+        validation.object_fields(body, {"target"}, {"target"})
+        target = validation.target(body["target"])
+        self.journal.ensure_target(target)
+        device_id = target["device_id"]
+        pending = self.journal.active_preparation(device_id)
+        if pending:
+            return {"device_id": device_id, "state": "preparing", "preparation_id": pending["id"],
+                    "stage": pending["stage"], "executor_id": self.journal.executor_id}
+        try:
+            await adb.require_connected(self.settings.adb_binary, target)
+        except ExecutorError:
+            return {"device_id": device_id, "state": "adb_unavailable", "executor_id": self.journal.executor_id}
+        if not self.prepared(target):
+            return {"device_id": device_id, "state": "not_prepared", "executor_id": self.journal.executor_id}
+        # Probe the running server through raw read-only RPC. This must NEVER
+        # install, start or reconnect UiAutomator on a status query.
+        def check():
+            import adbutils
+            from uiautomator2.core import _jsonrpc_call, DEFAULT_SERVER_PORT
+            from uiautomator2._selector import Selector
+            dev = adbutils.adb.device(serial=f'{target["ip"]}:{target["adb_port"]}')
+            return _jsonrpc_call(dev, DEFAULT_SERVER_PORT, "count",
+                                 (Selector(className="android.view.View"),), 3, False)
+        try:
+            observed = await asyncio.wait_for(asyncio.to_thread(check), timeout=5)
+            state = "ready" if isinstance(observed, int) and not isinstance(observed, bool) else "unavailable"
+        except Exception:
+            state = "unavailable"
+        return {"device_id": device_id, "state": state, "executor_id": self.journal.executor_id}
 
     async def prepare(self, body):
         if self.shutting_down:
@@ -106,7 +221,7 @@ class Runtime:
             self.preparations.pop((target["device_id"],target["target_fingerprint"]), None)
             self.journal.release(holder, clean=self.journal.worker_record(holder) is None)
 
-    async def _prepare_automation_helper(self, target):
+    async def _prepare_automation_helper(self, target, on_stage=None):
         """Share the exact same uiautomator2 readiness and cleanup process
         between explicit preparation and a newly accepted script run.
 
@@ -129,7 +244,7 @@ class Runtime:
             raise ExecutorError("cleanup_pending", "旧控件进程尚未完成清理")
         helper = PreparedHelper(self.journal, target, self.settings.adb_binary)
         try:
-            result = await helper.ready()
+            result = await helper.ready(on_stage=on_stage)
             self.journal.ensure_target(target)
         except BaseException:
             if not await helper.close():
@@ -646,6 +761,11 @@ class Runtime:
 
     async def shutdown(self):
         self.shutting_down = True
+        for task in list(self.preparation_tasks.values()):
+            if not task.done():
+                task.cancel()
+        if self.preparation_tasks:
+            await asyncio.gather(*list(self.preparation_tasks.values()), return_exceptions=True)
         for sid in list(self.sessions):
             try:
                 await self.close_session(sid)

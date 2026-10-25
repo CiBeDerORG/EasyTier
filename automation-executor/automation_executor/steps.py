@@ -61,7 +61,8 @@ def execute(target, step, parameters, artifact_path=None):
             raise StepFailure("action_rejected", "设备拒绝执行该动作")
         return result
 
-    rpc("deviceInfo", timeout=5)  # One bounded readiness check; never restart the helper here.
+    # UI selectors are supported even when Android 17 rejects deviceInfo.
+    rpc("count", Selector(className="android.view.View"), timeout=5)
 
     def find(raw, timeout_ms=0):
         translated = {"resource_id": "resourceId", "description": "description", "text": "text"}

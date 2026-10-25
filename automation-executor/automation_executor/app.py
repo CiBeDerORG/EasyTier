@@ -93,6 +93,36 @@ async def prepare(request: Request, body: dict):
     return await request.app.state.runtime.prepare(body)
 
 
+@app.post("/internal/v1/preparations")
+async def start_preparation(request: Request, body: dict):
+    return await request.app.state.runtime.start_preparation(body)
+
+
+@app.get("/internal/v1/preparations/device/{did}")
+async def preparation_history(request: Request, did: str, owner: int):
+    return request.app.state.runtime.preparation_history(identifier(did), owner)
+
+
+@app.get("/internal/v1/preparations/{pid}")
+async def preparation_detail(request: Request, pid: str):
+    return request.app.state.runtime.preparation(identifier(pid))
+
+
+@app.get("/internal/v1/preparations/{pid}/logs")
+async def preparation_logs(request: Request, pid: str, after_seq: int = 0):
+    return request.app.state.runtime.preparation_logs(identifier(pid), max(0, after_seq))
+
+
+@app.post("/internal/v1/preparations/{pid}/cancel")
+async def preparation_cancel(request: Request, pid: str):
+    return await request.app.state.runtime.cancel_preparation(identifier(pid))
+
+
+@app.post("/internal/v1/automation/status")
+async def automation_status(request: Request, body: dict):
+    return await request.app.state.runtime.automation_status(body)
+
+
 @app.post("/internal/v1/sessions")
 async def create_session(request: Request, body: dict):
     return await request.app.state.runtime.create_session(body)

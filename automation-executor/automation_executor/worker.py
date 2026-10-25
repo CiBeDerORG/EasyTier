@@ -49,13 +49,18 @@ def _helper_entry(channel, gate, parent_pid, target, adb_binary):
         # interface (but may push/start the Android automation helper).
         stage = "start_uiautomator"
         channel.send({"stage": stage})
-        info = device.info
-        if not isinstance(info, dict):
-            raise RuntimeError("invalid device metadata")
+        # ADB-backed dimensions and a real UI hierarchy prove readiness without
+        # invoking Android 17's broken UiDevice.getDisplaySizeDp / deviceInfo path.
+        width, height = device.window_size()
+        stage = "verify_hierarchy"
+        channel.send({"stage": stage})
+        hierarchy = device.dump_hierarchy()
+        if not hierarchy or "<hierarchy" not in hierarchy:
+            raise RuntimeError("ui hierarchy not available")
         channel.send({"ok": True, "result": {"state": "automation_ready",
                      "message": "控件组件已准备；中文通过控件文本设置，不自动切换输入法",
                      "capabilities": {"automation": True, "input_text": True, "selectors": True},
-                     "display": {"width": info.get("displayWidth"), "height": info.get("displayHeight")}}})
+                     "display": {"width": width, "height": height}}})
         # Keep the device-side server alive until explicit release.
         channel.recv()
     except ModuleNotFoundError:
@@ -107,7 +112,7 @@ class PreparedHelper:
     def alive(self):
         return not self.closed and self.process.is_alive()
 
-    async def ready(self, timeout=75):
+    async def ready(self, timeout=90, on_stage=None):
         # A first install may require device-side service initialization.
         # Poll the pipe in bounded increments instead of leaving a recv()
         # blocked forever in the default thread pool after a timeout.
@@ -118,6 +123,7 @@ class PreparedHelper:
             "import_sdk": "加载控件 SDK",
             "connect_device": "绑定 ADB 设备",
             "start_uiautomator": "启动手机控件服务",
+            "verify_hierarchy": "校验手机控件树",
         }
         stage = "launch_worker"
         while loop.time() < deadline:
@@ -129,6 +135,8 @@ class PreparedHelper:
                         raise ExecutorError("automation_prepare_invalid", "控件进程返回格式无效", 502)
                     if "stage" in response and response["stage"] in stages:
                         stage = response["stage"]
+                        if on_stage:
+                            on_stage(stage, stages[stage])
                     if "ok" not in response:
                         continue
                     if not response["ok"]:
