@@ -402,7 +402,7 @@ class HelperStartupTests(unittest.IsolatedAsyncioTestCase):
         helper=object.__new__(PreparedHelper)
         events=[{'stage':'connect_device'}]
         helper.channel=SimpleNamespace(poll=lambda timeout: bool(events),recv=lambda: events.pop(0))
-        helper.process=SimpleNamespace(is_alive=lambda: False)
+        helper.process=SimpleNamespace(is_alive=lambda: False, join=lambda timeout: None, exitcode=None)
         helper.ready_flag=False
         with self.assertRaises(ExecutorError) as exc:
             await helper.ready(timeout=1)
