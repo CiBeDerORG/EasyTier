@@ -1,12 +1,13 @@
 """Pinned main-display scrcpy 5.0.1 source, one explicit already-connected ADB target.
 
-No discovery, reconnect, alternate route, clipboard sync, unlock, or shared ADB
+No discovery, reconnect, alternate route, clipboard sync, or shared ADB
 server shutdown. The reader owns only its randomly named forward and process.
 """
 from __future__ import annotations
 
 import hashlib
 import os
+import re
 import secrets
 import signal
 import socket
@@ -208,12 +209,8 @@ class ScrcpySource:
                         with self.lock:
                             self._release_locked()
                             self.size = (width, height)
-                            # scrcpy's SET_DISPLAY_POWER request turns off the
-                            # physical display while keeping the mirrored stream
-                            # alive. Restore it when the session closes.
-                            if self.settings.get("screen_off") and not self._screen_power_applied:
-                                self._send_locked(struct.pack(">BB", 10, 0))
-                                self._screen_power_applied = True
+                            # Physical screen power is applied after optional
+                            # unlock, not here before keyguard credentials.
                         self.track.reset_stream()
                         self._has_config = False
                         continue
@@ -278,6 +275,60 @@ class ScrcpySource:
         with self.lock:
             self._send_locked(struct.pack(">BBIII", 0, 0, keycode, 0, 0)
                               + struct.pack(">BBIII", 0, 1, keycode, 0, 0))
+
+    def set_screen_power(self, on: bool) -> None:
+        with self.lock:
+            self._send_locked(struct.pack(">BB", 10, 1 if on else 0))
+            self._screen_power_applied = not on
+
+    def _keycode(self, code: int) -> None:
+        with self.lock:
+            self._send_locked(struct.pack(">BBIII",0,0,code,0,0)+struct.pack(">BBIII",0,1,code,0,0))
+
+    def _keyguard(self) -> bool | None:
+        # Positive-only lock detection: without evidence, NEVER type a
+        # password into the foreground application on an unlocked phone.
+        try:
+            policy=self._adb("shell","dumpsys","window","policy",timeout=5)
+            if re.search(r"\\b(?:mShowingLockscreen|isKeyguardShowing|mKeyguardShowing|isStatusBarKeyguard)\\s*=\\s*true\\b",policy,re.I):
+                return True
+            if re.search(r"\\b(?:mShowingLockscreen|isKeyguardShowing|mKeyguardShowing|isStatusBarKeyguard)\\s*=\\s*false\\b",policy,re.I):
+                return False
+            trust=self._adb("shell","dumpsys","trust",timeout=5)
+            if re.search(r"\\b(?:deviceLocked|isDeviceLocked)\\s*=\\s*true\\b",trust,re.I):
+                return True
+            if re.search(r"\\b(?:deviceLocked|isDeviceLocked)\\s*=\\s*false\\b",trust,re.I):
+                return False
+        except SourceError:
+            pass
+        return None
+
+    def wake_and_unlock(self, password: str | None) -> str:
+        self.key("WAKE")
+        if not password:
+            return "wake_sent"
+        time.sleep(0.3)
+        lock_state=self._keyguard()
+        if lock_state is not True:
+            return "already_unlocked" if lock_state is False else "lock_state_unknown"
+        # Open keyguard's PIN/password editor; a simple swipe is required on
+        # some Android skins before the editor appears.
+        self._keycode(82)  # KEYCODE_MENU, non-destructive while keyguard is shown
+        time.sleep(0.2)
+        if self.size:
+            width,height=self.size
+            x=width//2
+            self.touch({"action":"down","x":x,"y":int(height*0.82),"width":width,"height":height})
+            self.touch({"action":"move","x":x,"y":int(height*0.4),"width":width,"height":height})
+            self.touch({"action":"up","x":x,"y":int(height*0.4),"width":width,"height":height})
+        time.sleep(0.25)
+        encoded=password.encode("ascii")
+        with self.lock:
+            # scrcpy INJECT_TEXT: control type 1 + BE32 length + bytes.
+            # The PIN is never used as a shell argument or persisted to disk.
+            self._send_locked(struct.pack(">BI",1,len(encoded))+encoded)
+        self._keycode(66)  # ENTER
+        return "unlock_sent"
 
     def _release_locked(self) -> None:
         if not self.pressed:

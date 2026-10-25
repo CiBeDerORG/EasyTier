@@ -129,19 +129,23 @@ class Runtime:
             self.journal.release(holder, clean=self.journal.worker_record(holder) is None)
 
     async def create_session(self, body):
-        validation.object_fields(body, {"id", "target", "quality", "media", "lease_seconds", "expected_executor_id"}, {"id", "target", "quality", "lease_seconds", "expected_executor_id"})
+        validation.object_fields(body, {"id", "target", "quality", "media", "unlock_password", "lease_seconds", "expected_executor_id"}, {"id", "target", "quality", "lease_seconds", "expected_executor_id"})
         self.require_identity(body["expected_executor_id"])
         sid = validation.identifier(body["id"])
         target = validation.target(body["target"])
         validation.integer(body["lease_seconds"], 1, 60)
         if body["quality"] not in ("wall", "focus"):
             raise invalid("画质档位无效")
+        secret=body.get("unlock_password")
+        if secret is not None and (not isinstance(secret,str) or not 4<=len(secret)<=64
+                                  or not all(33<=ord(ch)<=126 for ch in secret)):
+            raise invalid("开屏密码格式无效")
         async with self.admission:
             if self.shutting_down:
                 raise ExecutorError("executor_stopping", "执行器正在停止", 503)
             self.journal.create_session(sid, target)
             try:
-                details = await self.media.create(sid, target, body["quality"], body.get("media"))
+                details = await self.media.create(sid, target, body["quality"], body.get("media"), secret)
                 if self.journal.db.execute("SELECT 1 FROM closed_sessions WHERE id=?", (sid,)).fetchone():
                     await self.media.close(sid)
                     raise ExecutorError("session_closed", "创建期间会话已被关闭")

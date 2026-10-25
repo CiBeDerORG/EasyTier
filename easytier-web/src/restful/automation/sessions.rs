@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use tokio::time::{Instant, MissedTickBehavior};
 
 use crate::{central_network::service::CentralNetworkService, db::automation::AutomationStore};
-use super::{AutomationRuntime, common::*, super::{AppStateInner, users::AuthSession}};
+use super::{AutomationRuntime, common::*, settings::Settings, super::{AppStateInner, users::AuthSession}};
 
 fn creator(session: &Value, actor: i32) -> HttpResult<()> {
     if session["actor_user_id"].as_i64() != Some(i64::from(actor)) {
@@ -35,7 +35,7 @@ async fn observed_session(manager:&AppStateInner, service:&CentralNetworkService
     Ok((store,session))
 }
 
-pub(super) async fn create(auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service, Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput, headers: HeaderMap, input: Body) -> HttpResult<Json<Value>> {
+pub(super) async fn create(auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service, Extension(config): Config, Extension(runtime): Runtime, Extension(settings): Extension<Arc<Settings>>, query: OwnerInput, headers: HeaderMap, input: Body) -> HttpResult<Json<Value>> {
     require_origin(&headers,false)?;
     let owner = owner(query)?;
     let actor = authorize(&auth,&config,&service,owner).await?;
@@ -59,13 +59,23 @@ pub(super) async fn create(auth: AuthSession, State(manager): State<AppStateInne
     if !matches!(quality,"wall"|"focus") {
         return Err(error(StatusCode::UNPROCESSABLE_ENTITY,"invalid_quality","请选择有效的画质档位。"));
     }
+    // Read the ciphertext separately from normal asset APIs. Decrypt only
+    // for a new, user-requested viewing session; no credential is persisted
+    // in automation_sessions or included in any browser response.
+    let secret:Option<(String,String)>=sqlx::query_as(
+        "SELECT u.service_id,u.secret_cipher FROM adb_service_unlock_secrets u JOIN asset_services s ON s.id=u.service_id AND s.owner_user_id=u.owner_user_id WHERE s.device_id=? AND s.owner_user_id=? AND s.service_type='adb'"
+    ).bind(&device_id).bind(owner).fetch_optional(&service.db.inner()).await
+        .map_err(|_|error(StatusCode::INTERNAL_SERVER_ERROR,"unlock_storage_error","无法读取 ADB 服务凭据。"))?;
+    let unlock_password=secret.map(|(sid,cipher)|
+        settings.open_unlock_password(owner,&sid,&cipher).map_err(|_|error(StatusCode::SERVICE_UNAVAILABLE,"unlock_vault_unavailable","开屏密码的加密密钥无法读取，请恢复密钥备份。"))
+    ).transpose()?;
     let executor=runner.identity().await?;
     let store = observed_store(&manager,&service,owner,Some(&[device_id.clone()])).await?;
     let mut session = store.create_session(actor,owner,&device_id,quality).await.map_err(store_error)?;
     let session_id = id(session["id"].as_str().unwrap_or_default())?;
     sqlx::query("UPDATE automation_sessions SET executor_identity=? WHERE id=?").bind(&executor).bind(&session_id).execute(&service.db.inner()).await.map_err(|e|store_error(e.into()))?;
     crate::discovery::reconnect::remember_target(&service,&session["target"],&executor).await.map_err(|e|store_error(e.into()))?;
-    let outbound = json!({"id":session_id,"target":wire_target(&session["target"]),"quality":quality,"media":media,"lease_seconds":60,"expected_executor_id":executor});
+    let outbound = json!({"id":session_id,"target":wire_target(&session["target"]),"quality":quality,"media":media,"unlock_password":unlock_password,"lease_seconds":60,"expected_executor_id":executor});
     let result = runner.post("sessions",&outbound).await.and_then(|result| {
         if result["executor_id"] != executor || result["id"] != session_id || result["device_id"] != device_id
             || !matches!(result["state"].as_str(),Some("created"|"opening"|"active"))

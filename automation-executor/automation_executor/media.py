@@ -70,6 +70,7 @@ class _Session:
     quality: str
     options: dict = field(default_factory=dict)
     ice_servers: list[dict] = field(default_factory=list)
+    unlock_password: str | None = None
     state: str = "created"
     source: ScrcpySource | None = None
     track: Any = None
@@ -110,7 +111,8 @@ class MediaManager:
             entries.append({"urls": list(self._turn_urls), "username": username, "credential": credential})
         return entries
 
-    async def create(self, session_id: str, target: dict, quality: str, options: dict | None = None) -> dict:
+    async def create(self, session_id: str, target: dict, quality: str, options: dict | None = None,
+                     unlock_password: str | None = None) -> dict:
         try:
             uuid.UUID(session_id)
             address = ipaddress.IPv4Address(target["ip"])
@@ -142,7 +144,7 @@ class MediaManager:
         async with self._lock:
             current = self._sessions.get(session_id)
             if current is not None:
-                if current.target != target or current.quality != quality or current.options != settings or current.closing:
+                if current.target != target or current.quality != quality or current.options != settings or current.unlock_password != unlock_password or current.closing:
                     raise MediaError("session_conflict", "此会话编号已被另一请求或已结束会话使用")
                 return self._created(current)
             if len(self._sessions) >= self._max_sessions:
@@ -150,7 +152,7 @@ class MediaManager:
             if any(item.serial == serial or item.target["device_id"] == device_id
                    for item in self._sessions.values()):
                 raise MediaError("device_busy", "该手机已有观看会话或资源尚未清理")
-            session = _Session(session_id, copy.deepcopy(target), serial, quality, settings, self._session_ice(session_id))
+            session = _Session(session_id, copy.deepcopy(target), serial, quality, settings, self._session_ice(session_id), unlock_password)
             self._sessions[session_id] = session
             return self._created(session)
 
@@ -243,8 +245,20 @@ class MediaManager:
                     raise MediaError(error.code, error.message, error.status)
                 if not ready or session.source.finished.is_set() or session.closing or not session.source.size:
                     raise MediaError("media_start_timeout", "未取得手机的可用画面，请检查设备后手动重开", 502)
+                # The scrcpy control channel is live. Always wake the physical
+                # display, then inject a secret only with positive keyguard
+                # evidence. Never place the secret in SDP, session journal or
+                # any response. Power-off for screen-off mode happens afterward.
+                password = session.unlock_password
+                session.unlock_password = None
+                try:
+                    unlock_state = await asyncio.to_thread(session.source.wake_and_unlock, password)
+                    if session.options.get("screen_off"):
+                        await asyncio.to_thread(session.source.set_screen_power, False)
+                except SourceError as exc:
+                    raise MediaError(exc.code, exc.message, exc.status) from exc
                 width, height = session.source.size
-                session.answer = {"sdp": pc.localDescription.sdp, "type": "answer", "width": width, "height": height}
+                session.answer = {"sdp": pc.localDescription.sdp, "type": "answer", "width": width, "height": height, "unlock_state": unlock_state}
                 session.state = "streaming"
                 return dict(session.answer)
             except asyncio.CancelledError:

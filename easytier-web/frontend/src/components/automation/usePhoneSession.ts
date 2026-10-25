@@ -12,7 +12,7 @@ interface PendingControl {
 
 /** One explicitly opened media session. No discovery, retries, polling or browser heartbeat. */
 export function usePhoneSession(api: AutomationApi) {
-    const state = reactive({ phase: 'idle' as PhonePhase, error: '', controlReady: false, width: 0, height: 0 });
+    const state = reactive({ phase: 'idle' as PhonePhase, error: '', controlReady: false, width: 0, height: 0, unlockState: '' });
     const stream = shallowRef<MediaStream | null>(null);
     let session: AutomationSession | null = null;
     let sessionOwner = 0;
