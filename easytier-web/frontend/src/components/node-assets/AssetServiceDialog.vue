@@ -9,7 +9,7 @@ import { formatAssetError, getAssetError, useAssetMutation } from '../../composa
 import { ASSET_SERVICE_ICON_OPTIONS, assetServiceIconClass } from '../../constants/asset-service-icons';
 import ServicePublicationDialog from './ServicePublicationDialog.vue';
 import { serviceMessages } from '../../modules/service-messages';
-import { safeServiceUrl } from '../../modules/service-utils';
+import { publicServiceUrl, safeServiceUrl } from '../../modules/service-utils';
 
 const props = defineProps<{
     visible: boolean;
@@ -65,6 +65,17 @@ const busy = computed(() => savingEdit.value || attempt.pending.value);
 const uncertain = computed(() => !editing.value && attempt.uncertain.value);
 const fieldsDisabled = computed(() => busy.value || uncertain.value);
 const iconOptions = computed(() => ASSET_SERVICE_ICON_OPTIONS.map(option => ({ ...option, label: t(option.labelKey) })));
+const savedPublicUrl = computed(() => {
+    const saved = props.service;
+    const current = saved?.publication;
+    const selected = publication.value;
+    if (!saved || !current || !selected || !publicationEnabled.value
+        || form.access_url.trim() !== (saved.access_url || '')
+        || current.machine_id !== selected.machine_id || current.instance_id !== selected.instance_id
+        || current.bind_ip !== selected.bind_ip || current.bind_port !== selected.bind_port
+        || current.dst_port !== selected.dst_port) return null;
+    return publicServiceUrl(saved);
+});
 const formId = computed(() => `asset-service-form-${props.device.id}-${props.service?.id ?? 'new'}`);
 const fieldId = (field: string) => `${formId.value}-${field}`;
 
@@ -370,7 +381,9 @@ function close() {
                 <div v-if="publicationEnabled && publication" class="service-publication-summary">
                     <span>{{ publicationLabels.server_name || publication.machine_id }} · {{ publicationLabels.network_name || publication.instance_id }}</span>
                     <small>{{ t('assets.publication.publicAccess') }}</small>
-                     <code v-if="publicationLabels.public_ip">{{ endpoint(publicationLabels.public_ip, publication.bind_port) }}</code>
+                    <a v-if="savedPublicUrl" :href="savedPublicUrl" target="_blank" rel="noopener noreferrer"
+                        class="service-public-access-link">{{ savedPublicUrl }} <i class="pi pi-external-link" aria-hidden="true"></i></a>
+                    <code v-else-if="publicationLabels.public_ip">{{ endpoint(publicationLabels.public_ip, publication.bind_port) }}</code>
                      <small v-else>{{ t('assets.publication.publicIpMissing') }}</small>
                      <small>{{ t('assets.publication.overlayAccess') }}</small>
                      <code>{{ endpoint(addresses.overlay_ip, publication.dst_port) }}</code>
@@ -455,4 +468,6 @@ select{padding:9px;border:1px solid var(--console-border);border-radius:7px;back
 .field-error, .service-field small.field-error { color: var(--p-red-600, #dc2626); }
 .uncertain-note { padding: 0.75rem; margin: 0; border: 1px solid var(--p-orange-400, #fb923c); border-radius: 0.5rem; font-size: 0.875rem; }
 @media (max-width: 480px) { .service-fields-row { grid-template-columns: 1fr; } }
+.service-public-access-link { color: var(--p-primary-color); overflow-wrap: anywhere; font-size: 0.85rem; }
+.service-public-access-link:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 2px; }
 </style>
