@@ -69,7 +69,7 @@ class _Session:
     serial: str
     quality: str
     options: dict = field(default_factory=dict)
-    ice_servers: list[dict] = field(default_factory=list) = field(default_factory=list)
+    ice_servers: list[dict] = field(default_factory=list)
     state: str = "created"
     source: ScrcpySource | None = None
     track: Any = None
