@@ -98,6 +98,64 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn((b['device_id'],body['steps'][1]['id']),calls)
         self.assertEqual(final[a['device_id']]['steps'][0]['state'],'outcome_unknown')
 
+    async def test_script_auto_prepares_helper_and_reuses_it_for_next_run(self):
+        # Previously, the first script failed capability_missing even though
+        # ADB connected successfully. The executor now prepares the existing
+        # helper using the same script's control claim before running steps.
+        a=target()
+        self.runtime.prepared=lambda t: Runtime.prepared(self.runtime,t)
+        helper=SimpleNamespace(target=a, ready_flag=True, alive=lambda:True,
+                               ready=AsyncMock(return_value={'state':'automation_ready'}),
+                               close=AsyncMock(return_value=True))
+        execute=AsyncMock(return_value={'state':'succeeded'})
+        with patch('automation_executor.runtime.PreparedHelper',return_value=helper) as create_helper, \
+             patch('automation_executor.runtime.execute_step',new=execute):
+            body=run_body(self.runtime.journal,[a])
+            await self.runtime.create_run(body)
+            await asyncio.wait_for(self.runtime.tasks[body['id']],3)
+            self.assertEqual(self.runtime.journal.run(body['id'])['devices'][0]['state'],'completed')
+            self.assertTrue(self.runtime.prepared(a))
+            self.assertEqual(create_helper.call_count,1)
+            self.assertEqual(execute.await_count,2)
+
+            second=run_body(self.runtime.journal,[a])
+            await self.runtime.create_run(second)
+            await asyncio.wait_for(self.runtime.tasks[second['id']],3)
+            self.assertEqual(self.runtime.journal.run(second['id'])['devices'][0]['state'],'completed')
+            self.assertEqual(create_helper.call_count,1,'healthy helper is reused rather than restarted')
+            self.assertEqual(execute.await_count,4)
+        self.runtime.helpers.clear()  # mocked worker needs no real shutdown.
+
+    async def test_script_preparation_failure_is_recorded_without_executing_steps(self):
+        a=target()
+        self.runtime.prepared=lambda t: Runtime.prepared(self.runtime,t)
+        helper=SimpleNamespace(target=a,ready_flag=False,alive=lambda:False,
+                               ready=AsyncMock(side_effect=ExecutorError('automation_prepare_failed','准备控件失败')),
+                               close=AsyncMock(return_value=True))
+        execute=AsyncMock()
+        body=run_body(self.runtime.journal,[a])
+        with patch('automation_executor.runtime.PreparedHelper',return_value=helper), \
+             patch('automation_executor.runtime.execute_step',new=execute):
+            await self.runtime.create_run(body)
+            await asyncio.wait_for(self.runtime.tasks[body['id']],3)
+        device=self.runtime.journal.run(body['id'])['devices'][0]
+        self.assertEqual(device['state'],'failed')
+        self.assertEqual(device['error']['code'],'automation_prepare_failed')
+        self.assertTrue(all(s['state']=='skipped' for s in device['steps']))
+        execute.assert_not_awaited()
+        helper.close.assert_awaited_once()
+
+    async def test_script_never_prepares_helper_before_authorization(self):
+        a=target()
+        self.runtime.prepared=lambda t: Runtime.prepared(self.runtime,t)
+        self.runtime._authorize=AsyncMock(side_effect=ExecutorError('grant_revoked','权限已撤销'))
+        body=run_body(self.runtime.journal,[a])
+        with patch('automation_executor.runtime.PreparedHelper') as create_helper:
+            await self.runtime.create_run(body)
+            await asyncio.wait_for(self.runtime.tasks[body['id']],3)
+            create_helper.assert_not_called()
+        self.assertEqual(self.runtime.journal.run(body['id'])['devices'][0]['state'],'interrupted')
+
     async def test_retire_cancels_inflight_preparation_before_target_disconnect(self):
         a=target();started=asyncio.Event();stopped=asyncio.Event();order=[]
         async def prepare(*args):
