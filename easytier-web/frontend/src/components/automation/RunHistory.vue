@@ -307,7 +307,7 @@ async function submitRerun() {
             request_id: uuid(), name: rerunSource.value.name,
             steps: rerunSource.value.script_snapshot.steps.map(step => ({ ...step, selector: step.selector ? { ...step.selector } : undefined })),
             device_ids: ids, parameters: { ...rerunParameters.value },
-            concurrency: Math.max(1, Math.min(5, ids.length, Math.floor(rerunConcurrency.value ?? 1))),
+            concurrency: Math.max(1, Math.min(ids.length, Math.floor(rerunConcurrency.value ?? 1))),
         };
     }
     const scope = scopeRevision;
@@ -486,7 +486,7 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
                 <p class="muted">{{ text('使用这次历史运行的步骤快照，从第一个步骤创建新运行。已经成功的设备不会默认选中；再次运行可能重复产生操作效果。', 'Create a new run from the first step using this historical snapshot. Successful devices are not selected. Repeating the run may repeat its effects.') }}</p>
                 <p class="muted">{{ text('结果未确认或停止待确认的设备不在重跑清单内。未知结果即使已清理占用，也须先核对手机实际结果，再到脚本库另建任务。', 'Devices with unconfirmed outcomes or pending stops are excluded. Even after control cleanup, verify the actual phone outcome before creating a separate task in the script library.') }}</p>
                 <label v-for="device in retryableDevices" :key="device.device_id" class="rerun-target" :for="`rerun-device-${device.device_id}`"><Checkbox :input-id="`rerun-device-${device.device_id}`" v-model="rerunDeviceIds" :value="device.device_id" :disabled="busy || !!rerunPending" /><span><strong>{{ device.name }}</strong><small>{{ device.device_id }}</small></span><Tag :value="statusLabel(device.state)" :severity="severity(device.state)" /></label>
-                <label class="field" for="rerun-concurrency"><span>{{ text('同时执行设备数', 'Concurrent devices') }}</span><InputNumber input-id="rerun-concurrency" v-model="rerunConcurrency" :min="1" :max="Math.max(1, Math.min(5, rerunDeviceIds.length))" :use-grouping="false" :disabled="busy || !!rerunPending" /></label>
+                <label class="field" for="rerun-concurrency"><span>{{ text('同时执行设备数', 'Concurrent devices') }}</span><InputNumber input-id="rerun-concurrency" v-model="rerunConcurrency" :min="1"  :use-grouping="false" :disabled="busy || !!rerunPending" /></label>
                 <label v-for="parameter in parameterNames" :key="parameter" class="field" :for="`rerun-parameter-${parameter}`"><span>{{ text('重新填写参数', 'Re-enter parameter') }} · {{ parameter }}</span><InputText :id="`rerun-parameter-${parameter}`" v-model="rerunParameters[parameter]" type="password" autocomplete="new-password" :maxlength="2000" :disabled="busy || !!rerunPending" /></label>
                 <p v-if="rerunError" class="error-message" role="alert">{{ rerunError }}</p>
             </div>
