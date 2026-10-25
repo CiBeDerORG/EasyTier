@@ -39,8 +39,53 @@ let previewController: AbortController | undefined;
 let scopeRevision = 0;
 let requestSequence = 0;
 let disposed = false;
+let progressTimer: ReturnType<typeof setTimeout> | undefined;
+let progressPolling = false;
+let progressFailures = 0;
+const progressStates = new Set(['dispatch_pending', 'queued', 'accepted', 'starting', 'running', 'cancel_requested']);
 
 const selected = computed(() => runs.value.find(run => run.id === selectedId.value));
+
+function stopProgressRefresh() {
+    if (progressTimer !== undefined) clearTimeout(progressTimer);
+    progressTimer = undefined;
+}
+function scheduleProgressRefresh() {
+    stopProgressRefresh();
+    const run = selected.value;
+    if (disposed || !run || !progressStates.has(run.state)) return;
+    progressTimer = setTimeout(() => { void pollRunProgress(); }, 3500);
+}
+async function pollRunProgress() {
+    progressTimer = undefined;
+    const run = selected.value;
+    if (disposed || !run || !progressStates.has(run.state)) return;
+    // No overlapping reads, and never interfere with an explicit mutation.
+    if (progressPolling || busy.value || loading.value || document.hidden) {
+        scheduleProgressRefresh();
+        return;
+    }
+    progressPolling = true;
+    const owner = props.ownerId, scope = scopeRevision, id = run.id;
+    try {
+        // The executor is authoritative for running jobs. GET on the Web
+        // database alone would keep a missed callback stuck at "queued".
+        const fresh = await api.refreshRun(owner, id);
+        if (disposed || owner !== props.ownerId || scope !== scopeRevision || id !== selectedId.value) return;
+        mergeRun(fresh);
+        progressFailures = 0;
+        if (notice.value.includes(text('自动查询执行器失败', 'Automatic executor refresh failed'))) notice.value = '';
+    } catch (cause) {
+        if (disposed || owner !== props.ownerId || scope !== scopeRevision || id !== selectedId.value) return;
+        if (++progressFailures >= 2) {
+            notice.value = text('自动查询执行器失败，当前显示上次记录。可点击“查询执行器”查看具体错误。', 'Automatic executor refresh failed. Showing the last saved result; use Query executor for details.');
+        }
+    } finally {
+        progressPolling = false;
+        if (!disposed && owner === props.ownerId && scope === scopeRevision) scheduleProgressRefresh();
+    }
+}
+watch(() => [selected.value?.id, selected.value?.state] as const, scheduleProgressRefresh, { immediate: true });
 const retryableStates = new Set(['failed', 'cancelled', 'interrupted']);
 const retryableDevices = computed(() => rerunSource.value?.devices.filter(device => retryableStates.has(device.state) && !hasUnconfirmedOutcome(device)) ?? []);
 const parameterNames = computed(() => [...new Set((rerunSource.value?.script_snapshot?.steps ?? [])
@@ -290,6 +335,7 @@ watch([() => props.ownerId, () => props.focusRunId] as const, ([owner, focus], o
     if (!old || owner !== old[0]) {
         scopeRevision++; requestSequence++; runs.value = []; selectedId.value = undefined;
         loading.value = false; working.value = null; error.value = ''; notice.value = '';
+        progressFailures = 0; stopProgressRefresh();
         expandedDevices.value = new Set(); cancelVisible.value = false; rerunVisible.value = false;
         rerunPending.value = undefined; rerunUncertain.value = false; rerunParameters.value = Object.create(null); rerunSource.value = undefined;
         previewVisible.value = false; releasePreview();
@@ -297,12 +343,12 @@ watch([() => props.ownerId, () => props.focusRunId] as const, ([owner, focus], o
     if (owner > 0) void loadRuns(focus);
 }, { immediate: true });
 watch(previewVisible, visible => { if (!visible) releasePreview(); });
-onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; rerunParameters.value = Object.create(null); rerunPending.value = undefined; releasePreview(); });
+onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; stopProgressRefresh(); rerunParameters.value = Object.create(null); rerunPending.value = undefined; releasePreview(); });
 </script>
 
 <template>
     <section class="run-history" :aria-label="text('执行记录', 'Execution history')">
-        <div class="history-intro"><p class="muted">{{ text('这里展示已保存的执行结果。点击“查询执行器”更新当前任务，不定时刷新。', 'These are saved results. Query the executor to update a run; this page does not poll.') }}</p><Button icon="pi pi-refresh" :label="text('刷新记录列表', 'Refresh records')" outlined size="small" :loading="loading" :disabled="busy" @click="loadRuns()" /></div>
+        <div class="history-intro"><p class="muted">{{ text('正在排队或执行的任务每几秒自动向执行器同步状态；已结束的任务保留历史结果，可手动查询。', 'Queued and running tasks automatically refresh from the executor; completed records can still be queried manually.') }}</p><Button icon="pi pi-refresh" :label="text('刷新记录列表', 'Refresh records')" outlined size="small" :loading="loading" :disabled="busy" @click="loadRuns()" /></div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
         <p v-if="notice" class="notice-message" role="status">{{ notice }}</p>
         <div v-if="!loading && !runs.length" class="console-panel console-empty-state"><i class="pi pi-history" aria-hidden="true" /><h2>{{ text('还没有执行记录', 'No runs yet') }}</h2><p>{{ text('在脚本库试跑或运行脚本后，会在这里保留逐台结果。', 'Trial and batch runs from the script library appear here with individual results.') }}</p></div>
