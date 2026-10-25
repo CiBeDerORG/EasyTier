@@ -1,6 +1,7 @@
 import { getApiBase } from './api-host';
 import { AutomationApiError } from './automation-api';
-export type SemanticKind = 'openwrt' | 'phone' | 'other' | null;
+export type SemanticKind = 'openwrt' | 'phone' | 'other' | 'server' | null;
+export type SemanticTag = Exclude<SemanticKind, null>;
 export interface DiscoveryAccess { endpoint_url: string; ca_pem: string; has_secret: boolean; config_revision: number; last_result?: unknown }
 export interface DiscoveryCandidate { id: string; name: string; lan_ip: string | null; discovery?: Record<string, unknown>; services: { id: string; name: string; port: number; service_type: string }[] }
 export interface DiscoveryChoice { row_id: string; action: 'create' | 'update' | 'replace' | 'skip'; target_device_id?: string; keep_service_ids: string[] }
