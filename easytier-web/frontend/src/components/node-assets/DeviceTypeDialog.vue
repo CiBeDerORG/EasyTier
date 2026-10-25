@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue';
-import { Button, Dialog, InputText } from 'primevue';
+import { Button, Checkbox, Dialog, InputText } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import ApiClient from '../../modules/api';
 import type { DeviceType } from '../../types/node-assets';
+import type { SemanticTag } from '../../modules/discovery-api';
 import { formatAssetError, getAssetError, useAssetMutation } from '../../composables/useAssetMutation';
 
 const props = defineProps<{ visible: boolean; api: ApiClient; ownerUserId: number; ownerLabel?: string }>();
@@ -15,7 +16,22 @@ const loadError = ref('');
 const editorOpen = ref(false);
 const editingId = ref<string | null>(null);
 const name = ref('');
-const semanticKind = ref<DeviceType['semantic_kind']>(null);
+const semanticKinds = ref<SemanticTag[]>([]);
+const semanticOptions: { value: SemanticTag; label: string }[] = [
+    { value: 'openwrt', label: 'OpenWrt 网关' },
+    { value: 'phone', label: '手机' },
+    { value: 'other', label: '其他设备' },
+    { value: 'server', label: '服务器' },
+];
+function setSemantic(value: SemanticTag, checked: boolean) {
+    semanticKinds.value = checked
+        ? semanticOptions.filter(option => option.value === value || semanticKinds.value.includes(option.value)).map(option => option.value)
+        : semanticKinds.value.filter(item => item !== value);
+}
+function semanticLabels(type: DeviceType) {
+    const kinds = type.semantic_kinds ?? (type.semantic_kind ? [type.semantic_kind] : []);
+    return kinds.map(kind => semanticOptions.find(option => option.value === kind)?.label ?? kind).join('、') || '未确认语义';
+}
 const fieldError = ref('');
 const actionError = ref('');
 const saving = ref(false);
@@ -41,6 +57,7 @@ function clearEditor() {
     editorOpen.value = false;
     editingId.value = null;
     name.value = '';
+    semanticKinds.value = [];
     saving.value = false;
     fieldError.value = '';
     actionError.value = '';
@@ -52,7 +69,7 @@ function startEditor(type?: DeviceType) {
     deleteTarget.value = null;
     editingId.value = type?.id ?? null;
     name.value = type?.name ?? '';
-    semanticKind.value = type?.semantic_kind ?? null;
+    semanticKinds.value = [...(type?.semantic_kinds ?? (type?.semantic_kind ? [type.semantic_kind] : []))];
     editorOpen.value = true;
 }
 
@@ -97,7 +114,7 @@ async function save() {
     const editor = editorVersion;
     const owner = props.ownerUserId;
     const id = editingId.value;
-    const payload = { name: name.value.trim(), semantic_kind: semanticKind.value };
+    const payload = { name: name.value.trim(), semantic_kinds: semanticKinds.value };
     saving.value = true;
     try {
         if (id) {
@@ -192,7 +209,14 @@ onBeforeUnmount(() => {
                             autocomplete="off" :aria-invalid="!!fieldError" aria-describedby="asset-type-name-error" />
                         <small v-if="fieldError" id="asset-type-name-error" class="error" role="alert">{{ fieldError }}</small>
                     </div>
-                    <label class="field">设备语义（用于发现与自动化）<select v-model="semanticKind" :disabled="saving || createAttempt.uncertain.value"><option :value="null">未确认 / 历史类型</option><option value="openwrt">OpenWrt 网关</option><option value="phone">手机</option><option value="other">其他设备</option></select></label>
+                    <div class="field"><span>设备语义（可多选，用于发现与自动化）</span>
+                        <div class="semantic-options"><label v-for="option in semanticOptions" :key="option.value" class="semantic-option">
+                            <Checkbox :inputId="`semantic-${option.value}`" binary :modelValue="semanticKinds.includes(option.value)"
+                                :disabled="saving || createAttempt.uncertain.value" @update:modelValue="checked => setSemantic(option.value, !!checked)" />
+                            <span>{{ option.label }}</span>
+                        </label></div>
+                        <small class="muted">不勾选表示未确认；例如 NAS 可以同时选择「其他设备」与「服务器」。</small>
+                    </div>
                     <p v-if="createAttempt.uncertain.value" class="notice" role="status">{{ t('assets.types.uncertain') }}</p>
                     <p v-if="actionError" class="error" role="alert">{{ actionError }}</p>
                     <div class="editor-actions">
@@ -222,7 +246,7 @@ onBeforeUnmount(() => {
             <p v-else-if="!types.length" class="list-status muted">{{ t('assets.types.empty') }}</p>
             <ul v-else class="type-list">
                 <li v-for="type in types" :key="type.id" class="type-item">
-                    <div class="type-information"><strong>{{ type.name }}</strong><small>{{ type.semantic_kind || '未确认语义' }}</small><code>{{ type.id.slice(0, 8) }}</code></div>
+                    <div class="type-information"><strong>{{ type.name }}</strong><small>{{ semanticLabels(type) }}</small><code>{{ type.id.slice(0, 8) }}</code></div>
                     <div class="row-actions">
                         <Button icon="pi pi-pencil" text severity="secondary" :disabled="saving || deleting"
                             :aria-label="t('assets.types.edit_named', { name: type.name })" @click="startEditor(type)" />
@@ -246,6 +270,8 @@ onBeforeUnmount(() => {
 .editor, .delete-confirm { padding: 1rem; border: 1px solid var(--p-content-border-color, #e2e8f0); border-radius: 0.75rem; }
 .editor h3 { margin: 0 0 1rem; font-size: 1rem; }
 .field label { font-weight: 600; }
+.semantic-options { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; }
+.semantic-option { display: inline-flex; align-items: center; gap: .45rem; cursor: pointer; }
 .editor-actions { justify-content: flex-end; flex-wrap: wrap; }
 .type-list { margin: 0; padding: 0; list-style: none; }
 .type-item { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.65rem 0; border-bottom: 1px solid var(--p-content-border-color, #e2e8f0); }
