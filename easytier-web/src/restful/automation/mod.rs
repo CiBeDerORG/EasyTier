@@ -36,6 +36,7 @@ pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner>
         .route("/api/v1/automation/adb-services/{id}/unlock", get(unlock::get).put(unlock::save))
         .route("/api/v1/automation/devices/{id}/prepare", post(devices::prepare))
         .route("/api/v1/automation/devices/{id}/automation-status", get(preparations::status))
+        .route("/api/v1/automation/devices/{id}/adb-status", get(preparations::adb_status))
         .route("/api/v1/automation/devices/{id}/preparations", get(preparations::history).post(preparations::start))
         .route("/api/v1/automation/devices/{id}/preparations/{pid}", get(preparations::detail))
         .route("/api/v1/automation/devices/{id}/preparations/{pid}/logs", get(preparations::logs))

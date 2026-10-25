@@ -164,6 +164,12 @@ class Runtime:
             task.cancel()
         return self.journal.preparation(pid)
 
+    async def adb_status(self, body):
+        validation.object_fields(body, {"target"}, {"target"})
+        target = validation.target(body["target"])
+        self.journal.ensure_target(target)
+        return await adb.connection_status(self.settings.adb_binary, target)
+
     async def automation_status(self, body):
         validation.object_fields(body, {"target"}, {"target"})
         target = validation.target(body["target"])

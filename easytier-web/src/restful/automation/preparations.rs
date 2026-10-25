@@ -58,6 +58,24 @@ pub(super) async fn status(
     Ok(Json(result))
 }
 
+pub(super) async fn adb_status(
+    auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service,
+    Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput,
+    Path(raw_id): Path<String>, headers: HeaderMap,
+) -> HttpResult<Json<Value>> {
+    require_origin(&headers, false)?;
+    let owner = owner(query)?;
+    let did = id(&raw_id)?;
+    let target = observed(&auth, &manager, &service, &config, owner, &did).await?;
+    // Single target, verified against this account's currently registered ADB service.
+    let result = runner(&runtime)?.post("adb/status", &json!({"target":wire_target(&target)})).await?;
+    if result["device_id"] != did || !matches!(result["state"].as_str(),
+        Some("connected" | "offline" | "unauthorized" | "disconnected" | "unavailable")) {
+        return Err(error(StatusCode::BAD_GATEWAY, "runner_response_invalid", "ADB 状态与目标设备不匹配"));
+    }
+    Ok(Json(result))
+}
+
 pub(super) async fn history(
     auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service,
     Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput,

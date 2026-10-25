@@ -118,6 +118,11 @@ async def preparation_cancel(request: Request, pid: str):
     return await request.app.state.runtime.cancel_preparation(identifier(pid))
 
 
+@app.post("/internal/v1/adb/status")
+async def adb_status(request: Request, body: dict):
+    return await request.app.state.runtime.adb_status(body)
+
+
 @app.post("/internal/v1/automation/status")
 async def automation_status(request: Request, body: dict):
     return await request.app.state.runtime.automation_status(body)
