@@ -4,13 +4,14 @@ import { useI18n } from 'vue-i18n';
 import { Button } from 'primevue';
 import type { AssetServiceCatalogEntry } from '../../types/node-assets';
 import { serviceMessages } from '../../modules/service-messages';
-import { safeServiceUrl } from '../../modules/service-utils';
+import { serviceAccessLinks } from '../../modules/service-utils';
 import { assetServiceIconClass } from '../../constants/asset-service-icons';
 
 const props = defineProps<{ service: AssetServiceCatalogEntry }>();
 defineEmits<{ actions: [service: AssetServiceCatalogEntry, event: MouseEvent] }>();
 const { t } = useI18n({ useScope: 'local', messages: serviceMessages });
-const href = computed(() => safeServiceUrl(props.service.access_url || ''));
+const links = computed(() => serviceAccessLinks(props.service));
+const href = computed(() => links.value[0]?.url ?? null);
 </script>
 
 <template>
@@ -28,7 +29,14 @@ const href = computed(() => safeServiceUrl(props.service.access_url || ''));
             <span class="service-card-open"><i class="pi pi-arrow-up-right" aria-hidden="true"></i></span>
         </a>
         <div class="service-card-footer">
-            <span class="service-card-address" :title="service.access_url || undefined">{{ service.access_url || '—' }}</span>
+            <div class="service-card-access">
+                <a v-for="link in links" :key="link.kind" :href="link.url" target="_blank" rel="noopener noreferrer"
+                    class="service-card-address" :title="link.url" :aria-label="`${t(link.kind === 'public' ? 'publicAccess' : 'internalAccess')}: ${service.name}`">
+                    <span class="service-access-label">{{ t(link.kind === 'public' ? 'publicAccess' : 'internalAccess') }}</span>
+                    <span class="service-access-url">{{ link.url }}</span><i class="pi pi-external-link" aria-hidden="true"></i>
+                </a>
+                <span v-if="!links.length" class="service-card-address">—</span>
+            </div>
             <Button icon="pi pi-ellipsis-h" text rounded size="small" severity="secondary"
                 :aria-label="`${t('actions')}: ${service.name}`" aria-haspopup="menu"
                 @click="$emit('actions', service, $event)" />
@@ -61,8 +69,14 @@ const href = computed(() => safeServiceUrl(props.service.access_url || ''));
 .service-card-open { display: inline-flex; align-items: center; justify-content: center; color: var(--console-muted); width: 29px; height: 29px; flex: none; border: 1px solid var(--console-border); border-radius: 8px; background: var(--console-panel-raised, var(--console-panel)); transition: color .18s, border-color .18s; }
 .service-card-open > .pi { font-size: 12px; }
 .service-card:hover .service-card-open { color: var(--p-primary-color); border-color: color-mix(in srgb, var(--p-primary-color) 30%, var(--console-border)); }
-.service-card-footer { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--console-border); min-height: 42px; padding: 5px 12px 5px 24px; background: color-mix(in srgb, var(--console-panel-raised, var(--console-panel)) 40%, transparent); }
-.service-card-address { color: var(--console-muted); min-width: 0; flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.service-card-footer { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--console-border); min-height: 42px; padding: 7px 12px 7px 24px; background: color-mix(in srgb, var(--console-panel-raised, var(--console-panel)) 40%, transparent); }
+.service-card-access { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 6px; }
+.service-card-address { color: var(--console-muted); min-width: 0; display: flex; align-items: baseline; gap: 7px; text-decoration: none; font-size: 11px; }
+a.service-card-address:hover { color: var(--p-primary-color); }
+a.service-card-address:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 2px; }
+.service-access-label { flex: none; font-size: 10px; white-space: nowrap; }
+.service-access-url { min-width: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.service-card-address .pi { flex: none; font-size: 10px; }
 html.app-dark .service-icon-home { --service-color: #53cafa; }
 html.app-dark .service-icon-photos { --service-color: #f78ac4; }
 html.app-dark .service-icon-media { --service-color: #b39aff; }
