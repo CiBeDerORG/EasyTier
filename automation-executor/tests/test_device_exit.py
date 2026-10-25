@@ -170,18 +170,18 @@ class PhantomRegistrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_unconnected_pre_pairing_target_can_be_verified_without_retiring_it(self):
         a=target()
         body={'event_id':str(uuid4()),'expected_executor_id':self.runtime.journal.executor_id,'target':a}
-        with patch('automation_executor.runtime.adb.command',new=AsyncMock(return_value=(0,'List of devices attached\\n\\n',''))):
+        with patch('automation_executor.runtime.adb.command',new=AsyncMock(return_value=(0,'List of devices attached\n\n',''))):
             result=await self.runtime.verify_unused_target(a['device_id'],body)
         self.assertTrue(result['unused_confirmed'])
         self.assertFalse(self.runtime.journal.target_refused(a))
-        with patch('automation_executor.runtime.adb.command',new=AsyncMock(return_value=(0,'List of devices attached\\n'+a['ip']+':37001\\tdevice\\n',''))):
+        with patch('automation_executor.runtime.adb.command',new=AsyncMock(return_value=(0,'List of devices attached\n'+a['ip']+':37001\tdevice\n',''))):
             result=await self.runtime.verify_unused_target(a['device_id'],body)
         self.assertFalse(result['unused_confirmed'])
 
     async def test_offline_serial_is_not_proof_of_unused_target(self):
         a=target()
         body={'event_id':str(uuid4()),'expected_executor_id':self.runtime.journal.executor_id,'target':a}
-        with patch('automation_executor.runtime.adb.command',new=AsyncMock(return_value=(0,'List of devices attached\\n'+a['ip']+':37001\\toffline\\n',''))):
+        with patch('automation_executor.runtime.adb.command',new=AsyncMock(return_value=(0,'List of devices attached\n'+a['ip']+':37001\toffline\n',''))):
             result=await self.runtime.verify_unused_target(a['device_id'],body)
         self.assertFalse(result['unused_confirmed'])
 
@@ -189,11 +189,11 @@ class PhantomRegistrationTests(unittest.IsolatedAsyncioTestCase):
         from automation_executor import adb
         a=target()
         with patch('automation_executor.adb.command',new=AsyncMock(side_effect=[
-            (1,'','not connected'),(0,'List of devices attached\\n\\n','')
+            (1,'','not connected'),(0,'List of devices attached\n\n','')
         ])):
             await adb.disconnect('adb',a)
         with patch('automation_executor.adb.command',new=AsyncMock(side_effect=[
-            (1,'','not connected'),(0,'List of devices attached\\n'+a['ip']+':37001\\toffline\\n','')
+            (1,'','not connected'),(0,'List of devices attached\n'+a['ip']+':37001\toffline\n','')
         ])):
             with self.assertRaises(ExecutorError): await adb.disconnect('adb',a)
 
