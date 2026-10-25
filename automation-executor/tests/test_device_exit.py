@@ -361,14 +361,18 @@ class HelperStartupTests(unittest.IsolatedAsyncioTestCase):
 
 
 class HelperBootstrapTests(unittest.TestCase):
-    def test_initialization_uses_public_device_info_not_private_jsonrpc(self):
+    def test_initialization_verifies_ui_hierarchy_without_device_info_rpc(self):
         from automation_executor import worker
         messages=[]
         stopped=[]
         class Device:
             @property
             def info(self):
-                return {'displayWidth':1080,'displayHeight':2400}
+                raise AssertionError("Android 17 deviceInfo must not be required")
+            def window_size(self):
+                return (1080,2400)
+            def dump_hierarchy(self):
+                return '<hierarchy rotation="0"></hierarchy>'
             def stop_uiautomator(self,wait=False):
                 stopped.append(wait)
         module=ModuleType('uiautomator2')
@@ -379,7 +383,9 @@ class HelperBootstrapTests(unittest.TestCase):
             worker._helper_entry(channel,gate,1234,target(),'adb')
         self.assertEqual([m.get('stage') for m in messages[:3]],
                          ['import_sdk','connect_device','start_uiautomator'])
-        self.assertEqual(messages[3]['result']['state'],'automation_ready')
+        self.assertEqual(messages[3]['stage'],'verify_hierarchy')
+        self.assertEqual(messages[4]['result']['state'],'automation_ready')
+        self.assertEqual(messages[4]['result']['display'],{'width':1080,'height':2400})
         self.assertEqual(stopped,[False])
 
 

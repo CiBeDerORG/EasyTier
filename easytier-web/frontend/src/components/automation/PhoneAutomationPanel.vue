@@ -20,13 +20,14 @@ let disposed = false;
 let epoch = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 const activeStates = new Set(['queued', 'running', 'cancel_requested']);
-const caption = (state?: string) => ({
+const labels: Record<string,string> = {
     ready:'已就绪', not_prepared:'未准备', preparing:'准备中',
     adb_unavailable:'ADB离线', unavailable:'控件不可用',
     queued:'排队中', running:'初始化中', cancel_requested:'停止中',
     succeeded:'准备成功', failed:'准备失败', interrupted:'已中断',
     cancelled:'已取消', cleanup_pending:'清理待确认',
-}[state || ''] || '未查询');
+};
+const caption = (state?: string) => labels[state || ''] || '未查询';
 function stopPolling() { if (timer) clearTimeout(timer); timer = undefined; }
 function schedule() {
     stopPolling();

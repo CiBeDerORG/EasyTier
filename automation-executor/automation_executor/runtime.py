@@ -87,6 +87,18 @@ class Runtime:
                 if active["target_fingerprint"] != target["target_fingerprint"]:
                     raise ExecutorError("device_busy", "旧设备目标仍在准备，请先确认其结束", 409)
                 return active
+            previous = self.journal.control(target)
+            if (previous and previous["kind"] == "prepare" and previous["state"] == "cleanup_pending"):
+                previous_did = previous["device_id"]
+                old_helper = self.helpers.pop(previous_did, None)
+                if old_helper and not await old_helper.close():
+                    self.helpers[previous_did] = old_helper
+                    raise ExecutorError("cleanup_pending", "旧控件进程尚未确认停止", 409)
+                old_record = self.journal.worker_record("helper:" + previous_did)
+                if not await asyncio.to_thread(cleanup_record, old_record):
+                    raise ExecutorError("cleanup_pending", "旧控件进程尚未确认清理", 409)
+                self.journal.clear_worker("helper:" + previous_did)
+                self.journal.release(previous["holder"])
             pid = str(uuid4())
             holder = "prepare:" + pid
             self.journal.claim(target, holder, "prepare")
