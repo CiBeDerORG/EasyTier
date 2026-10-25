@@ -365,5 +365,61 @@ pub(super) async fn check(
     ))
 }
 
+pub(super) async fn get_capacity(
+    auth: AuthSession,
+    Extension(service): Service,
+    Extension(config): Config,
+    Extension(settings): Extension<Arc<Settings>>,
+    headers: HeaderMap,
+) -> HttpResult<Json<Value>> {
+    administrator(&auth, &config, &service, &headers).await?;
+    let _lease = settings.operations.read().await;
+    let runner = settings.runner().ok_or_else(||error(
+        StatusCode::SERVICE_UNAVAILABLE, "runner_not_configured", "请先配置并保存执行器连接。"))?;
+    let expected = runner.identity().await?;
+    let result = runner.get("settings/capacity").await?;
+    if result["executor_id"].as_str() != Some(expected.as_str()) {
+        return Err(error(StatusCode::BAD_GATEWAY, "runner_identity_invalid", "执行器容量设置身份不匹配。"));
+    }
+    Ok(Json(result))
+}
+
+pub(super) async fn save_capacity(
+    auth: AuthSession,
+    Extension(service): Service,
+    Extension(config): Config,
+    Extension(settings): Extension<Arc<Settings>>,
+    headers: HeaderMap,
+    input: Body,
+) -> HttpResult<Json<Value>> {
+    administrator(&auth, &config, &service, &headers).await?;
+    let payload = body(input)?;
+    exact_fields(&payload, &[
+        "expected_executor_id","revision","max_running","max_pending",
+        "max_media_sessions","max_media_starting",
+    ])?;
+    let _lease = settings.operations.read().await;
+    let runner = settings.runner().ok_or_else(||error(
+        StatusCode::SERVICE_UNAVAILABLE, "runner_not_configured", "请先配置并保存执行器连接。"))?;
+    let current = runner.identity().await?;
+    if payload["expected_executor_id"].as_str() != Some(current.as_str()) {
+        return Err(error(StatusCode::CONFLICT, "runner_identity_changed",
+            "执行器身份发生变化，请重新读取容量设置。"));
+    }
+    let mut body = serde_json::Map::new();
+    for key in ["revision","max_running","max_pending","max_media_sessions","max_media_starting"] {
+        let value = payload[key].as_i64().filter(|n| *n >= if key=="revision" {0} else {1})
+            .ok_or_else(||error(StatusCode::UNPROCESSABLE_ENTITY,"invalid_capacity",
+                "容量参数必须为正整数，设置版本不能为负数。"))?;
+        body.insert(key.to_string(), json!(value));
+    }
+    let result = runner.request(reqwest::Method::PUT, "settings/capacity",
+        Some(&Value::Object(body))).await?;
+    if result["executor_id"].as_str() != Some(current.as_str()) {
+        return Err(error(StatusCode::BAD_GATEWAY, "runner_identity_invalid", "执行器返回了不匹配的设置结果。"));
+    }
+    Ok(Json(result))
+}
+
 #[cfg(test)]
 mod tests;
