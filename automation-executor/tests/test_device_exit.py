@@ -98,6 +98,19 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn((b['device_id'],body['steps'][1]['id']),calls)
         self.assertEqual(final[a['device_id']]['steps'][0]['state'],'outcome_unknown')
 
+    async def test_native_only_script_never_bootstraps_uiautomator(self):
+        a=target()
+        self.runtime.prepared=lambda t: Runtime.prepared(self.runtime,t)
+        body=run_body(self.runtime.journal,[a])
+        execute=AsyncMock(return_value={'state':'action_sent'})
+        with patch('automation_executor.runtime.PreparedHelper') as helper, \
+             patch('automation_executor.runtime.execute_step',new=execute):
+            await self.runtime.create_run(body)
+            await asyncio.wait_for(self.runtime.tasks[body['id']],3)
+            self.assertEqual(self.runtime.journal.run(body['id'])['devices'][0]['state'],'completed')
+            helper.assert_not_called()
+            self.assertEqual(execute.await_count,2)
+
     async def test_script_auto_prepares_helper_and_reuses_it_for_next_run(self):
         # Previously, the first script failed capability_missing even though
         # ADB connected successfully. The executor now prepares the existing
@@ -111,6 +124,10 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         with patch('automation_executor.runtime.PreparedHelper',return_value=helper) as create_helper, \
              patch('automation_executor.runtime.execute_step',new=execute):
             body=run_body(self.runtime.journal,[a])
+            body['steps'] = [
+                {'id':str(uuid4()), 'type':'wait_for', 'selector':{'text':'Home'}, 'timeout_ms':200},
+                {'id':str(uuid4()), 'type':'assert', 'selector':{'description':'Ready'}, 'timeout_ms':200},
+            ]
             await self.runtime.create_run(body)
             await asyncio.wait_for(self.runtime.tasks[body['id']],3)
             self.assertEqual(self.runtime.journal.run(body['id'])['devices'][0]['state'],'completed')
@@ -119,6 +136,10 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(execute.await_count,2)
 
             second=run_body(self.runtime.journal,[a])
+            second['steps'] = [
+                {'id':str(uuid4()), 'type':'wait_for', 'selector':{'text':'Home'}, 'timeout_ms':200},
+                {'id':str(uuid4()), 'type':'assert', 'selector':{'description':'Ready'}, 'timeout_ms':200},
+            ]
             await self.runtime.create_run(second)
             await asyncio.wait_for(self.runtime.tasks[second['id']],3)
             self.assertEqual(self.runtime.journal.run(second['id'])['devices'][0]['state'],'completed')
@@ -134,6 +155,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                                close=AsyncMock(return_value=True))
         execute=AsyncMock()
         body=run_body(self.runtime.journal,[a])
+        body['steps'] = [{'id':str(uuid4()), 'type':'wait_for', 'selector':{'text':'Home'}, 'timeout_ms':200}]
         with patch('automation_executor.runtime.PreparedHelper',return_value=helper), \
              patch('automation_executor.runtime.execute_step',new=execute):
             await self.runtime.create_run(body)
@@ -294,3 +316,88 @@ class AndroidKeyguardTests(unittest.TestCase):
         with patch('automation_executor.vendor.scrcpy_source.time.sleep',return_value=None):
             self.assertEqual(src.wake_and_unlock('123456'),'lock_state_unknown')
         self.assertNotIn(b'123456',b''.join(packets))
+
+
+
+class HelperStartupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_readiness_progress_and_success_without_hanging_a_thread(self):
+        from automation_executor.worker import PreparedHelper
+        helper=object.__new__(PreparedHelper)
+        events=[
+            {'stage':'import_sdk'}, {'stage':'connect_device'},
+            {'stage':'start_uiautomator'},
+            {'ok':True,'result':{'state':'automation_ready'}},
+        ]
+        helper.channel=SimpleNamespace(poll=lambda timeout: bool(events),recv=lambda: events.pop(0))
+        helper.process=SimpleNamespace(is_alive=lambda: True)
+        helper.ready_flag=False
+        result=await helper.ready(timeout=2)
+        self.assertEqual(result['state'],'automation_ready')
+        self.assertTrue(helper.ready_flag)
+
+    async def test_dead_worker_reports_phase_without_a_full_timeout(self):
+        from automation_executor.worker import PreparedHelper
+        helper=object.__new__(PreparedHelper)
+        events=[{'stage':'connect_device'}]
+        helper.channel=SimpleNamespace(poll=lambda timeout: bool(events),recv=lambda: events.pop(0))
+        helper.process=SimpleNamespace(is_alive=lambda: False)
+        helper.ready_flag=False
+        with self.assertRaises(ExecutorError) as exc:
+            await helper.ready(timeout=1)
+        self.assertEqual(exc.exception.code,'automation_worker_exited')
+        self.assertIn('绑定 ADB 设备',exc.exception.message)
+
+    async def test_no_worker_reply_reports_timeout_stage(self):
+        from automation_executor.worker import PreparedHelper
+        import time
+        helper=object.__new__(PreparedHelper)
+        helper.channel=SimpleNamespace(poll=lambda timeout: (time.sleep(timeout),False)[-1])
+        helper.process=SimpleNamespace(is_alive=lambda: True)
+        helper.ready_flag=False
+        with self.assertRaises(ExecutorError) as exc:
+            await helper.ready(timeout=.08)
+        self.assertEqual(exc.exception.code,'automation_prepare_timeout')
+        self.assertIn('启动执行进程',exc.exception.message)
+
+
+class HelperBootstrapTests(unittest.TestCase):
+    def test_initialization_uses_public_device_info_not_private_jsonrpc(self):
+        from automation_executor import worker
+        messages=[]
+        stopped=[]
+        class Device:
+            @property
+            def info(self):
+                return {'displayWidth':1080,'displayHeight':2400}
+            def stop_uiautomator(self,wait=False):
+                stopped.append(wait)
+        module=ModuleType('uiautomator2')
+        module.connect_usb=lambda address: Device()
+        channel=SimpleNamespace(send=messages.append,recv=lambda:'stop',close=lambda:None)
+        gate=SimpleNamespace(wait=lambda seconds:True)
+        with patch('automation_executor.worker._isolate'), patch.dict(sys.modules,{'uiautomator2':module}):
+            worker._helper_entry(channel,gate,1234,target(),'adb')
+        self.assertEqual([m.get('stage') for m in messages[:3]],
+                         ['import_sdk','connect_device','start_uiautomator'])
+        self.assertEqual(messages[3]['result']['state'],'automation_ready')
+        self.assertEqual(stopped,[False])
+
+
+class NativeActionTests(unittest.TestCase):
+    def test_key_and_launch_app_do_not_require_uiautomator(self):
+        from automation_executor import steps
+        import adbutils
+        commands=[]
+        class Device:
+            def get_state(self):return 'device'
+            def shell2(self,args,timeout=None):
+                commands.append((args,timeout))
+                return SimpleNamespace(returncode=0,output='Starting: Intent')
+        fake=Device()
+        with patch.object(adbutils.adb,'device',return_value=fake):
+            for step in ({'type':'key','key':'HOME'},
+                         {'type':'launch_app','package':'com.example.launcher'}):
+                result=steps.execute(target(),step,{},None)
+                self.assertEqual(result['state'],'action_sent')
+        self.assertEqual(commands[0],(['input','keyevent','3'],8))
+        self.assertEqual(commands[1][0][-1],'com.example.launcher')
