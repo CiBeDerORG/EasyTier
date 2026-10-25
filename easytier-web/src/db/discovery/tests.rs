@@ -834,3 +834,72 @@ async fn first_adb_publication_cleanup_needs_no_runner_health_when_no_resources_
     // First user-initiated pairing now passes the old-target retirement fence.
     assert!(AutomationStore::new(f.db.clone()).target(f.g.owner, &did).await.is_ok());
 }
+
+/// ADB sync owns the ADB service display name; manual device names survive
+/// discovery and are reflected on both first import and repeated scans.
+/// A name-only refresh must not recreate the service or modify endpoint routing.
+#[tokio::test]
+async fn adb_sync_names_service_from_saved_device_and_refreshes_on_repeat() {
+    let f = Fixture::new().await;
+    let device_id = f.import("192.168.1.20").await;
+    let initial_name: String = sqlx::query_scalar("SELECT name FROM asset_devices WHERE id=?")
+        .bind(&device_id).fetch_one(&f.db.inner()).await.unwrap();
+    let (_, created) = f.adb(json!([ep("192.168.1.20", 37001)]), "ok").await;
+    assert_eq!(created["rows"][0]["state"], "saved", "{created}");
+    let service_id = created["rows"][0]["adb_service_id"].as_str().unwrap();
+    let saved_name: String = sqlx::query_scalar("SELECT name FROM asset_services WHERE id=?")
+        .bind(service_id).fetch_one(&f.db.inner()).await.unwrap();
+    assert_eq!(saved_name, format!("{initial_name}-ADB"));
+    assert_eq!(created["rows"][0]["service_name"], saved_name);
+
+    // Changing a system-managed device name, or an existing service label,
+    // must not cause discovery to revert the device's selected name.
+    let mut device = f.assets.get_device(f.g.owner, &f.g.node, &device_id).await.unwrap();
+    let phone_type = device["device_type_id"].clone();
+    device = json!({"name":"华为 Mate30","model":device["model"],"device_type_id":phone_type});
+    f.assets.update_device(f.g.owner, &f.g.node, &device_id, device).await.unwrap();
+    sqlx::query("UPDATE asset_services SET name='legacy-name' WHERE id=?")
+        .bind(service_id).execute(&f.db.inner()).await.unwrap();
+
+    let events_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM discovery_endpoint_events")
+        .fetch_one(&f.db.inner()).await.unwrap();
+    let (_, synced) = f.adb(json!([ep("192.168.1.20", 37001)]), "ok").await;
+    assert_eq!(synced["rows"][0]["adb_service_id"], service_id);
+    assert_eq!(synced["rows"][0]["changed"], false);
+    assert_eq!(synced["rows"][0]["renamed"], true);
+    let (actual_name, actual_port, actual_device): (String, i64, String) =
+        sqlx::query_as("SELECT name,port,device_id FROM asset_services WHERE id=?")
+        .bind(service_id).fetch_one(&f.db.inner()).await.unwrap();
+    assert_eq!(actual_name, "华为 Mate30-ADB");
+    assert_eq!(actual_port, 37001);
+    assert_eq!(actual_device, device_id);
+    let events_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM discovery_endpoint_events")
+        .fetch_one(&f.db.inner()).await.unwrap();
+    assert_eq!(events_before, events_after, "renaming alone must not produce a target change");
+
+    let (_, port_changed) = f.adb(json!([ep("192.168.1.20", 37002)]), "ok").await;
+    assert_eq!(port_changed["rows"][0]["adb_service_id"], service_id);
+    assert_eq!(port_changed["rows"][0]["service_name"], "华为 Mate30-ADB");
+    let (changed_name, changed_port): (String, i64) =
+        sqlx::query_as("SELECT name,port FROM asset_services WHERE id=?")
+        .bind(service_id).fetch_one(&f.db.inner()).await.unwrap();
+    assert_eq!((changed_name.as_str(), changed_port), ("华为 Mate30-ADB", 37002));
+}
+
+/// Appending -ADB must respect the shared 128-Unicode-character service limit.
+#[tokio::test]
+async fn adb_service_name_truncates_long_system_device_names() {
+    let f = Fixture::new().await;
+    let device_id = f.import("192.168.1.20").await;
+    let device = f.assets.get_device(f.g.owner, &f.g.node, &device_id).await.unwrap();
+    let long_name = "机".repeat(128);
+    f.assets.update_device(f.g.owner, &f.g.node, &device_id,
+        json!({"name":long_name,"model":device["model"],"device_type_id":device["device_type_id"]}))
+        .await.unwrap();
+    let (_, synced) = f.adb(json!([ep("192.168.1.20", 37001)]), "ok").await;
+    assert_eq!(synced["rows"][0]["state"], "saved", "{synced}");
+    let name: String = sqlx::query_scalar("SELECT name FROM asset_services WHERE device_id=? AND service_type='adb'")
+        .bind(&device_id).fetch_one(&f.db.inner()).await.unwrap();
+    assert_eq!(name.chars().count(), 128);
+    assert_eq!(name, format!("{}-ADB", "机".repeat(124)));
+}

@@ -46,7 +46,7 @@ async function perform(action?: 'pair' | 'connect' | 'inspect' | 'automation') {
             if (!event?.event_id) throw new Error(t('endpointCleanupPending'));
             const cleanup = await api.retryEndpoint(owner, target.id, event.event_id, {
                 request_id: uuid(), stage: 'cleanup',
-            }) as { cleanup?: { state?: string } };
+            }) as { cleanup?: { state?: string; code?: string } };
             if (cleanup?.cleanup?.state !== 'confirmed') {
                 const code = typeof cleanup?.cleanup?.code === 'string' ? cleanup.cleanup.code : 'cleanup_unconfirmed';
                 throw new Error(`${t('endpointCleanupPending')} (${code})`);

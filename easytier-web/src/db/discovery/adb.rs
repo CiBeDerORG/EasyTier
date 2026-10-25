@@ -150,7 +150,7 @@ impl Store {
             sqlx::query_scalar("SELECT COALESCE(MAX(seq),0) FROM discovery_endpoint_events")
                 .fetch_one(&mut *tx)
                 .await?;
-        let device=sqlx::query("SELECT id,is_gateway_self,device_type_id FROM asset_devices WHERE owner_user_id=? AND machine_id=? AND gateway_group_id=? AND lan_ip=?").bind(g.owner).bind(&g.node).bind(&g.group).bind(row["ip"].as_str()).fetch_optional(&mut *tx).await?.ok_or_else(||AssetError::conflict("adb_asset_missing","No ordinary device matches this IP in the gateway group."))?;
+        let device=sqlx::query("SELECT id,name,is_gateway_self,device_type_id FROM asset_devices WHERE owner_user_id=? AND machine_id=? AND gateway_group_id=? AND lan_ip=?").bind(g.owner).bind(&g.node).bind(&g.group).bind(row["ip"].as_str()).fetch_optional(&mut *tx).await?.ok_or_else(||AssetError::conflict("adb_asset_missing","No ordinary device matches this IP in the gateway group."))?;
         if device.try_get::<bool, _>("is_gateway_self")? {
             return Err(AssetError::conflict(
                 "gateway_self_protected",
@@ -158,8 +158,13 @@ impl Store {
             ));
         }
         let did: String = device.try_get("id")?;
+        // ADB discovery is authoritative for this service label. Use the
+        // system's saved device name, never the mDNS hostname. Both device
+        // and service labels are limited to 128 Unicode scalar values.
+        let device_name: String = device.try_get("name")?;
+        let service_name = format!("{}-ADB", device_name.chars().take(124).collect::<String>().trim_end());
         let port = endpoint["port"].as_i64().unwrap();
-        let service=sqlx::query("SELECT id,port,connection_mode FROM asset_services WHERE device_id=? AND service_type='adb'").bind(&did).fetch_optional(&mut *tx).await?;
+        let service=sqlx::query("SELECT id,name,port,connection_mode FROM asset_services WHERE device_id=? AND service_type='adb'").bind(&did).fetch_optional(&mut *tx).await?;
         let sid = service
             .as_ref()
             .map(|s| s.try_get::<String, _>("id"))
@@ -183,15 +188,16 @@ impl Store {
         let changed = service.as_ref().is_none_or(|s| {
             s.get::<i64, _>("port") != port || s.get::<String, _>("connection_mode") != "wireless"
         });
+        let renamed = service.as_ref().is_some_and(|s| s.get::<String, _>("name") != service_name);
         if changed {
             if service.is_some() {
-                sqlx::query("UPDATE asset_services SET port=?,connection_mode='wireless',updated_at=? WHERE id=?").bind(port).bind(now()).bind(&sid).execute(&mut *tx).await?;
+                sqlx::query("UPDATE asset_services SET name=?,port=?,connection_mode='wireless',updated_at=? WHERE id=?").bind(&service_name).bind(port).bind(now()).bind(&sid).execute(&mut *tx).await?;
                 sqlx::query("DELETE FROM asset_service_bindings WHERE service_id=?")
                     .bind(&sid)
                     .execute(&mut *tx)
                     .await?;
             } else {
-                sqlx::query("INSERT INTO asset_services(id,owner_user_id,machine_id,device_id,name,port,service_type,connection_mode,created_at,updated_at) VALUES(?,?,?,?,'ADB',?,'adb','wireless',?,?)").bind(&sid).bind(g.owner).bind(&g.node).bind(&did).bind(port).bind(now()).bind(now()).execute(&mut *tx).await?;
+                sqlx::query("INSERT INTO asset_services(id,owner_user_id,machine_id,device_id,name,port,service_type,connection_mode,created_at,updated_at) VALUES(?,?,?,?,?,?,'adb','wireless',?,?)").bind(&sid).bind(g.owner).bind(&g.node).bind(&did).bind(&service_name).bind(port).bind(now()).bind(now()).execute(&mut *tx).await?;
             }
             sqlx::query("INSERT INTO asset_service_bindings(service_id,owner_user_id,machine_id,device_id,protocol,port) VALUES(?,?,?,?,'tcp',?)").bind(&sid).bind(g.owner).bind(&g.node).bind(&did).bind(port).execute(&mut *tx).await?;
             publications::sync_service(
@@ -205,6 +211,13 @@ impl Store {
             )
             .await?;
         }
+        // A new discovery pass with an unchanged port still refreshes the
+        // name when the user has renamed the system device. Do not rewrite
+        // bindings, remap public ports or produce an endpoint-change event.
+        if !changed && renamed {
+            sqlx::query("UPDATE asset_services SET name=?,updated_at=? WHERE id=?")
+                .bind(&service_name).bind(now()).bind(&sid).execute(&mut *tx).await?;
+        }
         sqlx::query("UPDATE discovery_endpoint_events SET operation_id=? WHERE operation_id IS NULL AND owner_user_id=? AND device_id=? AND seq>?").bind(op).bind(g.owner).bind(&did).bind(cursor).execute(&mut *tx).await?;
         let revision: i64 =
             sqlx::query_scalar("SELECT endpoint_revision FROM asset_devices WHERE id=?")
@@ -213,7 +226,7 @@ impl Store {
                 .await?;
         tx.commit().await?;
         Ok(
-            json!({"row_id":row["row_id"],"ip":row["ip"],"state":"saved","device_id":did,"adb_service_id":sid,"port":port,"endpoint_revision":revision,"changed":changed,"selected_endpoint_id":endpoint["endpoint_id"]}),
+            json!({"row_id":row["row_id"],"ip":row["ip"],"state":"saved","device_id":did,"adb_service_id":sid,"port":port,"endpoint_revision":revision,"changed":changed,"renamed":renamed,"service_name":service_name,"selected_endpoint_id":endpoint["endpoint_id"]}),
         )
     }
 }
