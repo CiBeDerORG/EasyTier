@@ -116,7 +116,7 @@ export function usePhoneSession(api: AutomationApi) {
         if (session || closing || state.phase === 'opening' || state.phase === 'connecting') throw new Error('Close the existing session first');
         if (typeof RTCPeerConnection === 'undefined') throw new Error('This browser does not support WebRTC');
         const mine = ++generation;
-        sessionOwner = ownerId; state.phase = 'opening'; state.error = ''; sequence = 0;
+        sessionOwner = ownerId; state.phase = 'opening'; state.error = ''; state.unlockState = ''; sequence = 0;
         try {
             const created = await api.createSession(ownerId, { device_id: deviceId, quality, ...(media ? { media } : {}) });
             if (mine !== generation) { await api.closeSession(ownerId, created.id); return; }
@@ -173,6 +173,7 @@ export function usePhoneSession(api: AutomationApi) {
             const answer = await api.offer(ownerId, created.id, { type: 'offer', sdp: pc.localDescription.sdp });
             if (mine !== generation) return;
             state.width = answer.width; state.height = answer.height;
+            state.unlockState = answer.unlock_state ?? '';
             await pc.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
             if (mine === generation && (state.phase as PhonePhase) !== 'live') firstFrameTimer = setTimeout(() => {
                 if (mine === generation && state.phase !== 'live') fail('No video frame received. Check the media route or TURN configuration.');

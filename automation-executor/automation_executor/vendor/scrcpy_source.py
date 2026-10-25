@@ -290,14 +290,14 @@ class ScrcpySource:
         # password into the foreground application on an unlocked phone.
         try:
             policy=self._adb("shell","dumpsys","window","policy",timeout=5)
-            if re.search(r"\\b(?:mShowingLockscreen|isKeyguardShowing|mKeyguardShowing|isStatusBarKeyguard)\\s*=\\s*true\\b",policy,re.I):
+            if re.search(r"\b(?:mShowingLockscreen|isKeyguardShowing|mKeyguardShowing|isStatusBarKeyguard)\s*=\s*true\b",policy,re.I):
                 return True
-            if re.search(r"\\b(?:mShowingLockscreen|isKeyguardShowing|mKeyguardShowing|isStatusBarKeyguard)\\s*=\\s*false\\b",policy,re.I):
+            if re.search(r"\b(?:mShowingLockscreen|isKeyguardShowing|mKeyguardShowing|isStatusBarKeyguard)\s*=\s*false\b",policy,re.I):
                 return False
             trust=self._adb("shell","dumpsys","trust",timeout=5)
-            if re.search(r"\\b(?:deviceLocked|isDeviceLocked)\\s*=\\s*true\\b",trust,re.I):
+            if re.search(r"\b(?:deviceLocked|isDeviceLocked)\s*=\s*true\b",trust,re.I):
                 return True
-            if re.search(r"\\b(?:deviceLocked|isDeviceLocked)\\s*=\\s*false\\b",trust,re.I):
+            if re.search(r"\b(?:deviceLocked|isDeviceLocked)\s*=\s*false\b",trust,re.I):
                 return False
         except SourceError:
             pass
@@ -322,6 +322,10 @@ class ScrcpySource:
             self.touch({"action":"move","x":x,"y":int(height*0.4),"width":width,"height":height})
             self.touch({"action":"up","x":x,"y":int(height*0.4),"width":width,"height":height})
         time.sleep(0.25)
+        # The user might have unlocked by fingerprint or face ID during the
+        # transition. Never type into an app after the keyguard disappears.
+        if self._keyguard() is not True:
+            return "lock_state_changed"
         encoded=password.encode("ascii")
         with self.lock:
             # scrcpy INJECT_TEXT: control type 1 + BE32 length + bytes.

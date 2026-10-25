@@ -196,3 +196,43 @@ class PhantomRegistrationTests(unittest.IsolatedAsyncioTestCase):
             (1,'','not connected'),(0,'List of devices attached\\n'+a['ip']+':37001\\toffline\\n','')
         ])):
             with self.assertRaises(ExecutorError): await adb.disconnect('adb',a)
+
+
+class AndroidKeyguardTests(unittest.TestCase):
+    def make_source(self):
+        from automation_executor.vendor.scrcpy_source import ScrcpySource
+        source=ScrcpySource('10.60.1.20:37001','wall',None,lambda:None)
+        packets=[]
+        source.size=(1080,2400)
+        source.control=SimpleNamespace(sendall=packets.append)
+        return source, packets
+
+    def test_wake_without_password_sends_only_wakeup(self):
+        src,packets=self.make_source()
+        self.assertEqual(src.wake_and_unlock(None),'wake_sent')
+        self.assertEqual(len(packets),1)
+        self.assertNotIn(b'1234',b''.join(packets))
+
+    def test_unlocked_device_never_receives_secret(self):
+        src,packets=self.make_source()
+        src._adb=lambda *args,**kwargs: 'mShowingLockscreen=false'
+        with patch('automation_executor.vendor.scrcpy_source.time.sleep',return_value=None):
+            self.assertEqual(src.wake_and_unlock('123456'),'already_unlocked')
+        self.assertNotIn(b'123456',b''.join(packets))
+        self.assertEqual(len(packets),1)
+
+    def test_password_injected_only_after_two_positive_keyguard_checks(self):
+        src,packets=self.make_source()
+        src._adb=lambda *args,**kwargs: 'mShowingLockscreen=true'
+        with patch('automation_executor.vendor.scrcpy_source.time.sleep',return_value=None):
+            self.assertEqual(src.wake_and_unlock('123456'),'unlock_sent')
+        self.assertIn(b'123456',b''.join(packets))
+        self.assertEqual(packets[-2],b'\\x01\\x00\\x00\\x00\\x06123456')
+        self.assertGreaterEqual(len(packets),9)
+
+    def test_lock_state_becomes_unknown_never_types_password(self):
+        src,packets=self.make_source()
+        src._adb=lambda *args,**kwargs: 'unknown Android policy output'
+        with patch('automation_executor.vendor.scrcpy_source.time.sleep',return_value=None):
+            self.assertEqual(src.wake_and_unlock('123456'),'lock_state_unknown')
+        self.assertNotIn(b'123456',b''.join(packets))
