@@ -98,6 +98,27 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn((b['device_id'],body['steps'][1]['id']),calls)
         self.assertEqual(final[a['device_id']]['steps'][0]['state'],'outcome_unknown')
 
+    async def test_preparation_is_async_idempotent_and_has_persisted_history(self):
+        a = target()
+        self.runtime.prepared = lambda t: Runtime.prepared(self.runtime, t)
+        helper = SimpleNamespace(target=a, ready_flag=True, alive=lambda: True,
+                                 ready=AsyncMock(return_value={'state':'automation_ready','message':'ready'}),
+                                 close=AsyncMock(return_value=True))
+        with patch('automation_executor.runtime.PreparedHelper',return_value=helper) as factory:
+            request = {'target':a, 'request_id':str(uuid4())}
+            accepted = await self.runtime.start_preparation(request)
+            repeated = await self.runtime.start_preparation(request)
+            self.assertEqual(accepted['id'], repeated['id'])
+            await asyncio.wait_for(self.runtime.preparation_tasks[accepted['id']], 2)
+            outcome = self.runtime.preparation(accepted['id'])
+            self.assertEqual(outcome['state'],'succeeded')
+            self.assertEqual(factory.call_count,1)
+            self.assertTrue(self.runtime.preparation_logs(accepted['id'])['items'])
+            history = self.runtime.preparation_history(a['device_id'],a['owner_user_id'])
+            self.assertEqual(history['items'][0]['id'],accepted['id'])
+            self.assertEqual((await self.runtime.automation_status({'target':a}))['state'],'unavailable')
+        self.runtime.helpers.clear()
+
     async def test_native_only_script_never_bootstraps_uiautomator(self):
         a=target()
         self.runtime.prepared=lambda t: Runtime.prepared(self.runtime,t)

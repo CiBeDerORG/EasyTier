@@ -104,10 +104,10 @@ async function cancel() {
 function date(value: string) { return new Date(value).toLocaleString(); }
 watch(visible, open => {
     if (open) void query();
-    else { stopPolling(); ++epoch; }
+    else { stopPolling(); ++epoch; busy.value = false; }
 });
 watch(() => [props.device.id, props.ownerId, props.device.target_fingerprint], () => {
-    stopPolling(); ++epoch; status.value = null; current.value = null; jobs.value = [];
+    stopPolling(); ++epoch; busy.value = false; status.value = null; current.value = null; jobs.value = [];
     queried.value = false; selectedId.value = ''; logs.value = []; error.value = '';
     if (visible.value) void query();
 });
