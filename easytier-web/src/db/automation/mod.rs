@@ -58,7 +58,7 @@ pub(super) async fn fingerprint(connection: &mut SqliteConnection, owner: i32, i
         "SELECT a.overlay_ip,a.machine_id,a.gateway_group_id,a.address_mode,a.rule_key,a.host_offset,a.network_instance_id,\
          a.binding_snapshot_json,g.binding_snapshot_json AS parent_snapshot,\
          c.id AS current_config_id,c.network_config,c.disabled,c.create_time AS config_created,\
-         m.allocated_ipv4,ac.id AS adb_service_id,ac.port AS adb_port,ac.connection_mode,ac.endpoint_revision AS service_revision,a.endpoint_revision,t.semantic_kind \
+         m.allocated_ipv4,ac.id AS adb_service_id,ac.port AS adb_port,ac.connection_mode,ac.endpoint_revision AS service_revision,a.endpoint_revision,t.semantic_kind,t.semantic_kinds \
          FROM asset_devices a LEFT JOIN asset_gateway_groups g ON g.id=a.gateway_group_id \
          LEFT JOIN user_running_network_configs c ON c.user_id=a.owner_user_id AND c.device_id=a.machine_id \
            AND c.network_instance_id=COALESCE(g.network_instance_id,a.network_instance_id) \
@@ -66,7 +66,7 @@ pub(super) async fn fingerprint(connection: &mut SqliteConnection, owner: i32, i
          LEFT JOIN asset_device_types t ON t.id=a.device_type_id AND t.owner_user_id=a.owner_user_id LEFT JOIN asset_services ac ON ac.device_id=a.id AND ac.service_type='adb' WHERE a.owner_user_id=? AND a.id=?")
         .bind(owner).bind(id).fetch_optional(connection).await?.ok_or_else(not_found)?;
     let mut source = json!({"device_id":id,"owner_user_id":owner,"route_context":"default"});
-    for name in ["overlay_ip","machine_id","gateway_group_id","address_mode","rule_key","network_instance_id","config_created","allocated_ipv4","connection_mode","adb_service_id","semantic_kind"] {
+    for name in ["overlay_ip","machine_id","gateway_group_id","address_mode","rule_key","network_instance_id","config_created","allocated_ipv4","connection_mode","adb_service_id","semantic_kind","semantic_kinds"] {
         source[name] = json!(row.try_get::<Option<String>,_>(name)?);
     }
     for name in ["binding_snapshot_json","parent_snapshot"] {
@@ -157,12 +157,12 @@ impl AutomationStore {
              LEFT JOIN asset_gateway_groups g ON g.id=a.gateway_group_id \
              LEFT JOIN asset_device_types t ON t.id=a.device_type_id \
              JOIN asset_services c ON c.device_id=a.id AND c.service_type='adb' \
-             WHERE a.owner_user_id=? AND t.semantic_kind='phone' AND a.is_gateway_self=0 AND EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=c.id AND b.protocol='tcp' AND b.port=c.port) AND NOT EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=c.id AND b.protocol<>'tcp') ORDER BY (a.gateway_group_id IS NULL), COALESCE(g.name,'') COLLATE NOCASE, a.gateway_group_id, a.updated_at DESC, a.id DESC")
+             WHERE a.owner_user_id=? AND EXISTS (SELECT 1 FROM json_each(t.semantic_kinds) WHERE value='phone') AND a.is_gateway_self=0 AND EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=c.id AND b.protocol='tcp' AND b.port=c.port) AND NOT EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=c.id AND b.protocol<>'tcp') ORDER BY (a.gateway_group_id IS NULL), COALESCE(g.name,'') COLLATE NOCASE, a.gateway_group_id, a.updated_at DESC, a.id DESC")
             .bind(owner).fetch_all(&mut *connection).await?;
         drop(connection);
         let mut items = Vec::with_capacity(rows.len());
         for row in rows { items.push(self.device_json(owner,&row).await?); }
-        let issues = sqlx::query("SELECT a.id,a.machine_id,a.name,t.semantic_kind FROM asset_devices a LEFT JOIN asset_device_types t ON t.id=a.device_type_id WHERE a.owner_user_id=? AND a.is_gateway_self=0 AND (t.semantic_kind='phone' OR t.semantic_kind IS NULL) AND NOT EXISTS(SELECT 1 FROM asset_services s JOIN asset_service_bindings b ON b.service_id=s.id AND b.protocol='tcp' AND b.port=s.port WHERE s.device_id=a.id AND s.service_type='adb' AND t.semantic_kind='phone') ORDER BY a.name")
+        let issues = sqlx::query("SELECT a.id,a.machine_id,a.name,t.semantic_kind FROM asset_devices a LEFT JOIN asset_device_types t ON t.id=a.device_type_id WHERE a.owner_user_id=? AND a.is_gateway_self=0 AND (EXISTS (SELECT 1 FROM json_each(t.semantic_kinds) WHERE value='phone') OR t.id IS NULL OR t.semantic_kinds='[]') AND NOT EXISTS(SELECT 1 FROM asset_services s JOIN asset_service_bindings b ON b.service_id=s.id AND b.protocol='tcp' AND b.port=s.port WHERE s.device_id=a.id AND s.service_type='adb' AND EXISTS (SELECT 1 FROM json_each(t.semantic_kinds) WHERE value='phone')) ORDER BY a.name")
             .bind(owner).fetch_all(&self.pool).await?.iter().map(|row| -> AutomationResult<Value> {Ok(json!({"device_id":row.try_get::<String,_>("id")?,"machine_id":row.try_get::<String,_>("machine_id")?,"name":row.try_get::<String,_>("name")?,"reason":if row.try_get::<Option<String>,_>("semantic_kind")?.is_none(){"type_unclassified"}else{"adb_service_missing"}}))}).collect::<AutomationResult<Vec<_>>>()?;
         Ok(json!({"items":items,"issues":issues}))
     }
@@ -204,7 +204,7 @@ impl AutomationStore {
     pub(crate) async fn target(&self, owner:i32,id:&str)->AutomationResult<Value> {
         let mut connection=self.pool.acquire().await?;
         active_owner(&mut connection,owner).await?;
-        let row=sqlx::query("SELECT a.name,a.machine_id,a.overlay_ip,a.endpoint_revision,s.id AS adb_service_id,s.port AS adb_port,s.connection_mode FROM asset_devices a JOIN asset_device_types t ON t.id=a.device_type_id AND t.owner_user_id=a.owner_user_id JOIN asset_services s ON s.device_id=a.id AND s.owner_user_id=a.owner_user_id AND s.service_type='adb' WHERE a.id=? AND a.owner_user_id=? AND t.semantic_kind='phone' AND a.is_gateway_self=0 AND EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=s.id AND b.protocol='tcp' AND b.port=s.port) AND NOT EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=s.id AND b.protocol<>'tcp')")
+        let row=sqlx::query("SELECT a.name,a.machine_id,a.overlay_ip,a.endpoint_revision,s.id AS adb_service_id,s.port AS adb_port,s.connection_mode FROM asset_devices a JOIN asset_device_types t ON t.id=a.device_type_id AND t.owner_user_id=a.owner_user_id JOIN asset_services s ON s.device_id=a.id AND s.owner_user_id=a.owner_user_id AND s.service_type='adb' WHERE a.id=? AND a.owner_user_id=? AND EXISTS (SELECT 1 FROM json_each(t.semantic_kinds) WHERE value='phone') AND a.is_gateway_self=0 AND EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=s.id AND b.protocol='tcp' AND b.port=s.port) AND NOT EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=s.id AND b.protocol<>'tcp')")
             .bind(id).bind(owner).fetch_optional(&mut *connection).await?.ok_or_else(|| conflict("adb_service_missing","A phone with one confirmed TCP ADB service is required."))?;
         let cleanup:Option<String>=sqlx::query_scalar("SELECT json_extract(cleanup_json,'$.state') FROM discovery_endpoint_events WHERE owner_user_id=? AND device_id=? ORDER BY seq DESC LIMIT 1").bind(owner).bind(id).fetch_optional(&mut *connection).await?;
         if cleanup.is_some_and(|s|s!="confirmed") {return Err(conflict("target_cleanup_pending","The previous target is not yet confirmed retired. Retry the saved endpoint cleanup first."));}
