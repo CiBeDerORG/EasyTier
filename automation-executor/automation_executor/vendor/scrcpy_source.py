@@ -38,9 +38,10 @@ class SourceStopped(Exception):
 
 
 class ScrcpySource:
-    def __init__(self, serial: str, quality: str, track: Any, on_end: Callable[[], None]):
+    def __init__(self, serial: str, quality: str, track: Any, on_end: Callable[[], None], options: dict | None = None):
         self.serial = serial
-        self.settings = PROFILES[quality]
+        self.settings = {**PROFILES[quality], **(options or {})}
+        self._screen_power_applied = False
         self.track = track
         self.on_end = on_end
         self.binary = os.environ.get("AUTOMATION_ADB_BINARY", "adb")
@@ -174,7 +175,7 @@ class ScrcpySource:
                 "send_stream_meta=true", "send_dummy_byte=true", "cleanup=true",
                 "log_level=warn",
                 "power_on=true", "clipboard_autosync=false", "downsize_on_error=false",
-                "video_codec=h264", "video_codec_options=i-frame-interval=2",
+                "video_codec=h264", f"video_codec_options=i-frame-interval={1 if self.settings.get('low_latency') else 2}",
                 f"max_size={self.settings['max_size']}",
                 f"video_bit_rate={self.settings['video_bit_rate']}", f"max_fps={self.settings['max_fps']}",
             ]
@@ -207,6 +208,12 @@ class ScrcpySource:
                         with self.lock:
                             self._release_locked()
                             self.size = (width, height)
+                            # scrcpy's SET_DISPLAY_POWER request turns off the
+                            # physical display while keeping the mirrored stream
+                            # alive. Restore it when the session closes.
+                            if self.settings.get("screen_off") and not self._screen_power_applied:
+                                self._send_locked(struct.pack(">BB", 10, 0))
+                                self._screen_power_applied = True
                         self.track.reset_stream()
                         self._has_config = False
                         continue
@@ -294,8 +301,14 @@ class ScrcpySource:
             raise SourceError("control_release_unknown", "触点释放结果未确认，请检查手机状态")
 
     def stop(self) -> None:
-        self.stop_event.set()
         with self.lock:
+            if self._screen_power_applied and self.control is not None:
+                try:
+                    self.control.sendall(struct.pack(">BB", 10, 1))
+                except OSError:
+                    pass  # Best effort: a dead transport cannot confirm display state.
+                self._screen_power_applied = False
+            self.stop_event.set()
             self._release_locked()
             control, self.control = self.control, None
         with self.resources_lock:

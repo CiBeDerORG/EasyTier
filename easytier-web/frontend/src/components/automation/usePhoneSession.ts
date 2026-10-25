@@ -1,7 +1,7 @@
 import { reactive, shallowRef } from 'vue';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
-import type { AutomationControl, AutomationControlReply, AutomationSession } from '../../types/automation';
+import type { AutomationControl, AutomationControlReply, AutomationSession, AutomationMediaSettings } from '../../types/automation';
 
 export type PhonePhase = 'idle' | 'opening' | 'connecting' | 'live' | 'closed' | 'failed' | 'cleanup_pending';
 interface PendingControl {
@@ -112,13 +112,13 @@ export function usePhoneSession(api: AutomationApi) {
             pc.addEventListener('icegatheringstatechange', change);
         });
     }
-    async function open(ownerId: number, deviceId: string, quality: 'wall' | 'focus') {
+    async function open(ownerId: number, deviceId: string, quality: 'wall' | 'focus', media?: AutomationMediaSettings) {
         if (session || closing || state.phase === 'opening' || state.phase === 'connecting') throw new Error('Close the existing session first');
         if (typeof RTCPeerConnection === 'undefined') throw new Error('This browser does not support WebRTC');
         const mine = ++generation;
         sessionOwner = ownerId; state.phase = 'opening'; state.error = ''; sequence = 0;
         try {
-            const created = await api.createSession(ownerId, { device_id: deviceId, quality });
+            const created = await api.createSession(ownerId, { device_id: deviceId, quality, ...(media ? { media } : {}) });
             if (mine !== generation) { await api.closeSession(ownerId, created.id); return; }
             session = created;
             const ws = new WebSocket(api.controlUrl(ownerId, created.id)); socket = ws;
@@ -148,6 +148,13 @@ export function usePhoneSession(api: AutomationApi) {
             state.phase = 'connecting';
             const pc = new RTCPeerConnection({ iceServers: created.ice_servers ?? [] }); peer = pc;
             const transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+            if (media?.low_latency) {
+                // Browser-specific receive-buffer hints; the bounded H.264
+                // sender queue remains the authoritative stale-frame fence.
+                const receiver = transceiver.receiver as RTCRtpReceiver & { playoutDelayHint?: number; jitterBufferTarget?: number };
+                if ('playoutDelayHint' in receiver) receiver.playoutDelayHint = 0;
+                if ('jitterBufferTarget' in receiver) receiver.jitterBufferTarget = 0;
+            }
             const h264 = RTCRtpReceiver.getCapabilities?.('video')?.codecs.filter(codec => codec.mimeType.toLowerCase() === 'video/h264') ?? [];
             if (!h264.length || !transceiver.setCodecPreferences) throw new Error('This browser does not support the required H.264 WebRTC receiver');
             transceiver.setCodecPreferences(h264);

@@ -68,7 +68,8 @@ class _Session:
     target: dict
     serial: str
     quality: str
-    ice_servers: list[dict] = field(default_factory=list)
+    options: dict = field(default_factory=dict)
+    ice_servers: list[dict] = field(default_factory=list) = field(default_factory=list)
     state: str = "created"
     source: ScrcpySource | None = None
     track: Any = None
@@ -109,7 +110,7 @@ class MediaManager:
             entries.append({"urls": list(self._turn_urls), "username": username, "credential": credential})
         return entries
 
-    async def create(self, session_id: str, target: dict, quality: str) -> dict:
+    async def create(self, session_id: str, target: dict, quality: str, options: dict | None = None) -> dict:
         try:
             uuid.UUID(session_id)
             address = ipaddress.IPv4Address(target["ip"])
@@ -123,11 +124,25 @@ class MediaManager:
                 or not isinstance(quality, str) or quality not in PROFILES
                 or target.get("route_context") != "default"):
             raise MediaError("invalid_target", "媒体目标或画质配置无效", 422)
+        settings = copy.deepcopy(PROFILES[quality])
+        settings.update({"low_latency": True, "screen_off": False})
+        if options is not None:
+            if not isinstance(options, dict) or set(options) != {"max_size", "video_bit_rate", "max_fps", "low_latency", "screen_off"}:
+                raise MediaError("invalid_media", "投屏参数不完整或包含未知字段", 422)
+            for key, lower, upper in (("max_size", 256, 2560), ("video_bit_rate", 250000, 12000000), ("max_fps", 5, 60)):
+                value = options[key]
+                if type(value) is not int or not lower <= value <= upper:
+                    raise MediaError("invalid_media", "分辨率、码率或 FPS 超出允许范围", 422)
+                settings[key] = value
+            for key in ("low_latency", "screen_off"):
+                if type(options[key]) is not bool:
+                    raise MediaError("invalid_media", "低延时和息屏必须是布尔值", 422)
+                settings[key] = options[key]
         serial = f"{address}:{port}"
         async with self._lock:
             current = self._sessions.get(session_id)
             if current is not None:
-                if current.target != target or current.quality != quality or current.closing:
+                if current.target != target or current.quality != quality or current.options != settings or current.closing:
                     raise MediaError("session_conflict", "此会话编号已被另一请求或已结束会话使用")
                 return self._created(current)
             if len(self._sessions) >= self._max_sessions:
@@ -135,7 +150,7 @@ class MediaManager:
             if any(item.serial == serial or item.target["device_id"] == device_id
                    for item in self._sessions.values()):
                 raise MediaError("device_busy", "该手机已有观看会话或资源尚未清理")
-            session = _Session(session_id, copy.deepcopy(target), serial, quality, self._session_ice(session_id))
+            session = _Session(session_id, copy.deepcopy(target), serial, quality, settings, self._session_ice(session_id))
             self._sessions[session_id] = session
             return self._created(session)
 
@@ -215,7 +230,7 @@ class MediaManager:
                     except RuntimeError:
                         pass
 
-                session.source = ScrcpySource(session.serial, session.quality, session.track, source_ended)
+                session.source = ScrcpySource(session.serial, session.quality, session.track, source_ended, session.options)
                 await asyncio.wait_for(pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type="offer")), 12)
                 answer = await asyncio.wait_for(pc.createAnswer(), 12)
                 await asyncio.wait_for(pc.setLocalDescription(answer), 20)

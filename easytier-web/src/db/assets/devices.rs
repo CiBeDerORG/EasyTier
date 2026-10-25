@@ -48,6 +48,10 @@ pub(crate) async fn validate_relations(connection: &mut SqliteConnection, owner:
     Ok(())
 }
 
+// Group first, then the most recently updated devices within each group.
+// Ungrouped devices come last; name + id stabilize pagination when names collide.
+const DEVICE_ORDER: &str = " ORDER BY (gateway_group_id IS NULL), COALESCE((SELECT g.name FROM asset_gateway_groups g WHERE g.id=asset_devices.gateway_group_id), '') COLLATE NOCASE, gateway_group_id, updated_at DESC, id DESC";
+
 impl AssetsStore {
     pub(crate) async fn list_devices(&self, owner: i32, node: &str, options: DeviceListQuery) -> AssetResult<Value> {
         let mut connection = self.pool.acquire().await?;
@@ -63,7 +67,7 @@ impl AssetsStore {
             let keyword = keyword.to_lowercase();
             let mut candidates = QueryBuilder::<Sqlite>::new("SELECT * FROM asset_devices WHERE ");
             filter(&mut candidates, owner, node, &options);
-            candidates.push(" ORDER BY created_at DESC,id DESC");
+            candidates.push(DEVICE_ORDER);
             let rows = candidates.build().fetch_all(&mut *connection).await?;
             let locate_id = options.locate_id.as_ref().filter(|id| !id.is_empty());
             let mut matches = Vec::new();
@@ -98,24 +102,23 @@ impl AssetsStore {
         filter(&mut count, owner, node, &options);
         let total: i64 = count.build_query_scalar().fetch_one(&mut *connection).await?;
         if let Some(id) = options.locate_id.as_ref().filter(|id| !id.is_empty()) {
-            let mut locate = QueryBuilder::<Sqlite>::new("SELECT created_at,id FROM asset_devices WHERE ");
+            // Use the same group/update ordering for locate and listing,
+            // otherwise a device deep-link may open the wrong page.
+            let mut locate = QueryBuilder::<Sqlite>::new(
+                "SELECT rn FROM (SELECT id, ROW_NUMBER() OVER (");
+            locate.push(DEVICE_ORDER);
+            locate.push(") AS rn FROM asset_devices WHERE ");
             filter(&mut locate, owner, node, &options);
-            locate.push(" AND id = ").push_bind(id.clone());
-            let row = locate.build().fetch_optional(&mut *connection).await?.ok_or_else(AssetError::not_found)?;
-            let created_at: String = row.try_get("created_at")?;
-            let mut preceding = QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM asset_devices WHERE ");
-            filter(&mut preceding, owner, node, &options);
-            preceding.push(" AND (created_at > ").push_bind(created_at.clone())
-                .push(" OR (created_at = ").push_bind(created_at)
-                .push(" AND id > ").push_bind(id.clone()).push("))");
-            let rank: i64 = preceding.build_query_scalar().fetch_one(&mut *connection).await?;
-            page = rank / page_size + 1;
+            locate.push(") ranked WHERE id = ").push_bind(id.clone());
+            let rank: i64 = locate.build_query_scalar().fetch_optional(&mut *connection).await?
+                .ok_or_else(AssetError::not_found)?;
+            page = (rank - 1) / page_size + 1;
         } else {
             page = page.min(((total + page_size - 1) / page_size).max(1));
         }
         let mut query = QueryBuilder::<Sqlite>::new("SELECT * FROM asset_devices WHERE ");
         filter(&mut query, owner, node, &options);
-        query.push(" ORDER BY created_at DESC,id DESC LIMIT ").push_bind(page_size)
+        query.push(DEVICE_ORDER).push(" LIMIT ").push_bind(page_size)
             .push(" OFFSET ").push_bind((page - 1) * page_size);
         let rows = query.build().fetch_all(&mut *connection).await?;
         let mut items = Vec::with_capacity(rows.len());

@@ -28,7 +28,7 @@ export interface AutomationRunnerCheck {
 export interface AutomationConnection { enabled: boolean; adb_port: number; connection_mode: 'tcp' | 'wireless' }
 export interface AutomationDevice {
     endpoint_event?: import('../modules/discovery-api').EndpointEvent;
-    id: string; name: string; model: string | null; owner_user_id: number;
+    id: string; name: string; model: string | null; updated_at?: string; owner_user_id: number;
     machine_id: string; node_name: string; gateway_group_id: string | null;
     gateway_name: string | null; device_type_id: string | null; type_name: string | null;
     overlay_ip: string; lan_ip: string | null; binding_state: string;
@@ -38,6 +38,14 @@ export interface AutomationDevice {
 export interface AutomationPrepareResult {
     state: string; message: string; metadata?: Record<string, unknown>;
     capabilities?: Record<string, unknown> | string[];
+}
+/** Maximum encoded long edge, target bitrate, FPS and optional device power-off. */
+export interface AutomationMediaSettings {
+    max_size: number;
+    video_bit_rate: number;
+    max_fps: number;
+    low_latency: boolean;
+    screen_off: boolean;
 }
 export interface AutomationSession {
     id: string; device_id: string; state: string; ice_servers: RTCIceServer[]; expires_at?: string;

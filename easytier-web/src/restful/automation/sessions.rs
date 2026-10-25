@@ -41,7 +41,19 @@ pub(super) async fn create(auth: AuthSession, State(manager): State<AppStateInne
     let actor = authorize(&auth,&config,&service,owner).await?;
     let runner = runner(&runtime)?;
     let payload = body(input)?;
-    exact_fields(&payload,&["device_id","quality"])?;
+    exact_fields(&payload,&["device_id","quality","media"])?;
+    let media = payload.get("media").map(|value| -> HttpResult<Value> {
+        exact_fields(value, &["max_size","video_bit_rate","max_fps","low_latency","screen_off"])?;
+        for (name, minimum, maximum) in [("max_size",256,2560),("video_bit_rate",250_000,12_000_000),("max_fps",5,60)] {
+            if !value[name].as_u64().is_some_and(|v| v >= minimum && v <= maximum) {
+                return Err(error(StatusCode::UNPROCESSABLE_ENTITY,"invalid_media","分辨率、码率或 FPS 参数超出允许范围。"));
+            }
+        }
+        if !value["low_latency"].is_boolean() || !value["screen_off"].is_boolean() {
+            return Err(error(StatusCode::UNPROCESSABLE_ENTITY,"invalid_media","低延时及实体屏幕关闭选项必须是布尔值。"));
+        }
+        Ok(value.clone())
+    }).transpose()?;
     let device_id = id(payload["device_id"].as_str().unwrap_or_default())?;
     let quality = payload["quality"].as_str().unwrap_or("wall");
     if !matches!(quality,"wall"|"focus") {
@@ -53,7 +65,7 @@ pub(super) async fn create(auth: AuthSession, State(manager): State<AppStateInne
     let session_id = id(session["id"].as_str().unwrap_or_default())?;
     sqlx::query("UPDATE automation_sessions SET executor_identity=? WHERE id=?").bind(&executor).bind(&session_id).execute(&service.db.inner()).await.map_err(|e|store_error(e.into()))?;
     crate::discovery::reconnect::remember_target(&service,&session["target"],&executor).await.map_err(|e|store_error(e.into()))?;
-    let outbound = json!({"id":session_id,"target":wire_target(&session["target"]),"quality":quality,"lease_seconds":60,"expected_executor_id":executor});
+    let outbound = json!({"id":session_id,"target":wire_target(&session["target"]),"quality":quality,"media":media,"lease_seconds":60,"expected_executor_id":executor});
     let result = runner.post("sessions",&outbound).await.and_then(|result| {
         if result["executor_id"] != executor || result["id"] != session_id || result["device_id"] != device_id
             || !matches!(result["state"].as_str(),Some("created"|"opening"|"active"))

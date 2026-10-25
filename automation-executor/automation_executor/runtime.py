@@ -129,7 +129,7 @@ class Runtime:
             self.journal.release(holder, clean=self.journal.worker_record(holder) is None)
 
     async def create_session(self, body):
-        validation.object_fields(body, {"id", "target", "quality", "lease_seconds", "expected_executor_id"}, {"id", "target", "quality", "lease_seconds", "expected_executor_id"})
+        validation.object_fields(body, {"id", "target", "quality", "media", "lease_seconds", "expected_executor_id"}, {"id", "target", "quality", "lease_seconds", "expected_executor_id"})
         self.require_identity(body["expected_executor_id"])
         sid = validation.identifier(body["id"])
         target = validation.target(body["target"])
@@ -141,7 +141,7 @@ class Runtime:
                 raise ExecutorError("executor_stopping", "执行器正在停止", 503)
             self.journal.create_session(sid, target)
             try:
-                details = await self.media.create(sid, target, body["quality"])
+                details = await self.media.create(sid, target, body["quality"], body.get("media"))
                 if self.journal.db.execute("SELECT 1 FROM closed_sessions WHERE id=?", (sid,)).fetchone():
                     await self.media.close(sid)
                     raise ExecutorError("session_closed", "创建期间会话已被关闭")

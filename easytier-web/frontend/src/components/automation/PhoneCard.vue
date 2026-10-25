@@ -4,13 +4,14 @@ import { Button, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
 import AutomationApi from '../../modules/automation-api';
-import type { AutomationControl, AutomationDevice } from '../../types/automation';
+import type { AutomationControl, AutomationDevice, AutomationMediaSettings } from '../../types/automation';
 import { automationMessages } from './messages';
 import type { EndpointEvent } from '../../modules/discovery-api';
 import { usePhoneSession } from './usePhoneSession';
 
 const props = defineProps<{
     device: AutomationDevice; ownerId: number; selected: boolean; runnerAvailable: boolean;
+    phoneConnection?: 'connecting' | 'connected' | 'failed'; phoneConnectionError?: string;
     syncRole?: 'master' | 'follower'; syncActive: boolean; recording: boolean;
 }>();
 const emit = defineEmits<{
@@ -23,6 +24,74 @@ const api = new AutomationApi();
 const session = usePhoneSession(api);
 const video = ref<HTMLVideoElement | null>(null);
 const card = ref<HTMLElement | null>(null);
+const screen = ref<HTMLElement | null>(null);
+const dock = ref<'left' | 'right'>('right');
+const anchorFraction = ref(0.5);
+const floatingStyle = computed(() => ({
+    left: dock.value === 'right'
+        ? menuOpen.value ? 'calc(100% - 48px)' : 'calc(100% - 20px)'
+        : menuOpen.value ? '4px' : '-24px',
+    top: `${anchorFraction.value * 100}%`,
+}));
+const menuDirection = computed(() => anchorFraction.value < 0.48 ? 'down' : 'up');
+let drag: { id: number; firstX: number; firstY: number; firstFraction: number; moved: boolean } | null = null;
+let suppressOrbClick = false;
+let frameCallback: number | null = null;
+function dragStart(event: PointerEvent) {
+    if (event.button !== 0 || !screen.value) return;
+    drag = { id: event.pointerId, firstX: event.clientX, firstY: event.clientY,
+        firstFraction: anchorFraction.value, moved: false };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+}
+function dragMove(event: PointerEvent) {
+    if (drag?.id !== event.pointerId || !screen.value) return;
+    const bounds = screen.value.getBoundingClientRect();
+    const x = event.clientX - drag.firstX, y = event.clientY - drag.firstY;
+    if (!drag.moved && Math.hypot(x, y) < 7) return;
+    event.preventDefault();
+    drag.moved = true;
+    anchorFraction.value = Math.max(0.07, Math.min(0.93, drag.firstFraction + y / bounds.height));
+    dock.value = event.clientX - bounds.left < bounds.width / 2 ? 'left' : 'right';
+}
+function dragEnd(event: PointerEvent) {
+    if (drag?.id !== event.pointerId) return;
+    if (screen.value && drag.moved) {
+        const bounds = screen.value.getBoundingClientRect();
+        dock.value = event.clientX - bounds.left < bounds.width / 2 ? 'left' : 'right';
+        suppressOrbClick = true;
+    }
+    drag = null;
+}
+function toggleOrb() {
+    if (suppressOrbClick) { suppressOrbClick = false; return; }
+    menuOpen.value = !menuOpen.value;
+}
+function stopFrameChase() {
+    if (frameCallback !== null && video.value?.cancelVideoFrameCallback) video.value.cancelVideoFrameCallback(frameCallback);
+    frameCallback = null;
+    if (video.value) {
+        try { video.value.playbackRate = 1; } catch { /* live stream may not allow changing playback rate */ }
+    }
+}
+function startFrameChase() {
+    stopFrameChase();
+    const player = video.value;
+    if (!player?.requestVideoFrameCallback || !watchMedia.low_latency) return;
+    const inspect: VideoFrameRequestCallback = (now, metadata) => {
+        if (disposed || session.state.phase !== 'live' || video.value !== player) { stopFrameChase(); return; }
+        // Best-effort catch-up on browsers that support live playback rate
+        // adjustments. The bounded RTP track independently discards stale
+        // interframes until a decodable keyframe is received.
+        try { player.playbackRate = now - metadata.expectedDisplayTime > 120 ? 1.12 : 1; }
+        catch { /* Unsupported on this browser's MediaStream playback */ }
+        frameCallback = player.requestVideoFrameCallback(inspect);
+    };
+    frameCallback = player.requestVideoFrameCallback(inspect);
+}
+function videoReady() {
+    session.videoReady();
+    startFrameChase();
+}
 const menuOpen = ref(false);
 const cleaningSaved = ref(false);
 const pointer = ref<{ id: number; width: number; height: number } | null>(null);
@@ -33,7 +102,10 @@ const touchAllowed = computed(() => ready.value && props.syncRole !== 'follower'
 const pending = computed(() => ['opening', 'connecting'].includes(session.state.phase));
 const canOpen = computed(() => props.runnerAvailable && props.device.connection.enabled && !props.device.availability_reason && !props.device.active_session && !pending.value && session.state.phase !== 'live' && session.state.phase !== 'cleanup_pending');
 watch(() => session.state.phase, phase => emit('state', props.device.id, phase));
-watch(session.stream, value => { if (video.value) video.value.srcObject = value; }, { flush: 'post' });
+watch(session.stream, value => {
+    if (video.value) video.value.srcObject = value;
+    if (!value) stopFrameChase();
+}, { flush: 'post' });
 
 function geometry() { return { width: video.value?.videoWidth ?? 0, height: video.value?.videoHeight ?? 0 }; }
 function onGeometry() {
@@ -95,9 +167,13 @@ async function fullscreen() {
 function localAction(message: AutomationControl) { if (manualAllowed.value) emit('action', props.device.id, message); }
 let watching = false, disposed = false, intentVersion = 0, latestEndpoint = -1, restoredEndpoint = -1;
 let watchQuality: 'wall' | 'focus' = 'wall';
-async function open(quality: 'wall' | 'focus') { watching = true; ++intentVersion; watchQuality = quality; await session.open(props.ownerId, props.device.id, quality); }
+let watchMedia: AutomationMediaSettings = { max_size: 640, video_bit_rate: 1000000, max_fps: 15, low_latency: true, screen_off: false };
+async function open(quality: 'wall' | 'focus', options: AutomationMediaSettings = watchMedia) {
+    watching = true; ++intentVersion; watchQuality = quality; watchMedia = { ...options };
+    await session.open(props.ownerId, props.device.id, quality, watchMedia);
+}
 function cancelRestoreIntent() { watching = false; ++intentVersion; }
-async function close() { cancelRestoreIntent(); cancelPointer(); menuOpen.value = false; await session.close(); }
+async function close() { cancelRestoreIntent(); cancelPointer(); menuOpen.value = false; stopFrameChase(); await session.close(); }
 async function endpointChanged(event: EndpointEvent) {
     if (event.device_id !== props.device.id || event.endpoint_revision < latestEndpoint || event.endpoint_revision <= restoredEndpoint) return;
     const changed = event.endpoint_revision > latestEndpoint;
@@ -110,7 +186,7 @@ async function endpointChanged(event: EndpointEvent) {
     await session.close();
     if (disposed || !watching || intent !== intentVersion || event.endpoint_revision !== latestEndpoint || session.state.phase === 'cleanup_pending') return;
     restoredEndpoint = event.endpoint_revision;
-    try { await session.open(props.ownerId, props.device.id, watchQuality); }
+    try { await session.open(props.ownerId, props.device.id, watchQuality, watchMedia); }
     catch { /* bounded attempt: session exposes its failure, user can retry */ }
 }
 async function cleanupSaved() {
@@ -133,18 +209,21 @@ async function retryEndpoint(stage: 'cleanup'|'connection'|'publication') {
 }
 function getState() { return { phase: session.state.phase, ready: ready.value, ...geometry() }; }
 defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, getState, cancelPointer, resetPointer });
-onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; cancelPointer(); void session.close(); });
+onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; stopFrameChase(); cancelPointer(); void session.close(); });
 </script>
 
 <template>
     <article ref="card" class="phone-card" :class="{ selected, master: syncRole === 'master' }">
         <header>
             <label class="device-selection"><input type="checkbox" :checked="selected" :aria-label="device.name" @change="emit('selection', device.id, ($event.target as HTMLInputElement).checked)"><span>{{ device.name }}</span></label>
+            <Tag v-if="phoneConnection" :severity="phoneConnection === 'connected' ? 'success' : phoneConnection === 'failed' ? 'danger' : 'info'"
+                :value="t(phoneConnection === 'connected' ? 'phoneConnected' : phoneConnection === 'failed' ? 'phoneConnectionFailed' : 'phoneConnecting')"
+                :title="phoneConnectionError || undefined" />
             <Button icon="pi pi-cog" text rounded :aria-label="t('configure')" :title="t('configure')" :disabled="pending || session.state.phase === 'live'" @click="emit('configure', device)" />
         </header>
         <div class="device-meta"><span>{{ device.model || device.type_name || '—' }}</span><span :title="device.node_name">{{ device.node_name }}</span></div>
-        <div class="phone-screen" @keydown.esc="menuOpen = false">
-            <video ref="video" autoplay muted playsinline :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="session.videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent />
+        <div ref="screen" class="phone-screen" :style="currentGeometry.width && currentGeometry.height ? { aspectRatio: `${currentGeometry.width} / ${currentGeometry.height}` } : undefined" @keydown.esc="menuOpen = false">
+            <video ref="video" autoplay muted playsinline :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent />
             <div v-if="session.state.phase !== 'live'" class="screen-placeholder">
                 <i :class="pending ? 'pi pi-spin pi-spinner' : 'pi pi-mobile'" aria-hidden="true" />
                 <span>{{ t(session.state.phase) }}</span>
@@ -157,20 +236,24 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; canc
             <span v-if="recording" class="record-badge"><span /> REC</span>
             <Button v-if="syncActive" class="fullscreen-stop" severity="danger" :label="t('stopSync')" size="small" @click="emit('stopSync')" />
             <button v-if="menuOpen" class="control-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="menuOpen = false" />
-            <div class="phone-controls" @pointerdown.stop @pointerup.stop @click.stop>
+            <div class="phone-controls" :class="[`dock-${dock}`, `expand-${menuDirection}`]" :style="floatingStyle" @pointerdown.stop @click.stop>
                 <div v-if="menuOpen" class="floating-actions" role="group" :aria-label="t('localControl')">
                     <span class="control-scope">{{ t('localControl') }}</span>
-                    <Button icon="pi pi-arrow-left" rounded :aria-label="t('back')" :title="t('back')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'BACK' })" />
-                    <Button icon="pi pi-home" rounded :aria-label="t('home')" :title="t('home')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'HOME' })" />
-                    <Button icon="pi pi-clone" rounded :aria-label="t('recent')" :title="t('recent')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'RECENT' })" />
+                    <div class="other-actions">
                     <Button icon="pi pi-pencil" rounded :aria-label="t('text')" :title="t('text')" :disabled="!manualAllowed" @click="emit('text', device.id)" />
                     <Button icon="pi pi-power-off" rounded :aria-label="t('wake')" :title="t('wake')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'WAKE' })" />
                     <Button icon="pi pi-expand" rounded :aria-label="t('fullscreen')" :title="t('fullscreen')" :disabled="!ready" @click="fullscreen().catch(() => {})" />
                     <Button icon="pi pi-circle-fill" rounded :severity="recording ? 'danger' : 'secondary'" :aria-label="t(recording ? 'stopRecord' : 'record')" :title="t(recording ? 'stopRecord' : 'record')" :disabled="!manualAllowed" @click="emit('record', device.id)" />
                     <Button icon="pi pi-unlock" rounded severity="secondary" :aria-label="t('releaseManual')" :title="t('releaseManual')" :disabled="!manualAllowed" @click="localAction({ type: 'stop' })" />
                     <Button icon="pi pi-stop" rounded severity="danger" :aria-label="t('close')" :title="t('close')" @click="close().then(() => emit('refresh'))" />
+                    </div>
+                    <div class="nav-actions">
+                        <Button icon="pi pi-arrow-left" rounded :aria-label="t('back')" :title="t('back')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'BACK' })" />
+                        <Button icon="pi pi-clone" rounded :aria-label="t('recent')" :title="t('recent')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'RECENT' })" />
+                        <Button icon="pi pi-home" rounded :aria-label="t('home')" :title="t('home')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'HOME' })" />
+                    </div>
                 </div>
-                <Button class="main-orb" :icon="menuOpen ? 'pi pi-times' : 'pi pi-sliders-h'" rounded :aria-expanded="menuOpen" :aria-label="t('localControl')" :title="syncRole ? t('controlsLocked') : t('localControl')" @click="menuOpen = !menuOpen" />
+                <Button class="main-orb" :icon="menuOpen ? 'pi pi-times' : 'pi pi-sliders-h'" rounded :aria-expanded="menuOpen" :aria-label="t('localControl')" :title="syncRole ? t('controlsLocked') : t('localControl')" @pointerdown.stop="dragStart" @pointermove.stop="dragMove" @pointerup.stop="dragEnd" @pointercancel.stop="dragEnd" @click.stop="toggleOrb" />
             </div>
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
@@ -186,12 +269,11 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; canc
 .phone-card.master{box-shadow:0 0 0 2px var(--p-primary-color)}
 header{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 0 14px;gap:8px}.device-selection{display:flex;align-items:center;gap:8px;min-width:0;font-weight:600}.device-selection span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.device-selection input{accent-color:var(--p-primary-color);width:16px;height:16px;flex-shrink:0}
 .device-meta{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--console-muted);padding:1px 14px 10px}.device-meta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.phone-screen{height:390px;position:relative;background:#07111d;overflow:hidden}.phone-screen video{width:100%;height:100%;object-fit:contain;display:block;touch-action:none;user-select:none}.phone-screen video.interactive{cursor:crosshair}
+.phone-screen{width:100%;height:auto;aspect-ratio:9/19.5;position:relative;background:#07111d;overflow:hidden}.phone-screen video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;touch-action:none;user-select:none}.phone-screen video.interactive{cursor:crosshair}
 .screen-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#91a6bd;background:radial-gradient(ellipse at center,#11273a,#07111d 75%);padding:18px;text-align:center}.screen-placeholder>.pi{font-size:34px;color:#54738f}.screen-placeholder small{font-size:11px}
 .role-badge{position:absolute;top:10px;left:10px;pointer-events:none}.record-badge{position:absolute;top:12px;right:12px;color:#fda4af;font-size:11px;display:flex;align-items:center;gap:5px}.record-badge>span{width:7px;height:7px;border-radius:50%;background:#fb7185}
-.phone-controls{position:absolute;bottom:12px;right:10px;z-index:6;display:flex;flex-direction:column;align-items:flex-end;gap:7px}.floating-actions{display:flex;flex-direction:column;gap:6px;align-items:flex-end;max-height:calc(100% - 50px)}.phone-controls :deep(.p-button){width:44px;height:44px;min-width:44px;box-shadow:0 3px 14px #0006;border:1px solid #ffffff38;backdrop-filter:blur(10px)}.phone-controls :deep(.p-button-secondary){background:#142c42e8;color:#e1edf7}.main-orb{background:var(--p-primary-color)}.control-scope{color:#e1edf7;background:#12283ce8;border-radius:20px;padding:3px 8px;font-size:10px;white-space:nowrap}.control-dismiss{position:absolute;inset:0;z-index:5;background:transparent;border:0;cursor:default}
+.phone-controls{position:absolute;z-index:6;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;transition:left .16s ease;touch-action:none}.phone-controls :deep(.p-button){width:44px;height:44px;min-width:44px;box-shadow:0 3px 14px #0006;border:1px solid #ffffff38;backdrop-filter:blur(10px)}.phone-controls :deep(.p-button-secondary){background:#142c42e8;color:#e1edf7}.main-orb{background:var(--p-primary-color);cursor:grab;touch-action:none}.main-orb:active{cursor:grabbing}.floating-actions{position:absolute;display:flex;flex-direction:column;gap:5px;max-height:min(380px,65vh);overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;align-items:center;padding:3px;border-radius:12px;background:color-mix(in srgb,#081b30 80%,transparent);backdrop-filter:blur(8px)}.expand-up .floating-actions{bottom:calc(100% + 6px)}.expand-down .floating-actions{top:calc(100% + 6px)}.other-actions,.nav-actions{display:grid;grid-template-columns:44px 44px;gap:5px}.nav-actions{border-top:1px solid #e2e8f844;padding-top:6px}.nav-actions :deep(.p-button:last-child){grid-column:span 2;justify-self:center}.control-scope{color:#e1edf7;background:#12283ce8;border-radius:20px;padding:3px 8px;font-size:10px;white-space:nowrap}.control-dismiss{position:absolute;inset:0;z-index:5;background:transparent;border:0;cursor:default}
 footer{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;gap:8px;font-size:11px}.phase{color:var(--console-muted)}.phase.live{color:var(--p-green-500)}.phase.live:before{content:'';display:inline-block;width:6px;height:6px;background:currentColor;border-radius:50%;margin-right:6px}.phone-error{font-size:11px;padding:0 12px 10px;color:var(--p-red-500);overflow-wrap:anywhere;max-height:80px;overflow:auto}.fullscreen-stop{display:none}
-.phone-card:fullscreen{display:flex;flex-direction:column;width:100vw;height:100dvh;border:0;border-radius:0;background:#07111d;color:#e1edf7}.phone-card:fullscreen .phone-screen{flex:1;height:auto}.phone-card:fullscreen .fullscreen-stop{display:inline-flex;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:7}.phone-card:fullscreen .device-meta{display:none}
-@media(max-width:600px){.phone-screen{height:420px}.floating-actions{display:grid;grid-template-columns:44px 44px;gap:6px}.control-scope{grid-column:1 / -1;justify-self:end}}
-@media(min-width:601px){.floating-actions{display:grid;grid-template-columns:44px 44px;gap:6px}.control-scope{grid-column:1 / -1;justify-self:end}}
+.phone-card:fullscreen{display:flex;flex-direction:column;width:100vw;height:100dvh;border:0;border-radius:0;background:#07111d;color:#e1edf7}.phone-card:fullscreen .phone-screen{flex:1;height:auto;aspect-ratio:auto!important}.phone-card:fullscreen .fullscreen-stop{display:inline-flex;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:7}.phone-card:fullscreen .device-meta{display:none}
+@media(max-width:600px){.floating-actions{max-height:min(360px,60vh)}}
 </style>

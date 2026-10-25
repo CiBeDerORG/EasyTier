@@ -157,7 +157,7 @@ impl AutomationStore {
              LEFT JOIN asset_gateway_groups g ON g.id=a.gateway_group_id \
              LEFT JOIN asset_device_types t ON t.id=a.device_type_id \
              JOIN asset_services c ON c.device_id=a.id AND c.service_type='adb' \
-             WHERE a.owner_user_id=? AND t.semantic_kind='phone' AND a.is_gateway_self=0 AND EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=c.id AND b.protocol='tcp' AND b.port=c.port) AND NOT EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=c.id AND b.protocol<>'tcp') ORDER BY a.created_at DESC,a.id DESC")
+             WHERE a.owner_user_id=? AND t.semantic_kind='phone' AND a.is_gateway_self=0 AND EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=c.id AND b.protocol='tcp' AND b.port=c.port) AND NOT EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=c.id AND b.protocol<>'tcp') ORDER BY (a.gateway_group_id IS NULL), COALESCE(g.name,'') COLLATE NOCASE, a.gateway_group_id, a.updated_at DESC, a.id DESC")
             .bind(owner).fetch_all(&mut *connection).await?;
         drop(connection);
         let mut items = Vec::with_capacity(rows.len());
@@ -185,6 +185,7 @@ impl AutomationStore {
         Ok(json!({
             "endpoint_event":endpoint_event.map(|s|parse_json(&s)).transpose()?,
             "id":id,"name":row.try_get::<String,_>("name")?,"model":row.try_get::<Option<String>,_>("model")?,
+            "updated_at":row.try_get::<String,_>("updated_at")?,
             "owner_user_id":owner,"machine_id":node,"node_name":row.try_get::<String,_>("node_name")?,
             "gateway_group_id":row.try_get::<Option<String>,_>("gateway_group_id")?,"gateway_name":row.try_get::<Option<String>,_>("gateway_name")?,
             "device_type_id":row.try_get::<Option<String>,_>("device_type_id")?,"type_name":row.try_get::<Option<String>,_>("type_name")?,

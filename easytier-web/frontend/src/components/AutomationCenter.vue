@@ -5,8 +5,12 @@ import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { v4 as uuid } from 'uuid';
 import { DiscoveryApi, type EndpointEvent } from '../modules/discovery-api';
+import ApiClient from '../modules/api';
+import { getApiBase } from '../modules/api-host';
+import type { AssetDevice, AssetNode, GatewayGroup } from '../types/node-assets';
+import DiscoveryDialog from './node-assets/DiscoveryDialog.vue';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../modules/automation-api';
-import type { AutomationContext, AutomationControl, AutomationControlReply, AutomationDevice, AutomationRun, AutomationStep } from '../types/automation';
+import type { AutomationContext, AutomationControl, AutomationControlReply, AutomationDevice, AutomationRun, AutomationStep, AutomationMediaSettings } from '../types/automation';
 import PhoneCard from './automation/PhoneCard.vue';
 import ConnectionDialog from './automation/ConnectionDialog.vue';
 import ScriptLibrary from './automation/ScriptLibrary.vue';
@@ -16,7 +20,7 @@ import { automationMessages } from './automation/messages';
 
 interface PhoneHandle {
     endpointChanged(event: EndpointEvent): Promise<void>;
-    open(quality: 'wall' | 'focus'): Promise<void>;
+    open(quality: 'wall' | 'focus', settings: AutomationMediaSettings): Promise<void>;
     close(): Promise<void>;
     cancelRestoreIntent(): void;
     send(message: AutomationControl): Promise<AutomationControlReply>;
@@ -30,6 +34,7 @@ const { t } = useI18n({ useScope: 'local', messages: automationMessages });
 const router = useRouter();
 const api = new AutomationApi();
 const discoveryApi = new DiscoveryApi();
+const assetApi = new ApiClient(getApiBase());
 const sourceIssues = ref<{device_id:string;machine_id:string;name:string;reason:string}[]>([]);
 let stopEvents: (() => void) | undefined;
 let eventOwner = 0;
@@ -55,8 +60,23 @@ const tabs = computed(() => context.value?.can_manage_settings
     ? ['workbench', 'scripts', 'history', 'settings'] as const
     : ['workbench', 'scripts', 'history'] as const);
 const busy = ref(false); const connecting = ref(false); const error = ref(''); const notice = ref('');
+const phoneConnecting = ref(false);
+const phoneConnections = ref<Record<string, 'connecting' | 'connected' | 'failed'>>({});
+const phoneConnectionErrors = ref<Record<string, string>>({});
+const discoveryGateway = ref<AssetDevice | null>(null);
+const discoveryBusy = ref(false);
+const catalogNodes = ref<AssetNode[]>([]);
+const catalogGroups = ref<GatewayGroup[]>([]);
+let catalogOwner = 0;
+let catalogGeneration = 0;
+let initialSelectionDone = false;
+let initialConnectDone = false;
 const switchingTab = ref(false);
 const quality = ref<'wall' | 'focus'>('wall');
+const mediaSettings = ref<AutomationMediaSettings>({
+    max_size: 960, video_bit_rate: 2_000_000, max_fps: 30,
+    low_latency: true, screen_off: false,
+});
 const filters = ref({ node: '', group: '', type: '', keyword: '' });
 const applied = ref({ ...filters.value });
 const connectionDevice = ref<AutomationDevice | null>(null);
@@ -76,12 +96,26 @@ let recordingGeneration = 0; let pendingRecordActions = 0;
 const runnerAvailable = computed(() => context.value?.available === true && context.value.runner_configured);
 const managedAccount = computed(() => accounts.value.find(account => account.id === ownerId.value)?.username ?? String(ownerId.value));
 const deviceNames = computed(() => Object.fromEntries(devices.value.map(device => [device.id, device.name])));
-const nodeOptions = computed(() => [...new Map(devices.value.map(device => [device.machine_id, device.node_name])).entries()]);
-const groupOptions = computed(() => [...new Map(devices.value.filter(device => device.gateway_group_id).map(device => [device.gateway_group_id!, device.gateway_name ?? device.gateway_group_id!])).entries()]);
+const nodeOptions = computed(() => [...new Map([
+    ...catalogNodes.value.map(node => [node.machine_id, node.alias || node.hostname || node.machine_id] as const),
+    ...devices.value.map(device => [device.machine_id, device.node_name] as const),
+]).entries()]);
+const groupOptions = computed(() => [...new Map([
+    ...catalogGroups.value.filter(group => !filters.value.node || group.machine_id === filters.value.node)
+        .map(group => [group.id, group.name] as const),
+    ...devices.value.filter(device => device.gateway_group_id && (!filters.value.node || device.machine_id === filters.value.node))
+        .map(device => [device.gateway_group_id!, device.gateway_name ?? device.gateway_group_id!] as const),
+]).entries()]);
 const typeOptions = computed(() => [...new Map(devices.value.filter(device => device.device_type_id).map(device => [device.device_type_id!, device.type_name ?? device.device_type_id!])).entries()]);
+const sortedDevices = computed(() => [...devices.value].sort((a, b) =>
+    Number(!a.gateway_group_id) - Number(!b.gateway_group_id)
+    || (a.gateway_name ?? '').localeCompare(b.gateway_name ?? '', undefined, { sensitivity: 'base' })
+    || (a.gateway_group_id ?? '').localeCompare(b.gateway_group_id ?? '')
+    || (b.updated_at ?? '').localeCompare(a.updated_at ?? '')
+    || a.id.localeCompare(b.id)));
 const visibleDevices = computed(() => {
     const query = applied.value; const keyword = query.keyword.trim().toLocaleLowerCase();
-    return devices.value.filter(device => (!query.node || device.machine_id === query.node)
+    return sortedDevices.value.filter(device => (!query.node || device.machine_id === query.node)
         && (!query.group || device.gateway_group_id === query.group)
         && (!query.type || device.device_type_id === query.type)
         && (!keyword || [device.name, device.model, device.overlay_ip, device.lan_ip].some(value => value?.toLocaleLowerCase().includes(keyword))));
@@ -104,6 +138,27 @@ function handleError(cause: unknown) {
         if (cause.status === 401) void router.push({ name: 'login' });
     }
 }
+async function loadGatewayCatalog(owner: number) {
+    if (catalogOwner === owner) return;
+    catalogOwner = owner;
+    const epoch = ++catalogGeneration;
+    try {
+        const nodes = await assetApi.assetsNodes(owner);
+        if (disposed || owner !== ownerId.value || epoch !== catalogGeneration) return;
+        const groups = await Promise.all(nodes.items.map(async node => {
+            const answer = await assetApi.assetsGroups({ owner_user_id: owner, machine_id: node.machine_id });
+            return answer.items;
+        }));
+        if (disposed || owner !== ownerId.value || epoch !== catalogGeneration) return;
+        catalogNodes.value = nodes.items;
+        catalogGroups.value = groups.flat();
+    } catch (cause) {
+        if (!disposed && epoch === catalogGeneration) {
+            catalogOwner = 0; // A later manual refresh may safely retry discovery catalogs.
+            notice.value = t('discoveryCatalogUnavailable');
+        }
+    }
+}
 async function loadDevices() {
     if (!ownerId.value || !context.value?.available) return;
     const owner = ownerId.value; const request = ++loadGeneration;
@@ -112,9 +167,20 @@ async function loadDevices() {
         const response = await api.devices(owner);
         if (disposed || request !== loadGeneration || owner !== ownerId.value) return;
         devices.value = response.items; sourceIssues.value = response.issues ?? []; subscribeEndpoints();
+        void loadGatewayCatalog(owner);
         const currentIds = new Set(devices.value.map(device => device.id));
-        selectedIds.value = selectedIds.value.filter(id => currentIds.has(id));
+        selectedIds.value = initialSelectionDone
+            ? selectedIds.value.filter(id => currentIds.has(id))
+            : response.items.map(device => device.id);
+        initialSelectionDone = true;
         for (const id of Object.keys(phases.value)) if (!currentIds.has(id)) delete phases.value[id];
+        for (const id of Object.keys(phoneConnections.value)) if (!currentIds.has(id)) {
+            delete phoneConnections.value[id]; delete phoneConnectionErrors.value[id];
+        }
+        if (!initialConnectDone && runnerAvailable.value && response.items.length) {
+            initialConnectDone = true;
+            void connectPhones([...selectedIds.value]);
+        }
     } catch (cause) { if (!disposed && request === loadGeneration) handleError(cause); }
     finally { if (request === loadGeneration) busy.value = false; }
 }
@@ -130,6 +196,9 @@ async function changeOwner(id: number) {
     ++workspaceGeneration; ++loadGeneration;
     await closeAll();
     ownerId.value = id; devices.value = []; selectedIds.value = []; phases.value = {}; results.value = [];
+    initialSelectionDone = false; initialConnectDone = false;
+    ++catalogGeneration; catalogOwner = 0; catalogNodes.value = []; catalogGroups.value = [];
+    phoneConnections.value = {}; phoneConnectionErrors.value = {}; discoveryGateway.value = null;
     connectionDevice.value = null; textDialog.value = false; recordingDraft.value = []; focusRunId.value = undefined;
     filters.value = { node: '', group: '', type: '', keyword: '' }; applied.value = { ...filters.value };
     await loadDevices();
@@ -142,6 +211,56 @@ function requireTargets(ids: string[], minimum = 1): boolean {
     const invalid = unavailable(ids);
     if (invalid.length) { error.value = `${t('targetsUnavailable')} ${invalid.map(id => deviceNames.value[id] ?? id).join('、')}`; return false; }
     return true;
+}
+async function connectPhones(ids: string[]) {
+    if (!runnerAvailable.value || phoneConnecting.value || !ids.length) return;
+    const owner = ownerId.value; const epoch = workspaceGeneration;
+    phoneConnecting.value = true;
+    const targets = [...new Set(ids)].filter(id => {
+        const device = devices.value.find(item => item.id === id);
+        return device?.connection.enabled && !device.availability_reason;
+    });
+    const queue = [...targets];
+    for (const id of targets) { phoneConnections.value[id] = 'connecting'; delete phoneConnectionErrors.value[id]; }
+    // Explicit ADB connect only. Never silently pair, retry credentials or
+    // open a video session. At most two requests can be in flight.
+    const worker = async () => {
+        while (queue.length && epoch === workspaceGeneration && !disposed) {
+            const id = queue.shift()!;
+            try {
+                const result = await api.prepare(owner, id, { action: 'connect' });
+                if (epoch !== workspaceGeneration || disposed) return;
+                if (result.state !== 'connected') throw new Error(result.message || t('actionFailed'));
+                phoneConnections.value[id] = 'connected';
+            } catch (cause) {
+                if (epoch !== workspaceGeneration || disposed) return;
+                phoneConnections.value[id] = 'failed';
+                phoneConnectionErrors.value[id] = automationErrorMessage(cause);
+            }
+        }
+    };
+    try { await Promise.all([worker(), worker()]); }
+    finally { phoneConnecting.value = false; }
+}
+async function discoverAdb() {
+    const group = filters.value.group || applied.value.group;
+    if (!group || !ownerId.value || discoveryBusy.value) return;
+    const groupRecord = catalogGroups.value.find(entry => entry.id === group);
+    const machineId = groupRecord?.machine_id ?? devices.value.find(device => device.gateway_group_id === group)?.machine_id;
+    if (!machineId) { error.value = t('discoveryGatewayMissing'); return; }
+    discoveryBusy.value = true; error.value = '';
+    try {
+        const scope = { owner_user_id: ownerId.value, machine_id: machineId };
+        let gateway: AssetDevice | undefined;
+        for (let pageNumber = 1; pageNumber <= 20 && !gateway; ++pageNumber) {
+            const page = await assetApi.assetsDevices(scope, { group_id: group, page: pageNumber, page_size: 100 });
+            gateway = page.items.find(device => device.is_gateway_self && device.semantic_kind === 'openwrt');
+            if (pageNumber * 100 >= page.total) break;
+        }
+        if (!gateway) throw new Error(t('discoveryGatewayMissing'));
+        discoveryGateway.value = gateway;
+    } catch (cause) { handleError(cause); }
+    finally { discoveryBusy.value = false; }
 }
 async function openSelected() {
     if (connecting.value || !runnerAvailable.value) return;
@@ -159,7 +278,7 @@ async function openSelected() {
         while (queue.length && mine === workspaceGeneration && !disposed) {
             const id = queue.shift()!; const card = cards.get(id);
             if (!card) continue;
-            try { await card.open(quality.value); }
+            try { await card.open(quality.value, { ...mediaSettings.value }); }
             catch (cause) { results.value.push({ id, name: deviceNames.value[id] ?? id, state: 'failed', message: automationErrorMessage(cause) }); }
         }
     };
@@ -390,7 +509,7 @@ onMounted(async () => {
     } catch (cause) { if (!disposed) handleError(cause); }
 });
 onBeforeUnmount(() => { stopEvents?.();
-    disposed = true; ++workspaceGeneration; ++loadGeneration;
+    disposed = true; ++workspaceGeneration; ++loadGeneration; ++catalogGeneration;
     document.removeEventListener('visibilitychange', visibilityChanged);
     document.removeEventListener('fullscreenchange', fullScreenChanged);
     window.removeEventListener('blur', releaseOnBlur);
@@ -421,14 +540,14 @@ onBeforeUnmount(() => { stopEvents?.();
                 </form>
                 <div class="workbench-toolbar">
                     <div class="summary"><span>{{ t('registered') }} <strong>{{ visibleDevices.length }}</strong></span><span>{{ t('selected') }} <strong>{{ selectedIds.length }}</strong></span><span>{{ t('live') }} <strong>{{ liveCount }}</strong></span></div>
-                    <div class="toolbar-actions"><Button :label="t('selectShown')" text size="small" @click="selectedIds = [...new Set([...selectedIds, ...visibleDevices.map(device => device.id)])]" /><Button :label="t('clearSelection')" text size="small" @click="selectedIds = []" /><label class="quality" :title="t('qualityHint')"><span>{{ t('quality') }}</span><select v-model="quality"><option value="wall">{{ t('wall') }}</option><option value="focus">{{ t('focus') }}</option></select></label><Button :label="t('openSelected')" icon="pi pi-play" size="small" :loading="connecting" :disabled="!runnerAvailable || !selectedIds.length" @click="openSelected" /><Button :label="t('releaseManual')" icon="pi pi-unlock" text size="small" :disabled="!selectedIds.length" @click="releaseManual([...selectedIds])" /><Button :label="t('closeSelected')" icon="pi pi-stop" outlined size="small" :disabled="!selectedIds.length" @click="closeSelected" /></div>
+                    <div class="toolbar-actions"><Button :label="t('selectShown')" text size="small" @click="selectedIds = [...new Set([...selectedIds, ...visibleDevices.map(device => device.id)])]" /><Button :label="t('clearSelection')" text size="small" @click="selectedIds = []" /><label class="quality" :title="t('qualityHint')"><span>{{ t('resolution') }}</span><select v-model.number="mediaSettings.max_size"><option :value="640">640</option><option :value="960">960</option><option :value="1280">1280</option><option :value="1920">1920</option></select></label><label class="quality"><span>{{ t('bitrate') }}</span><select v-model.number="mediaSettings.video_bit_rate"><option :value="1000000">1 Mbps</option><option :value="2000000">2 Mbps</option><option :value="4000000">4 Mbps</option><option :value="8000000">8 Mbps</option></select></label><label class="quality"><span>FPS</span><select v-model.number="mediaSettings.max_fps"><option :value="15">15</option><option :value="24">24</option><option :value="30">30</option><option :value="60">60</option></select></label><label class="media-toggle"><input v-model="mediaSettings.low_latency" type="checkbox" />{{ t('lowLatency') }}</label><label class="media-toggle"><input v-model="mediaSettings.screen_off" type="checkbox" />{{ t('screenOff') }}</label><Button v-if="filters.group || applied.group" :label="t('discoverAdb')" icon="pi pi-search" size="small" outlined :loading="discoveryBusy" :disabled="discoveryBusy" @click="discoverAdb" /><Button :label="t('openSelected')" icon="pi pi-play" size="small" :loading="connecting" :disabled="!runnerAvailable || !selectedIds.length" @click="openSelected" /><Button :label="t('connect')" icon="pi pi-link" size="small" :loading="phoneConnecting" :disabled="!runnerAvailable || !selectedIds.length" @click="connectPhones([...selectedIds])" /><Button :label="t('releaseManual')" icon="pi pi-unlock" text size="small" :disabled="!selectedIds.length" @click="releaseManual([...selectedIds])" /><Button :label="t('closeSelected')" icon="pi pi-stop" outlined size="small" :disabled="!selectedIds.length" @click="closeSelected" /></div>
                 </div>
                 <div v-if="sync" class="activity-banner sync-banner" role="status"><div><strong>{{ t('syncRunning', { count: sync.deviceIds.length }) }}</strong><p>{{ t('master') }}：{{ deviceNames[sync.masterId] }} · {{ t('syncFixed') }}</p></div><Button :label="t('stopSync')" severity="danger" icon="pi pi-stop-circle" @click="stopSync" /></div>
                 <div v-if="recordingId" class="activity-banner recording-banner" role="status"><div><strong>{{ recordingPaused ? t('recordPaused') : t('recordRunning', { name: recordingName }) }}</strong><p>{{ t('recordedCount', { count: recordedSteps.length }) }} · {{ t('recordHint') }}</p></div><div class="record-actions"><Button :label="t(recordingPaused ? 'resume' : 'pause')" :icon="recordingPaused ? 'pi pi-play' : 'pi pi-pause'" outlined @click="pauseRecording" /><Button :label="t('editRecording')" severity="danger" icon="pi pi-stop" @click="finishRecording(true)" /></div></div>
                 <div v-if="!devices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-mobile" aria-hidden="true" /><h2>{{ t('noAssets') }}</h2><p>{{ t('noAssetsDetail') }}</p><Button :label="t('toAssets')" outlined @click="router.push({ name: 'nodeAssets' })" /></div>
                 <div v-else-if="!visibleDevices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-search" aria-hidden="true" /><h2>{{ t('noResults') }}</h2><Button :label="t('reset')" text @click="filters = { node: '', group: '', type: '', keyword: '' }; query()" /></div>
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
-                <div class="phone-grid"><PhoneCard v-for="device in devices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @text="id => showText([id])" @record="toggleRecord" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
+                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @text="id => showText([id])" @record="toggleRecord" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
                 <button v-if="globalOpen && !fullscreenActive" class="global-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="globalOpen = false" />
                 <div v-if="devices.length && !fullscreenActive" class="global-controls" @pointerdown.stop @click.stop @keydown.esc="globalOpen = false">
@@ -441,6 +560,7 @@ onBeforeUnmount(() => { stopEvents?.();
             <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" />
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
+        <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
         <Dialog v-model:visible="syncPreparation" modal :header="t('syncTitle')" :style="{ width: '500px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><Message severity="info" :closable="false">{{ t('syncHint') }}</Message><p>{{ t('targetCount', { count: syncTargets.length }) }}</p><ul><li v-for="id in syncTargets" :key="id">{{ deviceNames[id] ?? id }}</li></ul><label>{{ t('master') }}<select v-model="syncMaster"><option v-for="id in syncTargets" :key="id" :value="id">{{ deviceNames[id] ?? id }}</option></select></label></div><template #footer><Button :label="t('cancel')" text @click="syncPreparation = false" /><Button :label="t('sync')" icon="pi pi-share-alt" @click="beginSync" /></template></Dialog>
         <Dialog v-model:visible="textDialog" modal :header="t('textTitle')" :closable="!sendingText" :close-on-escape="!sendingText" :style="{ width: '520px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><p>{{ t('targetCount', { count: textTargets.length }) }} · {{ textTargets.map(id => deviceNames[id] ?? id).join('、') }}</p><Textarea v-model="inputText" :placeholder="t('textPlaceholder')" rows="5" maxlength="2000" :disabled="sendingText" autofocus /><p class="muted">{{ t('textHint') }}</p></div><template #footer><Button :label="t('cancel')" text :disabled="sendingText" @click="textDialog = false; inputText = ''" /><Button :label="t('send')" icon="pi pi-send" :loading="sendingText" :disabled="!inputText" @click="sendText" /></template></Dialog>
@@ -449,6 +569,6 @@ onBeforeUnmount(() => { stopEvents?.();
 
 <style scoped>
 .automation-tabs button{white-space:nowrap}
-.workbench-view{display:flex;flex-direction:column;gap:20px}.manual-release-hint{font-size:12px;color:var(--console-muted)}.automation-center{position:relative;padding-bottom:70px}.owner-caption{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--console-muted);white-space:nowrap}.owner-caption strong{color:var(--p-text-color)}.workspace-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.automation-tabs{display:flex;gap:4px;padding:4px;background:var(--console-panel-raised);border:1px solid var(--console-border);border-radius:10px}.automation-tabs button{padding:9px 17px;border:0;border-radius:7px;color:var(--console-muted);background:transparent;cursor:pointer;font-weight:550}.automation-tabs button.active{background:var(--console-accent-soft);color:var(--p-primary-color);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--p-primary-color) 25%,transparent)}.owner-select{display:flex;align-items:center;gap:9px;font-size:12px}.filters{padding:18px;display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}.filters label{display:flex;flex-direction:column;gap:7px;font-size:11px;color:var(--console-muted);flex:1;min-width:145px}.filters .keyword-field{flex:1.5;min-width:180px}select{padding:9px 10px;border:1px solid var(--console-border-strong);border-radius:7px;background:var(--console-panel);color:var(--p-text-color);max-width:100%;min-width:0;font-size:13px}.workbench-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.summary{display:flex;gap:16px;font-size:12px;color:var(--console-muted)}.summary strong{color:var(--p-text-color);margin-left:5px;font-size:16px}.toolbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.quality{display:flex;align-items:center;gap:7px;color:var(--console-muted);font-size:11px}.quality select{font-size:12px;padding:7px 9px}.phone-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px}.activity-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 18px;border:1px solid var(--p-primary-color);border-radius:12px;background:var(--console-accent-soft)}.activity-banner strong{font-size:14px}.activity-banner p{color:var(--console-muted);font-size:12px;margin-top:5px}.recording-banner{border-color:var(--p-red-400);background:color-mix(in srgb,var(--p-red-400) 7%,var(--console-panel))}.record-actions{display:flex;gap:8px;flex-shrink:0}.results-panel ul{padding:8px 18px}.results-panel li{display:grid;grid-template-columns:1fr auto;gap:5px 16px;padding:10px 0;border-bottom:1px solid var(--console-border);font-size:12px}.results-panel li:last-child{border:0}.results-panel p{grid-column:1 / -1;color:var(--console-muted);overflow-wrap:anywhere}.results-panel .failed{color:var(--p-orange-500)}.global-controls{position:fixed;bottom:30px;right:30px;z-index:46;display:flex;flex-direction:column;align-items:flex-end;gap:10px}.global-controls :deep(.p-button){width:46px;height:46px;border-radius:50%;box-shadow:0 4px 20px #0003;border:1px solid color-mix(in srgb,var(--p-primary-color) 45%,var(--console-border));backdrop-filter:blur(12px)}.global-controls :deep(.global-orb){width:56px;height:56px;box-shadow:0 4px 28px color-mix(in srgb,var(--p-primary-color) 35%,transparent)}.global-actions{display:grid;grid-template-columns:46px 46px;gap:8px;justify-items:end}.global-scope{grid-column:1 / -1;font-size:11px;white-space:nowrap;padding:6px 10px;background:var(--console-panel);border:1px solid var(--console-border);border-radius:20px;box-shadow:var(--console-shadow)}.target-badge{position:absolute;bottom:40px;right:-3px;min-width:22px;height:22px;padding:1px 5px;border:2px solid var(--console-panel);background:var(--p-primary-contrast-color);color:var(--p-primary-color);font-size:11px;font-weight:700;border-radius:20px;text-align:center;pointer-events:none}.global-dismiss{position:fixed;inset:0;background:transparent;z-index:45;border:0;cursor:default}.modal-content{display:flex;flex-direction:column;gap:16px}.modal-content label{display:flex;flex-direction:column;gap:8px;font-size:13px}.modal-content p,.modal-content li{font-size:12px}.modal-content ul{padding-left:18px;list-style:disc}.modal-content :deep(textarea){width:100%}
+.workbench-view{display:flex;flex-direction:column;gap:20px}.manual-release-hint{font-size:12px;color:var(--console-muted)}.automation-center{position:relative;padding-bottom:70px}.owner-caption{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--console-muted);white-space:nowrap}.owner-caption strong{color:var(--p-text-color)}.workspace-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.automation-tabs{display:flex;gap:4px;padding:4px;background:var(--console-panel-raised);border:1px solid var(--console-border);border-radius:10px}.automation-tabs button{padding:9px 17px;border:0;border-radius:7px;color:var(--console-muted);background:transparent;cursor:pointer;font-weight:550}.automation-tabs button.active{background:var(--console-accent-soft);color:var(--p-primary-color);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--p-primary-color) 25%,transparent)}.owner-select{display:flex;align-items:center;gap:9px;font-size:12px}.filters{padding:18px;display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}.filters label{display:flex;flex-direction:column;gap:7px;font-size:11px;color:var(--console-muted);flex:1;min-width:145px}.filters .keyword-field{flex:1.5;min-width:180px}select{padding:9px 10px;border:1px solid var(--console-border-strong);border-radius:7px;background:var(--console-panel);color:var(--p-text-color);max-width:100%;min-width:0;font-size:13px}.workbench-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.summary{display:flex;gap:16px;font-size:12px;color:var(--console-muted)}.summary strong{color:var(--p-text-color);margin-left:5px;font-size:16px}.toolbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.quality,.media-toggle{display:flex;align-items:center;gap:7px;color:var(--console-muted);font-size:11px;white-space:nowrap}.media-toggle input{accent-color:var(--p-primary-color)} .media-toggle{cursor:pointer}.quality select{font-size:12px;padding:7px 9px}.phone-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px}.activity-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 18px;border:1px solid var(--p-primary-color);border-radius:12px;background:var(--console-accent-soft)}.activity-banner strong{font-size:14px}.activity-banner p{color:var(--console-muted);font-size:12px;margin-top:5px}.recording-banner{border-color:var(--p-red-400);background:color-mix(in srgb,var(--p-red-400) 7%,var(--console-panel))}.record-actions{display:flex;gap:8px;flex-shrink:0}.results-panel ul{padding:8px 18px}.results-panel li{display:grid;grid-template-columns:1fr auto;gap:5px 16px;padding:10px 0;border-bottom:1px solid var(--console-border);font-size:12px}.results-panel li:last-child{border:0}.results-panel p{grid-column:1 / -1;color:var(--console-muted);overflow-wrap:anywhere}.results-panel .failed{color:var(--p-orange-500)}.global-controls{position:fixed;bottom:30px;right:30px;z-index:46;display:flex;flex-direction:column;align-items:flex-end;gap:10px}.global-controls :deep(.p-button){width:46px;height:46px;border-radius:50%;box-shadow:0 4px 20px #0003;border:1px solid color-mix(in srgb,var(--p-primary-color) 45%,var(--console-border));backdrop-filter:blur(12px)}.global-controls :deep(.global-orb){width:56px;height:56px;box-shadow:0 4px 28px color-mix(in srgb,var(--p-primary-color) 35%,transparent)}.global-actions{display:grid;grid-template-columns:46px 46px;gap:8px;justify-items:end}.global-scope{grid-column:1 / -1;font-size:11px;white-space:nowrap;padding:6px 10px;background:var(--console-panel);border:1px solid var(--console-border);border-radius:20px;box-shadow:var(--console-shadow)}.target-badge{position:absolute;bottom:40px;right:-3px;min-width:22px;height:22px;padding:1px 5px;border:2px solid var(--console-panel);background:var(--p-primary-contrast-color);color:var(--p-primary-color);font-size:11px;font-weight:700;border-radius:20px;text-align:center;pointer-events:none}.global-dismiss{position:fixed;inset:0;background:transparent;z-index:45;border:0;cursor:default}.modal-content{display:flex;flex-direction:column;gap:16px}.modal-content label{display:flex;flex-direction:column;gap:8px;font-size:13px}.modal-content p,.modal-content li{font-size:12px}.modal-content ul{padding-left:18px;list-style:disc}.modal-content :deep(textarea){width:100%}
 @media(max-width:700px){.page-heading{align-items:flex-start;flex-direction:column}.workspace-header{align-items:stretch;flex-direction:column}.owner-select{justify-content:space-between}.owner-select select{flex:1}.automation-tabs button{flex:1;padding:9px 12px}.filters{padding:14px}.phone-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}.toolbar-actions{width:100%}.activity-banner{align-items:flex-start;flex-direction:column}.record-actions{flex-wrap:wrap}.global-controls{bottom:20px;right:18px}}
 </style>

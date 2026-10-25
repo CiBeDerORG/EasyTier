@@ -2,7 +2,7 @@ import { getApiBase } from './api-host';
 import type {
     AutomationConnection, AutomationContext, AutomationDevice, AutomationPrepareResult,
     AutomationRun, AutomationRunInput, AutomationScript, AutomationScriptInput, AutomationSession,
-    AutomationRunnerSettings, AutomationRunnerSettingsInput, AutomationRunnerCheck,
+    AutomationRunnerSettings, AutomationRunnerSettingsInput, AutomationRunnerCheck, AutomationMediaSettings,
 } from '../types/automation';
 
 export class AutomationApiError extends Error {
@@ -47,7 +47,7 @@ export default class AutomationApi {
     saveConnection(ownerId: number, id: string, body: AutomationConnection) { return this.request<AutomationDevice>(`/devices/${encodeURIComponent(id)}/connection`, ownerId, 'PUT', body); }
     prepare(ownerId: number, id: string, body: { action: 'connect' | 'pair' | 'inspect' | 'automation'; pairing_port?: number; code?: string }) { return this.request<AutomationPrepareResult>(`/devices/${encodeURIComponent(id)}/prepare`, ownerId, 'POST', body); }
     retryEndpoint(ownerId: number, device: string, event: string, body: {request_id: string; stage: 'cleanup'|'connection'|'publication'}) { return this.request(`/devices/${encodeURIComponent(device)}/endpoint-events/${encodeURIComponent(event)}/retry`, ownerId, 'POST', body); }
-    createSession(ownerId: number, body: { device_id: string; quality: 'wall' | 'focus' }) { return this.request<AutomationSession>('/sessions', ownerId, 'POST', body); }
+    createSession(ownerId: number, body: { device_id: string; quality: 'wall' | 'focus'; media?: AutomationMediaSettings }) { return this.request<AutomationSession>('/sessions', ownerId, 'POST', body); }
     offer(ownerId: number, id: string, body: RTCSessionDescriptionInit) { return this.request<{ sdp: string; type: 'answer'; width: number; height: number }>(`/sessions/${encodeURIComponent(id)}/offer`, ownerId, 'POST', body); }
     closeSession(ownerId: number, id: string) { return this.request<{ id: string; state: string; cleanup_pending?: boolean }>(`/sessions/${encodeURIComponent(id)}/close`, ownerId, 'POST', {}); }
     controlUrl(ownerId: number, id: string): string {
