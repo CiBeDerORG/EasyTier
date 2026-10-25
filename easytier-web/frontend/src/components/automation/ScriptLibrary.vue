@@ -258,7 +258,7 @@ async function submitRun() {
         }
         pendingRun.value = {
             request_id: uuid(), device_ids: [...ids], parameters: { ...runParameters.value },
-            concurrency: Math.max(1, Math.min(5, ids.length, Math.floor(runConcurrency.value ?? 1))),
+            concurrency: Math.max(1, Math.min(ids.length, Math.floor(runConcurrency.value ?? 1))),
             ...(runMode.value === 'saved'
                 ? { script_id: runScriptId.value, revision: runRevision.value }
                 : { name: runName.value, steps: cloneSteps(runSteps.value) }),
@@ -374,7 +374,7 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
                 <p class="muted">{{ text('本次目标和步骤已固定。后续修改草稿或工作台选择，不会改变本次运行。某台失败只停止该台，其余继续。', 'Targets and steps are fixed for this run. Later edits or selections do not change it. A device failure stops that device; the others continue.') }}</p>
                 <label v-if="runMode === 'draft'" class="field" for="automation-trial-device"><span>{{ text('试跑设备', 'Trial device') }}</span><Select input-id="automation-trial-device" v-model="runTrialDevice" :options="runDeviceOptions" option-label="label" option-value="value" :disabled="runSubmitting || !!pendingRun" /></label>
                 <div class="run-targets"><span class="muted">{{ text(`目标设备（${shownRunDevices.length}）`, `Targets (${shownRunDevices.length})`) }}</span><ul><li v-for="id in shownRunDevices" :key="id"><strong>{{ deviceNames?.[id] || id }}</strong><small v-if="deviceNames?.[id]">{{ id }}</small></li></ul></div>
-                <label v-if="runMode === 'saved'" class="field" for="automation-run-concurrency"><span>{{ text('同时执行设备数', 'Concurrent devices') }}</span><InputNumber input-id="automation-run-concurrency" v-model="runConcurrency" :min="1" :max="Math.min(5, runDevices.length)" :use-grouping="false" :disabled="runSubmitting || !!pendingRun" /></label>
+                <label v-if="runMode === 'saved'" class="field" for="automation-run-concurrency"><span>{{ text('同时执行设备数', 'Concurrent devices') }}</span><InputNumber input-id="automation-run-concurrency" v-model="runConcurrency" :min="1"  :use-grouping="false" :disabled="runSubmitting || !!pendingRun" /></label>
                 <label v-for="parameter in parameterNames" :key="parameter" class="field" :for="`automation-param-${parameter}`"><span>{{ text('参数', 'Parameter') }} · {{ parameter }}</span><InputText :id="`automation-param-${parameter}`" v-model="runParameters[parameter]" type="password" autocomplete="new-password" :maxlength="2000" :disabled="runSubmitting || !!pendingRun" /></label>
                 <p v-if="parameterNames.length" class="muted">{{ text('参数仅提交给本次运行；不会写回脚本草稿。', 'Parameters apply to this run and are not written back to the script draft.') }}</p>
                 <p class="muted">{{ text('关闭页面不会取消已提交的任务。需要停止时，请在执行记录中取消；已经发生的手机操作无法撤回。', 'Closing this page does not cancel a submitted run. Cancel in execution history to stop subsequent steps; completed phone actions cannot be undone.') }}</p>
