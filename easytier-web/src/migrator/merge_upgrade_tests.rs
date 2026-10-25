@@ -205,3 +205,33 @@ async fn discovery_upgrade_preserves_services_and_automation_history_without_gue
     let history:(String,String)=sqlx::query_as("SELECT name,target_json FROM automation_run_devices WHERE run_id='history'").fetch_one(pool).await.unwrap();assert_eq!(history,("Original name".into(),"{\"device_id\":\"phone-old\",\"adb_port\":5555}".into()));
     assert!(sqlx::query("PRAGMA foreign_key_check").fetch_all(pool).await.unwrap().is_empty());assert_eq!(sqlx::query_scalar::<_,i64>("PRAGMA foreign_keys").fetch_one(pool).await.unwrap(),1);
 }
+
+struct BeforeMultiSemantics;
+impl MigratorTrait for BeforeMultiSemantics {
+    fn migrations() -> Vec<Box<dyn MigrationTrait>> {
+        Migrator::migrations().into_iter()
+            .filter(|migration| migration.name() != "m20261025_000024_device_type_semantic_kinds")
+            .collect()
+    }
+}
+
+#[tokio::test]
+async fn existing_device_type_semantics_survive_multi_select_upgrade() {
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    BeforeMultiSemantics::up(&db, None).await.unwrap();
+    seed_shared_records(&db).await;
+    db.execute_unprepared(
+        "INSERT INTO asset_device_types(id,owner_user_id,name,semantic_kind,created_at,updated_at) VALUES
+            ('gateway',1001,'OpenWrt','openwrt','2026-10-25','2026-10-25'),
+            ('phone',1001,'Phone','phone','2026-10-25','2026-10-25'),
+            ('unknown',1001,'Unknown',NULL,'2026-10-25','2026-10-25');"
+    ).await.unwrap();
+    Migrator::up(&db, None).await.unwrap();
+    for (id, expected) in [("gateway", r#"["openwrt"]"#), ("phone", r#"["phone"]"#), ("unknown", "[]")] {
+        let row = db.query_one(Statement::from_string(db.get_database_backend(),
+            format!("SELECT semantic_kinds FROM asset_device_types WHERE id='{id}'")
+        )).await.unwrap().unwrap();
+        assert_eq!(row.try_get::<String>("", "semantic_kinds").unwrap(), expected);
+    }
+    assert_schema_complete_and_idempotent(&db).await;
+}
