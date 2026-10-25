@@ -28,7 +28,7 @@ async def command(binary, *args, timeout=8, stdin=None):
 
 
 async def require_connected(binary, target):
-    code, output, _ = await command(binary, "-s", serial(target), "get-state", timeout=5)
+    code, output, stderr = await command(binary, "-s", serial(target), "get-state", timeout=5)
     if code != 0 or output.strip() != "device":
         raise ExecutorError("adb_unauthorized", "手机尚未连接或未授权，请先完成手机授权并手动连接", 409)
 
@@ -41,11 +41,15 @@ async def connection_status(binary, target):
         if exc.code == "adb_timeout":
             return {"device_id": target["device_id"], "state": "unavailable", "code": exc.code}
         raise
-    state = output.strip() if code == 0 else ""
-    if state == "device":
+    state = output.strip().lower()
+    if code == 0 and state == "device":
         return {"device_id": target["device_id"], "state": "connected"}
-    if state in ("offline", "unauthorized"):
-        return {"device_id": target["device_id"], "state": state}
+    # ADB may put unauthorized/offline into stderr with a non-zero exit
+    # status. Classify the known words but never expose diagnostic output.
+    diagnostic = (state + " " + stderr).lower()
+    for marker in ("unauthorized", "offline"):
+        if marker in diagnostic:
+            return {"device_id": target["device_id"], "state": marker}
     return {"device_id": target["device_id"], "state": "disconnected"}
 
 
