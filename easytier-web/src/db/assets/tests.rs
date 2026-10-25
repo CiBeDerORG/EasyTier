@@ -1978,3 +1978,43 @@ async fn binding_and_address_retries_survive_restart_source_changes_and_deleted_
         let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
     }
 }
+
+#[tokio::test]
+async fn device_types_support_multiple_semantics_and_server_without_losing_legacy_phone() {
+    let f = Fixture::new().await;
+    let combined = f.store.create_type(f.owner, f.owner, json!({
+        "request_id": Uuid::new_v4(), "name": "NAS / 网关",
+        "semantic_kinds": ["openwrt", "server"]
+    })).await.unwrap();
+    assert_eq!(combined["semantic_kinds"], json!(["openwrt", "server"]));
+    assert_eq!(combined["semantic_kind"], "openwrt");
+
+    let mut body = device_body();
+    body["device_type_id"] = combined["id"].clone();
+    let device = f.device(body).await;
+    assert_eq!(device["semantic_kinds"], json!(["openwrt", "server"]));
+
+    let edited = f.store.update_type(f.owner, combined["id"].as_str().unwrap(),
+        json!({"name": "NAS / 手机", "semantic_kinds": ["phone", "server"]})).await.unwrap();
+    assert_eq!(edited["semantic_kinds"], json!(["phone", "server"]));
+    assert_eq!(edited["semantic_kind"], "phone");
+
+    let updated_device = f.store.get_device(f.owner, &f.node.to_string(),
+        device["id"].as_str().unwrap()).await.unwrap();
+    assert_eq!(updated_device["semantic_kinds"], json!(["phone", "server"]));
+
+    let server_only = f.store.update_type(f.owner, combined["id"].as_str().unwrap(),
+        json!({"name": "Server", "semantic_kinds": ["server"]})).await.unwrap();
+    assert_eq!(server_only["semantic_kind"], Value::Null);
+    assert_eq!(server_only["semantic_kinds"], json!(["server"]));
+
+    assert!(f.store.update_type(f.owner, combined["id"].as_str().unwrap(),
+        json!({"name": "Bad", "semantic_kinds": ["server", "server"]})).await.is_err());
+    assert!(f.store.update_type(f.owner, combined["id"].as_str().unwrap(),
+        json!({"name": "Bad", "semantic_kinds": ["unknown"]})).await.is_err());
+
+    let legacy = f.store.create_type(f.owner, f.owner, json!({
+        "request_id": Uuid::new_v4(), "name": "Legacy phone", "semantic_kind": "phone"
+    })).await.unwrap();
+    assert_eq!(legacy["semantic_kinds"], json!(["phone"]));
+}
