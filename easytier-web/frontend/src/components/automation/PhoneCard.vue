@@ -28,6 +28,7 @@ const card = ref<HTMLElement | null>(null);
 const screen = ref<HTMLElement | null>(null);
 const dock = ref<'left' | 'right'>('right');
 const anchorFraction = ref(0.5);
+const menuOpen = ref(false);
 const floatingStyle = computed(() => ({
     left: dock.value === 'right'
         ? menuOpen.value ? 'calc(100% - 48px)' : 'calc(100% - 20px)'
@@ -105,7 +106,6 @@ function videoReady() {
     session.videoReady();
     startFrameChase();
 }
-const menuOpen = ref(false);
 const cleaningSaved = ref(false);
 const pointer = ref<{ id: number; width: number; height: number } | null>(null);
 const currentGeometry = ref({ width: 0, height: 0 });
@@ -253,7 +253,7 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
             <div v-if="session.state.phase !== 'live'" class="screen-placeholder">
                 <i :class="pending ? 'pi pi-spin pi-spinner' : 'pi pi-mobile'" aria-hidden="true" />
                 <span>{{ t(session.state.phase) }}</span>
-                <Button v-if="canOpen" :label="t('open')" icon="pi pi-play" size="small" @click="open('wall').catch(() => {})" />
+                <Button v-if="canOpen" :label="t('open')" icon="pi pi-play" size="small" @click="emit('toggle-screen', device.id)" />
                 <Button v-if="session.state.phase === 'cleanup_pending'" :label="t('clearResources')" icon="pi pi-refresh" size="small" severity="warn" @click="close().then(() => emit('refresh'))" />
                 <Button v-if="device.active_session && !pending && session.state.phase !== 'cleanup_pending'" :label="t('cleanupSaved')" icon="pi pi-stop" size="small" severity="warn" :loading="cleaningSaved" @click="cleanupSaved" />
                 <small v-if="!device.connection.enabled">{{ t('disabled') }}</small>
