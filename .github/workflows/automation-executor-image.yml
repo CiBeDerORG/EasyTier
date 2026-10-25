@@ -79,6 +79,14 @@ jobs:
           python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["protocol_version"] == 1; assert d["state"] == "ready"; assert d["executor_id"]; print("Authenticated executor HTTP response verified")' "$RUNNER_TEMP/executor-health.json"
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 http://127.0.0.1:8766/internal/v1/health)" = 401
 
+      - name: Run executor safety and keyguard unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint python \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/automation-executor/tests,dst=/automation-tests,readonly" \
+            "$LOCAL_IMAGE" -m unittest discover -s /automation-tests -p 'test_*.py' -v
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
