@@ -1,4 +1,4 @@
-import type { SemanticKind } from '../modules/discovery-api';
+import type { SemanticKind, SemanticTag } from '../modules/discovery-api';
 import type { Utils } from 'easytier-frontend-lib';
 
 /** Manual node assets. These IDs are not EasyTier network instance IDs. */
@@ -255,6 +255,7 @@ export interface DeviceTypeInput {
 }
 
 export interface DeviceType extends DeviceTypeInput {
+    semantic_kinds: SemanticTag[];
     id: string;
     owner_user_id: number;
     created_at: string;
@@ -275,6 +276,7 @@ export interface AssetDeviceInput {
 
 export interface AssetDevice extends AssetScope, AssetDeviceInput {
     semantic_kind?: SemanticKind;
+    semantic_kinds?: SemanticTag[];
     endpoint_revision?: number;
     discovery?: Record<string, unknown> | null;
     display_name_manual?: boolean;
