@@ -21,7 +21,8 @@ def start_tick(pid):
 def _isolate(parent_pid, adb_binary):
     os.setsid()
     if os.name == "posix" and Path("/proc").exists():
-        ctypes.CDLL(None).prctl(1, signal.SIGTERM)
+        if ctypes.CDLL(None).prctl(1, signal.SIGTERM) != 0:
+            raise OSError("prctl failed")
         if os.getppid() != parent_pid:
             raise SystemExit
     os.environ["ADBUTILS_ADB_PATH"] = adb_binary
@@ -32,10 +33,17 @@ def _isolate(parent_pid, adb_binary):
 
 def _helper_entry(channel, gate, parent_pid, target, adb_binary):
     device = None
-    stage = "launch_worker"
+    stage = "isolate_process"
     try:
+        # The first handshake is BEFORE setsid/prctl/stdout isolation.
+        # Without it, an isolation failure looks like an unexplained EOF.
+        channel.send({"stage": stage})
         _isolate(parent_pid, adb_binary)
+        stage = "wait_for_gate"
+        channel.send({"stage": stage})
         if not gate.wait(5):
+            channel.send({"ok": False, "stage": stage, "code": "automation_worker_gate_timeout",
+                          "message": "控件进程未收到启动许可，尚未访问手机"})
             return
         stage = "import_sdk"
         channel.send({"stage": stage})
@@ -68,12 +76,18 @@ def _helper_entry(channel, gate, parent_pid, target, adb_binary):
                       "message": "执行器缺少 UiAutomator 依赖"})
     except (EOFError, BrokenPipeError):
         pass
-    except BaseException:
+    except BaseException as exc:
         try:
-            # Never send exception text, shell arguments, or SDK logs to the
-            # browser. A fixed stage is sufficient for targeted diagnostics.
-            channel.send({"ok": False, "stage": stage, "code": "automation_prepare_failed",
-                          "message": "控件服务启动失败（阶段：" + stage + "），请检查手机授权、系统限制或执行器状态"})
+            # Only exception class (not detail or traceback) may go to the journal.
+            # Exception detail can contain device addresses, arguments or secrets.
+            category = type(exc).__name__ if type(exc).__name__ in (
+                "OSError", "PermissionError", "RuntimeError", "SystemExit",
+                "ValueError", "AssertionError", "TimeoutError", "RPCUnknownError",
+            ) else "UnexpectedError"
+            bootstrap = stage in ("isolate_process", "wait_for_gate")
+            channel.send({"ok": False, "stage": stage,
+                          "code": "automation_worker_bootstrap_failed" if bootstrap else "automation_prepare_failed",
+                          "message": f"控件进程失败（阶段：{stage}，异常类型：{category}）"})
         except (OSError, EOFError, BrokenPipeError):
             pass
     finally:
@@ -82,6 +96,24 @@ def _helper_entry(channel, gate, parent_pid, target, adb_binary):
                 device.stop_uiautomator(wait=False)
             except Exception:
                 pass
+        channel.close()
+
+
+def _isolation_probe(channel, gate, parent_pid, adb_binary):
+    """CI/local diagnostic: exercise the real spawned child isolation, no ADB."""
+    try:
+        channel.send({"stage": "isolate_process"})
+        _isolate(parent_pid, adb_binary)
+        channel.send({"stage": "wait_for_gate"})
+        if not gate.wait(5):
+            channel.send({"ok": False, "code": "automation_worker_gate_timeout"})
+        else:
+            channel.send({"ok": True})
+    except BaseException as exc:
+        # Fixed, non-sensitive category; do not reveal raw environment or stderr.
+        channel.send({"ok": False, "code": "automation_worker_bootstrap_failed",
+                      "error_type": type(exc).__name__})
+    finally:
         channel.close()
 
 
@@ -120,6 +152,8 @@ class PreparedHelper:
         deadline = loop.time() + timeout
         stages = {
             "launch_worker": "启动执行进程",
+            "isolate_process": "设置执行进程隔离",
+            "wait_for_gate": "等待进程启动许可",
             "import_sdk": "加载控件 SDK",
             "connect_device": "绑定 ADB 设备",
             "start_uiautomator": "启动手机控件服务",
@@ -147,13 +181,28 @@ class PreparedHelper:
                     self.ready_flag = True
                     return response["result"]
                 if not self.process.is_alive():
-                    raise ExecutorError("automation_worker_exited",
-                                        f"控件执行进程已退出（阶段：{stages[stage]}），请检查执行器运行环境", 502)
+                    await asyncio.to_thread(self.process.join, .1)
+                    code, reason = self.exit_reason()
+                    raise ExecutorError(code, f"控件子进程提前退出（阶段：{stages[stage]}；{reason}）", 502)
             except (EOFError, OSError):
-                raise ExecutorError("automation_worker_interrupted",
-                                    f"控件执行进程通信中断（阶段：{stages[stage]}）", 502) from None
+                # A closed pipe means the worker stopped before returning a final
+                # reply. Preserve its exit status; never report a phone timeout.
+                await asyncio.to_thread(self.process.join, .2)
+                code, reason = self.exit_reason()
+                raise ExecutorError(code, f"控件进程通信已断开（阶段：{stages[stage]}；{reason}）", 502) from None
         raise ExecutorError("automation_prepare_timeout",
                             f"手机控件服务初始化超时（阶段：{stages[stage]}）；ADB 可连接，但请检查手机控件服务启动限制", 504)
+
+    def exit_reason(self):
+        exitcode = getattr(self.process, "exitcode", None)
+        if exitcode is None:
+            return "automation_worker_interrupted", "进程状态尚未确认，请查看执行器容器日志"
+        if exitcode < 0:
+            signum = -exitcode
+            return "automation_worker_signalled", f"执行进程被信号 {signum} 终止，请检查执行器资源或外部终止操作"
+        if exitcode != 0:
+            return "automation_worker_bootstrap_failed", f"子进程退出码 {exitcode}，请检查 Python 子进程启动日志"
+        return "automation_worker_exited", "子进程退出码 0，但未返回就绪结果"
 
     async def close(self):
         async with self.close_lock:

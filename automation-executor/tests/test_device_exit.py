@@ -342,6 +342,46 @@ class AndroidKeyguardTests(unittest.TestCase):
 
 
 class HelperStartupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_real_spawn_isolation_probe_without_android(self):
+        import multiprocessing
+        import os
+        from automation_executor.worker import _isolation_probe
+        context = multiprocessing.get_context("spawn")
+        parent, child = context.Pipe()
+        gate = context.Event()
+        process = context.Process(target=_isolation_probe,
+                                  args=(child, gate, os.getpid(), "adb"), daemon=True)
+        process.start()
+        child.close()
+        try:
+            gate.set()
+            messages = []
+            for _ in range(3):
+                self.assertTrue(await asyncio.to_thread(parent.poll, 5), "spawned worker did not answer")
+                messages.append(parent.recv())
+            self.assertEqual([item.get("stage") for item in messages[:2]],
+                             ["isolate_process", "wait_for_gate"])
+            self.assertEqual(messages[2], {"ok": True})
+        finally:
+            parent.close()
+            await asyncio.to_thread(process.join, 2)
+            if process.is_alive():
+                process.kill()
+                await asyncio.to_thread(process.join, 2)
+            process.close()
+
+    async def test_pipe_eof_reports_process_signal_not_android_timeout(self):
+        from automation_executor.worker import PreparedHelper
+        helper = object.__new__(PreparedHelper)
+        helper.channel = SimpleNamespace(poll=lambda timeout: True,
+                                         recv=lambda: (_ for _ in ()).throw(EOFError()))
+        helper.process = SimpleNamespace(is_alive=lambda: False, join=lambda timeout: None, exitcode=-9)
+        helper.ready_flag = False
+        with self.assertRaises(ExecutorError) as failure:
+            await helper.ready(timeout=2)
+        self.assertEqual(failure.exception.code, "automation_worker_signalled")
+        self.assertIn("信号 9", failure.exception.message)
+
     async def test_readiness_progress_and_success_without_hanging_a_thread(self):
         from automation_executor.worker import PreparedHelper
         helper=object.__new__(PreparedHelper)
@@ -366,7 +406,7 @@ class HelperStartupTests(unittest.IsolatedAsyncioTestCase):
         helper.ready_flag=False
         with self.assertRaises(ExecutorError) as exc:
             await helper.ready(timeout=1)
-        self.assertEqual(exc.exception.code,'automation_worker_exited')
+        self.assertEqual(exc.exception.code,'automation_worker_interrupted')
         self.assertIn('绑定 ADB 设备',exc.exception.message)
 
     async def test_no_worker_reply_reports_timeout_stage(self):
@@ -403,11 +443,11 @@ class HelperBootstrapTests(unittest.TestCase):
         gate=SimpleNamespace(wait=lambda seconds:True)
         with patch('automation_executor.worker._isolate'), patch.dict(sys.modules,{'uiautomator2':module}):
             worker._helper_entry(channel,gate,1234,target(),'adb')
-        self.assertEqual([m.get('stage') for m in messages[:3]],
-                         ['import_sdk','connect_device','start_uiautomator'])
-        self.assertEqual(messages[3]['stage'],'verify_hierarchy')
-        self.assertEqual(messages[4]['result']['state'],'automation_ready')
-        self.assertEqual(messages[4]['result']['display'],{'width':1080,'height':2400})
+        self.assertEqual([m.get('stage') for m in messages[:5]],
+                         ['isolate_process','wait_for_gate','import_sdk','connect_device','start_uiautomator'])
+        self.assertEqual(messages[5]['stage'],'verify_hierarchy')
+        self.assertEqual(messages[6]['result']['state'],'automation_ready')
+        self.assertEqual(messages[6]['result']['display'],{'width':1080,'height':2400})
         self.assertEqual(stopped,[False])
 
 
