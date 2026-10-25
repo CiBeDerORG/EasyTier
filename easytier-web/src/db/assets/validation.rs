@@ -154,11 +154,30 @@ pub(crate) fn device_create_payload(body: &Value) -> AssetResult<Value> {
 }
 
 pub(crate) fn type_payload(body: &Value, creating: bool) -> AssetResult<Value> {
-    keys(body, if creating { &["request_id", "name", "semantic_kind"] } else { &["name", "semantic_kind"] })?;
+    keys(body, if creating { &["request_id", "name", "semantic_kind", "semantic_kinds"] } else { &["name", "semantic_kind", "semantic_kinds"] })?;
     let mut payload = json!({"name":required_string(body,"name",128)?});
-    if let Some(value) = body.get("semantic_kind") {
-        if !value.is_null() && !value.as_str().is_some_and(|v| matches!(v,"openwrt"|"phone"|"other")) { return Err(AssetError::field("semantic_kind","Choose OpenWrt, phone, other, or unclassified.")); }
-        payload["semantic_kind"] = value.clone();
+    if body.get("semantic_kind").is_some() && body.get("semantic_kinds").is_some() {
+        return Err(AssetError::field("semantic_kinds", "Submit one semantic format, not both."));
+    }
+    if let Some(value) = body.get("semantic_kinds") {
+        let kinds = value.as_array().ok_or_else(|| AssetError::field("semantic_kinds", "Select zero or more semantic kinds."))?;
+        let mut selected = Vec::with_capacity(kinds.len());
+        for kind in kinds {
+            let name = kind.as_str().filter(|name| matches!(*name, "openwrt" | "phone" | "other" | "server"))
+                .ok_or_else(|| AssetError::field("semantic_kinds", "Unknown semantic kind."))?;
+            if selected.contains(&name) {
+                return Err(AssetError::field("semantic_kinds", "Duplicate semantic kind."));
+            }
+            selected.push(name);
+        }
+        payload["semantic_kinds"] = json!(selected);
+    } else if let Some(value) = body.get("semantic_kind") {
+        if !value.is_null() && !value.as_str().is_some_and(|v| matches!(v, "openwrt" | "phone" | "other")) {
+            return Err(AssetError::field("semantic_kind", "Unknown legacy semantic kind."));
+        }
+        payload["semantic_kinds"] = if value.is_null() { json!([]) } else { json!([value]) };
+    } else if creating {
+        payload["semantic_kinds"] = json!([]);
     }
     Ok(payload)
 }
