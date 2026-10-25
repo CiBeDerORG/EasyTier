@@ -375,7 +375,7 @@ async function discoverAdb() {
         let gateway: AssetDevice | undefined;
         for (let pageNumber = 1; pageNumber <= 20 && !gateway; ++pageNumber) {
             const page = await assetApi.assetsDevices(scope, { group_id: group, page: pageNumber, page_size: 100 });
-            gateway = page.items.find(device => device.is_gateway_self && device.semantic_kind === 'openwrt');
+            gateway = page.items.find(device => device.is_gateway_self && (device.semantic_kinds?.includes('openwrt') || device.semantic_kind === 'openwrt'));
             if (pageNumber * 100 >= page.total) break;
         }
         if (!gateway) throw new Error(t('discoveryGatewayMissing'));
