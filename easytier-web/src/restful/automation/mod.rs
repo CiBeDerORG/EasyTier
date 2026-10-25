@@ -30,6 +30,7 @@ pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner>
     Router::new()
         .route("/api/v1/automation/settings", get(settings::get).put(settings::save))
         .route("/api/v1/automation/settings/check", post(settings::check))
+        .route("/api/v1/automation/settings/capacity", get(settings::get_capacity).put(settings::save_capacity))
         .route("/api/v1/automation/context", get(devices::context))
         .route("/api/v1/automation/devices", get(devices::list))
         .route("/api/v1/automation/devices/{id}/connection", put(devices::connection))
