@@ -50,13 +50,71 @@ class Runtime:
         self.preparation_tasks: dict[str, asyncio.Task] = {}
         self.admission = asyncio.Lock()
         self.capacity = FairDeviceSlots(settings.max_running)
+        self.limits_revision = 0
+        self.limits = {
+            "max_running": settings.max_running,
+            "max_pending": settings.max_pending,
+            "max_media_sessions": self.media._max_sessions,
+            "max_media_starting": self.media._starting.limit,
+        }
+        row = self.journal.db.execute("SELECT value FROM metadata WHERE key='runtime_limits'").fetchone()
+        if row:
+            import json
+            stored = json.loads(row[0])
+            values = stored.get("limits") if isinstance(stored, dict) else None
+            if (isinstance(values, dict) and set(values) == set(self.limits)
+                    and all(type(values[key]) is int and values[key] >= 1 for key in self.limits)):
+                self.limits = dict(values)
+                self.limits_revision = stored.get("revision", 0)
+                self.capacity.limit = values["max_running"]
+                self.media._max_sessions = values["max_media_sessions"]
+                self.media._starting.limit = values["max_media_starting"]
         self.artifact_lock = asyncio.Lock()
         self.shutting_down = False
 
     def health(self):
         return {"protocol_version": PROTOCOL_VERSION, "state": "ready", "executor_id": self.journal.executor_id, "generation": self.journal.generation,
                 "capabilities": {"adb": True, "webrtc": True, "scripts": bool(self.settings.callback_url)},
-                "limits": {"running_devices": self.settings.max_running, "pending_runs": self.settings.max_pending}}
+                "limits": {"running_devices": self.limits["max_running"], "pending_runs": self.limits["max_pending"],
+                           "media_sessions": self.limits["max_media_sessions"],
+                           "media_starting": self.limits["max_media_starting"]}}
+
+    def runtime_limits(self):
+        return {
+            "executor_id": self.journal.executor_id,
+            "revision": self.limits_revision,
+            **self.limits,
+            "recommended": {"max_running": 5, "max_pending": 30,
+                            "max_media_sessions": 10, "max_media_starting": 2},
+            "source": "database" if self.limits_revision else "environment",
+        }
+
+    async def save_runtime_limits(self, payload):
+        keys = {"max_running", "max_pending", "max_media_sessions", "max_media_starting", "revision"}
+        if not isinstance(payload, dict) or set(payload) != keys:
+            raise ExecutorError("invalid_limits", "执行器容量配置字段无效", 422)
+        if any(type(payload[key]) is not int or payload[key] < 1 for key in keys - {"revision"}):
+            raise ExecutorError("invalid_limits", "容量必须是正整数", 422)
+        if type(payload["revision"]) is not int or payload["revision"] < 0:
+            raise ExecutorError("invalid_limits_revision", "配置版本无效", 422)
+        async with self.admission:
+            if payload["revision"] != self.limits_revision:
+                raise ExecutorError("limits_revision_conflict", "执行器容量配置已被修改，请刷新重试", 409)
+            values = {key: payload[key] for key in self.limits}
+            version = self.limits_revision + 1
+            import json
+            with self.journal.transaction() as db:
+                db.execute(
+                    "INSERT INTO metadata(key,value) VALUES('runtime_limits',?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (json.dumps({"revision": version, "limits": values}),),
+                )
+            self.limits, self.limits_revision = values, version
+            await self.capacity.reconfigure(values["max_running"])
+            await self.media._starting.reconfigure(values["max_media_starting"])
+            async with self.media._lock:
+                self.media._max_sessions = values["max_media_sessions"]
+            return self.runtime_limits()
 
     def prepared(self, target):
         helper = self.helpers.get(target["device_id"])
@@ -468,7 +526,7 @@ class Runtime:
         if not self.settings.callback_url:
             raise ExecutorError("callback_unconfigured", "请先配置执行器的主服务授权地址", 503)
         async with self.admission:
-            result, created = self.journal.accept_run(request, allow_new=not self.shutting_down and len(self.tasks) < self.settings.max_pending)
+            result, created = self.journal.accept_run(request, allow_new=not self.shutting_down and len(self.tasks) < self.limits["max_pending"])
             if created:
                 cancel = asyncio.Event()
                 self.cancellations[request["id"]] = cancel
