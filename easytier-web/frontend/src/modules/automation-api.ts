@@ -2,7 +2,8 @@ import { getApiBase } from './api-host';
 import type {
     AutomationConnection, AutomationContext, AutomationDevice, AutomationPrepareResult,
     AutomationRun, AutomationRunInput, AutomationScript, AutomationScriptInput, AutomationSession,
-    AutomationRunnerSettings, AutomationRunnerSettingsInput, AutomationRunnerCheck, AutomationMediaSettings,
+    AutomationRunnerSettings, AutomationRunnerSettingsInput, AutomationRunnerCheck,
+    AutomationExecutorCapacity, AutomationExecutorCapacityInput, AutomationMediaSettings,
     AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog, AutomationAdbStatus,
 } from '../types/automation';
 
@@ -35,6 +36,10 @@ export default class AutomationApi {
         return data as T;
     }
     context() { return this.request<AutomationContext>('/context'); }
+    capacitySettings() { return this.request<AutomationExecutorCapacity>('/settings/capacity'); }
+    saveCapacitySettings(body: AutomationExecutorCapacityInput) {
+        return this.request<AutomationExecutorCapacity>('/settings/capacity',undefined,'PUT',body);
+    }
     runnerSettings() { return this.request<AutomationRunnerSettings>('/settings'); }
     saveRunnerSettings(body: AutomationRunnerSettingsInput) { return this.request<AutomationRunnerSettings>('/settings', undefined, 'PUT', body); }
     checkRunner(revision: number) { return this.request<AutomationRunnerCheck>('/settings/check', undefined, 'POST', { revision }); }
