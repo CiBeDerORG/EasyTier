@@ -9,7 +9,7 @@ import { assetServiceIconClass } from '../../constants/asset-service-icons';
 import { publicationFeedback } from '../../modules/publication-sync';
 import AssetServiceDialog from './AssetServiceDialog.vue';
 import { serviceMessages } from '../../modules/service-messages';
-import { safeServiceUrl } from '../../modules/service-utils';
+import { publicServiceUrl, serviceAccessLinks } from '../../modules/service-utils';
 
 const props = withDefaults(defineProps<{
     api: ApiClient;
@@ -161,10 +161,7 @@ async function confirmDelete() {
     }
 }
 
-function safeAccessUrl(value: string | null): string | null {
-    return safeServiceUrl(value || '');
-}
-</script>
+ </script>
 
 <template>
     <section class="service-panel" :aria-label="t('assets.services.panelFor', { name: device.name })" :aria-busy="loading">
@@ -209,7 +206,11 @@ function safeAccessUrl(value: string | null): string | null {
                                 <small>{{ service.publication.server_name || service.publication.machine_id }}</small>
                                 <small>{{ service.publication.network_name || service.publication.instance_id }}</small>
                                 <small>{{ t('assets.publication.publicAccess') }}</small>
-                                <code v-if="service.publication.public_ip">{{ service.publication.public_ip.includes(':') ? `[${service.publication.public_ip}]` : service.publication.public_ip }}:{{ service.publication.bind_port }}</code>
+                                <a v-if="publicServiceUrl(service)" :href="publicServiceUrl(service) || undefined" target="_blank"
+                                    rel="noopener noreferrer" class="service-link" :title="publicServiceUrl(service) || undefined">
+                                    {{ publicServiceUrl(service) }} <i class="pi pi-external-link" aria-hidden="true"></i>
+                                </a>
+                                <code v-else-if="service.publication.public_ip">{{ service.publication.public_ip.includes(':') ? `[${service.publication.public_ip}]` : service.publication.public_ip }}:{{ service.publication.bind_port }}</code>
                                 <small v-else>{{ t('assets.publication.publicIpMissing') }}</small>
                                 <small>{{ t('assets.publication.overlayAccess') }}</small>
                                 <code>{{ service.publication.dst_ip.includes(':') ? `[${service.publication.dst_ip}]` : service.publication.dst_ip }}:{{ service.publication.dst_port }}</code>
@@ -217,12 +218,14 @@ function safeAccessUrl(value: string | null): string | null {
                             <span v-else class="service-muted">{{ t('assets.publication.notPublished') }}</span>
                         </td>
                         <td>
-                            <a v-if="safeAccessUrl(service.access_url)" :href="safeAccessUrl(service.access_url) || undefined"
-                                target="_blank" rel="noopener noreferrer" class="service-link"
-                                :title="service.access_url ?? undefined"
-                                :aria-label="t('assets.services.openNamed', { name: service.name })">
-                                {{ t('assets.services.open') }} <i class="pi pi-external-link" aria-hidden="true"></i>
-                            </a>
+                            <div v-if="serviceAccessLinks(service).length" class="service-access-links">
+                                <a v-for="link in serviceAccessLinks(service)" :key="link.kind" :href="link.url"
+                                    target="_blank" rel="noopener noreferrer" class="service-link" :title="link.url"
+                                    :aria-label="`${navigationCopy[link.kind === 'public' ? 'publicAccess' : 'internalAccess']}: ${service.name}`">
+                                    {{ navigationCopy[link.kind === 'public' ? 'publicAccess' : 'internalAccess'] }}
+                                    <i class="pi pi-external-link" aria-hidden="true"></i>
+                                </a>
+                            </div>
                             <span v-else class="service-muted">—</span>
                         </td>
                         <td><Tag :value="service.show_in_navigation ? navigationCopy.enabled : navigationCopy.hidden"
@@ -274,7 +277,8 @@ function safeAccessUrl(value: string | null): string | null {
 .service-publication-info { display: grid; gap: 0.25rem; min-width: 8rem; max-width: 18rem; overflow-wrap: anywhere; }
 .service-publication-info small { color: var(--console-muted, var(--p-text-muted-color)); }
 .service-remarks { min-width: 6rem; max-width: 22rem; overflow-wrap: anywhere; white-space: pre-wrap; }
-.service-link { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--p-primary-color); white-space: nowrap; }
+.service-access-links { display: flex; flex-direction: column; gap: 0.4rem; }
+.service-link { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--p-primary-color); overflow-wrap: anywhere; }
 .service-link:focus-visible { outline: 2px solid var(--p-primary-color); outline-offset: 3px; border-radius: 2px; }
 .service-row-actions { flex-wrap: nowrap; }
 .service-placeholder, .service-muted, .service-feedback { color: var(--console-muted, var(--p-text-muted-color)); }
