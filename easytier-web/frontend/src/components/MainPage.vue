@@ -397,8 +397,10 @@ watch(() => route.fullPath, () => { forceShowSideBar.value = false; });
             </header>
             <main ref="mainContent" id="main-content" class="console-content" tabindex="-1">
                 <RouterView v-slot="{ Component }">
-                    <component :is="Component" :api="api" :central-enabled="centralEnabled" :key="route.name === 'networkDetail' ? String(route.params.networkId) : undefined"
-                        @user-admin-context="applyUserAdminContext" />
+                    <KeepAlive include="AutomationCenter">
+                        <component :is="Component" :api="api" :central-enabled="centralEnabled" :key="route.name === 'networkDetail' ? String(route.params.networkId) : undefined"
+                            @user-admin-context="applyUserAdminContext" />
+                    </KeepAlive>
                 </RouterView>
             </main>
         </div>

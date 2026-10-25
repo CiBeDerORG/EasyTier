@@ -17,7 +17,8 @@ const props = defineProps<{
 const emit = defineEmits<{
     selection: [id: string, selected: boolean]; configure: [device: AutomationDevice];
     input: [id: string, message: AutomationControl]; action: [id: string, message: AutomationControl];
-    text: [id: string]; record: [id: string]; state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
+    text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string];
+    state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
 const api = new AutomationApi();
@@ -61,6 +62,18 @@ function dragEnd(event: PointerEvent) {
     }
     drag = null;
 }
+const menuIdleMs = 6000;
+let menuTimer: ReturnType<typeof setTimeout> | undefined;
+function clearMenuTimer() {
+    if (menuTimer !== undefined) clearTimeout(menuTimer);
+    menuTimer = undefined;
+}
+function markMenuInteraction() {
+    if (!menuOpen.value) return;
+    clearMenuTimer();
+    menuTimer = setTimeout(() => { menuOpen.value = false; }, menuIdleMs);
+}
+watch(menuOpen, open => { if (open) markMenuInteraction(); else clearMenuTimer(); });
 function toggleOrb() {
     if (suppressOrbClick) { suppressOrbClick = false; return; }
     menuOpen.value = !menuOpen.value;
@@ -173,7 +186,7 @@ async function open(quality: 'wall' | 'focus', options: AutomationMediaSettings 
     await session.open(props.ownerId, props.device.id, quality, watchMedia);
 }
 function cancelRestoreIntent() { watching = false; ++intentVersion; }
-async function close() { cancelRestoreIntent(); cancelPointer(); menuOpen.value = false; stopFrameChase(); await session.close(); }
+async function close() { cancelRestoreIntent(); cancelPointer(); menuOpen.value = false; clearMenuTimer(); stopFrameChase(); await session.close(); }
 async function endpointChanged(event: EndpointEvent) {
     if (event.device_id !== props.device.id || event.endpoint_revision < latestEndpoint || event.endpoint_revision <= restoredEndpoint) return;
     const changed = event.endpoint_revision > latestEndpoint;
@@ -209,19 +222,32 @@ async function retryEndpoint(stage: 'cleanup'|'connection'|'publication') {
 }
 function getState() { return { phase: session.state.phase, ready: ready.value, ...geometry() }; }
 defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, getState, cancelPointer, resetPointer });
-onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; stopFrameChase(); cancelPointer(); void session.close(); });
+onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clearMenuTimer(); stopFrameChase(); cancelPointer(); void session.close(); });
 </script>
 
 <template>
     <article ref="card" class="phone-card" :class="{ selected, master: syncRole === 'master' }">
         <header>
             <label class="device-selection"><input type="checkbox" :checked="selected" :aria-label="device.name" @change="emit('selection', device.id, ($event.target as HTMLInputElement).checked)"><span>{{ device.name }}</span></label>
-            <Tag v-if="phoneConnection" :severity="phoneConnection === 'connected' ? 'success' : phoneConnection === 'failed' ? 'danger' : 'info'"
-                :value="t(phoneConnection === 'connected' ? 'phoneConnected' : phoneConnection === 'failed' ? 'phoneConnectionFailed' : 'phoneConnecting')"
-                :title="phoneConnectionError || undefined" />
             <Button icon="pi pi-cog" text rounded :aria-label="t('configure')" :title="t('configure')" :disabled="pending || session.state.phase === 'live'" @click="emit('configure', device)" />
         </header>
-        <div class="device-meta"><span>{{ device.model || device.type_name || '—' }}</span><span :title="device.node_name">{{ device.node_name }}</span></div>
+        <div class="device-meta">
+            <div class="model-connect">
+                <span :title="device.model || device.type_name || ''">{{ device.model || device.type_name || '—' }}</span>
+                <button type="button" class="adb-status" :class="phoneConnection || 'unknown'"
+                    :disabled="!runnerAvailable || !device.connection.enabled || phoneConnection === 'connecting'"
+                    :aria-label="t('connect')" :title="phoneConnectionError || t(phoneConnection === 'connected' ? 'phoneConnected' : phoneConnection === 'failed' ? 'phoneConnectionFailed' : phoneConnection === 'connecting' ? 'phoneConnecting' : 'phoneNotConnected')"
+                    @click="emit('connect', device.id)">
+                    <span class="adb-status-dot" aria-hidden="true" /><span class="sr-only">{{ t(phoneConnection === 'connected' ? 'phoneConnected' : phoneConnection === 'failed' ? 'phoneConnectionFailed' : phoneConnection === 'connecting' ? 'phoneConnecting' : 'phoneNotConnected') }}</span>
+                </button>
+            </div>
+            <button type="button" class="adb-port" :disabled="!runnerAvailable || !device.connection.enabled || pending"
+                :title="t(ready ? 'close' : 'open')" :aria-label="t('adbPort') + ': ' + device.connection.adb_port"
+                @click="emit('toggle-screen', device.id)">
+                {{ t('adbPort') }}: <strong>{{ device.connection.adb_port || '—' }}</strong>
+                <i class="pi" :class="ready ? 'pi-stop' : 'pi-play'" aria-hidden="true" />
+            </button>
+        </div>
         <div ref="screen" class="phone-screen" :style="currentGeometry.width && currentGeometry.height ? { aspectRatio: `${currentGeometry.width} / ${currentGeometry.height}` } : undefined" @keydown.esc="menuOpen = false">
             <video ref="video" autoplay muted playsinline :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent />
             <div v-if="session.state.phase !== 'live'" class="screen-placeholder">
@@ -236,7 +262,7 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; stop
             <span v-if="recording" class="record-badge"><span /> REC</span>
             <Button v-if="syncActive" class="fullscreen-stop" severity="danger" :label="t('stopSync')" size="small" @click="emit('stopSync')" />
             <button v-if="menuOpen" class="control-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="menuOpen = false" />
-            <div class="phone-controls" :class="`dock-${dock}`" :style="floatingStyle" @pointerdown.stop @click.stop>
+            <div class="phone-controls" :class="`dock-${dock}`" :style="floatingStyle" @pointerdown.capture="markMenuInteraction" @click.capture="markMenuInteraction" @pointerdown.stop @click.stop>
                 <div v-if="menuOpen" class="floating-actions" role="group" :aria-label="t('localControl')">
                     <div class="input-actions">
                         <Button icon="pi pi-pencil" rounded :aria-label="t('text')" :title="t('text')" :disabled="!manualAllowed" @click="emit('text', device.id)" />
@@ -272,7 +298,16 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; stop
 .phone-card.selected{border-color:var(--p-primary-color);box-shadow:0 0 0 1px color-mix(in srgb,var(--p-primary-color) 20%,transparent)}
 .phone-card.master{box-shadow:0 0 0 2px var(--p-primary-color)}
 header{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 0 14px;gap:8px}.device-selection{display:flex;align-items:center;gap:8px;min-width:0;font-weight:600}.device-selection span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.device-selection input{accent-color:var(--p-primary-color);width:16px;height:16px;flex-shrink:0}
-.device-meta{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--console-muted);padding:1px 14px 10px}.device-meta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.device-meta{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--console-muted);padding:1px 14px 10px}
+.device-meta .model-connect{display:flex;align-items:center;gap:5px;min-width:0}.model-connect>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px}
+.adb-status{border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;padding:0;cursor:pointer;flex-shrink:0;border-radius:50%}
+.adb-status:hover:not(:disabled){background:var(--console-accent-soft)}.adb-status:disabled{cursor:default;opacity:.6}
+.adb-status-dot{width:9px;height:9px;border-radius:50%;background:var(--console-muted);box-shadow:0 0 0 2px color-mix(in srgb,var(--console-muted) 20%,transparent)}
+.adb-status.connected .adb-status-dot{background:var(--p-green-500);box-shadow:0 0 0 2px color-mix(in srgb,var(--p-green-500) 22%,transparent)}
+.adb-status.failed .adb-status-dot{background:var(--p-red-500)}.adb-status.connecting .adb-status-dot{background:var(--p-blue-500);animation:adb-pulse 1s ease-in-out infinite}
+@keyframes adb-pulse{50%{opacity:.35}}.adb-port{border:0;background:transparent;color:var(--console-muted);font:inherit;white-space:nowrap;cursor:pointer;padding:3px 0;display:inline-flex;align-items:center;gap:4px}
+.adb-port:hover:not(:disabled){color:var(--p-primary-color);text-decoration:underline}.adb-port:disabled{cursor:default;opacity:.6}
+.adb-port strong{color:var(--p-text-color);font-weight:600}.adb-port .pi{font-size:9px}
 .phone-screen{width:100%;height:auto;aspect-ratio:9/19.5;position:relative;background:#07111d;overflow:hidden}.phone-screen video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;touch-action:none;user-select:none}.phone-screen video.interactive{cursor:crosshair}
 .screen-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#91a6bd;background:radial-gradient(ellipse at center,#11273a,#07111d 75%);padding:18px;text-align:center}.screen-placeholder>.pi{font-size:34px;color:#54738f}.screen-placeholder small{font-size:11px}
 .role-badge{position:absolute;top:10px;left:10px;pointer-events:none}.record-badge{position:absolute;top:12px;right:12px;color:#fda4af;font-size:11px;display:flex;align-items:center;gap:5px}.record-badge>span{width:7px;height:7px;border-radius:50%;background:#fb7185}
