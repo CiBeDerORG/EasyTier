@@ -29,6 +29,13 @@ class FairDeviceSlots:
             self.running += 1
             future.set_result(None)
 
+    async def reconfigure(self, limit: int):
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        async with self._guard:
+            self.limit = limit
+            self._dispatch()
+
     async def acquire(self, run_id: str):
         future = asyncio.get_running_loop().create_future()
         async with self._guard:
