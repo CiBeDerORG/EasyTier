@@ -44,8 +44,8 @@ pub(super) async fn create(auth: AuthSession, State(manager): State<AppStateInne
     exact_fields(&payload,&["device_id","quality","media"])?;
     let media = payload.get("media").map(|value| -> HttpResult<Value> {
         exact_fields(value, &["max_size","video_bit_rate","max_fps","low_latency","screen_off"])?;
-        for (name, minimum, maximum) in [("max_size",256,2560),("video_bit_rate",250_000,12_000_000),("max_fps",5,60)] {
-            if !value[name].as_u64().is_some_and(|v| v >= minimum && v <= maximum) {
+        for (name, minimum, maximum) in [("max_size",256,3840),("video_bit_rate",250_000,24_000_000),("max_fps",5,120)] {
+            if !value[name].as_u64().is_some_and(|v| (name == "max_size" && v == 0) || (v >= minimum && v <= maximum)) {
                 return Err(error(StatusCode::UNPROCESSABLE_ENTITY,"invalid_media","分辨率、码率或 FPS 参数超出允许范围。"));
             }
         }

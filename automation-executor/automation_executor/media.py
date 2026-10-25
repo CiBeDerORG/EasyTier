@@ -129,9 +129,9 @@ class MediaManager:
         if options is not None:
             if not isinstance(options, dict) or set(options) != {"max_size", "video_bit_rate", "max_fps", "low_latency", "screen_off"}:
                 raise MediaError("invalid_media", "投屏参数不完整或包含未知字段", 422)
-            for key, lower, upper in (("max_size", 256, 2560), ("video_bit_rate", 250000, 12000000), ("max_fps", 5, 60)):
+            for key, lower, upper in (("max_size", 256, 3840), ("video_bit_rate", 250000, 24000000), ("max_fps", 5, 120)):
                 value = options[key]
-                if type(value) is not int or not lower <= value <= upper:
+                if type(value) is not int or not (lower <= value <= upper or (key == "max_size" and value == 0)):
                     raise MediaError("invalid_media", "分辨率、码率或 FPS 超出允许范围", 422)
                 settings[key] = value
             for key in ("low_latency", "screen_off"):

@@ -50,7 +50,7 @@ function dragMove(event: PointerEvent) {
     if (!drag.moved && Math.hypot(x, y) < 7) return;
     event.preventDefault();
     drag.moved = true;
-    anchorFraction.value = Math.max(0.07, Math.min(0.93, drag.firstFraction + y / bounds.height));
+    anchorFraction.value = Math.max(menuOpen.value ? 0.23 : 0.07, Math.min(menuOpen.value ? 0.69 : 0.93, drag.firstFraction + y / bounds.height));
     dock.value = event.clientX - bounds.left < bounds.width / 2 ? 'left' : 'right';
 }
 function dragEnd(event: PointerEvent) {
@@ -65,6 +65,7 @@ function dragEnd(event: PointerEvent) {
 function toggleOrb() {
     if (suppressOrbClick) { suppressOrbClick = false; return; }
     menuOpen.value = !menuOpen.value;
+    if (menuOpen.value) anchorFraction.value = Math.max(0.23, Math.min(0.69, anchorFraction.value));
 }
 function stopFrameChase() {
     if (frameCallback !== null && video.value?.cancelVideoFrameCallback) video.value.cancelVideoFrameCallback(frameCallback);
@@ -236,16 +237,17 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; stop
             <span v-if="recording" class="record-badge"><span /> REC</span>
             <Button v-if="syncActive" class="fullscreen-stop" severity="danger" :label="t('stopSync')" size="small" @click="emit('stopSync')" />
             <button v-if="menuOpen" class="control-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="menuOpen = false" />
-            <div class="phone-controls" :class="[`dock-${dock}`, `expand-${menuDirection}`]" :style="floatingStyle" @pointerdown.stop @click.stop>
+            <div class="phone-controls" :class="`dock-${dock}`" :style="floatingStyle" @pointerdown.stop @click.stop>
                 <div v-if="menuOpen" class="floating-actions" role="group" :aria-label="t('localControl')">
-                    <span class="control-scope">{{ t('localControl') }}</span>
-                    <div class="other-actions">
-                    <Button icon="pi pi-pencil" rounded :aria-label="t('text')" :title="t('text')" :disabled="!manualAllowed" @click="emit('text', device.id)" />
-                    <Button icon="pi pi-power-off" rounded :aria-label="t('wake')" :title="t('wake')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'WAKE' })" />
-                    <Button icon="pi pi-expand" rounded :aria-label="t('fullscreen')" :title="t('fullscreen')" :disabled="!ready" @click="fullscreen().catch(() => {})" />
-                    <Button icon="pi pi-circle-fill" rounded :severity="recording ? 'danger' : 'secondary'" :aria-label="t(recording ? 'stopRecord' : 'record')" :title="t(recording ? 'stopRecord' : 'record')" :disabled="!manualAllowed" @click="emit('record', device.id)" />
-                    <Button icon="pi pi-unlock" rounded severity="secondary" :aria-label="t('releaseManual')" :title="t('releaseManual')" :disabled="!manualAllowed" @click="localAction({ type: 'stop' })" />
-                    <Button icon="pi pi-stop" rounded severity="danger" :aria-label="t('close')" :title="t('close')" @click="close().then(() => emit('refresh'))" />
+                    <div class="input-actions">
+                        <Button icon="pi pi-pencil" rounded :aria-label="t('text')" :title="t('text')" :disabled="!manualAllowed" @click="emit('text', device.id)" />
+                        <Button icon="pi pi-unlock" rounded :aria-label="t('releaseManual')" :title="t('releaseManual')" :disabled="!manualAllowed" @click="localAction({ type: 'stop' })" />
+                    </div>
+                    <div class="side-actions">
+                        <Button icon="pi pi-stop" rounded severity="danger" :aria-label="t('close')" :title="t('close')" @click="close().then(() => emit('refresh'))" />
+                        <Button icon="pi pi-expand" rounded :aria-label="t('fullscreen')" :title="t('fullscreen')" :disabled="!ready" @click="fullscreen().catch(() => {})" />
+                        <Button icon="pi pi-power-off" rounded :aria-label="t('wake')" :title="t('wake')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'WAKE' })" />
+                        <Button icon="pi pi-circle-fill" rounded :severity="recording ? 'danger' : 'secondary'" :aria-label="t(recording ? 'stopRecord' : 'record')" :title="t(recording ? 'stopRecord' : 'record')" :disabled="!manualAllowed" @click="emit('record', device.id)" />
                     </div>
                     <div class="nav-actions">
                         <Button icon="pi pi-arrow-left" rounded :aria-label="t('back')" :title="t('back')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'BACK' })" />
@@ -272,8 +274,19 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .phone-screen{width:100%;height:auto;aspect-ratio:9/19.5;position:relative;background:#07111d;overflow:hidden}.phone-screen video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;touch-action:none;user-select:none}.phone-screen video.interactive{cursor:crosshair}
 .screen-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#91a6bd;background:radial-gradient(ellipse at center,#11273a,#07111d 75%);padding:18px;text-align:center}.screen-placeholder>.pi{font-size:34px;color:#54738f}.screen-placeholder small{font-size:11px}
 .role-badge{position:absolute;top:10px;left:10px;pointer-events:none}.record-badge{position:absolute;top:12px;right:12px;color:#fda4af;font-size:11px;display:flex;align-items:center;gap:5px}.record-badge>span{width:7px;height:7px;border-radius:50%;background:#fb7185}
-.phone-controls{position:absolute;z-index:6;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;transition:left .16s ease;touch-action:none}.phone-controls :deep(.p-button){width:44px;height:44px;min-width:44px;box-shadow:0 3px 14px #0006;border:1px solid #ffffff38;backdrop-filter:blur(10px)}.phone-controls :deep(.p-button-secondary){background:#142c42e8;color:#e1edf7}.main-orb{background:var(--p-primary-color);cursor:grab;touch-action:none}.main-orb:active{cursor:grabbing}.floating-actions{position:absolute;display:flex;flex-direction:column;gap:5px;max-height:min(380px,65vh);overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;align-items:center;padding:3px;border-radius:12px;background:color-mix(in srgb,#081b30 80%,transparent);backdrop-filter:blur(8px)}.expand-up .floating-actions{bottom:calc(100% + 6px)}.expand-down .floating-actions{top:calc(100% + 6px)}.other-actions,.nav-actions{display:grid;grid-template-columns:44px 44px;gap:5px}.nav-actions{border-top:1px solid #e2e8f844;padding-top:6px}.nav-actions :deep(.p-button:last-child){grid-column:span 2;justify-self:center}.control-scope{color:#e1edf7;background:#12283ce8;border-radius:20px;padding:3px 8px;font-size:10px;white-space:nowrap}.control-dismiss{position:absolute;inset:0;z-index:5;background:transparent;border:0;cursor:default}
+.phone-controls{position:absolute;z-index:6;transform:translateY(-50%);display:flex;align-items:center;gap:6px;transition:left .16s ease;touch-action:none}
+.phone-controls :deep(.p-button){width:42px;height:42px;min-width:42px;box-shadow:0 3px 14px #0006;border:1px solid #ffffff38;backdrop-filter:blur(10px)}
+.phone-controls :deep(.p-button-secondary){background:#142c42e8;color:#e1edf7}
+.main-orb{background:var(--p-primary-color);cursor:grab;touch-action:none;position:relative;z-index:2}.main-orb:active{cursor:grabbing}
+.floating-actions{position:absolute;inset:0;pointer-events:none;overflow:visible;z-index:1}
+.floating-actions>div{position:absolute;pointer-events:auto;display:flex;gap:4px;align-items:center;border-radius:12px;padding:3px;background:color-mix(in srgb,#081b30 82%,transparent);box-shadow:0 4px 16px #0006;backdrop-filter:blur(9px)}
+.input-actions{bottom:calc(100% + 10px);left:0;flex-direction:column}
+.nav-actions{top:calc(100% + 10px);left:0;flex-direction:column}
+.side-actions{top:0;flex-direction:row}
+.dock-right .side-actions{right:calc(100% + 7px)}
+.dock-left .side-actions{left:calc(100% + 7px)}
+.control-dismiss{position:absolute;inset:0;z-index:5;background:transparent;border:0;cursor:default}
 footer{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;gap:8px;font-size:11px}.phase{color:var(--console-muted)}.phase.live{color:var(--p-green-500)}.phase.live:before{content:'';display:inline-block;width:6px;height:6px;background:currentColor;border-radius:50%;margin-right:6px}.phone-error{font-size:11px;padding:0 12px 10px;color:var(--p-red-500);overflow-wrap:anywhere;max-height:80px;overflow:auto}.fullscreen-stop{display:none}
 .phone-card:fullscreen{display:flex;flex-direction:column;width:100vw;height:100dvh;border:0;border-radius:0;background:#07111d;color:#e1edf7}.phone-card:fullscreen .phone-screen{flex:1;height:auto;aspect-ratio:auto!important}.phone-card:fullscreen .fullscreen-stop{display:inline-flex;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:7}.phone-card:fullscreen .device-meta{display:none}
-@media(max-width:600px){.floating-actions{max-height:min(360px,60vh)}}
+@media(max-width:600px){.floating-actions :deep(.p-button){width:36px;height:36px;min-width:36px}.side-actions{gap:2px!important}}
 </style>

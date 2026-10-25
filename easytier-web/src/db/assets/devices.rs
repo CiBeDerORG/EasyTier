@@ -50,7 +50,7 @@ pub(crate) async fn validate_relations(connection: &mut SqliteConnection, owner:
 
 // Group first, then the most recently updated devices within each group.
 // Ungrouped devices come last; name + id stabilize pagination when names collide.
-const DEVICE_ORDER: &str = " ORDER BY (gateway_group_id IS NULL), COALESCE((SELECT g.name FROM asset_gateway_groups g WHERE g.id=asset_devices.gateway_group_id), '') COLLATE NOCASE, gateway_group_id, updated_at DESC, id DESC";
+const DEVICE_ORDER: &str = " ORDER BY (gateway_group_id IS NULL), COALESCE((SELECT g.name FROM asset_gateway_groups g WHERE g.id=asset_devices.gateway_group_id), '') COLLATE NOCASE, gateway_group_id, is_gateway_self DESC, updated_at DESC, id DESC";
 
 impl AssetsStore {
     pub(crate) async fn list_devices(&self, owner: i32, node: &str, options: DeviceListQuery) -> AssetResult<Value> {
