@@ -228,12 +228,9 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
 <template>
     <article ref="card" class="phone-card" :class="{ selected, master: syncRole === 'master' }">
         <header>
-            <label class="device-selection"><input type="checkbox" :checked="selected" :aria-label="device.name" @change="emit('selection', device.id, ($event.target as HTMLInputElement).checked)"><span>{{ device.name }}</span></label>
-            <Button icon="pi pi-cog" text rounded :aria-label="t('configure')" :title="t('configure')" :disabled="pending || session.state.phase === 'live'" @click="emit('configure', device)" />
-        </header>
-        <div class="device-meta">
-            <div class="model-connect">
-                <span :title="device.model || device.type_name || ''">{{ device.model || device.type_name || '—' }}</span>
+            <div class="device-heading">
+                <label class="device-selection"><input type="checkbox" :checked="selected" :aria-label="device.name" @change="emit('selection', device.id, ($event.target as HTMLInputElement).checked)"><span class="device-name">{{ device.name }}</span></label>
+                <span class="device-model" :title="device.model || device.type_name || ''">{{ device.model || device.type_name || '—' }}</span>
                 <button type="button" class="adb-status" :class="phoneConnection || 'unknown'"
                     :disabled="!runnerAvailable || !device.connection.enabled || phoneConnection === 'connecting'"
                     :aria-label="t('connect')" :title="phoneConnectionError || t(phoneConnection === 'connected' ? 'phoneConnected' : phoneConnection === 'failed' ? 'phoneConnectionFailed' : phoneConnection === 'connecting' ? 'phoneConnecting' : 'phoneNotConnected')"
@@ -241,6 +238,10 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
                     <span class="adb-status-dot" aria-hidden="true" /><span class="sr-only">{{ t(phoneConnection === 'connected' ? 'phoneConnected' : phoneConnection === 'failed' ? 'phoneConnectionFailed' : phoneConnection === 'connecting' ? 'phoneConnecting' : 'phoneNotConnected') }}</span>
                 </button>
             </div>
+            <Button icon="pi pi-cog" text rounded :aria-label="t('configure')" :title="t('configure')" :disabled="pending || session.state.phase === 'live'" @click="emit('configure', device)" />
+        </header>
+        <div class="device-meta">
+            <span class="node-name" :title="device.node_name">{{ device.node_name }}</span>
             <button type="button" class="adb-port" :disabled="!runnerAvailable || !device.connection.enabled || pending"
                 :title="t(ready ? 'close' : 'open')" :aria-label="t('adbPort') + ': ' + device.connection.adb_port"
                 @click="emit('toggle-screen', device.id)">
@@ -297,9 +298,9 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
 .phone-card{min-width:0;border:1px solid var(--console-border);border-radius:14px;background:var(--console-panel);overflow:hidden;box-shadow:var(--console-shadow)}
 .phone-card.selected{border-color:var(--p-primary-color);box-shadow:0 0 0 1px color-mix(in srgb,var(--p-primary-color) 20%,transparent)}
 .phone-card.master{box-shadow:0 0 0 2px var(--p-primary-color)}
-header{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 0 14px;gap:8px}.device-selection{display:flex;align-items:center;gap:8px;min-width:0;font-weight:600}.device-selection span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.device-selection input{accent-color:var(--p-primary-color);width:16px;height:16px;flex-shrink:0}
+header{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 0 14px;gap:8px}.device-heading{display:flex;align-items:center;gap:6px;min-width:0;flex:1}.device-selection{display:flex;align-items:center;gap:8px;min-width:0;font-weight:600}.device-selection .device-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.device-model{flex:0 1 auto;min-width:0;max-width:95px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:400;color:var(--console-muted)}.device-selection input{accent-color:var(--p-primary-color);width:16px;height:16px;flex-shrink:0}
 .device-meta{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--console-muted);padding:1px 14px 10px}
-.device-meta .model-connect{display:flex;align-items:center;gap:5px;min-width:0}.model-connect>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px}
+.device-meta .node-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .adb-status{border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;padding:0;cursor:pointer;flex-shrink:0;border-radius:50%}
 .adb-status:hover:not(:disabled){background:var(--console-accent-soft)}.adb-status:disabled{cursor:default;opacity:.6}
 .adb-status-dot{width:9px;height:9px;border-radius:50%;background:var(--console-muted);box-shadow:0 0 0 2px color-mix(in srgb,var(--console-muted) 20%,transparent)}
