@@ -57,6 +57,19 @@ fn parameter_name(value:&str)->bool {
 pub(super) fn steps(input:&Value)->AutomationResult<Value> {
     let items=input.as_array().filter(|v|!v.is_empty()&&v.len()<=100).ok_or_else(||AutomationError::field("steps","Use between 1 and 100 steps."))?;
     if input.to_string().len()>256*1024 {return Err(AutomationError::field("steps","The script is too large."));}
+    // Only newly marked scripts opt into business verification. Existing
+    // assertions and historic runs retain their original unverified meaning.
+    let marked=items.iter().filter(|step|step.get("business_verification").is_some()).collect::<Vec<_>>();
+    if !marked.is_empty() {
+        let last=items.last().unwrap();
+        if marked.len()!=1 || !std::ptr::eq(marked[0],last)
+            || !matches!(last["type"].as_str(),Some("assert"|"assert_property"))
+            || last["business_verification"]!=true
+        {
+            return Err(AutomationError::field("business_verification",
+                "Select only the final assert or assert_property step as the business check."));
+        }
+    }
     let mut ids=HashSet::new();
     for step in items {
         let id=step["id"].as_str().ok_or_else(||AutomationError::field("steps.id","Each step requires a distinct UUID."))?;
@@ -109,7 +122,8 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
                 if package.len()>255||!package.contains('.')||package.split('.').any(|part|part.is_empty()||!part.chars().all(|c|c.is_ascii_alphanumeric()||c=='_')||!part.chars().next().is_some_and(|c|c.is_ascii_alphabetic())) {return Err(AutomationError::field("package","Use an Android application package name."));}
             },
             "wait_for"|"assert"|"wait_gone"=>{
-                keys(step,&["id","type","selector","timeout_ms"])?;
+                if kind=="assert" { keys(step,&["id","type","selector","timeout_ms","business_verification"])?; }
+                else { keys(step,&["id","type","selector","timeout_ms"])?; }
                 selector(&step["selector"])?;
                 if !step["timeout_ms"].as_u64().is_some_and(|v|(100..=30000).contains(&v)) {return Err(AutomationError::field("timeout_ms","Use a timeout from 100 to 30000 ms."));}
             },
@@ -137,7 +151,7 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
                 }
             },
             "assert_property"=>{
-                keys(step,&["id","type","selector","property","expected"])?;
+                keys(step,&["id","type","selector","property","expected","business_verification"])?;
                 selector(&step["selector"])?;
                 if step["selector"].get("xpath").is_some() {return Err(AutomationError::field("selector","Property checks currently require a native selector."));}
                 if !matches!(step["property"].as_str(),Some("enabled"|"checked"|"selected"|"clickable"|"scrollable")) {
@@ -177,6 +191,23 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
         }
         if regions.len()>=3 {return Err(AutomationError::field("steps","Nested conditions may be at most three levels deep."));}
         regions.push((end,then_end));
+    }
+    // An assertion inside Then/Else may be skipped on one device and can
+    // never prove the run-level business outcome. Reject such markers.
+    if let Some(marked_step)=marked.first() {
+        let index=items.len()-1;
+        if items[..index].iter().enumerate().any(|(at,step)| {
+            match step["type"].as_str() {
+                Some("if_else") => at+step["then_count"].as_u64().unwrap_or(0) as usize
+                    +step["else_count"].as_u64().unwrap_or(0) as usize >= index,
+                Some("if_gone") => at+step["skip_count"].as_u64().unwrap_or(0) as usize >= index,
+                _=>false,
+            }
+        }) {
+            return Err(AutomationError::field("business_verification",
+                "The business assertion must be outside all conditional lanes."));
+        }
+        let _=marked_step;
     }
     Ok(input.clone())
 }
