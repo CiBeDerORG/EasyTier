@@ -877,7 +877,8 @@ onBeforeUnmount(() => { stopEvents?.();
             <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace" :run-device-snapshots="devices"
                 :repair-request="repairRequest"
                 :picker-devices="devices.filter(device => device.connection.enabled && !!device.target_fingerprint).map(device => ({ id: device.id, name: device.name }))"
-                @pick-step-target="openScriptInspector" @run-created="onRunCreated" />
+                @pick-step-target="openScriptInspector" @run-created="onRunCreated"
+                @repair-consumed="id => { if (repairRequest?.requestId === id) repairRequest = null; }" />
             <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" @repair-step="onRepairStep" />
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
