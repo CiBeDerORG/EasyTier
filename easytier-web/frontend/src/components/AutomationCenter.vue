@@ -129,7 +129,7 @@ watch(ownerId, id => Object.assign(draftWorkspace, emptyAutomationDraft(id)), { 
 const inspectorDeviceId = ref<string | null>(null);
 const inspectorStream = shallowRef<MediaStream | null>(null);
 interface PickerEditScope {
-    ownerId: number; stepId: string; stepType: AutomationStepType;
+    ownerId: number; stepId: string; stepType: AutomationStepType; targetFingerprint: string;
     editingId?: string; revision?: number;
 }
 const inspectorEditScope = ref<PickerEditScope | null>(null);
@@ -676,7 +676,7 @@ function openScriptInspector(stepId: string, stepType: AutomationStepType, devic
         return;
     }
     inspectorEditScope.value = {
-        ownerId: ownerId.value, stepId, stepType,
+        ownerId: ownerId.value, stepId, stepType, targetFingerprint: device.target_fingerprint,
         editingId: draftWorkspace.editingId, revision: draftWorkspace.revision,
     };
     inspectorDeviceId.value = deviceId;
@@ -692,7 +692,8 @@ function closeInspector() {
 function replaceInspectorTarget(stepId: string, target: StepTarget) {
     const scope = inspectorEditScope.value;
     const device = devices.value.find(item => item.id === inspectorDeviceId.value);
-    if (!scope || !device || scope.stepId !== stepId || scope.ownerId !== ownerId.value
+    if (!scope || !device || device.target_fingerprint !== scope.targetFingerprint
+        || scope.stepId !== stepId || scope.ownerId !== ownerId.value
         || draftWorkspace.ownerId !== scope.ownerId
         || draftWorkspace.editingId !== scope.editingId
         || draftWorkspace.revision !== scope.revision
