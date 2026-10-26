@@ -6,7 +6,8 @@ import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
 import type { AutomationRun, AutomationRunInput, AutomationScript, AutomationStep, AutomationStepType } from '../../types/automation';
 import ScriptStepEditor from './ScriptStepEditor.vue';
-import { analyzeAutomationFlow, canInsertBranchStep, insertBranchStep, type BranchLane } from '../../modules/automation-flow';
+import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
+import { addFlowBranchStep, createFlowCondition, removeFlowBlock } from '../../modules/automation-flow-tree';
 
 const props = defineProps<{
     ownerId: number;
@@ -108,8 +109,8 @@ function branchInsertEnabled(index: number, lane: BranchLane): boolean {
 }
 function addBranchStep(index: number, lane: BranchLane) {
     if (busy.value) return;
-    const newStep: AutomationStep = { id: uuid(), type: 'key', key: 'HOME' };
-    const proposed = insertBranchStep(steps.value, flowLayout.value, index, lane, newStep);
+    const newStep = blankStep();
+    const proposed = addFlowBranchStep(steps.value, steps.value[index].id, lane, newStep);
     if (!proposed) {
         error.value = text('无法在这个分支插入步骤：请检查嵌套层级、分支跨度或 20 步上限。',
             'Cannot insert into this branch. Check nesting, branch spans and the 20-step limit.');
@@ -144,9 +145,13 @@ async function loadScripts() {
         if (!disposed && scope === scopeRevision && request === listRequest) loading.value = false;
     }
 }
+function blankStep(): AutomationStep {
+    // An unconfigured key cannot pass validation or send an accidental HOME.
+    return { id: uuid(), type: 'key' };
+}
 function addStep() {
     if (busy.value || steps.value.length >= 100) return;
-    const step: AutomationStep = { id: uuid(), type: 'key', key: 'HOME' };
+    const step = blankStep();
     steps.value = [...steps.value, step];
     selectedStepId.value = step.id;
 }
@@ -155,50 +160,48 @@ function updateStep(step: AutomationStep) {
     const index = steps.value.findIndex(item => item.id === step.id);
     if (index < 0) return;
     const previous = steps.value[index];
-    if (!['if_else', 'if_gone'].includes(previous.type) && ['if_else', 'if_gone'].includes(step.type)) {
-        // A new conditional must include its own editable body immediately;
-        // otherwise the editor has a dead end (no valid branch to insert into).
-        const required = step.type === 'if_else' ? 2 : 1;
-        const layout = flowLayout.value;
-        const parents = layout.entries[index]?.ancestors ?? [];
-        if (layout.problem || steps.value.length + required > 100 ||
-            parents.length >= 3 || parents.some(parent => {
-                const ancestor = steps.value[parent.conditionIndex];
-                const size = parent.lane === 'then'
-                    ? (ancestor.type === 'if_gone' ? ancestor.skip_count : ancestor.then_count) : ancestor.else_count;
-                return size === undefined || size + required > 20;
-            })) {
-            error.value = text('无法创建新的嵌套条件：最多 3 层，且父分支不能超出 20 步。',
-                'Cannot create nested condition: max depth 3, parent lanes limited to 20 steps.');
+    const wasCondition = previous.type === 'if_gone' || previous.type === 'if_else';
+    const nowCondition = step.type === 'if_gone' || step.type === 'if_else';
+    if (!wasCondition && nowCondition) {
+        const proposed = createFlowCondition(steps.value, step.id, step, blankStep);
+        if (!proposed) {
+            error.value = text('无法创建此条件：请检查父分支的 20 步上限或三级嵌套限制。',
+                'Cannot create this condition: check the enclosing branch size and maximum nesting depth.');
             return;
         }
-        const updated = steps.value.map(item => ({ ...item }));
-        updated[index] = step;
-        for (const parent of parents) {
-            const ancestor = updated[parent.conditionIndex];
-            if (parent.lane === 'then') {
-                if (ancestor.type === 'if_gone') ancestor.skip_count! += required;
-                else ancestor.then_count! += required;
-            } else ancestor.else_count! += required;
-        }
-        updated.splice(index + 1, 0, ...Array.from({ length: required }, (): AutomationStep =>
-            ({ id: uuid(), type: 'key', key: 'HOME' })));
-        if (analyzeAutomationFlow(updated).problem) {
-            error.value = text('新增条件会造成分支交叉，请调整原有分支结构。',
-                'This condition would cross a branch boundary. Adjust the existing flow.');
-            return;
-        }
-        steps.value = updated;
+        steps.value = proposed;
         error.value = '';
         return;
     }
+    if (wasCondition && previous.type !== step.type) {
+        // Deleting/converting a marker alone would silently reassign its entire
+        // body to a different branch. Remove the complete block instead.
+        error.value = text('不能直接修改条件类型，请删除整个条件块后重新添加。',
+            'A conditional type cannot be changed in place. Remove its whole block first.');
+        return;
+    }
+    if (wasCondition) {
+        // Branch sizes are derived from the editor tree, never editable metadata.
+        step = { ...step, skip_count: previous.skip_count,
+            then_count: previous.then_count, else_count: previous.else_count };
+    }
     steps.value = steps.value.map(current => current.id === step.id ? step : current);
+    error.value = '';
 }
 function removeStep(index: number) {
     if (busy.value) return;
     const removed = steps.value[index];
-    steps.value = steps.value.filter((_, position) => position !== index);
-    if (removed?.id === selectedStepId.value) selectedStepId.value = steps.value[Math.min(index, steps.value.length - 1)]?.id;
+    if (!removed) return;
+    const proposed = removeFlowBlock(steps.value, removed.id);
+    if (!proposed) {
+        error.value = text('无法单独删除分支最后一个步骤。请修改该步骤，或删除整个父条件块。',
+            'The final step in a branch cannot be removed. Edit it or remove the parent condition block.');
+        return;
+    }
+    steps.value = proposed;
+    if (removed.id === selectedStepId.value)
+        selectedStepId.value = steps.value[Math.min(index, steps.value.length - 1)]?.id;
+    error.value = '';
 }
 function canMoveStep(index: number, delta: number): boolean {
     const next = index + delta;
@@ -529,7 +532,7 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
                                 <div class="step-actions">
                                     <Button icon="pi pi-arrow-up" text rounded size="small" :disabled="!canMoveStep(index, -1)" :aria-label="text('上移步骤', 'Move step up')" @click="moveStep(index, -1)" />
                                     <Button icon="pi pi-arrow-down" text rounded size="small" :disabled="!canMoveStep(index, 1)" :aria-label="text('下移步骤', 'Move step down')" @click="moveStep(index, 1)" />
-                                    <Button icon="pi pi-times" text rounded size="small" :disabled="busy" :aria-label="text('删除步骤', 'Remove step')" @click="removeStep(index)" />
+                                    <Button icon="pi pi-times" text rounded size="small" :disabled="busy" :aria-label="['if_gone','if_else'].includes(step.type) ? text('删除整个条件块', 'Remove entire condition block') : text('删除步骤', 'Remove step')" @click="removeStep(index)" />
                                 </div>
                             </li>
                         </ol>
