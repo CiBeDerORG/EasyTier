@@ -10,7 +10,7 @@ export interface AutomationHierarchy {
     device_id: string; target_fingerprint: string; captured_at: string;
     snapshot: { width: number; height: number; truncated: boolean; nodes: AutomationHierarchyNode[] };
 }
-export type AutomationStepType = 'key' | 'tap' | 'swipe' | 'input_text' | 'launch_app' | 'wait_for' | 'assert' | 'screenshot';
+export type AutomationStepType = 'key' | 'tap' | 'swipe' | 'input_text' | 'launch_app' | 'wait_for' | 'wait_gone' | 'assert' | 'assert_property' | 'scroll_find' | 'screenshot';
 export interface AutomationStep {
     id: string;
     type: AutomationStepType;
@@ -19,6 +19,10 @@ export interface AutomationStep {
     x?: number; y?: number; to_x?: number; to_y?: number;
     width?: number; height?: number; duration_ms?: number;
     text?: string; parameter?: string; package?: string; timeout_ms?: number;
+    property?: 'enabled' | 'checked' | 'selected' | 'clickable' | 'scrollable';
+    expected?: boolean;
+    scroll_container?: AutomationSelector;
+    direction?: 'up' | 'down'; max_swipes?: number;
 }
 export interface AutomationContext {
     available: boolean; runner_configured: boolean; can_manage_others: boolean;
