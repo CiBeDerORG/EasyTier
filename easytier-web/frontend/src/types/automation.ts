@@ -115,12 +115,13 @@ export interface AutomationRunDevice {
     business_verification?: BusinessVerificationStatus;
     cleanup_confirmed?: boolean;
     error?: string | { code?: string; message?: string }; steps: AutomationStepResult[];
+    diagnostic_target?: { ip?: string; adb_port?: number; target_fingerprint?: string };
 }
 export interface AutomationRun {
     id: string; name: string; state: string; created_at: string; updated_at: string;
     executor_revision?: number; concurrency?: number;
     business_verification?: BusinessVerificationStatus;
-    script_snapshot: { name?: string; revision?: number; steps: AutomationStep[] };
+    script_snapshot: { name?: string; script_id?: string; revision?: number; steps: AutomationStep[] };
     devices: AutomationRunDevice[];
 }
 export interface AutomationControl {
