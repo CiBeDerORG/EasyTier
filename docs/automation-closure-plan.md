@@ -10,7 +10,7 @@
 | AUT-03 | P0 | **已提交第一批，CI 待核对** | `automation-draft.ts` 单一账号会话草稿，拾取/录制/编辑共用；切换 tab 保留；切脚本确认丢弃；不会把运行参数存入浏览器。**刷新页面后持久恢复尚未实现** |
 | AUT-02 | P0 | **第一版已提交，CI/真机待验收** | `automation-gesture.ts` 按时长、最大位移分类短按/长按；明显位移必须手动选「滑动/拖拽/不录制」；超时/回到原点/坏几何拒绝生成；前端回归测试 |
 | AUT-04 | P0 | **前端构建与 67 项单元测试通过，主 CI/真机待验收** | 编辑器选中步骤后选择手机并打开无需投屏的控件树，采用原拾取器唯一性判断；仅回填定位条件，保持步骤 ID、原动作、时长、输入参数、条件分支与滚动容器不变；账号/脚本修订/设备绑定变化后拒绝旧结果 |
-| AUT-05 | P0 | **第一版已提交，CI/真机待验收** | 每次打开运行确认弹窗时查询当前账号最新设备绑定与占用状态；3 路并发独立检查 ADB 与需要时的 UiAutomator2；仅就绪设备可勾选；拒绝不完整预检或空设备集；Rust/执行器最终仍二次验证 |
+| AUT-05 | P0 | **前端构建和 75 项单测通过，原生 CI/真机待验收** | 每次打开运行确认弹窗时查询当前账号最新设备绑定与占用状态；3 路并发独立检查 ADB 与需要时的 UiAutomator2；仅就绪设备可勾选；拒绝不完整预检或空设备集；Rust/执行器最终仍二次验证 |
 | AUT-06 | P0 | 未开始 | 区分「脚本完成」「业务验证成功」「业务未验证」；旧数据不误报 |
 | AUT-07 | P0 | 未开始 | 失败步骤与脚本修订、设备、证据关联；跳转当前编辑器 |
 | AUT-08 | P0 | 未开始 | FnOS + 多台 Android 端到端验收与发布 |
@@ -53,6 +53,7 @@
 - `easytier-web/frontend/src/modules/automation-preflight.ts`：根据脚本真实依赖区分原生 ADB 操作与 UiAutomator2 操作，限并发逐台只读状态探测；断线、组件未准备、连接占用、目标设备漂移不能自动入选。
 - `easytier-web/frontend/src/components/automation/ScriptLibrary.vue`：运行弹窗内并行预检与逐台状态、重新检查和只选就绪设备；试跑更换目标手机后自动重新检查；参数与运行请求继续保持原有保护。
 - `easytier-web/frontend/tests/automation-preflight.test.mjs`：覆盖 ADB-only 脚本不要求组件、设备缺失/离线/未授权/占用/绑定异常、组件状态、3 路并发、单机失败不影响其他设备、关闭后异步结果不得提交。
+- `easytier-web/src/db/automation/mod.rs`：设备目录新增只读的 `run_occupied` 状态，使用与既有 `create_run` 相同的运行中/清理未确认状态集合及设备/路由匹配条件；不创建新数据库表。
 - **不修改服务端执行准入**：`POST /runs` 的持久任务和设备独占检查、执行器每步授权、未知结果不重发均保留。预检快照不代表资源预留。
 
 验收动作：
@@ -76,3 +77,8 @@
 
 - 2026-10-26：GH Actions Run [40317280598](https://github.com/CiBeDerORG/EasyTier/actions/runs/40317280598) 的 `Build Web and config generator` job 已成功，`test:unit` 结果 **67 passed, 0 failed**（对应提交 `0370b01`，文档提交不改变可执行代码）。
 - 该时刻原生回归仍在运行；不声称整个 GHCR 流水线或 Android 17 真机已通过。
+
+## AUT-05 首轮 CI 证据
+
+- GH Actions [40326165945](https://github.com/CiBeDerORG/EasyTier/actions/runs/40326165945)：Web build job 成功，包含 `automation-preflight.test.mjs` 的前端单元测试 **75 passed, 0 failed**。
+- 该记录先于 `run_occupied` Rust 扩展；完整新提交的 native 编译和正式镜像流水线需要后续检查，不能借用前一次通过的 CI 声称全部验收。
