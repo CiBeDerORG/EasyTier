@@ -4,7 +4,7 @@ import type {
     AutomationRun, AutomationRunInput, AutomationScript, AutomationScriptInput, AutomationSession,
     AutomationRunnerSettings, AutomationRunnerSettingsInput, AutomationRunnerCheck,
     AutomationExecutorCapacity, AutomationExecutorCapacityInput, AutomationMediaSettings,
-    AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog, AutomationAdbStatus,
+    AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog, AutomationAdbStatus, AutomationHierarchy,
 } from '../types/automation';
 
 export class AutomationApiError extends Error {
