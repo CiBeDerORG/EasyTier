@@ -20,6 +20,7 @@ import ExecutorSettings from './automation/ExecutorSettings.vue';
 import { automationMessages } from './automation/messages';
 import { analyzeAutomationFlow } from '../modules/automation-flow';
 import { appendAutomationDraftSteps, emptyAutomationDraft } from '../modules/automation-draft';
+import type { AutomationRepairRequest } from '../modules/automation-run-repair';
 import { replaceAutomationStepTarget, type StepTarget } from '../modules/automation-step-target';
 import type { AutomationStepType } from '../types/automation';
 import {
@@ -125,6 +126,7 @@ const syncPreparation = ref(false); const syncMaster = ref(''); const syncTarget
 const sync = ref<SyncSession | null>(null);
 const recordingId = ref<string | null>(null); const recordingPaused = ref(false); const recordedSteps = ref<AutomationStep[]>([]);
 const draftWorkspace = reactive(emptyAutomationDraft(0));
+const repairRequest = ref<AutomationRepairRequest | null>(null);
 watch(ownerId, id => Object.assign(draftWorkspace, emptyAutomationDraft(id)), { immediate: true });
 const inspectorDeviceId = ref<string | null>(null);
 const inspectorStream = shallowRef<MediaStream | null>(null);
@@ -305,6 +307,7 @@ async function query() {
 }
 async function changeOwner(id: number) {
     if (id === ownerId.value || busy.value || connecting.value || switchingTab.value) return;
+    repairRequest.value = null;
     if (gestureConfirmation.value) { notice.value = '请先确认滑动或拖拽，才能切换管理账号。'; return; }
     stopEvents?.(); stopEvents = undefined;
     ++workspaceGeneration; ++loadGeneration; ++statusQueryGeneration;
@@ -766,6 +769,14 @@ async function settingsSaved() {
     try { context.value = await api.context(); }
     catch (cause) { handleError(cause); }
 }
+async function onRepairStep(request: AutomationRepairRequest) {
+    if (request.ownerId !== ownerId.value || switchingTab.value) return;
+    // Switching away from history must not cause a manual phone action.
+    // The editor independently checks latest saved revisions before changes.
+    repairRequest.value = request;
+    await changeTab('scripts');
+    if (tab.value !== 'scripts') repairRequest.value = null;
+}
 function onRunCreated(run: AutomationRun) {
     for (const card of cards.values()) card.cancelRestoreIntent();
     focusRunId.value = run.id; ++historyKey.value; tab.value = 'history';
@@ -864,9 +875,10 @@ onBeforeUnmount(() => { stopEvents?.();
             </div>
             <p v-if="liveCount" class="manual-release-hint">{{ t('tabReleaseHint') }}</p>
             <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace" :run-device-snapshots="devices"
+                :repair-request="repairRequest"
                 :picker-devices="devices.filter(device => device.connection.enabled && !!device.target_fingerprint).map(device => ({ id: device.id, name: device.name }))"
                 @pick-step-target="openScriptInspector" @run-created="onRunCreated" />
-            <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" />
+            <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" @repair-step="onRepairStep" />
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
