@@ -194,3 +194,45 @@ pub(super) fn parameters(value:&Value,steps:&Value)->AutomationResult<Value> {
     // Runtime input can be sensitive. Store only the required names, never values.
     Ok(json!(object.keys().collect::<Vec<_>>()))
 }
+
+#[cfg(test)]
+mod nested_flow_tests {
+    use super::*;
+
+    fn key() -> Value {
+        json!({"id": Uuid::new_v4().to_string(), "type":"key", "key":"HOME"})
+    }
+
+    fn if_gone(skip_count:usize) -> Value {
+        json!({"id":Uuid::new_v4().to_string(),"type":"if_gone",
+               "selector":{"text":"Loading"},"skip_count":skip_count})
+    }
+
+    fn if_else(then_count:usize,else_count:usize) -> Value {
+        json!({"id":Uuid::new_v4().to_string(),"type":"if_else",
+               "selector":{"text":"Loading"},"then_count":then_count,"else_count":else_count})
+    }
+
+    #[test]
+    fn three_level_flow_is_accepted_and_fourth_level_rejected() {
+        let valid=json!([
+            if_else(5,1), if_gone(4), if_else(1,2),
+            key(),key(),key(),key()
+        ]);
+        assert!(steps(&valid).is_ok());
+        let invalid=json!([
+            if_gone(5),if_gone(4),if_gone(3),if_gone(2),key(),key()
+        ]);
+        assert!(steps(&invalid).is_err());
+    }
+
+    #[test]
+    fn child_condition_cannot_cross_then_else_boundary() {
+        let invalid=json!([
+            if_else(2,1),key(),if_gone(1),key()
+        ]);
+        assert!(steps(&invalid).is_err());
+        let valid=json!([if_gone(3),if_else(1,1),key(),key()]);
+        assert!(steps(&valid).is_ok());
+    }
+}
