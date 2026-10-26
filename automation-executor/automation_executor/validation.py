@@ -104,6 +104,9 @@ def steps(value):
         "swipe": {"x", "y", "to_x", "to_y", "duration_ms", "width", "height"},
         "input_text": {"text", "parameter", "selector"}, "launch_app": {"package"},
         "wait_for": {"selector", "timeout_ms"}, "assert": {"selector", "timeout_ms"},
+        "wait_gone": {"selector", "timeout_ms"},
+        "assert_property": {"selector", "property", "expected"},
+        "scroll_find": {"selector", "scroll_container", "direction", "max_swipes", "duration_ms", "timeout_ms"},
         "screenshot": set(),
     }
     for item in value:
@@ -143,9 +146,25 @@ def steps(value):
                 selector(item["selector"])
         if kind == "launch_app" and not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", text(item.get("package"), 256)):
             raise invalid("Android 包名无效")
-        if kind in ("wait_for", "assert"):
+        if kind in ("wait_for", "assert", "wait_gone", "scroll_find"):
             selector(item.get("selector"))
             integer(item.get("timeout_ms"), 100, 30000)
+        if kind == "assert_property":
+            chosen = selector(item.get("selector"))
+            if "xpath" in chosen:
+                raise invalid("属性断言目前只支持原生控件选择器")
+            if item.get("property") not in ("enabled", "checked", "selected", "clickable", "scrollable"):
+                raise invalid("不支持该布尔控件属性")
+            if type(item.get("expected")) is not bool:
+                raise invalid("属性断言预期值必须为布尔值")
+        if kind == "scroll_find":
+            container = selector(item.get("scroll_container"))
+            if "xpath" in container:
+                raise invalid("滚动容器不能使用 XPath")
+            if item.get("direction") not in ("down", "up"):
+                raise invalid("滚动方向仅支持向上或向下")
+            integer(item.get("max_swipes"), 1, 5)
+            integer(item.get("duration_ms"), 200, 1000)
         result.append({**item, "id": sid})
     return result
 
