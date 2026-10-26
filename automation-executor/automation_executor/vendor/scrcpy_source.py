@@ -341,15 +341,32 @@ class ScrcpySource:
             return None if window is False else True
         return window
 
+    def _stable_keyguard(self) -> bool | None:
+        """Recheck an indeterminate keyguard once after OEM animations settle.
+
+        An explicit unlocked result is never overridden to allow PIN injection.
+        """
+        state = self._keyguard()
+        if state is not None or self.stop_event.wait(0.65):
+            return state
+        return self._keyguard()
+
     def wake_and_unlock(self, password: str | None) -> str:
         """One bounded, opt-in attempt; the credential never enters ADB argv."""
         self.key("WAKE")
+        # Some OEM firmware ignores scrcpy's wake key while the display is
+        # dozing. KEYCODE_WAKEUP is idempotent (unlike POWER) and is safe to
+        # send using ADB as a best-effort second wake mechanism.
+        try:
+            self._adb("shell", "input", "keyevent", "224", timeout=5)
+        except SourceError:
+            pass
         if not password:
             return "wake_sent"
         # Waking the display and revealing the keyguard are asynchronous.
-        if self.stop_event.wait(0.5):
+        if self.stop_event.wait(0.6):
             return "unlock_skipped"
-        lock_state = self._keyguard()
+        lock_state = self._stable_keyguard()
         if lock_state is not True:
             return "already_unlocked" if lock_state is False else "lock_state_unknown"
 
@@ -367,6 +384,10 @@ class ScrcpySource:
         width, height = map(int, sizes[-1])
         if not (240 <= width <= 10000 and 400 <= height <= 20000):
             return "unlock_size_unknown"
+        # wm size reports the physical portrait dimensions on some phones,
+        # even if the active scrcpy stream is currently rotated.
+        if self.size and self.size[0] > self.size[1] and width < height:
+            width, height = height, width
         try:
             self._adb("shell", "input", "swipe", str(width // 2), str(height * 8 // 10),
                       str(width // 2), str(height * 3 // 10), "240", timeout=7)
@@ -376,7 +397,7 @@ class ScrcpySource:
         if self.stop_event.wait(0.45):
             return "unlock_skipped"
         # The user may have unlocked with biometrics while the swipe ran.
-        after_swipe = self._keyguard()
+        after_swipe = self._stable_keyguard()
         if after_swipe is not True:
             return "already_unlocked" if after_swipe is False else "lock_state_changed"
 
