@@ -83,6 +83,8 @@ def execute(target, step, parameters, artifact_path=None):
                     return {"xpath_bounds": bounds}
             else:
                 count = rpc("count", selected)
+                if type(count) is not int or count < 0:
+                    raise StepFailure("selector_count_invalid", "控件组件返回了无法确认的匹配数量")
                 if count == 1:
                     return selected
                 if isinstance(count, int) and count > 1:
@@ -162,8 +164,9 @@ def execute(target, step, parameters, artifact_path=None):
             if not isinstance(bounds, dict) or not all(type(bounds.get(k)) is int
                                                      for k in ("left", "top", "right", "bottom")):
                 raise StepFailure("scroll_container_invalid", "滚动容器范围无效")
-            left, top = bounds["left"], bounds["top"]
-            right, bottom = bounds["right"], bounds["bottom"]
+            width, height = dev.window_size()
+            left, top = max(0, bounds["left"]), max(0, bounds["top"])
+            right, bottom = min(width, bounds["right"]), min(height, bounds["bottom"])
             if right - left < 24 or bottom - top < 100:
                 raise StepFailure("scroll_container_invalid", "滚动容器尺寸过小")
             if time.monotonic() + step["duration_ms"] / 1000 + .2 >= deadline:
