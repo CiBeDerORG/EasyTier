@@ -65,18 +65,30 @@ def execute(target, step, parameters, artifact_path=None):
     rpc("count", Selector(className="android.view.View"), timeout=5)
 
     def find(raw, timeout_ms=0):
-        translated = {"resource_id": "resourceId", "description": "description", "text": "text"}
-        selected = Selector(**{translated[key]: value for key, value in raw.items()})
+        translated = {"resource_id": "resourceId", "description": "description", "text": "text",
+                      "class_name": "className", "package": "packageName"}
+        selected = None if "xpath" in raw else Selector(**{translated[key]: value for key, value in raw.items()})
         deadline = time.monotonic() + timeout_ms / 1000
         while True:
-            count = rpc("count", selected)
-            if count == 1:
-                return selected
-            if isinstance(count, int) and count > 1:
-                raise StepFailure("selector_ambiguous", "控件条件匹配多项，请缩小条件")
+            if selected is None:
+                from .hierarchy import xpath_match
+                from .errors import ExecutorError
+                width, height = dev.window_size()
+                xml = rpc("dumpWindowHierarchy", False, 50, timeout=12)
+                try:
+                    bounds = xpath_match(xml, raw["xpath"], width, height)
+                except ExecutorError as exc:
+                    raise StepFailure(exc.code, exc.message) from None
+                if bounds is not None:
+                    return {"xpath_bounds": bounds}
+            else:
+                count = rpc("count", selected)
+                if count == 1:
+                    return selected
+                if isinstance(count, int) and count > 1:
+                    raise StepFailure("selector_ambiguous", "控件条件匹配多项，请缩小条件")
             if time.monotonic() >= deadline:
                 raise StepFailure("selector_not_found", "在规定时间内未找到控件")
-            # Bounded read-only waiting inside this explicit step, not a scanner.
             time.sleep(min(.2, max(0, deadline - time.monotonic())))
 
     if kind == "hierarchy":
@@ -96,8 +108,11 @@ def execute(target, step, parameters, artifact_path=None):
         return {"state": "assertion_passed", "message": "指定控件条件检查通过"}
     if kind == "tap" and "selector" in step:
         selected = find(step["selector"])
-        info = rpc("objInfo", selected)
-        bounds = info.get("visibleBounds") or info.get("bounds")
+        if isinstance(selected, dict) and "xpath_bounds" in selected:
+            bounds = selected["xpath_bounds"]
+        else:
+            info = rpc("objInfo", selected)
+            bounds = info.get("visibleBounds") or info.get("bounds")
         if not isinstance(bounds, dict) or not all(isinstance(bounds.get(k), int) for k in ("left", "top", "right", "bottom")):
             raise StepFailure("selector_geometry_invalid", "无法确定控件的有效点击区域")
         if bounds["right"] <= bounds["left"] or bounds["bottom"] <= bounds["top"]:
