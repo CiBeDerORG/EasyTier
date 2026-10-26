@@ -158,7 +158,19 @@ function validationError(): string | null {
         const validNumber = (value: unknown, min: number, max: number, integer = false) =>
             typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));
         if (['wait_for', 'assert'].includes(step.type) && !step.selector) return prefix + text('请选择控件。', 'Choose an element.');
-        if (step.selector && !Object.values(step.selector).some(value => value?.trim())) return prefix + text('至少填写一个控件条件。', 'Specify at least one element condition.');
+        if (step.selector) {
+            const attrs = Object.entries(step.selector);
+            if (!attrs.length || !attrs.some(([, value]) => value?.trim())) return prefix + text('至少填写一个控件条件。', 'Specify at least one element condition.');
+            if (attrs.some(([key, value]) => !['resource_id', 'text', 'description', 'class_name', 'package', 'xpath'].includes(key)
+                || !value?.trim() || new TextEncoder().encode(value).length > 512)) {
+                return prefix + text('定位条件不能为空且不能超过 512 字节。', 'Each selector must be nonempty and at most 512 bytes.');
+            }
+            if (step.selector.xpath !== undefined) {
+                if (attrs.length !== 1 || !/^[/(]/.test(step.selector.xpath) || step.type === 'input_text') {
+                    return prefix + text('XPath 必须独立使用，文字输入不支持 XPath。', 'XPath must be standalone and is not supported for text input.');
+                }
+            }
+        }
         if (step.type === 'key' && !['HOME', 'BACK', 'RECENT', 'WAKE'].includes(step.key ?? '')) return prefix + text('请选择导航按键。', 'Choose a navigation key.');
         if ((step.type === 'tap' && !step.selector) || step.type === 'swipe') {
             const points = step.type === 'swipe' ? [step.x, step.y, step.to_x, step.to_y] : [step.x, step.y];
