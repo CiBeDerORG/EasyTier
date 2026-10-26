@@ -19,7 +19,8 @@ const response = ref<AutomationHierarchy | null>(null);
 const selectedId = ref<number | null>(null);
 const collapsedIds = ref<number[]>([]);
 const search = ref('');
-const mode = ref<'resource_id' | 'text' | 'description' | 'coordinates'>('resource_id');
+type LocatorMode = 'resource_id' | 'text' | 'description' | 'composite' | 'xpath' | 'coordinates';
+const mode = ref<LocatorMode>('resource_id');
 const loading = ref(false);
 const error = ref('');
 const feedback = ref('');
@@ -85,6 +86,52 @@ const compatibleVideo = computed(() => {
     const displayed = videoSize.value.width / videoSize.value.height;
     return Math.abs(expected / displayed - 1) < .035;
 });
+const nativeFields = ['resource_id', 'text', 'description', 'class_name', 'package'] as const;
+type NativeField = typeof nativeFields[number];
+const bestComposite = computed<AutomationSelector | null>(() => {
+    const shot = snapshot.value, node = selected.value;
+    if (!shot || !node || shot.truncated) return null;
+    const available = nativeFields.filter(key => !!node[key]);
+    for (let size = 2; size <= available.length; size++) {
+        const search = (start: number, group: NativeField[]): AutomationSelector | null => {
+            if (group.length === size) {
+                const terms = Object.fromEntries(group.map(key => [key, node[key]])) as AutomationSelector;
+                const matches = shot.nodes.filter(item => group.every(key => item[key] === node[key]));
+                return matches.length === 1 ? terms : null;
+            }
+            for (let i = start; i < available.length; i++) {
+                const result = search(i + 1, [...group, available[i]]);
+                if (result) return result;
+            }
+            return null;
+        };
+        const result = search(0, []);
+        if (result) return result;
+    }
+    return null;
+});
+function xpathLiteral(value: string): string {
+    if (!value.includes("'")) return "'" + value + "'";
+    if (!value.includes('"')) return '"' + value + '"';
+    return "concat(" + value.split("'").map(chunk => "'" + chunk + "'").join(", \"'\", ") + ")";
+}
+const suggestedXPath = computed(() => {
+    const node = selected.value;
+    if (!node) return '';
+    const chosen = bestComposite.value ?? (['resource_id', 'text', 'description'] as const)
+        .reduce<AutomationSelector | null>((found, key) => {
+            if (found || !node[key] || !snapshot.value || snapshot.value.truncated) return found;
+            return snapshot.value.nodes.filter(item => item[key] === node[key]).length === 1 ? { [key]: node[key] } : null;
+        }, null);
+    if (!chosen) return '';
+    const attrs: Record<string, string> = {
+        resource_id: 'resource-id', text: 'text', description: 'content-desc',
+        class_name: 'class', package: 'package',
+    };
+    const expr = '//*[' + Object.entries(chosen).map(([key, value]) =>
+        '@' + attrs[key] + '=' + xpathLiteral(value!)).join(' and ') + ']';
+    return new TextEncoder().encode(expr).length <= 512 ? expr : '';
+});
 const modeOptions = computed(() => {
     if (!selected.value || !snapshot.value) return [];
     const node = selected.value;
@@ -92,10 +139,12 @@ const modeOptions = computed(() => {
         { value: 'resource_id', label: 'Resource ID', unique: false },
         { value: 'text', label: '控件文字', unique: false },
         { value: 'description', label: '无障碍描述', unique: false },
+        { value: 'composite', label: '组合条件（自动推荐）', unique: !!bestComposite.value },
+        { value: 'xpath', label: 'XPath 1.0（自动生成）', unique: !!suggestedXPath.value },
         { value: 'coordinates', label: '画面坐标', unique: compatibleVideo.value },
     ];
     for (const choice of choices) {
-        if (choice.value === 'coordinates') continue;
+        if (choice.value === 'coordinates' || choice.value === 'composite' || choice.value === 'xpath') continue;
         const key = choice.value as 'resource_id' | 'text' | 'description';
         const value = node[key];
         choice.unique = !!value && snapshot.value.nodes.filter(item => item[key] === value).length === 1
@@ -179,7 +228,7 @@ function pick(event: MouseEvent) {
 }
 watch(selected, node => {
     if (!node) return;
-    mode.value = (['resource_id', 'text', 'description'] as const)
+    mode.value = (['resource_id', 'text', 'description', 'composite', 'xpath'] as const)
         .find(key => modeOptions.value.some(option => option.value === key && option.unique)) ?? 'coordinates';
 });
 function locator(): AutomationSelector | null {
@@ -187,12 +236,15 @@ function locator(): AutomationSelector | null {
     if (mode.value === 'resource_id') return { resource_id: selected.value.resource_id };
     if (mode.value === 'text') return { text: selected.value.text };
     if (mode.value === 'description') return { description: selected.value.description };
+    if (mode.value === 'composite') return bestComposite.value;
+    if (mode.value === 'xpath' && suggestedXPath.value) return { xpath: suggestedXPath.value };
     return null;
 }
 function add(type: 'tap' | 'wait_for' | 'assert' | 'input_text') {
     if (!selected.value || !snapshot.value || !canAdd.value) return;
     const selector = locator();
     if (!selector && type !== 'tap') return;
+    if (type === 'input_text' && selector?.xpath) return;
     const step: AutomationStep = { id: uuid(), type };
     if (selector) step.selector = selector;
     else {
@@ -292,12 +344,14 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                         <select id="ui-inspector-locator" v-model="mode" class="locator-select">
                             <option v-for="option in modeOptions" :key="option.value" :value="option.value" :disabled="!option.unique">{{ option.label }}{{ option.unique ? '' : ' · 不可用或不唯一' }}</option>
                         </select>
-                        <p v-if="mode === 'coordinates'" class="hint">坐标仅适用于当前画面比例；优先选择唯一 Resource ID 或文字定位。</p>
+                        <p v-if="mode === 'coordinates'" class="hint">坐标仅适用于当前画面比例；优先选择唯一控件条件。</p>
+                        <p v-else-if="mode === 'composite'" class="hint">自动将多项属性合并为唯一控件条件：{{ JSON.stringify(bestComposite) }}</p>
+                        <p v-else-if="mode === 'xpath'" class="hint"><code>{{ suggestedXPath }}</code></p>
                         <div class="step-actions">
                             <Button label="添加点击" icon="pi pi-plus" size="small" :disabled="!canAdd" @click="add('tap')" />
                             <Button label="等待出现" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('wait_for')" />
                             <Button label="断言存在" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('assert')" />
-                            <Button label="输入文字" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('input_text')" />
+                            <Button label="输入文字" outlined size="small" :disabled="!canAdd || mode === 'coordinates' || mode === 'xpath'" @click="add('input_text')" />
                         </div>
                     </template>
                     <div v-else class="empty-detail">从左侧控件树中选择元素，或点击手机画面开始拾取。</div>
