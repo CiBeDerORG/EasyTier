@@ -58,6 +58,9 @@ export default class AutomationApi {
     componentStatus(ownerId: number, id: string) {
         return this.request<AutomationComponentStatus>(`/devices/${encodeURIComponent(id)}/automation-status`,ownerId);
     }
+    hierarchy(ownerId: number, id: string) {
+        return this.request<AutomationHierarchy>(`/devices/${encodeURIComponent(id)}/hierarchy`, ownerId);
+    }
     startPreparation(ownerId: number, id: string, requestId: string) {
         return this.request<AutomationPreparation>(`/devices/${encodeURIComponent(id)}/preparations`,ownerId,'POST',{request_id:requestId});
     }
