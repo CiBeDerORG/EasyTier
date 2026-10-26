@@ -84,7 +84,9 @@ const selectedIsFinalAssertion = computed(() => {
         && !flowLayout.value.problem && !flowLayout.value.entries[flowLayout.value.entries.length - 1]?.ancestors.length;
 });
 function setBusinessCheck(enabled: boolean) {
-    if (busy.value || !selectedIsFinalAssertion.value || !selectedStep.value) return;
+    if (busy.value || !selectedStep.value
+        || (enabled && !selectedIsFinalAssertion.value)
+        || (!enabled && selectedStep.value.business_verification !== true)) return;
     const id = selectedStep.value.id;
     steps.value = steps.value.map(step => {
         const { business_verification: _old, ...rest } = step;
@@ -705,12 +707,16 @@ onBeforeUnmount(() => {
                                 'Keeps the current step ID and action; prepare UiAutomator2 on the workbench first if needed.') }}</small>
                         </div>
                         <div v-if="selectedStep" class="business-check-editor">
-                            <label v-if="selectedIsFinalAssertion" class="business-check-label">
+                            <label v-if="selectedIsFinalAssertion || selectedStep.business_verification === true" class="business-check-label">
                                 <Checkbox :model-value="selectedStep.business_verification === true" binary
                                     :disabled="busy" @update:model-value="setBusinessCheck(!!$event)" />
                                 <strong>{{ text('将这一步作为业务成功验证', 'Verify business success with this assertion') }}</strong>
                             </label>
-                            <small v-else>
+                            <small v-if="selectedStep.business_verification === true && !selectedIsFinalAssertion" class="error-message">
+                                {{ text('该断言已不在脚本末尾，请取消勾选或将它移回最后一步，才能保存或运行。',
+                                    'This business check is no longer terminal. Uncheck it or move it to the last step before saving.') }}
+                            </small>
+                            <small v-else-if="!selectedIsFinalAssertion">
                                 {{ text('业务成功条件必须放在脚本最后一步、位于所有 If / Else 分支之外，类型为“检查控件”或“属性断言”。',
                                     'Place an element or property assertion at the very end, outside any If / Else branch, to enable business verification.') }}
                             </small>
