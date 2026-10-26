@@ -185,17 +185,28 @@ def steps(value):
             integer(item.get("max_swipes"), 1, 5)
             integer(item.get("duration_ms"), 200, 1000)
         result.append({**item, "id": sid})
-    # No nested/crossing condition blocks in the first if-else release.
-    # Legacy if_gone scripts remain accepted unless they would overlap if_else.
+    # The flat protocol is a bounded, forward-only control-flow tree.
+    # A child must fit ENTIRELY inside either its parent's Then or Else lane;
+    # crossing the boundary would send actions on the unselected branch.
+    # Stack entries hold (end-index, then-end-index); at most three levels.
+    regions = []
     for index, item in enumerate(result):
-        if item["type"] != "if_else":
+        while regions and index > regions[-1][0]:
+            regions.pop()
+        if item["type"] not in ("if_else", "if_gone"):
             continue
-        end = index + item["then_count"] + item["else_count"]
-        if any(inner["type"] in ("if_else", "if_gone") for inner in result[index + 1:end + 1]):
-            raise invalid("if-else 分支中不支持嵌套条件")
-        if any(previous["type"] == "if_gone" and previous["skip_count"] >= index - before
-               for before, previous in enumerate(result[:index])):
-            raise invalid("if-else 分支不能位于其他条件的控制范围中")
+        then_count = item["then_count"] if item["type"] == "if_else" else item["skip_count"]
+        else_count = item.get("else_count", 0)
+        then_end = index + then_count
+        end = then_end + else_count
+        if regions:
+            parent_end, parent_then_end = regions[-1]
+            ceiling = parent_then_end if index <= parent_then_end else parent_end
+            if end > ceiling:
+                raise invalid("嵌套条件范围跨越父条件的 Then/Else 边界")
+        if len(regions) >= 3:
+            raise invalid("条件嵌套最多支持 3 层")
+        regions.append((end, then_end))
     return result
 
 
