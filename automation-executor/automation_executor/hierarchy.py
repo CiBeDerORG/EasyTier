@@ -9,6 +9,13 @@ MAX_XML_BYTES = 512 * 1024
 MAX_ELEMENTS = 1500
 
 
+def selector_text(value, maximum=512):
+    """Only emit complete, usable selector strings; never truncate an exact match."""
+    if not value or not value.strip() or len(value.encode("utf-8")) > maximum:
+        return ""
+    return value
+
+
 def parse_hierarchy(xml, width, height):
     if not isinstance(xml, str) or not isinstance(width, int) or not isinstance(height, int):
         raise ExecutorError("hierarchy_invalid", "手机返回的控件树格式无效", 502)
@@ -45,9 +52,9 @@ def parse_hierarchy(xml, width, height):
                         "id": node_id, "parent_id": parent_id, "depth": depth,
                         "class_name": raw.get("class", "")[:256],
                         "package": raw.get("package", "")[:256],
-                        "resource_id": raw.get("resource-id", "")[:512],
-                        "text": "" if raw.get("password") == "true" else raw.get("text", "")[:512],
-                        "description": "" if raw.get("password") == "true" else raw.get("content-desc", "")[:512],
+                        "resource_id": selector_text(raw.get("resource-id", "")),
+                        "text": "" if raw.get("password") == "true" else selector_text(raw.get("text", "")),
+                        "description": "" if raw.get("password") == "true" else selector_text(raw.get("content-desc", "")),
                         "clickable": raw.get("clickable") == "true",
                         "enabled": raw.get("enabled") == "true",
                         "scrollable": raw.get("scrollable") == "true",
