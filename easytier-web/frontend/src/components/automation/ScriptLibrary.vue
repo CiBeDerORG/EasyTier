@@ -883,6 +883,15 @@ watch(() => props.repairRequest, request => {
                             </small>
                         </div>
                         <ScriptStepEditor v-if="selectedStep" :model-value="selectedStep" :disabled="busy" @update:model-value="updateStep" />
+                        <div v-if="selectedStep" class="single-step-action">
+                            <Button :label="text('单独试跑此步骤', 'Trial this step')" icon="pi pi-play" size="small" outlined
+                                :disabled="busy || ['if_gone','if_else'].includes(selectedStep.type)"
+                                @click="prepareSingleStep" />
+                            <small v-if="['if_gone','if_else'].includes(selectedStep.type)">
+                                {{ text('条件分支必须完整执行，不能单独试跑分支节点。', 'Conditions must run within the full script and cannot be tested in isolation.') }}
+                            </small>
+                            <small v-else>{{ text('只发起一个步骤、选择一台设备，依旧遵守执行器独占与授权。', 'Runs one step on one phone through the normal authorized executor.') }}</small>
+                        </div>
                         <div v-else class="console-empty-state"><i class="pi pi-list" aria-hidden="true" /><h2>{{ text('从第一个步骤开始', 'Add the first step') }}</h2><p>{{ text('选择有限操作，填写目标与条件。运行前可先在一台手机试跑。', 'Choose an action and its target conditions. Try the draft on one phone before a batch run.') }}</p></div>
                     </div>
                 </div>
@@ -907,12 +916,29 @@ watch(() => props.repairRequest, request => {
             <template #footer><Button :label="text('取消', 'Cancel')" text :disabled="deleting" @click="deleteVisible = false" /><Button :label="text('删除', 'Delete')" severity="danger" :loading="deleting" @click="deleteScript" /></template>
         </Dialog>
 
-        <Dialog v-model:visible="runVisible" modal :header="runMode === 'draft' ? text('确认单机试跑', 'Confirm trial run') : text('确认批量运行', 'Confirm batch run')" :style="{ width: '620px', maxWidth: 'calc(100vw - 24px)' }" :closable="!runSubmitting" :close-on-escape="!runSubmitting">
+        <Dialog v-model:visible="runVisible" modal :header="runMode === 'step' ? text('确认单步骤试跑', 'Confirm single-step trial') : runMode === 'draft' ? text('确认单机试跑', 'Confirm trial run') : text('确认批量运行', 'Confirm batch run')" :style="{ width: '620px', maxWidth: 'calc(100vw - 24px)' }" :closable="!runSubmitting" :close-on-escape="!runSubmitting">
             <div class="run-form">
                 <p><strong>{{ runName }}</strong> · {{ text(`${runSteps.length} 步`, `${runSteps.length} steps`) }} <Tag :value="runMode === 'draft' ? text('当前草稿快照', 'Current draft snapshot') : text(`修订 ${runRevision}`, `Revision ${runRevision}`)" severity="info" />
                     <Tag :value="businessCheckStepId(runSteps) ? text('启用业务成功断言', 'Business check enabled') : text('业务未配置验证', 'No business check')" :severity="businessCheckStepId(runSteps) ? 'success' : 'secondary'" /></p>
                 <p class="muted">{{ text('本次目标和步骤已固定。后续修改草稿或工作台选择，不会改变本次运行。某台失败只停止该台，其余继续。', 'Targets and steps are fixed for this run. Later edits or selections do not change it. A device failure stops that device; the others continue.') }}</p>
-                <label v-if="runMode === 'draft'" class="field" for="automation-trial-device"><span>{{ text('试跑设备', 'Trial device') }}</span><Select input-id="automation-trial-device" v-model="runTrialDevice" :options="runDeviceOptions" option-label="label" option-value="value" :disabled="runSubmitting || !!pendingRun" /></label>
+                <div v-if="runMode === 'step' && stepTrialSource && runSteps[0]" class="single-step-preview" role="status">
+                    <strong>{{ text('仅执行第', 'Run only step') }} {{ stepTrialSource.index + 1 }} {{ text('步', '') }}
+                        · {{ stepTitles[stepTrialSource.type] }}</strong>
+                    <small>{{ text('原步骤 ID', 'Original step ID') }} · {{ stepTrialSource.id }}</small>
+                    <Tag :value="trialRequiresConsent ? text('可能改变设备 / 保存截图', 'Side effects / stored screenshot') : text('只读控件检查', 'Read-only UI check')"
+                         :severity="trialRequiresConsent ? 'warn' : 'success'" />
+                    <p>{{ text('不会执行前面的登录/导航或后面的断言；如果此步骤依赖前置页面状态，请先手工准备测试手机。',
+                        'No preceding setup actions or following assertions run. Prepare the phone manually if this step needs earlier page state.') }}</p>
+                    <label v-if="trialRequiresConsent" class="single-step-consent">
+                        <Checkbox :model-value="stepTrialConsent" binary :disabled="runSubmitting || !!pendingRun"
+                            @update:model-value="stepTrialConsent = !!$event" />
+                        <strong>{{ text('我确认仅在授权的测试设备上执行此动作，并已检查可能产生的副作用。',
+                            'I confirm this action is authorized on the test phone and understand its side effects.') }}</strong>
+                    </label>
+                    <small v-if="trialRequiresConsent">{{ text('输入、点击或启动应用可能产生不可撤销的影响。截图可能保留敏感画面；动作结果未知时不会自动重发。',
+                        'Typing, tapping or launching an app can be irreversible. Screenshots may retain sensitive content. Unknown outcomes are never automatically replayed.') }}</small>
+                </div>
+                <label v-if="runMode !== 'saved'" class="field" for="automation-trial-device"><span>{{ text('试跑设备', 'Trial device') }}</span><Select input-id="automation-trial-device" v-model="runTrialDevice" :options="runDeviceOptions" option-label="label" option-value="value" :disabled="runSubmitting || !!pendingRun" /></label>
                 <div class="run-preflight" aria-live="polite">
                     <div class="run-preflight-heading">
                         <strong>{{ text('执行前设备预检', 'Device preflight') }}</strong>
@@ -950,7 +976,7 @@ watch(() => props.repairRequest, request => {
                 <p v-if="runError" class="error-message" role="alert">{{ runError }}</p>
             </div>
             <template #footer><Button :label="text('关闭', 'Close')" text :disabled="runSubmitting" @click="runVisible = false" /><Button :label="uncertainRun ? text('重试同一请求', 'Retry same request') : text('确认运行', 'Start run')" icon="pi pi-play" :loading="runSubmitting"
-                :disabled="!pendingRun && (!preflightFinished || !eligibleRunDevices.length)"
+                :disabled="!pendingRun && (!preflightFinished || !eligibleRunDevices.length || (trialRequiresConsent && !stepTrialConsent))"
                 @click="submitRun" /></template>
         </Dialog>
     </section>
@@ -978,6 +1004,12 @@ watch(() => props.repairRequest, request => {
 .sidebar-empty { padding: 6px 18px 24px; line-height: 1.7; }
 .draft-heading { flex-wrap: wrap; }
 .step-pick-controls{display:grid;gap:8px;padding:12px;border-bottom:1px solid var(--console-border)}
+.single-step-action{padding:12px;display:grid;gap:8px;border-top:1px solid var(--console-border)}
+.single-step-action small{font-size:12px;color:var(--console-muted)}
+.single-step-preview{border:1px solid var(--console-border);border-radius:8px;padding:12px;display:grid;gap:8px}
+.single-step-preview small{font-size:12px;color:var(--console-muted);overflow-wrap:anywhere}
+.single-step-preview p{font-size:12px;line-height:1.6;margin:0}
+.single-step-consent{display:flex;align-items:flex-start;gap:9px;font-size:13px;line-height:1.5;cursor:pointer}
 .step-pick-controls strong{font-size:13px}
 .step-pick-controls .button-row{align-items:center}
 .step-pick-controls .hint{font-size:12px;color:var(--console-muted)}
