@@ -21,6 +21,8 @@ export interface AutomationStep {
     text?: string; parameter?: string; package?: string; timeout_ms?: number;
     property?: 'enabled' | 'checked' | 'selected' | 'clickable' | 'scrollable';
     expected?: boolean;
+    /** User explicitly designated this final assertion as the business outcome check. */
+    business_verification?: true;
     scroll_container?: AutomationSelector;
     direction?: 'up' | 'down'; max_swipes?: number; skip_count?: number; then_count?: number; else_count?: number;
 }
