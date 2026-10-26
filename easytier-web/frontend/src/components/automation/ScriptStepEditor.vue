@@ -21,6 +21,7 @@ const actionOptions = computed(() => [
     { value: 'wait_for', label: text('等待控件出现', 'Wait for element') },
     { value: 'wait_gone', label: text('等待控件消失', 'Wait until element disappears') },
     { value: 'if_gone', label: text('如果控件消失，则执行后续步骤', 'If gone, execute following steps') },
+    { value: 'if_else', label: text('条件分支 If / Else', 'Conditional If / Else') },
     { value: 'assert', label: text('断言控件存在', 'Assert element exists') },
     { value: 'assert_property', label: text('断言控件属性', 'Assert element property') },
     { value: 'scroll_find', label: text('滚动查找控件', 'Scroll until element appears') },
@@ -69,13 +70,14 @@ function changeType(type: AutomationStepType) {
     if (props.disabled || type === props.modelValue.type) return;
     const step: AutomationStep = { id: props.modelValue.id, type };
     if (type === 'key') step.key = 'HOME';
-    if (['tap', 'long_press', 'wait_for', 'wait_gone', 'if_gone', 'assert', 'assert_property', 'scroll_find'].includes(type)) step.selector = { resource_id: '' };
+    if (['tap', 'long_press', 'wait_for', 'wait_gone', 'if_gone', 'if_else', 'assert', 'assert_property', 'scroll_find'].includes(type)) step.selector = { resource_id: '' };
     if (type === 'swipe' || type === 'drag') Object.assign(step, {
         x: 0.5, y: 0.8, to_x: 0.5, to_y: 0.2,
         duration_ms: type === 'drag' ? 700 : 400,
     });
     if (type === 'long_press') step.duration_ms = 800;
     if (type === 'if_gone') step.skip_count = 1;
+    if (type === 'if_else') { step.then_count = 1; step.else_count = 1; }
     if (type === 'input_text') step.text = '';
     if (type === 'launch_app') step.package = '';
     if (['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(type)) step.timeout_ms = 10000;
@@ -280,6 +282,21 @@ function updateNumber(key: string, value: number | null | undefined) {
             <InputText :id="fieldId('package')" :model-value="modelValue.package" :maxlength="255" :disabled="disabled" autocomplete="off" placeholder="com.android.settings" @update:model-value="update({ package: $event ?? '' })" />
         </label>
 
+        <fieldset v-if="modelValue.type === 'if_else'" class="selector-fields">
+            <legend>{{ text('Then / Else 条件区域', 'Then / Else branches') }}</legend>
+            <p class="hint">{{ text('只读检查：控件已消失时执行 Then；控件仍存在时执行 Else。两段步骤必须依次排在本步骤之后；未选分支会显示为已跳过。', 'Read-only check: missing element executes Then, present element executes Else. Arrange both blocks immediately after this step; the other branch is skipped.') }}</p>
+            <label class="field" :for="fieldId('then-count')">
+                <span>{{ text('Then 分支步数（控件消失）', 'Then steps (element gone)') }}</span>
+                <InputNumber :input-id="fieldId('then-count')" :model-value="modelValue.then_count"
+                    :min="1" :max="20" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('then_count', $event)" />
+            </label>
+            <label class="field" :for="fieldId('else-count')">
+                <span>{{ text('Else 分支步数（控件存在）', 'Else steps (element present)') }}</span>
+                <InputNumber :input-id="fieldId('else-count')" :model-value="modelValue.else_count"
+                    :min="1" :max="20" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('else_count', $event)" />
+            </label>
+            <small>{{ text('每段 1–20 步，合计不可超过脚本结尾。目前暂不允许条件嵌套或交叉。', 'Each branch needs 1–20 steps. The blocks must fit before the script ends. Nesting is not yet supported.') }}</small>
+        </fieldset>
         <label v-if="modelValue.type === 'if_gone'" class="field" :for="fieldId('skip-count')">
             <span>{{ text('条件控制范围（后续步骤数）', 'Conditional range (following steps)') }}</span>
             <InputNumber :input-id="fieldId('skip-count')" :model-value="modelValue.skip_count" :min="1" :max="20"
