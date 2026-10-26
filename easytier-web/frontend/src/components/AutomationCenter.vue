@@ -143,8 +143,12 @@ const groupOptions = computed(() => [...new Map([
         .map(device => [device.gateway_group_id!, device.gateway_name ?? device.gateway_group_id!] as const),
 ]).entries()]);
 const typeOptions = computed(() => [...new Map(devices.value.filter(device => device.device_type_id).map(device => [device.device_type_id!, device.type_name ?? device.device_type_id!])).entries()]);
+// An explicit query already probes ADB status for every visible device in
+// parallel. Re-sort reactively as each result arrives, keeping the existing
+// gateway/date order stable within the online and other groups.
 const sortedDevices = computed(() => [...devices.value].sort((a, b) =>
-    Number(!a.gateway_group_id) - Number(!b.gateway_group_id)
+    Number(phoneConnections.value[a.id] !== 'connected') - Number(phoneConnections.value[b.id] !== 'connected')
+    || Number(!a.gateway_group_id) - Number(!b.gateway_group_id)
     || (a.gateway_name ?? '').localeCompare(b.gateway_name ?? '', undefined, { sensitivity: 'base' })
     || (a.gateway_group_id ?? '').localeCompare(b.gateway_group_id ?? '')
     || (b.updated_at ?? '').localeCompare(a.updated_at ?? '')
