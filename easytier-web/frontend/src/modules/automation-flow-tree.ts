@@ -146,9 +146,9 @@ export function createFlowCondition(
     if (condition(thenStep) || (elseStep && condition(elseStep))) return null;
     // The caller can create a blank key step, which validation refuses to execute
     // until the user explicitly selects a key or changes the action.
-    target.kind = 'condition';
     Object.assign(target, {
-        step: copy(replacement), thenNodes: [{ kind: 'action', step: copy(thenStep) }],
+        kind: 'condition', step: copy(replacement),
+        thenNodes: [{ kind: 'action', step: copy(thenStep) }],
         elseNodes: elseStep ? [{ kind: 'action', step: copy(elseStep) }] : [],
     });
     return compileFlowTree(tree);
