@@ -67,18 +67,25 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
                 keys(step,&["id","type","key"])?;
                 if !matches!(step["key"].as_str(),Some("HOME"|"BACK"|"RECENT"|"WAKE")) {return Err(AutomationError::field("key","Choose a supported navigation key."));}
             },
-            "tap"=>{
-                keys(step,&["id","type","selector","x","y","width","height"])?;
+            "tap"|"long_press"=>{
+                keys(step,&["id","type","selector","x","y","width","height","duration_ms"])?;
                 if let Some(value)=step.get("selector") {
                     selector(value)?;
                     if ["x","y","width","height"].iter().any(|f|step.get(*f).is_some()) {return Err(AutomationError::field("selector","Choose either a selector or screen coordinates."));}
                 } else {coordinate(step,"x")?;coordinate(step,"y")?;dimension(step,"width")?;dimension(step,"height")?;}
+                if kind=="tap" && step.get("duration_ms").is_some() {
+                    return Err(AutomationError::field("duration_ms","Tap does not accept a duration."));
+                }
+                if kind=="long_press" && !step["duration_ms"].as_u64().is_some_and(|v|(400..=3000).contains(&v)) {
+                    return Err(AutomationError::field("duration_ms","Long press duration must be 400 to 3000 ms."));
+                }
             },
-            "swipe"=>{
+            "swipe"|"drag"=>{
                 keys(step,&["id","type","x","y","to_x","to_y","duration_ms","width","height"])?;
                 for f in ["x","y","to_x","to_y"] {coordinate(step,f)?;}
                 dimension(step,"width")?;dimension(step,"height")?;
-                if !step["duration_ms"].as_u64().is_some_and(|v|(100..=3000).contains(&v)) {return Err(AutomationError::field("duration_ms","Use a gesture duration from 100 to 3000 ms."));}
+                let low=if kind=="drag" {300} else {100};
+                if !step["duration_ms"].as_u64().is_some_and(|v|(low..=3000).contains(&v)) {return Err(AutomationError::field("duration_ms","Gesture duration is out of bounds."));}
             },
             "input_text"=>{
                 keys(step,&["id","type","text","parameter","selector"])?;
@@ -105,6 +112,17 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
                 keys(step,&["id","type","selector","timeout_ms"])?;
                 selector(&step["selector"])?;
                 if !step["timeout_ms"].as_u64().is_some_and(|v|(100..=30000).contains(&v)) {return Err(AutomationError::field("timeout_ms","Use a timeout from 100 to 30000 ms."));}
+            },
+            "if_gone"=>{
+                keys(step,&["id","type","selector","skip_count"])?;
+                selector(&step["selector"])?;
+                if !step["skip_count"].as_u64().is_some_and(|v| (1..=20).contains(&v)) {
+                    return Err(AutomationError::field("skip_count","Choose 1 to 20 steps."));
+                }
+                let index=ids.len()-1;
+                if step["skip_count"].as_u64().unwrap_or(0) > (items.len()-index-1) as u64 {
+                    return Err(AutomationError::field("skip_count","Skipped steps extend past the end of the script."));
+                }
             },
             "assert_property"=>{
                 keys(step,&["id","type","selector","property","expected"])?;
