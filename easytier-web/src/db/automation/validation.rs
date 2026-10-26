@@ -101,10 +101,29 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
                 let package=step["package"].as_str().ok_or_else(||AutomationError::field("package","Use an Android application package name."))?;
                 if package.len()>255||!package.contains('.')||package.split('.').any(|part|part.is_empty()||!part.chars().all(|c|c.is_ascii_alphanumeric()||c=='_')||!part.chars().next().is_some_and(|c|c.is_ascii_alphabetic())) {return Err(AutomationError::field("package","Use an Android application package name."));}
             },
-            "wait_for"|"assert"=>{
+            "wait_for"|"assert"|"wait_gone"=>{
                 keys(step,&["id","type","selector","timeout_ms"])?;
                 selector(&step["selector"])?;
                 if !step["timeout_ms"].as_u64().is_some_and(|v|(100..=30000).contains(&v)) {return Err(AutomationError::field("timeout_ms","Use a timeout from 100 to 30000 ms."));}
+            },
+            "assert_property"=>{
+                keys(step,&["id","type","selector","property","expected"])?;
+                selector(&step["selector"])?;
+                if step["selector"].get("xpath").is_some() {return Err(AutomationError::field("selector","Property checks currently require a native selector."));}
+                if !matches!(step["property"].as_str(),Some("enabled"|"checked"|"selected"|"clickable"|"scrollable")) {
+                    return Err(AutomationError::field("property","Unsupported boolean element property."));
+                }
+                if !step["expected"].is_boolean() {return Err(AutomationError::field("expected","Expected value must be a boolean."));}
+            },
+            "scroll_find"=>{
+                keys(step,&["id","type","selector","scroll_container","direction","max_swipes","duration_ms","timeout_ms"])?;
+                selector(&step["selector"])?;
+                selector(&step["scroll_container"])?;
+                if step["scroll_container"].get("xpath").is_some() {return Err(AutomationError::field("scroll_container","Scroll container requires native selector fields."));}
+                if !matches!(step["direction"].as_str(),Some("up"|"down")) {return Err(AutomationError::field("direction","Choose up or down."));}
+                if !step["max_swipes"].as_u64().is_some_and(|v|(1..=5).contains(&v)) {return Err(AutomationError::field("max_swipes","Use 1 to 5 swipes."));}
+                if !step["duration_ms"].as_u64().is_some_and(|v|(200..=1000).contains(&v)) {return Err(AutomationError::field("duration_ms","Use 200 to 1000 ms."));}
+                if !step["timeout_ms"].as_u64().is_some_and(|v|(100..=30000).contains(&v)) {return Err(AutomationError::field("timeout_ms","Use 100 to 30000 ms."));}
             },
             "screenshot"=>keys(step,&["id","type"])?,
             _=>return Err(AutomationError::field("steps.type","This action is not supported.")),
