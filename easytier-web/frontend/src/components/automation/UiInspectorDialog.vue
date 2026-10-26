@@ -335,14 +335,9 @@ function chooseCandidate(id: string) {
     selectedCandidate.value = id;
 }
 function locator(): AutomationSelector | null {
-    if (mode.value !== 'coordinates') return confirmedLocator.value;
-    if (!selected.value || !activeMode.value?.unique) return null;
-    if (mode.value === 'resource_id') return { resource_id: selected.value.resource_id };
-    if (mode.value === 'text') return { text: selected.value.text };
-    if (mode.value === 'description') return { description: selected.value.description };
-    if (mode.value === 'composite') return bestComposite.value;
-    if (mode.value === 'xpath' && suggestedXPath.value) return { xpath: suggestedXPath.value };
-    return null;
+    // AUT-10: native locators are only provided by the explicitly confirmed,
+    // currently unique candidate. Coordinates are a separate manual fallback.
+    return mode.value === 'coordinates' ? null : confirmedLocator.value;
 }
 function replaceTarget() {
     if (!canReplace.value || !selected.value || !snapshot.value || !props.replaceStep) return;
