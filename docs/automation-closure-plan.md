@@ -9,7 +9,7 @@
 | AUT-01 | P0 | **已提交第一批，CI 待核对** | `automation-flow-tree.ts` 编辑器树结构与扁平执行协议互转；整块删除；自动计数；禁止默认 HOME 占位；禁止手改分支范围；回归测试 |
 | AUT-03 | P0 | **已提交第一批，CI 待核对** | `automation-draft.ts` 单一账号会话草稿，拾取/录制/编辑共用；切换 tab 保留；切脚本确认丢弃；不会把运行参数存入浏览器。**刷新页面后持久恢复尚未实现** |
 | AUT-02 | P0 | **第一版已提交，CI/真机待验收** | `automation-gesture.ts` 按时长、最大位移分类短按/长按；明显位移必须手动选「滑动/拖拽/不录制」；超时/回到原点/坏几何拒绝生成；前端回归测试 |
-| AUT-04 | P0 | 未开始 | 既有步骤重新打开拾取器；唯一性验证；步骤 ID 不变 |
+| AUT-04 | P0 | **代码已提交，CI/真机待验收** | 编辑器选中步骤后选择手机并打开无需投屏的控件树，采用原拾取器唯一性判断；仅回填定位条件，保持步骤 ID、原动作、时长、输入参数、条件分支与滚动容器不变；账号/脚本修订/设备绑定变化后拒绝旧结果 |
 | AUT-05 | P0 | 未开始 | 异步逐台 ADB/控件/独占预检；最终派发仍在服务端校验 |
 | AUT-06 | P0 | 未开始 | 区分「脚本完成」「业务验证成功」「业务未验证」；旧数据不误报 |
 | AUT-07 | P0 | 未开始 | 失败步骤与脚本修订、设备、证据关联；跳转当前编辑器 |
@@ -26,6 +26,11 @@
 - `easytier-web/frontend/src/components/AutomationCenter.vue`：录制和拾取直接追加同一草稿。
 - `easytier-web/frontend/src/modules/automation-gesture.ts`：O(1) 采样轨迹统计，短按/长按与位移手势分类；无法判断滑动还是拖拽则阻止新增动作并请求用户确认。
 - `easytier-web/frontend/tests/automation-gesture.test.mjs`：长按 500/800/1500/3000ms、位移确认、返回原点、异常几何和超时的回归测试。
+- `easytier-web/frontend/src/modules/automation-step-target.ts`：只更新已存在步骤的定位条件，不追加动作，不更改类型、UUID、长按时长、输入参数、分支范围、滚动容器等；拒绝输入与属性断言使用 XPath、非法坐标和伪造字段。
+- `easytier-web/frontend/src/components/automation/ScriptLibrary.vue`：脚本编辑器内选择手机并请求对当前步骤重新拾取。
+- `easytier-web/frontend/src/components/automation/UiInspectorDialog.vue`：无视频时仍可只读查看手机控件树；编辑已有步骤时不显示新增动作入口，必须命中唯一定位。
+- `easytier-web/frontend/src/components/AutomationCenter.vue`：校验账号、脚本 ID/修订、原动作类型与设备 target fingerprint，防止跨账号、跨脚本或设备解绑后误覆盖。
+- `easytier-web/frontend/tests/automation-step-target.test.mjs`：现有步骤 UUID、分支计数、输入参数、滚动容器、时长不变以及不合法输入失败关闭的回归。
 - `easytier-web/frontend/tests/automation-flow-tree.test.mjs`、`automation-draft.test.mjs`：结构与草稿回归用例。
 - `.github/workflows/node-attributes-image.yml`：自动化分支主镜像构建前新增前端 `test:unit`。
 
@@ -39,6 +44,9 @@
 6. 切换托管账号后旧账号草稿不能继承到新账号。
 7. 录制和拾取不主动控制正在运行脚本的设备；原有设备独占与授权不变。
 8. 通过前端 CI 后仍需人工手机试跑，并补齐 AUT-00 的环境矩阵。
+9. 编辑器选择包含 XPath/Resource ID 的步骤，切换不同已授权手机重新拾取控件；若 UiAutomator2 未准备，应显示有明确错误且不会修改原步骤。
+10. 对输入、If/Else、滚动查找和长按分别重新拾取；只更新目标，保留参数、分支范围和动作配置。遇到非唯一或已截断 UI 树不得保存。
+11. 拾取后若设备指纹、脚本修订或账号发生变化，旧拾取响应必须被拒绝。
 
 ## 本轮未改的边界
 
