@@ -84,9 +84,11 @@ def execute(target, step, parameters, artifact_path=None):
         from .hierarchy import parse_hierarchy
         width, height = dev.window_size()
         xml = rpc("dumpWindowHierarchy", False, 50, timeout=12)
+        from datetime import datetime, timezone
         return {
             "device_id": target["device_id"],
             "target_fingerprint": target["target_fingerprint"],
+            "captured_at": datetime.now(timezone.utc).isoformat(),
             "snapshot": parse_hierarchy(xml, width, height),
         }
     if kind in ("wait_for", "assert"):
