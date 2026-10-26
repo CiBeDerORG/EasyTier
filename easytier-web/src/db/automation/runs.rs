@@ -47,6 +47,18 @@ fn business_device_state(state:&str,steps:&Value,check:Option<&str>)->&'static s
     if matches!(state,"dispatch_pending"|"queued"|"accepted"|"starting"|"running"|"cancel_requested") {return "pending";}
     "not_reached"
 }
+/** Strip server-owned verification metadata from the executor step wire:
+ * the Python runtime must continue to receive only executable step fields. */
+fn executable_steps(snapshot:&Value)->Value {
+    let mut result=snapshot["steps"].clone();
+    if let Some(items)=result.as_array_mut() {
+        for step in items {
+            if let Some(object)=step.as_object_mut() {object.remove("business_verification");}
+        }
+    }
+    result
+}
+
 fn business_run_state(states:&[&str],configured:bool)->&'static str {
     if !configured {return "not_verified";}
     if states.is_empty() {return "not_reached";}
@@ -296,12 +308,7 @@ impl AutomationStore {
         let snapshot=parse_json(&row.try_get::<String,_>("snapshot_json")?)?;
         let target_rows:Vec<String>=sqlx::query_scalar("SELECT target_json FROM automation_run_devices WHERE run_id=? ORDER BY ordinal").bind(id).fetch_all(&mut *conn).await?;
         let targets=target_rows.iter().map(|raw|parse_json(raw)).collect::<AutomationResult<Vec<_>>>()?;
-        let mut executor_steps=snapshot["steps"].clone();
-        if let Some(items)=executor_steps.as_array_mut() {
-            for step in items {
-                if let Some(object)=step.as_object_mut() {object.remove("business_verification");}
-            }
-        }
+        let executor_steps=executable_steps(&snapshot);
         Ok(json!({"id":id,"owner_user_id":owner,"actor_user_id":row.try_get::<i32,_>("actor_user_id")?,"name":row.try_get::<String,_>("name")?,
             "steps":executor_steps,"parameters":{},"concurrency":row.try_get::<i64,_>("concurrency")?,"targets":targets}))
     }
@@ -529,6 +536,19 @@ mod business_verification_run_tests {
         assert_eq!(business_device_state("running",&passed,id),"pending");
         assert_eq!(business_device_state("completed",&json!([
             {"step_id":"verify","state":"action_sent"}]),id),"not_reached");
+    }
+
+    #[test]
+    fn verification_flag_is_durable_in_snapshot_but_not_executor_protocol() {
+        let snapshot=json!({"steps":[{"id":"verify","type":"assert",
+            "selector":{"text":"Succeeded"},"timeout_ms":10000,
+            "business_verification":true
+        }]});
+        let wire=executable_steps(&snapshot);
+        assert!(snapshot["steps"][0].get("business_verification").is_some());
+        assert!(wire[0].get("business_verification").is_none());
+        assert_eq!(wire[0]["type"],"assert");
+        assert_eq!(business_check_id(&snapshot),Some("verify"));
     }
 
     #[test]
