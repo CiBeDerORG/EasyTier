@@ -131,9 +131,10 @@ function updateNumber(key: string, value: number | null | undefined) {
     <div class="step-editor">
         <label class="field" :for="fieldId('type')">
             <span>{{ text('操作类型', 'Action') }}</span>
-            <Select :input-id="fieldId('type')" :model-value="modelValue.type" :options="actionOptions" option-label="label" option-value="value" :disabled="disabled" @update:model-value="changeType" />
+            <Select :input-id="fieldId('type')" :model-value="modelValue.type" :options="actionOptions" option-label="label" option-value="value" :disabled="disabled || ['if_gone','if_else'].includes(modelValue.type)" @update:model-value="changeType" />
         </label>
 
+        <small v-if="['if_gone','if_else'].includes(modelValue.type)" class="hint">{{ text('条件节点的类型已锁定。需要修改类型时请删除整个条件块后重建。', 'Conditional types are locked. Remove the whole condition block to change the type.') }}</small>
         <label v-if="modelValue.type === 'key'" class="field" :for="fieldId('key')">
             <span>{{ text('导航按键', 'Navigation key') }}</span>
             <Select :input-id="fieldId('key')" :model-value="modelValue.key" :options="keys" option-label="label" option-value="value" :disabled="disabled" @update:model-value="update({ key: $event as AutomationKey })" />
@@ -288,20 +289,20 @@ function updateNumber(key: string, value: number | null | undefined) {
             <label class="field" :for="fieldId('then-count')">
                 <span>{{ text('Then 分支步数（控件消失）', 'Then steps (element gone)') }}</span>
                 <InputNumber :input-id="fieldId('then-count')" :model-value="modelValue.then_count"
-                    :min="1" :max="20" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('then_count', $event)" />
+                    :min="1" :max="20" :use-grouping="false" disabled @update:model-value="updateNumber('then_count', $event)" />
             </label>
             <label class="field" :for="fieldId('else-count')">
                 <span>{{ text('Else 分支步数（控件存在）', 'Else steps (element present)') }}</span>
                 <InputNumber :input-id="fieldId('else-count')" :model-value="modelValue.else_count"
-                    :min="1" :max="20" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('else_count', $event)" />
+                    :min="1" :max="20" :use-grouping="false" disabled @update:model-value="updateNumber('else_count', $event)" />
             </label>
-            <small>{{ text('每段 1–20 步，合计不得超过脚本结尾。支持最多 3 层嵌套，但子条件不能跨越父条件的 Then/Else 边界。', 'Each branch needs 1–20 steps. Up to 3 nested levels are supported; a child cannot cross its parent Then/Else boundary.') }}</small>
+            <small>{{ text('各分支步数由流程编辑器根据增删步骤自动维护，最多嵌套 3 层，每段 1–20 步。', 'Branch sizes are computed from the flow editor. Up to three levels, 1–20 steps per lane.') }}</small>
         </fieldset>
         <label v-if="modelValue.type === 'if_gone'" class="field" :for="fieldId('skip-count')">
             <span>{{ text('条件控制范围（后续步骤数）', 'Conditional range (following steps)') }}</span>
             <InputNumber :input-id="fieldId('skip-count')" :model-value="modelValue.skip_count" :min="1" :max="20"
-                :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('skip_count', $event)" />
-            <small>{{ text('控件消失时继续执行后续 N 步；仍存在时将这些步骤标记为已跳过。不支持跨越脚本结尾。', 'When gone, run the next N steps; otherwise mark them skipped. Cannot extend past the script end.') }}</small>
+                :use-grouping="false" disabled @update:model-value="updateNumber('skip_count', $event)" />
+            <small>{{ text('控件消失时进入 Then，仍存在时跳过。区域步数由流程编辑器自动维护。', 'Run the Then lane when gone; otherwise skip it. The flow editor maintains its size.') }}</small>
         </label>
 
         <label v-if="['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(modelValue.type)" class="field" :for="fieldId('timeout')">
