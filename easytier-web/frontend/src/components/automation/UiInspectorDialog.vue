@@ -4,13 +4,16 @@ import { Button, Dialog, InputText, Message, Tag } from 'primevue';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
 import type { AutomationDevice, AutomationHierarchy, AutomationHierarchyNode, AutomationSelector, AutomationStep } from '../../types/automation';
+import type { StepTarget } from '../../modules/automation-step-target';
 
 const props = defineProps<{
     visible: boolean; device: AutomationDevice; ownerId: number;
     stream: MediaStream | null; queuedCount: number;
+    replaceStep?: Pick<AutomationStep, 'id' | 'type'> | null;
 }>();
 const emit = defineEmits<{
     close: []; 'add-step': [step: AutomationStep]; edit: [];
+    'replace-target': [stepId: string, target: StepTarget];
 }>();
 const api = new AutomationApi();
 const video = ref<HTMLVideoElement | null>(null);
@@ -171,7 +174,15 @@ const modeOptions = computed(() => {
     return choices;
 });
 const activeMode = computed(() => modeOptions.value.find(item => item.value === mode.value));
-const canAdd = computed(() => !!selected.value && !!activeMode.value?.unique && props.queuedCount < 100);
+const canAdd = computed(() => !props.replaceStep && !!selected.value && !!activeMode.value?.unique && props.queuedCount < 100);
+const canReplace = computed(() => {
+    if (!props.replaceStep || !selected.value || !snapshot.value || snapshot.value.truncated
+        || !activeMode.value?.unique || response.value?.target_fingerprint !== props.device.target_fingerprint) return false;
+    const type = props.replaceStep.type;
+    if (mode.value === 'coordinates') return (type === 'tap' || type === 'long_press') && compatibleVideo.value;
+    if (mode.value === 'xpath' && (type === 'input_text' || type === 'assert_property')) return false;
+    return true;
+});
 const nodeHighlight = computed(() => {
     const node = selected.value, shot = snapshot.value;
     if (!node || !shot || !compatibleVideo.value || dragPickMode.value) return null;
@@ -286,6 +297,27 @@ function locator(): AutomationSelector | null {
     if (mode.value === 'xpath' && suggestedXPath.value) return { xpath: suggestedXPath.value };
     return null;
 }
+function replaceTarget() {
+    if (!canReplace.value || !selected.value || !snapshot.value || !props.replaceStep) return;
+    const selector = locator();
+    let target: StepTarget;
+    if (selector) {
+        target = { selector: { ...selector } };
+    } else {
+        if (mode.value !== 'coordinates' || !compatibleVideo.value) return;
+        const bounds = selected.value.bounds;
+        const { width, height } = snapshot.value;
+        target = {
+            coordinates: {
+                x: (bounds.left + bounds.right) / (2 * width),
+                y: (bounds.top + bounds.bottom) / (2 * height),
+                width, height,
+            },
+        };
+    }
+    // The controller checks the owner, script identity and step type again.
+    emit('replace-target', props.replaceStep.id, target);
+}
 function add(type: 'tap' | 'long_press' | 'wait_for' | 'wait_gone' | 'assert' | 'assert_property' | 'scroll_find' | 'input_text') {
     if (!selected.value || !snapshot.value || !canAdd.value) return;
     const selector = locator();
@@ -327,7 +359,7 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
 </script>
 
 <template>
-    <Dialog :visible="visible" modal append-to="body" :header="device.name + ' · UiAutomator2 控件拾取'"
+    <Dialog :visible="visible" modal append-to="body" :header="device.name + (replaceStep ? ' · 更新已有步骤控件' : ' · UiAutomator2 控件拾取')"
         :style="{ width: '1160px', maxWidth: 'calc(100vw - 24px)' }" :content-style="{ padding: '0' }"
         @show="setVideo"
         @update:visible="value => { if (!value) emit('close'); }">
@@ -336,14 +368,19 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                 <div class="status">
                     <Tag :value="loading ? '正在读取' : snapshot ? '控件树已加载' : '未加载'" :severity="snapshot ? 'success' : 'secondary'" />
                     <span v-if="capturedAt">层级采集时间：{{ capturedAt }}</span>
-                    <span>视频是实时流，控件树是独立快照；切换页面后请重新读取。</span>
+                    <span v-if="stream">视频是实时流，控件树是独立快照；切换页面后请重新读取。</span>
+                    <span v-else>当前使用独立控件树检查模式；不需要打开实时投屏。</span>
                 </div>
                 <Button label="刷新控件树" icon="pi pi-refresh" outlined size="small" :loading="loading" @click="refresh" />
             </div>
             <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
             <Message v-if="snapshot?.truncated" severity="warn" :closable="false">当前页面控件过多，已截断。为防止错误定位，精确控件步骤暂不可添加。</Message>
-            <div class="inspector-columns">
-                <section class="preview-panel" aria-label="手机画面拾取">
+            <Message v-if="replaceStep" severity="info" :closable="false">
+                正在更新已存在的 {{ replaceStep.type }} 步骤：只替换控件定位，不修改动作类型、步骤编号、按住时长、输入参数或条件分支。
+                需选择当前控件树中唯一匹配的定位条件；执行时仍会再次检查唯一性。
+            </Message>
+            <div class="inspector-columns" :class="{ 'tree-only': !stream }">
+                <section v-if="stream" class="preview-panel" aria-label="手机画面拾取">
                     <div class="preview-heading"><strong>手机实时画面</strong><small>{{ snapshot ? snapshot.width + ' × ' + snapshot.height : '等待控件树' }}</small></div>
                     <div class="video-well">
                         <div ref="surface" class="video-surface" :style="{ aspectRatio: snapshot ? snapshot.width + ' / ' + snapshot.height : '9 / 19', width: snapshot ? 'min(100%, ' + (snapshot.width / snapshot.height * 58) + 'vh)' : 'min(100%, 27.5vh)' }">
@@ -418,7 +455,14 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                         <p v-if="mode === 'coordinates'" class="hint">坐标仅适用于当前画面比例；优先选择唯一控件条件。</p>
                         <p v-else-if="mode === 'composite'" class="hint">自动将多项属性合并为唯一控件条件：{{ JSON.stringify(bestComposite) }}</p>
                         <p v-else-if="mode === 'xpath'" class="hint"><code>{{ suggestedXPath }}</code></p>
-                        <div class="step-actions">
+                        <div v-if="replaceStep" class="step-actions">
+                            <Button label="更新当前步骤控件" icon="pi pi-check" size="small"
+                                :disabled="!canReplace" @click="replaceTarget" />
+                            <small v-if="activeMode && !activeMode.unique" class="hint">当前定位条件未通过唯一性检查，请选择其他条件或刷新控件树。</small>
+                            <small v-if="mode === 'xpath' && ['input_text', 'assert_property'].includes(replaceStep.type)" class="hint">此动作只支持组合控件定位，请选择 Resource ID、文字或组合条件。</small>
+                            <small v-if="mode === 'coordinates' && !['tap', 'long_press'].includes(replaceStep.type)" class="hint">当前步骤必须使用唯一控件定位，不能使用画面坐标。</small>
+                        </div>
+                        <div v-else class="step-actions">
                             <Button label="添加点击" icon="pi pi-plus" size="small" :disabled="!canAdd" @click="add('tap')" />
                             <Button label="添加长按" outlined size="small" :disabled="!canAdd" @click="add('long_press')" />
                             <Button label="等待出现" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('wait_for')" />
@@ -434,11 +478,12 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                 </section>
             </div>
             <div class="inspector-footer">
-                <span role="status">{{ feedback || '脚本步骤只会加入草稿，不会立即执行。' }}</span>
+                <span role="status">{{ feedback || (replaceStep ? '重新拾取只修改已有步骤，不会操作手机或新增步骤。' : '脚本步骤只会加入草稿，不会立即执行。') }}</span>
                 <div class="footer-actions">
-                    <strong>草稿 {{ queuedCount }}/100 步</strong>
+                    <strong v-if="!replaceStep">草稿 {{ queuedCount }}/100 步</strong>
+                    <strong v-else>更新步骤 {{ replaceStep.id.slice(0, 8) }}</strong>
                     <Button label="关闭" text size="small" @click="emit('close')" />
-                    <Button label="去编辑脚本" icon="pi pi-arrow-right" icon-pos="right" size="small" :disabled="queuedCount === 0" @click="emit('edit')" />
+                    <Button v-if="!replaceStep" label="去编辑脚本" icon="pi pi-arrow-right" icon-pos="right" size="small" :disabled="queuedCount === 0" @click="emit('edit')" />
                 </div>
             </div>
         </div>
@@ -450,6 +495,7 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
 .inspector-toolbar,.inspector-footer,.pane-heading,.preview-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .inspector-toolbar .status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--console-muted)}
 .inspector-columns{display:grid;grid-template-columns:minmax(210px, .9fr) minmax(220px,1fr) minmax(235px,1fr);gap:12px;min-width:0}
+.inspector-columns.tree-only{grid-template-columns:minmax(240px,1fr) minmax(260px,1fr)}
 .inspector-columns>section{min-width:0;border:1px solid var(--console-border);border-radius:10px;padding:12px;background:var(--console-panel);display:flex;flex-direction:column;gap:11px}
 .pane-heading,.preview-heading{min-height:26px;font-size:13px}
 .pane-heading small,.preview-heading small,.hint{font-size:11px;color:var(--console-muted);line-height:1.6}
