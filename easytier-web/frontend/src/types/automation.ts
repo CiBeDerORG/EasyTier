@@ -7,7 +7,7 @@ export interface AutomationHierarchyNode {
     bounds: { left: number; top: number; right: number; bottom: number };
 }
 export interface AutomationHierarchy {
-    device_id: string; target_fingerprint: string;
+    device_id: string; target_fingerprint: string; captured_at: string;
     snapshot: { width: number; height: number; truncated: boolean; nodes: AutomationHierarchyNode[] };
 }
 export type AutomationStepType = 'key' | 'tap' | 'swipe' | 'input_text' | 'launch_app' | 'wait_for' | 'assert' | 'screenshot';
