@@ -295,7 +295,7 @@ function updateNumber(key: string, value: number | null | undefined) {
                 <InputNumber :input-id="fieldId('else-count')" :model-value="modelValue.else_count"
                     :min="1" :max="20" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('else_count', $event)" />
             </label>
-            <small>{{ text('每段 1–20 步，合计不可超过脚本结尾。目前暂不允许条件嵌套或交叉。', 'Each branch needs 1–20 steps. The blocks must fit before the script ends. Nesting is not yet supported.') }}</small>
+            <small>{{ text('每段 1–20 步，合计不得超过脚本结尾。支持最多 3 层嵌套，但子条件不能跨越父条件的 Then/Else 边界。', 'Each branch needs 1–20 steps. Up to 3 nested levels are supported; a child cannot cross its parent Then/Else boundary.') }}</small>
         </fieldset>
         <label v-if="modelValue.type === 'if_gone'" class="field" :for="fieldId('skip-count')">
             <span>{{ text('条件控制范围（后续步骤数）', 'Conditional range (following steps)') }}</span>
