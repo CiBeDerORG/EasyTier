@@ -507,7 +507,7 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
                                 <button type="button" class="flow-node" :disabled="busy"
                                     :aria-pressed="step.id === selectedStepId" @click="selectedStepId = step.id">
                                     <span class="step-number">{{ index + 1 }}</span>
-                                    <span class="flow-node-name">{{ stepTitles[step.type] }}</span>
+                                    <span class="flow-node-name">{{ step.type === 'key' && !step.key ? text('待配置步骤', 'Unconfigured step') : stepTitles[step.type] }}</span>
                                     <i v-if="['if_gone', 'if_else'].includes(step.type)" class="pi pi-sitemap" aria-hidden="true" />
                                 </button>
                                 <div v-if="step.type === 'if_gone' || step.type === 'if_else'" class="flow-branches">
@@ -528,7 +528,7 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
                         </ol>
                         <ol v-else class="step-list">
                             <li v-for="(step, index) in steps" :key="step.id" :class="{ selected: step.id === selectedStepId }">
-                                <button type="button" class="step-select" :disabled="busy" :aria-pressed="step.id === selectedStepId" @click="selectedStepId = step.id"><span class="step-number">{{ index + 1 }}</span><span class="step-description">{{ stepTitles[step.type] }}<small v-if="branchScope(index)" class="branch-scope">{{ branchScope(index) }}</small></span></button>
+                                <button type="button" class="step-select" :disabled="busy" :aria-pressed="step.id === selectedStepId" @click="selectedStepId = step.id"><span class="step-number">{{ index + 1 }}</span><span class="step-description">{{ step.type === 'key' && !step.key ? text('待配置步骤', 'Unconfigured step') : stepTitles[step.type] }}<small v-if="branchScope(index)" class="branch-scope">{{ branchScope(index) }}</small></span></button>
                                 <div class="step-actions">
                                     <Button icon="pi pi-arrow-up" text rounded size="small" :disabled="!canMoveStep(index, -1)" :aria-label="text('上移步骤', 'Move step up')" @click="moveStep(index, -1)" />
                                     <Button icon="pi pi-arrow-down" text rounded size="small" :disabled="!canMoveStep(index, 1)" :aria-label="text('下移步骤', 'Move step down')" @click="moveStep(index, 1)" />
