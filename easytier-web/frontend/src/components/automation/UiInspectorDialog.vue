@@ -46,6 +46,8 @@ const parentIds = computed(() => new Set((snapshot.value?.nodes ?? [])
 const selected = computed(() => selectedId.value === null ? null : nodeIndex.value.get(selectedId.value) ?? null);
 const locatorCandidates = computed(() => snapshot.value && selectedId.value !== null ? rankLocatorCandidates(snapshot.value, selectedId.value) : []);
 const selectedCandidate = ref<string | null>(null);
+// Coordinates are a deliberate, separately confirmed fallback, never a default.
+const coordinateConfirmed = ref(false);
 const confirmedLocator = computed(() => {
     const candidate = locatorCandidates.value.find(item => item.id === selectedCandidate.value && item.unique);
     return candidate && snapshot.value && selectedId.value !== null
@@ -115,6 +117,23 @@ const compatibleVideo = computed(() => {
     const displayed = videoSize.value.width / videoSize.value.height;
     return Math.abs(expected / displayed - 1) < .035;
 });
+const coordinateBoundsValid = computed(() => {
+    const b = selected.value?.bounds, shot = snapshot.value;
+    return !!b && !!shot && !shot.truncated && b.left >= 0 && b.top >= 0
+        && b.right > b.left && b.bottom > b.top
+        && b.right <= shot.width && b.bottom <= shot.height;
+});
+const coordinatesAllowed = computed(() => compatibleVideo.value && coordinateBoundsValid.value
+    && response.value?.target_fingerprint === props.device.target_fingerprint);
+function confirmCoordinates() {
+    if (mode.value !== 'coordinates' || !coordinatesAllowed.value) return;
+    coordinateConfirmed.value = true;
+    feedback.value = '已手动确认使用坐标定位；画面旋转、控件变更或刷新控件树后需要重新确认。';
+}
+function onLocatorModeChange() {
+    selectedCandidate.value = null;
+    coordinateConfirmed.value = false;
+}
 const nativeFields = ['resource_id', 'text', 'description', 'class_name', 'package'] as const;
 type NativeField = typeof nativeFields[number];
 const bestComposite = computed<AutomationSelector | null>(() => {
@@ -170,7 +189,7 @@ const modeOptions = computed(() => {
         { value: 'description', label: '无障碍描述', unique: false },
         { value: 'composite', label: '组合条件（自动推荐）', unique: !!bestComposite.value || !!confirmedLocator.value },
         { value: 'xpath', label: 'XPath 1.0（自动生成）', unique: !!suggestedXPath.value },
-        { value: 'coordinates', label: '画面坐标', unique: compatibleVideo.value },
+        { value: 'coordinates', label: '画面坐标（手动兜底）', unique: coordinatesAllowed.value },
     ];
     for (const choice of choices) {
         if (choice.value === 'coordinates' || choice.value === 'composite' || choice.value === 'xpath') continue;
@@ -183,10 +202,13 @@ const modeOptions = computed(() => {
 });
 const activeMode = computed(() => modeOptions.value.find(item => item.value === mode.value));
 const canAdd = computed(() => !props.replaceStep && !!selected.value
-    && (mode.value === 'coordinates' ? !!activeMode.value?.unique : !!confirmedLocator.value) && props.queuedCount < 100);
+    && !!snapshot.value && !snapshot.value.truncated
+    && response.value?.target_fingerprint === props.device.target_fingerprint
+    && (mode.value === 'coordinates' ? coordinatesAllowed.value && coordinateConfirmed.value : !!confirmedLocator.value)
+    && props.queuedCount < 100);
 const canReplace = computed(() => {
     if (!props.replaceStep || !selected.value || !snapshot.value || snapshot.value.truncated
-        || (mode.value === 'coordinates' ? !activeMode.value?.unique : !confirmedLocator.value)
+        || (mode.value === 'coordinates' ? !coordinatesAllowed.value || !coordinateConfirmed.value : !confirmedLocator.value)
         || response.value?.target_fingerprint !== props.device.target_fingerprint) return false;
     const type = props.replaceStep.type;
     if (mode.value === 'coordinates') return (type === 'tap' || type === 'long_press') && compatibleVideo.value;
@@ -201,10 +223,11 @@ const nodeHighlight = computed(() => {
         width: (right - left) / shot.width * 100 + '%', height: (bottom - top) / shot.height * 100 + '%' };
 });
 function title(node: AutomationHierarchyNode) {
+    if (node.password) return node.resource_id || node.class_name || '敏感输入框';
     return node.text || node.description || node.resource_id || node.class_name || '未命名控件';
 }
 function selectNode(id: number) {
-    selectedId.value = id; selectedCandidate.value = null; feedback.value = '';
+    selectedId.value = id; selectedCandidate.value = null; coordinateConfirmed.value = false; feedback.value = '';
     const expanded = new Set(collapsedIds.value);
     const visited = new Set<number>();
     let parent = nodeIndex.value.get(id)?.parent_id ?? null;
@@ -232,7 +255,7 @@ function videoMetadata() {
 async function refresh() {
     if (!props.visible || loading.value) return;
     const generation = ++requestGeneration;
-    response.value = null; selectedId.value = null; selectedCandidate.value = null; collapsedIds.value = [];
+    response.value = null; selectedId.value = null; selectedCandidate.value = null; coordinateConfirmed.value = false; collapsedIds.value = [];
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = ''; loading.value = true;
     try {
@@ -295,14 +318,18 @@ function pick(event: MouseEvent) {
 }
 watch(selected, node => {
     if (!node) return;
-    mode.value = (['resource_id', 'text', 'description', 'composite', 'xpath'] as const)
-        .find(key => modeOptions.value.some(option => option.value === key && option.unique)) ?? 'coordinates';
+    coordinateConfirmed.value = false;
+    selectedCandidate.value = null;
+    // Never automatically fall back to screen coordinates when all selectors are ambiguous.
+    mode.value = (['resource_id', 'description', 'text', 'composite'] as const)
+        .find(key => modeOptions.value.some(option => option.value === key && option.unique)) ?? 'resource_id';
 });
 function chooseCandidate(id: string) {
     const candidate = locatorCandidates.value.find(item => item.id === id && item.unique);
     if (!candidate || !snapshot.value || selectedId.value === null
         || !locatorIsUnique(snapshot.value, selectedId.value, candidate.selector)) return;
     const keys = Object.keys(candidate.selector);
+    coordinateConfirmed.value = false;
     mode.value = keys.length === 1 && ['resource_id', 'text', 'description'].includes(keys[0])
         ? keys[0] as LocatorMode : 'composite';
     selectedCandidate.value = id;
@@ -366,9 +393,10 @@ function add(type: 'tap' | 'long_press' | 'wait_for' | 'wait_gone' | 'assert' | 
     feedback.value = '已添加到脚本草稿：' + ({ tap: '点击', long_press: '长按', wait_for: '等待控件', wait_gone: '等待消失', assert: '检查控件',
         assert_property: '断言属性', scroll_find: '滚动查找', input_text: '输入文字' }[type]);
 }
-watch([() => props.visible, () => props.device.id, () => props.ownerId], async () => {
+watch([() => props.visible, () => props.device.id, () => props.device.target_fingerprint, () => props.ownerId], async () => {
     ++requestGeneration;
-    response.value = null; selectedId.value = null; collapsedIds.value = []; loading.value = false;
+    response.value = null; selectedId.value = null; selectedCandidate.value = null;
+    coordinateConfirmed.value = false; collapsedIds.value = []; loading.value = false;
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = ''; videoSize.value = { width: 0, height: 0 };
     await nextTick();
@@ -376,6 +404,10 @@ watch([() => props.visible, () => props.device.id, () => props.ownerId], async (
     if (props.visible) void refresh();
 }, { immediate: true });
 watch(() => props.stream, async () => { await nextTick(); setVideo(); });
+watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
+    selectedCandidate.value = null;
+    coordinateConfirmed.value = false;
+});
 </script>
 
 <template>
@@ -466,7 +498,7 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                         <div class="property"><span>类名</span><code>{{ selected.class_name || '—' }}</code></div>
                         <div class="property"><span>Resource ID</span><code>{{ selected.resource_id || '—' }}</code></div>
                         <div class="property"><span>文字</span><code>{{ selected.password ? '敏感输入框（已隐藏）' : selected.text || '—' }}</code></div>
-                        <div class="property"><span>描述</span><code>{{ selected.description || '—' }}</code></div>
+                        <div class="property"><span>描述</span><code>{{ selected.password ? '敏感输入框（已隐藏）' : selected.description || '—' }}</code></div>
                         <div class="property"><span>范围</span><code>{{ selected.bounds.left }}, {{ selected.bounds.top }} → {{ selected.bounds.right }}, {{ selected.bounds.bottom }}</code></div>
                         <div class="locator-recommendations" aria-label="候选控件定位">
                             <strong>候选定位条件（需人工确认）</strong>
@@ -478,13 +510,17 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                                 <span>{{ item.label }} · {{ item.unique ? '唯一' : '匹配 ' + item.matches + ' 个' }}</span>
                                 <small>{{ selectedCandidate === item.id ? '已确认' : item.unique ? '选择' : '不可用' }}</small>
                             </button>
-                            <small>仅验证当前快照；不使用 instance 序号。界面变化后请刷新。</small>
+                            <small>请点选上方唯一候选进行确认。仅验证当前快照；不使用 instance 序号。界面变化后请刷新。</small>
                         </div>
                         <label class="locator-label" for="ui-inspector-locator">定位方式</label>
-                        <select id="ui-inspector-locator" v-model="mode" class="locator-select" @change="selectedCandidate = null">
+                        <select id="ui-inspector-locator" v-model="mode" class="locator-select" @change="onLocatorModeChange">
                             <option v-for="option in modeOptions" :key="option.value" :value="option.value" :disabled="!option.unique">{{ option.label }}{{ option.unique ? '' : ' · 不可用或不唯一' }}</option>
                         </select>
-                        <p v-if="mode === 'coordinates'" class="hint">坐标仅适用于当前画面比例；优先选择唯一控件条件。</p>
+                        <div v-if="mode === 'coordinates'" class="coordinate-confirm">
+                            <small class="hint">坐标定位依赖当前画面和方向；必须主动确认，不会自动回退。</small>
+                            <Button :label="coordinateConfirmed ? '已确认坐标' : '确认使用坐标'"
+                                outlined size="small" :disabled="!coordinatesAllowed || coordinateConfirmed" @click="confirmCoordinates" />
+                        </div>
                         <p v-else-if="mode === 'composite'" class="hint">自动将多项属性合并为唯一控件条件：{{ JSON.stringify(bestComposite) }}</p>
                         <p v-else-if="mode === 'xpath'" class="hint"><code>{{ suggestedXPath }}</code></p>
                         <div v-if="replaceStep" class="step-actions">
@@ -556,6 +592,7 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
 .ancestry{display:grid;gap:7px}.ancestry>span{font-size:11px;color:var(--console-muted)}.ancestry-nodes{display:flex;gap:4px;flex-wrap:wrap}
 .ancestry-nodes button{max-width:100%;overflow-wrap:anywhere;border:1px solid var(--console-border);border-radius:6px;padding:4px 6px;font-size:10px;background:var(--console-panel-raised);color:var(--p-text-color);cursor:pointer}
 .ancestry-nodes button.current{border-color:var(--p-primary-color);background:var(--console-accent-soft)}
+.coordinate-confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .parent-recommendation{padding:9px;border:1px solid var(--console-border);border-radius:8px;background:var(--console-accent-soft);display:grid;gap:4px;font-size:11px;line-height:1.6}
 .parent-recommendation :deep(.p-button){justify-self:start}
 .property{display:grid;gap:4px;padding:5px 0;border-bottom:1px solid var(--console-border)}
