@@ -167,7 +167,7 @@ function updateNumber(key: string, value: number | null | undefined) {
             <small v-if="!modelValue.selector" class="hint">{{ text('将文字输入当前已聚焦的输入框。', 'Text goes to the currently focused input field.') }}</small>
         </template>
 
-        <fieldset v-if="modelValue.selector && ['tap', 'long_press', 'input_text', 'wait_for', 'wait_gone', 'if_gone', 'assert', 'assert_property', 'scroll_find'].includes(modelValue.type)" class="selector-fields">
+        <fieldset v-if="modelValue.selector && ['tap', 'long_press', 'input_text', 'wait_for', 'wait_gone', 'if_gone', 'if_else', 'assert', 'assert_property', 'scroll_find'].includes(modelValue.type)" class="selector-fields">
             <legend>{{ text('控件条件（至少填写一项）', 'Element conditions (at least one)') }}</legend>
             <label class="field" :for="fieldId('selector-mode')">
                 <span>{{ text('定位策略', 'Locator mode') }}</span>
