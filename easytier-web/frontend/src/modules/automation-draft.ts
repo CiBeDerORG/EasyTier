@@ -1,5 +1,5 @@
 import type { AutomationStep } from '../types/automation';
-import { analyzeAutomationFlow } from './automation-flow';
+import { analyzeAutomationFlow } from './automation-flow.ts';
 
 export interface AutomationDraftWorkspace {
     ownerId: number;
