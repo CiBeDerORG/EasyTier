@@ -85,7 +85,7 @@ async fn read_run(conn:&mut SqliteConnection,owner:i32,id:&str)->AutomationResul
         "executor_revision":row.try_get::<i64,_>("result_revision")?,
         "created_at":row.try_get::<String,_>("created_at")?,"updated_at":row.try_get::<String,_>("updated_at")?,
         "script_snapshot":snapshot,
-        "business_verification":business_run_state(&business_states,check.is_some()),
+        "business_verification":business_state,
         "parameter_names":parse_json(&row.try_get::<String,_>("parameters_json")?)?,
         "concurrency":row.try_get::<i64,_>("concurrency")?,"cancel_requested":row.try_get::<bool,_>("cancel_requested")?,"devices":devices}))
 }
