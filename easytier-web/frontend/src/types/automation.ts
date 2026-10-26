@@ -109,14 +109,17 @@ export interface AutomationStepResult {
     artifact_id?: string; error?: string | { code?: string; message?: string };
     branch_taken?: 'then' | 'else' | 'skip'; skipped_by_step_id?: string;
 }
+export type BusinessVerificationStatus = 'verified' | 'failed' | 'not_verified' | 'pending' | 'not_reached' | 'outcome_unknown' | 'partial';
 export interface AutomationRunDevice {
     device_id: string; name: string; state: string; current_step: number | string | null;
+    business_verification?: BusinessVerificationStatus;
     cleanup_confirmed?: boolean;
     error?: string | { code?: string; message?: string }; steps: AutomationStepResult[];
 }
 export interface AutomationRun {
     id: string; name: string; state: string; created_at: string; updated_at: string;
     executor_revision?: number; concurrency?: number;
+    business_verification?: BusinessVerificationStatus;
     script_snapshot: { name?: string; revision?: number; steps: AutomationStep[] };
     devices: AutomationRunDevice[];
 }
