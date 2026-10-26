@@ -87,7 +87,7 @@ const visibleNodes = computed(() => {
     if (term) {
         const included = new Set<number>();
         for (const node of nodes) {
-            if (![node.text, node.description, node.resource_id, node.class_name]
+            if (![node.password ? '' : node.text, node.password ? '' : node.description, node.resource_id, node.class_name]
                 .some(value => value.toLocaleLowerCase().includes(term))) continue;
             let parent: AutomationHierarchyNode | undefined = node;
             const visited = new Set<number>();
@@ -187,8 +187,8 @@ const modeOptions = computed(() => {
         { value: 'resource_id', label: 'Resource ID', unique: false },
         { value: 'text', label: '控件文字', unique: false },
         { value: 'description', label: '无障碍描述', unique: false },
-        { value: 'composite', label: '组合条件（自动推荐）', unique: !!bestComposite.value || !!confirmedLocator.value },
-        { value: 'xpath', label: 'XPath 1.0（自动生成）', unique: !!suggestedXPath.value },
+        { value: 'composite', label: '组合条件（候选推荐）', unique: locatorCandidates.value.some(item => item.id.includes('+') && item.unique) },
+        { value: 'xpath', label: 'XPath 1.0（请在脚本编辑器手动配置）', unique: false },
         { value: 'coordinates', label: '画面坐标（手动兜底）', unique: coordinatesAllowed.value },
     ];
     for (const choice of choices) {
@@ -403,7 +403,11 @@ watch([() => props.visible, () => props.device.id, () => props.device.target_fin
     setVideo();
     if (props.visible) void refresh();
 }, { immediate: true });
-watch(() => props.stream, async () => { await nextTick(); setVideo(); });
+watch(() => props.stream, async () => {
+    coordinateConfirmed.value = false;
+    videoSize.value = { width: 0, height: 0 };
+    await nextTick(); setVideo();
+});
 watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
     selectedCandidate.value = null;
     coordinateConfirmed.value = false;
@@ -521,7 +525,7 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                             <Button :label="coordinateConfirmed ? '已确认坐标' : '确认使用坐标'"
                                 outlined size="small" :disabled="!coordinatesAllowed || coordinateConfirmed" @click="confirmCoordinates" />
                         </div>
-                        <p v-else-if="mode === 'composite'" class="hint">自动将多项属性合并为唯一控件条件：{{ JSON.stringify(bestComposite) }}</p>
+                        <p v-else-if="mode === 'composite'" class="hint">已确认的唯一组合条件：{{ JSON.stringify(confirmedLocator ?? {}) }}</p>
                         <p v-else-if="mode === 'xpath'" class="hint"><code>{{ suggestedXPath }}</code></p>
                         <div v-if="replaceStep" class="step-actions">
                             <Button label="更新当前步骤控件" icon="pi pi-check" size="small"
