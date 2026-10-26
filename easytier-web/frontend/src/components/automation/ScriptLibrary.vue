@@ -31,6 +31,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     'run-created': [run: AutomationRun];
     'pick-step-target': [stepId: string, stepType: AutomationStepType, deviceId: string];
+    'repair-consumed': [requestId: string];
 }>();
 const api = new AutomationApi();
 const { locale } = useI18n();
@@ -419,8 +420,12 @@ async function receiveRepairRequest(request: AutomationRepairRequest) {
         if (!plan) {
             error.value = text('无法验证历史步骤与执行快照，修复入口已取消。',
                 'Historical step or run snapshot could not be verified. Repair was cancelled.');
+            emit('repair-consumed',request.requestId);
             return;
         }
+        // Consume the navigation request once. Returning to this tab must
+        // not unexpectedly re-open a cancelled repair dialog.
+        emit('repair-consumed',request.requestId);
         if (dirty.value) {
             pendingOpenScript.value = null;
             pendingRepairPlan.value = plan;
@@ -433,6 +438,7 @@ async function receiveRepairRequest(request: AutomationRepairRequest) {
             // Cannot prove that the saved script revision still matches.
             // Do not silently fall back to editing a possibly newer script.
             error.value = automationErrorMessage(cause);
+            emit('repair-consumed',request.requestId);
         }
     }
 }
