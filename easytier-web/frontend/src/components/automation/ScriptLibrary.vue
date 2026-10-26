@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, toRef, watch } from 'vue';
-import { Button, Dialog, InputNumber, InputText, Select, Tag, Textarea } from 'primevue';
+import { Button, Checkbox, Dialog, InputNumber, InputText, Select, Tag, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
-import type { AutomationRun, AutomationRunInput, AutomationScript, AutomationStep, AutomationStepType } from '../../types/automation';
+import type { AutomationDevice, AutomationRun, AutomationRunInput, AutomationScript, AutomationStep, AutomationStepType } from '../../types/automation';
 import ScriptStepEditor from './ScriptStepEditor.vue';
 import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
 import { addFlowBranchStep, createFlowCondition, removeFlowBlock } from '../../modules/automation-flow-tree';
 import { emptyAutomationDraft, type AutomationDraftWorkspace } from '../../modules/automation-draft';
 import { stepCanPickTarget } from '../../modules/automation-step-target';
+import {
+    initPreflightRow, probePreflightDevices, requiresAutomationHelper, selectedReadyIds, type PreflightRow,
+} from '../../modules/automation-preflight';
 
 const props = defineProps<{
     ownerId: number;
@@ -17,6 +20,7 @@ const props = defineProps<{
     draft: AutomationDraftWorkspace;
     deviceNames?: Record<string, string>;
     pickerDevices: { id: string; name: string }[];
+    runDeviceSnapshots: AutomationDevice[];
 }>();
 const emit = defineEmits<{
     'run-created': [run: AutomationRun];
@@ -60,6 +64,11 @@ const runConcurrency = ref<number | null>(1);
 const runParameters = ref<Record<string, string>>(Object.create(null));
 const pendingRun = ref<AutomationRunInput>();
 const uncertainRun = ref(false);
+const preflightRows = ref<PreflightRow[]>([]);
+const preflightRunning = ref(false);
+const preflightError = ref('');
+const runFingerprints = ref<Record<string, string | null>>({});
+let preflightGeneration = 0;
 let scopeRevision = 0;
 let listRequest = 0;
 let disposed = false;
@@ -88,6 +97,86 @@ const parameterNames = computed(() => [...new Set(runSteps.value
 const runDeviceOptions = computed(() => runDevices.value.map(id => ({ value: id, label: props.deviceNames?.[id] || id })));
 const shownRunDevices = computed(() => runMode.value === 'draft'
     ? runDevices.value.filter(id => id === runTrialDevice.value) : runDevices.value);
+const eligibleRunDevices = computed(() => selectedReadyIds(preflightRows.value));
+const preflightFinished = computed(() => !preflightRunning.value && !preflightError.value
+    && preflightRows.value.length === shownRunDevices.value.length
+    && preflightRows.value.length > 0
+    && preflightRows.value.every(row => row.state !== 'checking'));
+const preflightLabels = computed<Record<PreflightRow['state'], string>>(() => ({
+    checking: text('检查中', 'Checking'),
+    ready: text('可执行', 'Ready'),
+    needs_preparation: text('需要准备', 'Needs preparation'),
+    unavailable: text('不可用', 'Unavailable'),
+    query_failed: text('查询失败', 'Check failed'),
+}));
+function preflightSeverity(state: PreflightRow['state']): 'success' | 'warn' | 'danger' | 'secondary' {
+    return state === 'ready' ? 'success'
+        : state === 'needs_preparation' ? 'warn'
+        : state === 'checking' ? 'secondary' : 'danger';
+}
+function selectPreflightDevice(id: string, checked: boolean) {
+    if (pendingRun.value || runSubmitting.value || preflightRunning.value) return;
+    const row = preflightRows.value.find(item => item.id === id);
+    if (row?.state === 'ready') row.selected = checked;
+}
+async function checkRunPreflight() {
+    if (!runVisible.value || pendingRun.value) return;
+    const generation = ++preflightGeneration;
+    const owner = props.ownerId, scope = scopeRevision;
+    const ids = [...shownRunDevices.value];
+    if (!ids.length) {
+        preflightRows.value = []; preflightRunning.value = false;
+        preflightError.value = text('请选择试跑设备。', 'Select a trial device.');
+        return;
+    }
+    const initialDevices = new Map(props.runDeviceSnapshots.map(device => [device.id, device]));
+    preflightRows.value = ids.map(id => ({
+        ...initPreflightRow(initialDevices.get(id), id),
+        state: 'checking' as const, message: text('等待最新设备状态', 'Awaiting fresh device state'), selected: false,
+    }));
+    preflightError.value = '';
+    preflightRunning.value = true;
+    const valid = () => !disposed && generation === preflightGeneration && scope === scopeRevision
+        && owner === props.ownerId && runVisible.value && !pendingRun.value
+        && ids.join('\u0000') === shownRunDevices.value.join('\u0000');
+    try {
+        // Read the latest account-scoped bindings/occupancy once, then query
+        // ADB + UiAutomator2 independently per phone. Never connect or pair.
+        const fresh = await api.devices(owner);
+        if (!valid()) return;
+        const latest = new Map(fresh.items.map(device => [device.id, device]));
+        const current = ids.map(id => {
+            const row = initPreflightRow(latest.get(id), id);
+            if (row.state === 'checking' && row.targetFingerprint !== runFingerprints.value[id])
+                return { ...row, state: 'unavailable' as const, selected: false,
+                    message: text('设备绑定已变化，请关闭弹窗重新选择。', 'Device binding changed. Reopen the run dialog.') };
+            return row;
+        });
+        preflightRows.value = current;
+        await probePreflightDevices(current, owner, requiresAutomationHelper(runSteps.value), api, row => {
+            const index = preflightRows.value.findIndex(item => item.id === row.id);
+            if (index >= 0 && valid()) preflightRows.value[index] = row;
+        }, valid, 3);
+    } catch (cause) {
+        if (!valid()) return;
+        preflightError.value = automationErrorMessage(cause);
+        preflightRows.value = ids.map(id => ({
+            ...initPreflightRow(initialDevices.get(id), id),
+            state: 'query_failed', selected: false, message: text('无法刷新设备注册状态。', 'Cannot refresh device registration.'),
+        }));
+    } finally {
+        if (valid()) preflightRunning.value = false;
+    }
+}
+watch([runVisible, runTrialDevice], ([visible], [wasVisible]) => {
+    if (!visible) {
+        preflightGeneration++;
+        preflightRows.value = []; preflightRunning.value = false; preflightError.value = '';
+        return;
+    }
+    if (!pendingRun.value && (runMode.value === 'draft' || !wasVisible))
+        void checkRunPreflight();
+});
 const stepTitles = computed<Record<AutomationStepType, string>>(() => ({
     key: text('导航按键', 'Navigation key'), tap: text('点击', 'Tap'),
     long_press: text('长按', 'Long press'), swipe: text('滑动', 'Swipe'), drag: text('拖拽', 'Drag'),
@@ -401,6 +490,10 @@ function prepareRun(mode: 'saved' | 'draft') {
     }
     const ids = [...new Set(props.selectedDeviceIds)];
     if (!ids.length) { error.value = text('请先在设备工作台选择目标手机。', 'Select target phones in the device workspace first.'); return; }
+    if (ids.length > 20) { error.value = text('一次最多运行 20 台手机，请先缩小工作台选择。', 'A run supports at most 20 devices. Reduce the selection first.'); return; }
+    runFingerprints.value = Object.fromEntries(ids.map(id => [
+        id, props.runDeviceSnapshots.find(device => device.id === id)?.target_fingerprint ?? null,
+    ]));
     runMode.value = mode;
     runName.value = name.value.trim();
     runSteps.value = normalizeSteps();
@@ -416,8 +509,16 @@ function prepareRun(mode: 'saved' | 'draft') {
 async function submitRun() {
     if (runSubmitting.value) return;
     if (!pendingRun.value) {
-        const ids = shownRunDevices.value;
-        if (!ids.length) { runError.value = text('请选择试跑设备。', 'Choose a trial device.'); return; }
+        if (!preflightFinished.value) {
+            runError.value = text('请先完成设备预检。', 'Complete device preflight first.');
+            return;
+        }
+        const ids = eligibleRunDevices.value;
+        if (!ids.length) {
+            runError.value = text('没有选中可执行的设备；请重新预检或先到工作台准备设备。',
+                'No ready device selected. Recheck or prepare devices on the workbench.');
+            return;
+        }
         if (parameterNames.value.some(key => typeof runParameters.value[key] !== 'string' || new TextEncoder().encode(runParameters.value[key]).length > 2000)) {
             runError.value = text('请填写全部运行参数，每项最多 2000 字节。', 'Fill every run parameter, at most 2000 bytes each.'); return;
         }
@@ -458,12 +559,17 @@ watch(() => props.ownerId, () => {
     runVisible.value = false; deleteVisible.value = false; runSubmitting.value = false;
     runParameters.value = Object.create(null); pendingRun.value = undefined; uncertainRun.value = false;
     runSteps.value = []; runDevices.value = []; runName.value = ''; deleteTarget.value = undefined;
+    preflightGeneration++; preflightRows.value = []; preflightRunning.value = false; preflightError.value = '';
+    runFingerprints.value = {};
     if (props.draft.ownerId !== props.ownerId) {
         Object.assign(props.draft, emptyAutomationDraft(props.ownerId));
     }
     if (props.ownerId > 0) void loadScripts();
 }, { immediate: true });
-onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runParameters.value = Object.create(null); pendingRun.value = undefined; });
+onBeforeUnmount(() => {
+    disposed = true; scopeRevision++; listRequest++; preflightGeneration++;
+    runParameters.value = Object.create(null); pendingRun.value = undefined;
+});
 </script>
 
 <template>
@@ -597,14 +703,45 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
                 <p><strong>{{ runName }}</strong> · {{ text(`${runSteps.length} 步`, `${runSteps.length} steps`) }} <Tag :value="runMode === 'draft' ? text('当前草稿快照', 'Current draft snapshot') : text(`修订 ${runRevision}`, `Revision ${runRevision}`)" severity="info" /></p>
                 <p class="muted">{{ text('本次目标和步骤已固定。后续修改草稿或工作台选择，不会改变本次运行。某台失败只停止该台，其余继续。', 'Targets and steps are fixed for this run. Later edits or selections do not change it. A device failure stops that device; the others continue.') }}</p>
                 <label v-if="runMode === 'draft'" class="field" for="automation-trial-device"><span>{{ text('试跑设备', 'Trial device') }}</span><Select input-id="automation-trial-device" v-model="runTrialDevice" :options="runDeviceOptions" option-label="label" option-value="value" :disabled="runSubmitting || !!pendingRun" /></label>
-                <div class="run-targets"><span class="muted">{{ text(`目标设备（${shownRunDevices.length}）`, `Targets (${shownRunDevices.length})`) }}</span><ul><li v-for="id in shownRunDevices" :key="id"><strong>{{ deviceNames?.[id] || id }}</strong><small v-if="deviceNames?.[id]">{{ id }}</small></li></ul></div>
+                <div class="run-preflight" aria-live="polite">
+                    <div class="run-preflight-heading">
+                        <strong>{{ text('执行前设备预检', 'Device preflight') }}</strong>
+                        <Button :label="text('重新检查', 'Recheck')" icon="pi pi-refresh" outlined size="small"
+                            :loading="preflightRunning" :disabled="runSubmitting || !!pendingRun"
+                            @click="checkRunPreflight" />
+                    </div>
+                    <p class="muted">{{ text('只读、逐台异步检查最新绑定、设备占用和 ADB；涉及控件操作时再检查 UiAutomator2。不会自动配对或初始化。',
+                        'Read-only checks for current binding, occupancy and ADB. UiAutomator2 is checked only when the script needs it. No automatic pairing or preparation.') }}</p>
+                    <p v-if="preflightError" class="error-message" role="alert">{{ preflightError }}</p>
+                    <ul class="preflight-list">
+                        <li v-for="row in preflightRows" :key="row.id" class="preflight-device">
+                            <Checkbox :model-value="row.selected" binary
+                                :disabled="runSubmitting || !!pendingRun || preflightRunning || row.state !== 'ready'"
+                                :input-id="`automation-preflight-${row.id}`"
+                                @update:model-value="selectPreflightDevice(row.id, !!$event)" />
+                            <div class="preflight-device-detail">
+                                <label :for="`automation-preflight-${row.id}`"><strong>{{ row.name }}</strong></label>
+                                <small v-if="row.name !== row.id">{{ row.id }}</small>
+                                <small>{{ row.message }}</small>
+                            </div>
+                            <Tag :value="preflightLabels[row.state]" :severity="preflightSeverity(row.state)" />
+                        </li>
+                    </ul>
+                    <p class="muted">
+                        {{ text(`已选 ${eligibleRunDevices.length} 台可执行设备 / ${preflightRows.length} 台目标设备`,
+                            `${eligibleRunDevices.length} ready devices selected / ${preflightRows.length} targets`) }}
+                        · {{ preflightRunning ? text('正在查询…', 'Checking…') : text('预检为即时快照，开始执行时服务端仍会二次验证。', 'This is a snapshot. The server rechecks before execution.') }}
+                    </p>
+                </div>
                 <label v-if="runMode === 'saved'" class="field" for="automation-run-concurrency"><span>{{ text('同时执行设备数', 'Concurrent devices') }}</span><InputNumber input-id="automation-run-concurrency" v-model="runConcurrency" :min="1"  :use-grouping="false" :disabled="runSubmitting || !!pendingRun" /></label>
                 <label v-for="parameter in parameterNames" :key="parameter" class="field" :for="`automation-param-${parameter}`"><span>{{ text('参数', 'Parameter') }} · {{ parameter }}</span><InputText :id="`automation-param-${parameter}`" v-model="runParameters[parameter]" type="password" autocomplete="new-password" :maxlength="2000" :disabled="runSubmitting || !!pendingRun" /></label>
                 <p v-if="parameterNames.length" class="muted">{{ text('参数仅提交给本次运行；不会写回脚本草稿。', 'Parameters apply to this run and are not written back to the script draft.') }}</p>
                 <p class="muted">{{ text('关闭页面不会取消已提交的任务。需要停止时，请在执行记录中取消；已经发生的手机操作无法撤回。', 'Closing this page does not cancel a submitted run. Cancel in execution history to stop subsequent steps; completed phone actions cannot be undone.') }}</p>
                 <p v-if="runError" class="error-message" role="alert">{{ runError }}</p>
             </div>
-            <template #footer><Button :label="text('关闭', 'Close')" text :disabled="runSubmitting" @click="runVisible = false" /><Button :label="uncertainRun ? text('重试同一请求', 'Retry same request') : text('确认运行', 'Start run')" icon="pi pi-play" :loading="runSubmitting" @click="submitRun" /></template>
+            <template #footer><Button :label="text('关闭', 'Close')" text :disabled="runSubmitting" @click="runVisible = false" /><Button :label="uncertainRun ? text('重试同一请求', 'Retry same request') : text('确认运行', 'Start run')" icon="pi pi-play" :loading="runSubmitting"
+                :disabled="!pendingRun && (!preflightFinished || !eligibleRunDevices.length)"
+                @click="submitRun" /></template>
         </Dialog>
     </section>
 </template>
@@ -664,6 +801,15 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
 .step-detail { padding: 20px; min-width: 0; }
 .draft-footer { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--console-border); font-size: 12px; }
 .run-form { display: grid; gap: 16px; font-size: 13px; }
+.run-preflight{display:grid;gap:10px}
+.run-preflight-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.preflight-list{display:grid;gap:0;max-height:230px;overflow:auto;border:1px solid var(--console-border);border-radius:8px}
+.preflight-device{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--console-border);min-width:0}
+.preflight-device:last-child{border-bottom:0}
+.preflight-device-detail{display:grid;gap:3px;flex:1;min-width:0;overflow-wrap:anywhere}
+.preflight-device-detail strong{font-size:12px}
+.preflight-device-detail small{font-size:11px;color:var(--console-muted);line-height:1.5}
+.preflight-device :deep(.p-tag){flex-shrink:0;font-size:11px}
 .run-targets ul { max-height: 180px; overflow: auto; margin-top: 8px; border: 1px solid var(--console-border); border-radius: 8px; }
 .run-targets li { display: grid; gap: 3px; padding: 8px 12px; border-bottom: 1px solid var(--console-border); overflow-wrap: anywhere; }
 .run-targets li:last-child { border: 0; }
