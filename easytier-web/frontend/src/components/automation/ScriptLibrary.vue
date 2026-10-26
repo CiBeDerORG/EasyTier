@@ -67,6 +67,7 @@ const stepTitles = computed<Record<AutomationStepType, string>>(() => ({
     input_text: text('输入文字', 'Enter text'), launch_app: text('打开应用', 'Launch app'),
     wait_for: text('等待出现', 'Wait for element'), wait_gone: text('等待消失', 'Wait until gone'),
     if_gone: text('消失则执行', 'If gone, run following steps'),
+    if_else: text('If / Else 条件分支', 'If / Else branch'),
     assert: text('检查控件', 'Assert element'), assert_property: text('属性断言', 'Assert property'),
     scroll_find: text('滚动查找', 'Scroll find'), screenshot: text('截图检查点', 'Screenshot checkpoint'),
 }));
@@ -90,6 +91,19 @@ function normalizeSteps(): AutomationStep[] {
         if (result.package !== undefined) result.package = result.package.trim();
         return result;
     });
+}
+function branchScope(index: number): string {
+    for (let at = 0; at < index; at++) {
+        const condition = steps.value[at];
+        if (condition.type === 'if_else') {
+            const then = condition.then_count ?? 0, otherwise = condition.else_count ?? 0;
+            if (index <= at + then) return text('Then · 控件消失', 'Then · gone');
+            if (index <= at + then + otherwise) return text('Else · 控件存在', 'Else · present');
+        } else if (condition.type === 'if_gone' && index <= at + (condition.skip_count ?? 0)) {
+            return text('Then · 控件消失', 'Then · gone');
+        }
+    }
+    return '';
 }
 function resetEditor(script?: AutomationScript) {
     editingId.value = script?.id;
@@ -166,7 +180,7 @@ function validationError(): string | null {
         const prefix = text(`第 ${index + 1} 步：`, `Step ${index + 1}: `);
         const validNumber = (value: unknown, min: number, max: number, integer = false) =>
             typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));
-        if (['wait_for', 'wait_gone', 'if_gone', 'assert', 'assert_property', 'scroll_find'].includes(step.type) && !step.selector) return prefix + text('请选择控件。', 'Choose an element.');
+        if (['wait_for', 'wait_gone', 'if_gone', 'if_else', 'assert', 'assert_property', 'scroll_find'].includes(step.type) && !step.selector) return prefix + text('请选择控件。', 'Choose an element.');
         if (step.selector) {
             const attrs = Object.entries(step.selector);
             if (!attrs.length || !attrs.some(([, value]) => value?.trim())) return prefix + text('至少填写一个控件条件。', 'Specify at least one element condition.');
@@ -193,6 +207,18 @@ function validationError(): string | null {
         if (step.type === 'if_gone') {
             if (!validNumber(step.skip_count, 1, 20, true) || step.skip_count! > normalized.length - index - 1) {
                 return prefix + text('条件控制需要 1–20 个有效的后续步骤，不能超出脚本结尾。', 'Conditional range must contain 1–20 following steps within the script.');
+            }
+        }
+        if (step.type === 'if_else') {
+            if (!validNumber(step.then_count, 1, 20, true) || !validNumber(step.else_count, 1, 20, true)
+                || step.then_count! + step.else_count! > normalized.length - index - 1) {
+                return prefix + text('Then/Else 必须各有 1–20 步，且两段不能超过脚本结尾。', 'Then/Else must each contain 1–20 steps within the script.');
+            }
+            const end = index + step.then_count! + step.else_count!;
+            if (normalized.slice(index + 1, end + 1).some(inner => ['if_gone', 'if_else'].includes(inner.type))
+                || normalized.slice(0, index).some((earlier, position) =>
+                    earlier.type === 'if_gone' && (earlier.skip_count ?? 0) >= index - position)) {
+                return prefix + text('当前不支持嵌套或交叉条件分支。', 'Nested or crossing conditions are not supported.');
             }
         }
         if (['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(step.type) && !validNumber(step.timeout_ms, 100, 30000, true)) return prefix + text('等待上限为 100–30000 毫秒。', 'The timeout must be 100–30000 ms.');
@@ -390,7 +416,7 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
                         <div class="steps-title"><strong>{{ text('步骤', 'Steps') }} {{ steps.length }}/100</strong><Button icon="pi pi-plus" text rounded size="small" :disabled="busy || steps.length >= 100" :aria-label="text('添加步骤', 'Add step')" @click="addStep" /></div>
                         <ol class="step-list">
                             <li v-for="(step, index) in steps" :key="step.id" :class="{ selected: step.id === selectedStepId }">
-                                <button type="button" class="step-select" :disabled="busy" :aria-pressed="step.id === selectedStepId" @click="selectedStepId = step.id"><span class="step-number">{{ index + 1 }}</span><span>{{ stepTitles[step.type] }}</span></button>
+                                <button type="button" class="step-select" :disabled="busy" :aria-pressed="step.id === selectedStepId" @click="selectedStepId = step.id"><span class="step-number">{{ index + 1 }}</span><span class="step-description">{{ stepTitles[step.type] }}<small v-if="branchScope(index)" class="branch-scope">{{ branchScope(index) }}</small></span></button>
                                 <div class="step-actions">
                                     <Button icon="pi pi-arrow-up" text rounded size="small" :disabled="busy || index === 0" :aria-label="text('上移步骤', 'Move step up')" @click="moveStep(index, -1)" />
                                     <Button icon="pi pi-arrow-down" text rounded size="small" :disabled="busy || index === steps.length - 1" :aria-label="text('下移步骤', 'Move step down')" @click="moveStep(index, 1)" />
@@ -458,6 +484,7 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
 .step-columns { display: grid; grid-template-columns: minmax(175px, .8fr) minmax(0, 1.4fr); min-height: 340px; }
 .steps-navigation { padding: 12px 10px; border-right: 1px solid var(--console-border); background: var(--console-panel-raised); }
 .steps-title { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 0 6px 10px; }
+.step-description{display:grid;gap:2px;min-width:0}.branch-scope{font-size:10px;line-height:1.4;color:var(--console-muted)}
 .step-list li { border: 1px solid transparent; border-radius: 9px; margin-bottom: 7px; }
 .step-list li.selected { border-color: var(--p-primary-color); background: var(--console-accent-soft); }
 .step-select { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; padding: 10px; font-size: 12px; }
