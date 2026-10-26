@@ -4,6 +4,7 @@ import { Button, Checkbox, Dialog, InputNumber, InputText, Tag } from 'primevue'
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
+import { analyzeAutomationFlow } from '../../modules/automation-flow';
 import { getApiBase } from '../../modules/api-host';
 import type { AutomationRun, AutomationRunInput, AutomationRunDevice, AutomationStep } from '../../types/automation';
 
@@ -57,6 +58,16 @@ const summary = computed(() => ({
     failed: activeDevices.value.filter(({device}) => ['failed','interrupted','outcome_unknown','cleanup_pending'].includes(device.state)).length,
 }));
 const selected = computed(() => runs.value.find(run => run.id === selectedId.value));
+const selectedFlow = computed(() => analyzeAutomationFlow(selected.value?.script_snapshot?.steps ?? []));
+function nestedBranchPath(stepId: string): string {
+    const definitions = selected.value?.script_snapshot?.steps ?? [];
+    const index = definitions.findIndex(step => step.id === stepId);
+    if (index < 0) return '';
+    const entry = selectedFlow.value.entries[index];
+    if (!entry) return '';
+    return entry.ancestors.map(part =>
+        text('条件', 'If') + ' ' + (part.conditionIndex + 1) + ' / ' + (part.lane === 'then' ? 'Then' : 'Else')).join(' › ');
+}
 function settledCount(device: AutomationRunDevice): number {
     return device.steps?.filter(step => settledSteps.has(step.state)).length ?? 0;
 }
@@ -485,7 +496,9 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
                         <p v-if="message(device.error)" class="device-error">{{ message(device.error) }}</p>
                         <div v-if="expandedDevices.has(device.device_id)" :id="`run-steps-${selected.id}-${device.device_id}`" class="step-results">
                             <p v-if="!device.steps?.length" class="muted empty-steps">{{ text('暂无步骤结果；未开始或执行器尚未回报。', 'No step results yet. Execution may not have started or reported back.') }}</p>
-                            <ol v-else><li v-for="step in device.steps" :key="step.step_id"><div class="result-step-title"><span class="step-number">{{ stepNumber(step.step_id) }}</span><strong>{{ stepTitle(snapshotStep(step.step_id)) }}</strong><Tag :value="statusLabel(step.state)" :severity="severity(step.state)" /></div><p v-if="step.branch_taken" class="branch-decision">
+                            <ol v-else><li v-for="step in device.steps" :key="step.step_id"><div class="result-step-title"><span class="step-number">{{ stepNumber(step.step_id) }}</span><strong>{{ stepTitle(snapshotStep(step.step_id)) }}</strong>
+                                <small v-if="nestedBranchPath(step.step_id)" class="run-branch-path">{{ nestedBranchPath(step.step_id) }}</small>
+                                <Tag :value="statusLabel(step.state)" :severity="severity(step.state)" /></div><p v-if="step.branch_taken" class="branch-decision">
                                     <Tag :value="branchLabel(step.branch_taken)" severity="info" />
                                     <small v-if="snapshotStep(step.step_id)?.type === 'if_else'">
                                         Then {{ snapshotStep(step.step_id)?.then_count ?? 0 }} · Else {{ snapshotStep(step.step_id)?.else_count ?? 0 }}
@@ -522,6 +535,7 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
 </template>
 
 <style scoped>
+.run-branch-path{font-size:10px;color:var(--console-muted);overflow-wrap:anywhere}
 .branch-decision{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .branch-skip-source{color:var(--console-muted);font-size:12px}
 
