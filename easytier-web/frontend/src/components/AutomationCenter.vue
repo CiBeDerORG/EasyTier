@@ -863,7 +863,7 @@ onBeforeUnmount(() => { stopEvents?.();
                 </div>
             </div>
             <p v-if="liveCount" class="manual-release-hint">{{ t('tabReleaseHint') }}</p>
-            <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace"
+            <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace" :run-device-snapshots="devices"
                 :picker-devices="devices.filter(device => device.connection.enabled && !!device.target_fingerprint).map(device => ({ id: device.id, name: device.name }))"
                 @pick-step-target="openScriptInspector" @run-created="onRunCreated" />
             <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" />
