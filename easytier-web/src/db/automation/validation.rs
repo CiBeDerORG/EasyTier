@@ -159,18 +159,24 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
             _=>return Err(AutomationError::field("steps.type","This action is not supported.")),
         }
     }
-    // No nested or crossing conditional regions in the bounded first release.
+    // Conditions form a forward-only tree, never crossing a parent lane.
+    // The wire protocol remains flat and compatible with older scripts.
+    let mut regions:Vec<(usize,usize)>=Vec::new(); // (block end, Then end)
     for (index,step) in items.iter().enumerate() {
-        if step["type"]!="if_else" {continue;}
-        let end=index+step["then_count"].as_u64().unwrap_or(0) as usize
-            +step["else_count"].as_u64().unwrap_or(0) as usize;
-        if items[index+1..=end].iter().any(|candidate| matches!(candidate["type"].as_str(),Some("if_gone"|"if_else"))) {
-            return Err(AutomationError::field("steps","Nested if-else conditional blocks are not supported."));
+        while regions.last().is_some_and(|(end,_)|index>*end) {regions.pop();}
+        let kind=step["type"].as_str().unwrap_or("");
+        if !matches!(kind,"if_else"|"if_gone") {continue;}
+        let then_count=if kind=="if_else" {step["then_count"].as_u64()} else {step["skip_count"].as_u64()}
+            .ok_or_else(||AutomationError::field("steps","Invalid condition span."))? as usize;
+        let else_count=if kind=="if_else" {step["else_count"].as_u64().unwrap_or(0) as usize} else {0};
+        let then_end=index+then_count;
+        let end=then_end+else_count;
+        if let Some(&(parent_end,parent_then_end))=regions.last() {
+            let ceiling=if index<=parent_then_end {parent_then_end} else {parent_end};
+            if end>ceiling {return Err(AutomationError::field("steps","Nested condition crosses its parent Then/Else boundary."));}
         }
-        if items[..index].iter().enumerate().any(|(earlier,candidate)|
-            candidate["type"]=="if_gone" && candidate["skip_count"].as_u64().unwrap_or(0) >= (index-earlier) as u64) {
-            return Err(AutomationError::field("steps","if-else cannot be nested within a legacy condition."));
-        }
+        if regions.len()>=3 {return Err(AutomationError::field("steps","Nested conditions may be at most three levels deep."));}
+        regions.push((end,then_end));
     }
     Ok(input.clone())
 }
