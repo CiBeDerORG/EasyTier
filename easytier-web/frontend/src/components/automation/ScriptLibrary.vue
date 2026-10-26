@@ -9,14 +9,19 @@ import ScriptStepEditor from './ScriptStepEditor.vue';
 import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
 import { addFlowBranchStep, createFlowCondition, removeFlowBlock } from '../../modules/automation-flow-tree';
 import { emptyAutomationDraft, type AutomationDraftWorkspace } from '../../modules/automation-draft';
+import { stepCanPickTarget } from '../../modules/automation-step-target';
 
 const props = defineProps<{
     ownerId: number;
     selectedDeviceIds: string[];
     draft: AutomationDraftWorkspace;
     deviceNames?: Record<string, string>;
+    pickerDevices: { id: string; name: string }[];
 }>();
-const emit = defineEmits<{ 'run-created': [run: AutomationRun] }>();
+const emit = defineEmits<{
+    'run-created': [run: AutomationRun];
+    'pick-step-target': [stepId: string, stepType: AutomationStepType, deviceId: string];
+}>();
 const api = new AutomationApi();
 const { locale } = useI18n();
 const cn = computed(() => locale.value === 'cn' || locale.value.startsWith('zh'));
@@ -61,6 +66,20 @@ let disposed = false;
 
 const busy = computed(() => saving.value || deleting.value || runSubmitting.value);
 const selectedStep = computed(() => steps.value.find(step => step.id === selectedStepId.value));
+const pickerDeviceId = ref<string>();
+const pickerOptions = computed(() => props.pickerDevices.map(device => ({
+    label: device.name, value: device.id,
+})));
+const defaultPickerDevice = computed(() => {
+    const available = new Set(props.pickerDevices.map(device => device.id));
+    if (pickerDeviceId.value && available.has(pickerDeviceId.value)) return pickerDeviceId.value;
+    return props.selectedDeviceIds.find(id => available.has(id)) ?? props.pickerDevices[0]?.id;
+});
+function pickExistingStep() {
+    if (busy.value || !selectedStep.value || !stepCanPickTarget(selectedStep.value)
+        || !defaultPickerDevice.value) return;
+    emit('pick-step-target', selectedStep.value.id, selectedStep.value.type, defaultPickerDevice.value);
+}
 const draftJson = () => JSON.stringify({ name: name.value, description: description.value, steps: steps.value });
 const dirty = computed(() => draftJson() !== baseline.value);
 const parameterNames = computed(() => [...new Set(runSteps.value
@@ -539,6 +558,19 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
                         <Button :label="text('添加步骤', 'Add step')" icon="pi pi-plus" text size="small" :disabled="busy || steps.length >= 100" @click="addStep" />
                     </div>
                     <div class="step-detail">
+                        <div v-if="selectedStep && stepCanPickTarget(selectedStep)" class="step-pick-controls">
+                            <strong>{{ text('重新拾取当前步骤的控件', 'Re-pick the current step target') }}</strong>
+                            <div class="button-row">
+                                <Select v-model="pickerDeviceId" :options="pickerOptions" option-label="label" option-value="value"
+                                    :placeholder="pickerOptions.length ? text('选择手机', 'Select phone') : text('无可用手机', 'No available phone')"
+                                    :disabled="busy || !pickerOptions.length"
+                                    :aria-label="text('用于控件拾取的手机', 'Phone for element inspection')" />
+                                <Button :label="text('重新拾取', 'Re-pick target')" icon="pi pi-search" size="small" outlined
+                                    :disabled="busy || !defaultPickerDevice" @click="pickExistingStep" />
+                            </div>
+                            <small class="hint">{{ text('不新增步骤；保留步骤 ID、动作、参数和条件范围。未初始化 UiAutomator2 时请先到工作台准备手机。',
+                                'Keeps the current step ID and action; prepare UiAutomator2 on the workbench first if needed.') }}</small>
+                        </div>
                         <ScriptStepEditor v-if="selectedStep" :model-value="selectedStep" :disabled="busy" @update:model-value="updateStep" />
                         <div v-else class="console-empty-state"><i class="pi pi-list" aria-hidden="true" /><h2>{{ text('从第一个步骤开始', 'Add the first step') }}</h2><p>{{ text('选择有限操作，填写目标与条件。运行前可先在一台手机试跑。', 'Choose an action and its target conditions. Try the draft on one phone before a batch run.') }}</p></div>
                     </div>
@@ -594,6 +626,11 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
 .script-select small, .sidebar-empty { color: var(--console-muted); font-size: 12px; }
 .sidebar-empty { padding: 6px 18px 24px; line-height: 1.7; }
 .draft-heading { flex-wrap: wrap; }
+.step-pick-controls{display:grid;gap:8px;padding:12px;border-bottom:1px solid var(--console-border)}
+.step-pick-controls strong{font-size:13px}
+.step-pick-controls .button-row{align-items:center}
+.step-pick-controls .hint{font-size:12px;color:var(--console-muted)}
+.step-pick-controls :deep(.p-select){min-width:165px;max-width:100%}
 .draft-state { display: block; margin-top: 5px; font-size: 12px; }
 .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .draft-meta { padding: 18px 20px; display: grid; gap: 14px; border-bottom: 1px solid var(--console-border); }
