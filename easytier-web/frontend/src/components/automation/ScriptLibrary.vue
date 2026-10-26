@@ -440,13 +440,54 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
                 </div>
                 <div class="step-columns">
                     <div class="steps-navigation">
-                        <div class="steps-title"><strong>{{ text('步骤', 'Steps') }} {{ steps.length }}/100</strong><Button icon="pi pi-plus" text rounded size="small" :disabled="busy || steps.length >= 100" :aria-label="text('添加步骤', 'Add step')" @click="addStep" /></div>
-                        <ol class="step-list">
+                        <div class="steps-title">
+                            <strong>{{ text('步骤', 'Steps') }} {{ steps.length }}/100</strong>
+                            <div class="flow-view-controls">
+                                <Button :icon="flowView ? 'pi pi-list' : 'pi pi-sitemap'" text rounded size="small"
+                                    :aria-label="flowView ? text('切换步骤列表', 'Show step list') : text('切换流程图', 'Show flowchart')"
+                                    :title="flowView ? text('步骤列表', 'Step list') : text('流程图', 'Flowchart')"
+                                    @click="flowView = !flowView" />
+                                <Button icon="pi pi-plus" text rounded size="small" :disabled="busy || steps.length >= 100"
+                                    :aria-label="text('添加步骤', 'Add step')" @click="addStep" />
+                            </div>
+                        </div>
+                        <p v-if="flowLayout.problem" class="flow-error" role="status">
+                            {{ text('条件层级或范围有误，请检查第', 'Invalid branch scope. Review step') }}
+                            {{ flowLayout.problem.index + 1 }} {{ text('步。', '.') }}
+                        </p>
+                        <ol v-if="flowView" class="flow-list" :aria-label="text('嵌套流程编辑图', 'Nested workflow editor')">
+                            <li v-for="(step, index) in steps" :key="step.id" class="flow-entry"
+                                :class="{ selected: step.id === selectedStepId, conditional: ['if_gone', 'if_else'].includes(step.type) }"
+                                :style="{ marginLeft: Math.min(3, flowLayout.entries[index]?.ancestors.length ?? 0) * 12 + 'px' }">
+                                <div v-if="branchScope(index)" class="flow-lane-label">{{ branchScope(index) }}</div>
+                                <button type="button" class="flow-node" :disabled="busy"
+                                    :aria-pressed="step.id === selectedStepId" @click="selectedStepId = step.id">
+                                    <span class="step-number">{{ index + 1 }}</span>
+                                    <span class="flow-node-name">{{ stepTitles[step.type] }}</span>
+                                    <i v-if="['if_gone', 'if_else'].includes(step.type)" class="pi pi-sitemap" aria-hidden="true" />
+                                </button>
+                                <div v-if="step.type === 'if_gone' || step.type === 'if_else'" class="flow-branches">
+                                    <div class="flow-branch-actions">
+                                        <span class="flow-then">Then · {{ step.type === 'if_gone' ? step.skip_count : step.then_count }}</span>
+                                        <Button icon="pi pi-plus" text size="small" :disabled="!branchInsertEnabled(index, 'then')"
+                                            :aria-label="text('向 Then 分支添加步骤', 'Add step to Then branch')"
+                                            @click="addBranchStep(index, 'then')" />
+                                    </div>
+                                    <div v-if="step.type === 'if_else'" class="flow-branch-actions">
+                                        <span class="flow-else">Else · {{ step.else_count }}</span>
+                                        <Button icon="pi pi-plus" text size="small" :disabled="!branchInsertEnabled(index, 'else')"
+                                            :aria-label="text('向 Else 分支添加步骤', 'Add step to Else branch')"
+                                            @click="addBranchStep(index, 'else')" />
+                                    </div>
+                                </div>
+                            </li>
+                        </ol>
+                        <ol v-else class="step-list">
                             <li v-for="(step, index) in steps" :key="step.id" :class="{ selected: step.id === selectedStepId }">
                                 <button type="button" class="step-select" :disabled="busy" :aria-pressed="step.id === selectedStepId" @click="selectedStepId = step.id"><span class="step-number">{{ index + 1 }}</span><span class="step-description">{{ stepTitles[step.type] }}<small v-if="branchScope(index)" class="branch-scope">{{ branchScope(index) }}</small></span></button>
                                 <div class="step-actions">
-                                    <Button icon="pi pi-arrow-up" text rounded size="small" :disabled="busy || index === 0" :aria-label="text('上移步骤', 'Move step up')" @click="moveStep(index, -1)" />
-                                    <Button icon="pi pi-arrow-down" text rounded size="small" :disabled="busy || index === steps.length - 1" :aria-label="text('下移步骤', 'Move step down')" @click="moveStep(index, 1)" />
+                                    <Button icon="pi pi-arrow-up" text rounded size="small" :disabled="!canMoveStep(index, -1)" :aria-label="text('上移步骤', 'Move step up')" @click="moveStep(index, -1)" />
+                                    <Button icon="pi pi-arrow-down" text rounded size="small" :disabled="!canMoveStep(index, 1)" :aria-label="text('下移步骤', 'Move step down')" @click="moveStep(index, 1)" />
                                     <Button icon="pi pi-times" text rounded size="small" :disabled="busy" :aria-label="text('删除步骤', 'Remove step')" @click="removeStep(index)" />
                                 </div>
                             </li>
@@ -512,6 +553,20 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
 .steps-navigation { padding: 12px 10px; border-right: 1px solid var(--console-border); background: var(--console-panel-raised); }
 .steps-title { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 0 6px 10px; }
 .step-description{display:grid;gap:2px;min-width:0}.branch-scope{font-size:10px;line-height:1.4;color:var(--console-muted)}
+.flow-view-controls{display:flex;align-items:center;gap:2px}
+.flow-list{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.flow-entry{position:relative;border-left:3px solid var(--console-border-strong);padding:0 0 4px 8px}
+.flow-entry.conditional{border-left-color:var(--p-primary-color)}
+.flow-entry.selected .flow-node{border-color:var(--p-primary-color);background:var(--console-accent-soft)}
+.flow-lane-label{font-size:10px;color:var(--console-muted);padding:4px 3px;overflow-wrap:anywhere}
+.flow-node{width:100%;display:flex;align-items:center;gap:7px;min-width:0;padding:7px 5px;text-align:left;background:var(--console-panel);border:1px solid var(--console-border);border-radius:8px;font-size:12px;color:var(--p-text-color);cursor:pointer}
+.flow-node-name{flex:1;min-width:0;overflow-wrap:anywhere}
+.flow-node i{color:var(--p-primary-color);font-size:12px}
+.flow-branches{display:grid;gap:2px;padding:3px 5px 3px 25px}
+.flow-branch-actions{display:flex;align-items:center;justify-content:space-between;gap:5px;font-size:11px}
+.flow-branch-actions :deep(.p-button){width:24px;height:24px}
+.flow-then{color:var(--p-primary-color)}.flow-else{color:var(--console-muted)}
+.flow-error{font-size:11px;color:var(--p-red-500);padding:5px;line-height:1.5}
 .step-list li { border: 1px solid transparent; border-radius: 9px; margin-bottom: 7px; }
 .step-list li.selected { border-color: var(--p-primary-color); background: var(--console-accent-soft); }
 .step-select { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; padding: 10px; font-size: 12px; }
