@@ -619,12 +619,18 @@ class Runtime:
                 return
             await self._authorize(rid, target)
             await self._update(rid, did, {"state": "running", "steps": results})
+            skip_remaining = 0
             for index, step in enumerate(body["steps"]):
                 if cancel.is_set() or (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)):
                     await self._update(rid, did, {"state": "cancelled", "steps": results})
                     return
                 await self._authorize(rid, target)
                 current_step = step["id"]
+                if skip_remaining:
+                    skip_remaining -= 1
+                    results[index].update(state="skipped", message="控件仍存在，条件区域未执行", finished_at=now())
+                    await self._update(rid, did, {"state": "running", "current_step": current_step, "steps": results})
+                    continue
                 results[index].update(state="running", started_at=now())
                 await self._update(rid, did, {"state": "running", "current_step": current_step, "steps": results})
                 if cancel.is_set() or self.journal.withdrawn(rid,did):
@@ -655,6 +661,12 @@ class Runtime:
                     in_flight = True
                     result = await execute_step(self.journal, holder, target, step, body["parameters"], cancel, self.settings.adb_binary)
                     in_flight = False
+                if step["type"] == "if_gone":
+                    count = result.get("skip_steps")
+                    expected = step["skip_count"]
+                    if type(count) is not int or count not in (0, expected) or count > len(body["steps"]) - index - 1:
+                        raise ExecutorError("condition_result_invalid", "条件判定与脚本结构不一致，停止执行")
+                    skip_remaining = count
                 results[index].update(result)
                 results[index]["finished_at"] = now()
                 await self._update(rid, did, {"state": "running", "steps": results})
