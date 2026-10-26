@@ -50,7 +50,7 @@ def execute(target, step, parameters, artifact_path=None):
     from uiautomator2._selector import Selector
     def rpc(method, *params, timeout=8):
         # No exception text/params escape into logs or user-facing errors.
-        readonly = method in ("count", "objInfo", "deviceInfo", "takeScreenshot")
+        readonly = method in ("count", "objInfo", "deviceInfo", "takeScreenshot", "dumpWindowHierarchy")
         try:
             result = _jsonrpc_call(dev, DEFAULT_SERVER_PORT, method, params, timeout, False)
         except Exception:
@@ -79,6 +79,16 @@ def execute(target, step, parameters, artifact_path=None):
             # Bounded read-only waiting inside this explicit step, not a scanner.
             time.sleep(min(.2, max(0, deadline - time.monotonic())))
 
+    if kind == "hierarchy":
+        # Internal read-only snapshot: rejected by public script validation.
+        from .hierarchy import parse_hierarchy
+        width, height = dev.window_size()
+        xml = rpc("dumpWindowHierarchy", False, 50, timeout=12)
+        return {
+            "device_id": target["device_id"],
+            "target_fingerprint": target["target_fingerprint"],
+            "snapshot": parse_hierarchy(xml, width, height),
+        }
     if kind in ("wait_for", "assert"):
         find(step["selector"], step["timeout_ms"])
         return {"state": "assertion_passed", "message": "指定控件条件检查通过"}
