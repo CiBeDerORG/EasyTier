@@ -38,6 +38,44 @@ class SourceStopped(Exception):
     pass
 
 
+# Follow EasyADB's conservative keyguard detection: Android/EMUI can
+# report true/false or 1/0. A locked work profile is not the active user.
+TRUST_LOCK = re.compile(r"(?<![\w])(?:deviceLocked|mDeviceLocked|isDeviceLocked)\s*[:=]\s*(true|false|1|0)\b", re.I)
+WINDOW_LOCK = re.compile(
+    r"(?<![\w])(?:mShowingLockscreen|isStatusBarKeyguard|mKeyguardShowing|"
+    r"isKeyguardShowing|KeyguardShowing|mKeyguardLocked)\s*[:=]\s*(true|false|1|0)\b", re.I
+)
+KEYGUARD_SECTION = re.compile(
+    r"(?im)^\s*(?:KeyguardServiceDelegate|KeyguardStateMonitor)\s*\r?\n"
+    r"\s*(?:showing|mIsShowing)\s*[:=]\s*(true|false|1|0)\b"
+)
+DREAM_LOCK = re.compile(r"(?<![\w])mDreamingLockscreen\s*[:=]\s*(true|1)\b", re.I)
+SIZE_PATTERN = re.compile(r"(?:Physical size|Override size):\s*(\d+)x(\d+)")
+
+
+def _lock_consensus(values: list[str]) -> bool | None:
+    states = {value.lower() in ("true", "1") for value in values}
+    return next(iter(states)) if len(states) == 1 else None
+
+
+def _trust_lock(output: str) -> bool | None:
+    users = [line for line in output.splitlines()
+             if re.match(r"^\s*User\s+.*\(id=\d+\b", line)]
+    current = [line for line in users if re.search(r"\(current\)", line, re.I)]
+    if current:
+        return _lock_consensus(TRUST_LOCK.findall("\n".join(current)))
+    if len(users) > 1:
+        return None
+    return _lock_consensus(TRUST_LOCK.findall("\n".join(users) if users else output))
+
+
+def _window_lock(output: str) -> bool | None:
+    states = WINDOW_LOCK.findall(output) + KEYGUARD_SECTION.findall(output)
+    if DREAM_LOCK.search(output):
+        states.append("true")
+    return _lock_consensus(states)
+
+
 class ScrcpySource:
     def __init__(self, serial: str, quality: str, track: Any, on_end: Callable[[], None], options: dict | None = None):
         self.serial = serial
@@ -286,53 +324,64 @@ class ScrcpySource:
             self._send_locked(struct.pack(">BBIII",0,0,code,0,0)+struct.pack(">BBIII",0,1,code,0,0))
 
     def _keyguard(self) -> bool | None:
-        # Positive-only lock detection: without evidence, NEVER type a
-        # password into the foreground application on an unlocked phone.
-        try:
-            policy=self._adb("shell","dumpsys","window","policy",timeout=5)
-            if re.search(r"\b(?:mShowingLockscreen|isKeyguardShowing|mKeyguardShowing|isStatusBarKeyguard)\s*=\s*true\b",policy,re.I):
-                return True
-            if re.search(r"\b(?:mShowingLockscreen|isKeyguardShowing|mKeyguardShowing|isStatusBarKeyguard)\s*=\s*false\b",policy,re.I):
-                return False
-            trust=self._adb("shell","dumpsys","trust",timeout=5)
-            if re.search(r"\b(?:deviceLocked|isDeviceLocked)\s*=\s*true\b",trust,re.I):
-                return True
-            if re.search(r"\b(?:deviceLocked|isDeviceLocked)\s*=\s*false\b",trust,re.I):
-                return False
-        except SourceError:
-            pass
-        return None
+        """Only positive evidence of current-user lock permits PIN injection."""
+        def read(*args: str) -> str:
+            try:
+                return self._adb("shell", "dumpsys", *args, timeout=6)
+            except SourceError:
+                return ""
+
+        trust = _trust_lock(read("trust"))
+        if trust is False:
+            return False
+        window = _window_lock(read("window", "policy"))
+        if window is None:
+            window = _window_lock(read("window"))
+        if trust is True:
+            return None if window is False else True
+        return window
 
     def wake_and_unlock(self, password: str | None) -> str:
+        """One bounded, opt-in attempt; the credential never enters ADB argv."""
         self.key("WAKE")
         if not password:
             return "wake_sent"
-        time.sleep(0.3)
-        lock_state=self._keyguard()
+        # Waking the display and revealing the keyguard are asynchronous.
+        if self.stop_event.wait(0.5):
+            return "unlock_skipped"
+        lock_state = self._keyguard()
         if lock_state is not True:
             return "already_unlocked" if lock_state is False else "lock_state_unknown"
-        # Open keyguard's PIN/password editor; a simple swipe is required on
-        # some Android skins before the editor appears.
-        self._keycode(82)  # KEYCODE_MENU, non-destructive while keyguard is shown
-        time.sleep(0.2)
-        if self.size:
-            width,height=self.size
-            x=width//2
-            self.touch({"action":"down","x":x,"y":int(height*0.82),"width":width,"height":height})
-            self.touch({"action":"move","x":x,"y":int(height*0.4),"width":width,"height":height})
-            self.touch({"action":"up","x":x,"y":int(height*0.4),"width":width,"height":height})
-        time.sleep(0.25)
-        # The user might have unlocked by fingerprint or face ID during the
-        # transition. Never type into an app after the keyguard disappears.
-        if self._keyguard() is not True:
-            return "lock_state_changed"
-        encoded=password.encode("ascii")
+
+        # Use physical display coordinates and an actual timed swipe, like
+        # EasyADB. Three immediate scrcpy touch packets are not a swipe gesture
+        # on several Android/EMUI keyguards.
+        size = self._adb("shell", "wm", "size", timeout=6)
+        sizes = SIZE_PATTERN.findall(size)
+        if not sizes:
+            return "unlock_size_unknown"
+        width, height = map(int, sizes[-1])
+        if not (240 <= width <= 10000 and 400 <= height <= 20000):
+            return "unlock_size_unknown"
+        self._adb("shell", "input", "swipe", str(width // 2), str(height * 8 // 10),
+                  str(width // 2), str(height * 3 // 10), "240", timeout=7)
+        if self.stop_event.wait(0.45):
+            return "unlock_skipped"
+        # The user may have unlocked with biometrics while the swipe ran.
+        after_swipe = self._keyguard()
+        if after_swipe is not True:
+            return "already_unlocked" if after_swipe is False else "lock_state_changed"
+
+        encoded = password.encode("ascii")
         with self.lock:
-            # scrcpy INJECT_TEXT: control type 1 + BE32 length + bytes.
-            # The PIN is never used as a shell argument or persisted to disk.
-            self._send_locked(struct.pack(">BI",1,len(encoded))+encoded)
-        self._keycode(66)  # ENTER
-        return "unlock_sent"
+            # scrcpy INJECT_TEXT: the password stays off command line and logs.
+            self._send_locked(struct.pack(">BI", 1, len(encoded)) + encoded)
+        if self.stop_event.wait(0.18):
+            return "unlock_skipped"
+        self._keycode(66)  # KEYCODE_ENTER
+        if self.stop_event.wait(0.4):
+            return "unlock_sent"
+        return "unlock_confirmed" if self._keyguard() is False else "unlock_sent"
 
     def _release_locked(self) -> None:
         if not self.pressed:
