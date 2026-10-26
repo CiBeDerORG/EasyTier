@@ -663,15 +663,11 @@ class AndroidKeyguardTests(unittest.TestCase):
         calls=[]
         def fake_adb(*args, **kwargs):
             calls.append(args)
-            if args[:3] == ('shell', 'wm', 'size'):
-                return 'Physical size: 1080x2400'
-            if args[:3] == ('shell', 'input', 'swipe'):
-                return ''
             return 'mShowingLockscreen=true'
         src._adb=fake_adb
         with patch('automation_executor.vendor.scrcpy_source.time.sleep',return_value=None):
             self.assertEqual(src.wake_and_unlock('123456'),'unlock_sent')
-        self.assertIn(('shell','input','swipe','540','1920','540','720','240'), calls)
+        self.assertFalse(any(args[:3] in (('shell','wm','size'),('shell','input','swipe')) for args in calls))
         self.assertGreaterEqual(sum(args[:2] == ('shell','dumpsys') for args in calls), 4)
         # Numeric PIN uses the same full scrcpy text frame as other passwords.
         self.assertEqual(len(packets),4)
@@ -702,25 +698,34 @@ class AndroidKeyguardTests(unittest.TestCase):
         self.assertEqual(len(packets),4)
         self.assertEqual(packets[0],struct.pack('>BB',10,1))
 
-    def test_wake_waits_before_swipe_and_password_ui_waits_before_pin(self):
+    def test_wake_waits_1_5_seconds_without_swipe_before_text(self):
         src,packets=self.make_source()
         waits=[]
         stages=[]
         src.stop_event.wait=lambda seconds: (waits.append(seconds), False)[1]
-        src._adb=lambda *args,**kwargs: stages.append(args) or (
-            'Physical size: 1080x2400' if args[:3] == ('shell','wm','size')
-            else 'mShowingLockscreen=true')
+        src._adb=lambda *args,**kwargs: stages.append(args) or 'mShowingLockscreen=true'
         with patch.object(src,'_stable_keyguard',return_value=True):
             self.assertEqual(src.wake_and_unlock('1234'),'unlock_sent')
         self.assertEqual(packets[0],struct.pack('>BB',10,1))
         self.assertEqual(waits[0],1.0)
-        self.assertIn(0.8,waits)
-        self.assertLess(waits.index(1.0),waits.index(0.8))
-        self.assertIn(('shell','input','swipe','540','1920','540','720','240'),stages)
+        self.assertIn(1.5,waits)
+        self.assertLess(waits.index(1.0),waits.index(1.5))
+        self.assertFalse(any(args[:3] in (('shell','wm','size'),('shell','input','swipe')) for args in stages))
         self.assertEqual(packets[2],bytes([1])+struct.pack('>I',4)+b'1234')
         self.assertEqual(len([p for p in packets if p[0] == 0]),2) # WAKE, ENTER
         self.assertIn(0.18,waits)
-        self.assertLess(waits.index(0.8),waits.index(0.18))
+        self.assertLess(waits.index(1.5),waits.index(0.18))
+
+    def test_lock_disappearing_during_wait_never_receives_password(self):
+        src,packets=self.make_source()
+        src._adb=lambda *args,**kwargs: 'mShowingLockscreen=true'
+        waits=[]
+        src.stop_event.wait=lambda seconds: (waits.append(seconds), False)[1]
+        with patch.object(src,'_stable_keyguard',side_effect=[True,False]):
+            self.assertEqual(src.wake_and_unlock('1234'),'already_unlocked')
+        self.assertEqual(waits,[1.0,1.5])
+        self.assertEqual(len(packets),2)
+        self.assertFalse(any(packet[0]==1 for packet in packets))
 
     def test_lock_state_becomes_unknown_never_types_password(self):
         src,packets=self.make_source()

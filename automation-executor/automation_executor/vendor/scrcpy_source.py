@@ -50,7 +50,6 @@ KEYGUARD_SECTION = re.compile(
     r"\s*(?:showing|mIsShowing)\s*[:=]\s*(true|false|1|0)\b"
 )
 DREAM_LOCK = re.compile(r"(?<![\w])mDreamingLockscreen\s*[:=]\s*(true|1)\b", re.I)
-SIZE_PATTERN = re.compile(r"(?:Physical size|Override size):\s*(\d+)x(\d+)")
 
 
 def _lock_consensus(values: list[str]) -> bool | None:
@@ -373,38 +372,14 @@ class ScrcpySource:
         if lock_state is not True:
             return "already_unlocked" if lock_state is False else "lock_state_unknown"
 
-        # Use physical display coordinates and an actual timed swipe, like
-        # EasyADB. Three immediate scrcpy touch packets are not a swipe gesture
-        # on several Android/EMUI keyguards.
-        try:
-            size = self._adb("shell", "wm", "size", timeout=6)
-        except SourceError:
-            # A locked or OEM-restricted shell must not break video viewing.
-            return "unlock_size_unknown"
-        sizes = SIZE_PATTERN.findall(size)
-        if not sizes:
-            return "unlock_size_unknown"
-        width, height = map(int, sizes[-1])
-        if not (240 <= width <= 10000 and 400 <= height <= 20000):
-            return "unlock_size_unknown"
-        # wm size reports the physical portrait dimensions on some phones,
-        # even if the active scrcpy stream is currently rotated.
-        if self.size and self.size[0] > self.size[1] and width < height:
-            width, height = height, width
-        try:
-            self._adb("shell", "input", "swipe", str(width // 2), str(height * 8 // 10),
-                      str(width // 2), str(height * 3 // 10), "240", timeout=7)
-        except SourceError:
-            # Skip password injection if the swipe could not be completed.
-            return "unlock_swipe_failed"
-        # PIN/password UI can appear well after the swipe finishes on MIUI/EMUI.
-        # Delay is cancellable; re-check keyguard before injecting any secret.
-        if self.stop_event.wait(0.8):
+        # No automatic lockscreen swipe: wait for the OEM keyguard to settle,
+        # then require fresh positive lock evidence before injecting a secret.
+        # Cancellation must prevent password input if the session is stopping.
+        if self.stop_event.wait(1.5):
             return "unlock_skipped"
-        # The user may have unlocked with biometrics while the swipe ran.
-        after_swipe = self._stable_keyguard()
-        if after_swipe is not True:
-            return "already_unlocked" if after_swipe is False else "lock_state_changed"
+        after_wait = self._stable_keyguard()
+        if after_wait is not True:
+            return "already_unlocked" if after_wait is False else "lock_state_changed"
 
         # Match EasyADB: transmit the entire saved PIN/password in one scrcpy
         # INJECT_TEXT packet. Never put the credential in an ADB shell command.
