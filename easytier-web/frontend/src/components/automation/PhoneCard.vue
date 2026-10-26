@@ -147,7 +147,13 @@ const screenActionHint = computed(() => {
     if (session.state.phase === 'failed') return prefix + ' · 上次打开失败，点击重试';
     return prefix + ' · 点击打开画面';
 });
-watch(() => session.state.phase, phase => emit('state', props.device.id, phase));
+watch(() => session.state.phase, phase => {
+    emit('state', props.device.id, phase);
+    // The browser must not remain fullscreen once this card loses its stream.
+    if (phase !== 'live' && document.fullscreenElement === card.value) {
+        void document.exitFullscreen().catch(() => undefined);
+    }
+});
 watch(session.stream, value => {
     if (video.value) video.value.srcObject = value;
     if (!value) {
@@ -169,10 +175,15 @@ function point(event: PointerEvent, clamp: boolean) {
     const { width, height } = geometry();
     if (!width || !height) return null;
     const rect = video.value.getBoundingClientRect();
+    // Fullscreen stretches the *entire* frame to the available monitor.
+    // Its touch transform must use the same independent X/Y scaling,
+    // otherwise clicks hit the wrong Android coordinates.
+    const fill = document.fullscreenElement === card.value;
     const scale = Math.min(rect.width / width, rect.height / height);
-    const left = rect.left + (rect.width - width * scale) / 2;
-    const top = rect.top + (rect.height - height * scale) / 2;
-    const x = (event.clientX - left) / scale; const y = (event.clientY - top) / scale;
+    const left = fill ? rect.left : rect.left + (rect.width - width * scale) / 2;
+    const top = fill ? rect.top : rect.top + (rect.height - height * scale) / 2;
+    const x = (event.clientX - left) / (fill ? rect.width / width : scale);
+    const y = (event.clientY - top) / (fill ? rect.height / height : scale);
     if (!clamp && (x < 0 || y < 0 || x >= width || y >= height)) return null;
     return { x: Math.max(0, Math.min(width - 1, Math.round(x))), y: Math.max(0, Math.min(height - 1, Math.round(y))), width, height };
 }
@@ -222,7 +233,14 @@ async function open(quality: 'wall' | 'focus', options: AutomationMediaSettings 
     await session.open(props.ownerId, props.device.id, quality, watchMedia);
 }
 function cancelRestoreIntent() { watching = false; ++intentVersion; }
-async function close() { cancelRestoreIntent(); cancelPointer(); menuOpen.value = false; clearMenuTimer(); stopFrameChase(); await session.close(); }
+async function close() {
+    cancelRestoreIntent(); cancelPointer(); menuOpen.value = false; clearMenuTimer(); stopFrameChase();
+    // Close the fullscreen container *before* tearing down its video.
+    if (document.fullscreenElement === card.value) {
+        try { await document.exitFullscreen(); } catch { /* session cleanup still takes priority */ }
+    }
+    await session.close();
+}
 async function endpointChanged(event: EndpointEvent) {
     if (event.device_id !== props.device.id || event.endpoint_revision < latestEndpoint || event.endpoint_revision <= restoredEndpoint) return;
     const changed = event.endpoint_revision > latestEndpoint;
@@ -336,9 +354,14 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
             </div>
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
-        <small v-if="['lock_state_unknown', 'lock_state_changed', 'unlock_size_unknown', 'unlock_swipe_failed'].includes(session.state.unlockState)"
-            class="unlock-notice">未能确认安全的解锁条件，已唤醒但未输入密码，请手动解锁。</small>
-        <small v-else-if="session.state.unlockState === 'unlock_sent'" class="unlock-notice">已输入开屏密码并回车，请核对手机是否解锁。</small>
+        <small v-if="session.state.unlockState === 'wake_sent'" class="unlock-notice">已发送亮屏指令，但该手机的 ADB 服务未配置开屏密码；请在设备管理中保存密码。</small>
+        <small v-else-if="session.state.unlockState === 'already_unlocked'" class="unlock-notice">已检测到手机处于解锁状态，因此没有输入密码。</small>
+        <small v-else-if="session.state.unlockState === 'lock_state_unknown'" class="unlock-notice">手机已唤醒，但 Android 未返回可靠的锁屏状态；为避免把密码输入其他应用，已跳过自动解锁。</small>
+        <small v-else-if="session.state.unlockState === 'lock_state_changed'" class="unlock-notice">上滑后锁屏状态不明确，已停止自动输入密码；请检查手机锁屏界面。</small>
+        <small v-else-if="session.state.unlockState === 'unlock_size_unknown'" class="unlock-notice">读取手机屏幕尺寸失败，无法执行解锁上滑；请检查 ADB 权限。</small>
+        <small v-else-if="session.state.unlockState === 'unlock_swipe_failed'" class="unlock-notice">手机拒绝或未完成解锁上滑，已跳过密码输入；请检查 ADB 权限。</small>
+        <small v-else-if="session.state.unlockState === 'unlock_skipped'" class="unlock-notice">本次解锁中途停止，未确认最终锁屏状态。</small>
+        <small v-else-if="session.state.unlockState === 'unlock_sent'" class="unlock-notice">已输入开屏密码并回车，但手机尚未确认解锁成功。</small>
         <small v-else-if="session.state.unlockState === 'unlock_confirmed'" class="unlock-notice">已确认手机解锁。</small>
         <div v-if="device.endpoint_event" class="endpoint-status"><small>目标切换：{{ device.endpoint_event.cleanup.state }} / {{ device.endpoint_event.connection.state }}</small><Button v-if="device.endpoint_event.cleanup.state !== 'confirmed'" label="重试清理" text size="small" :loading="cleaningSaved" @click="retryEndpoint('cleanup')" /><Button v-else-if="device.endpoint_event.connection.state === 'pending'" label="重试连接" text size="small" :loading="cleaningSaved" @click="retryEndpoint('connection')" /><Button v-if="device.endpoint_event.publication && !['applied','not_applicable'].includes(device.endpoint_event.publication.state)" label="重试公开应用" text size="small" :loading="cleaningSaved" @click="retryEndpoint('publication')" /></div>
         <p v-if="session.state.error || device.availability_reason" class="phone-error" role="status">{{ session.state.error || device.availability_reason }}</p>
@@ -392,6 +415,10 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .dock-left .side-actions{left:calc(100% + 7px)}
 .control-dismiss{position:absolute;inset:0;z-index:5;background:transparent;border:0;cursor:default}
 footer{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;gap:8px;font-size:11px}.phase{color:var(--console-muted)}.phase.live{color:var(--p-green-500)}.phase.live:before{content:'';display:inline-block;width:6px;height:6px;background:currentColor;border-radius:50%;margin-right:6px}.unlock-notice{display:block;padding:0 12px 10px;color:var(--console-muted);font-size:11px}.phone-error{font-size:11px;padding:0 12px 10px;color:var(--p-red-500);overflow-wrap:anywhere;max-height:80px;overflow:auto}.fullscreen-stop{display:none}
-.phone-card:fullscreen{display:flex;flex-direction:column;width:100vw!important;max-width:none;height:100dvh;border:0;border-radius:0;background:#07111d;color:#e1edf7}.phone-card:fullscreen .phone-screen{flex:1;height:auto;aspect-ratio:auto!important}.phone-card:fullscreen .fullscreen-stop{display:inline-flex;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:7}.phone-card:fullscreen .device-meta{display:none}
+.phone-card:fullscreen{display:flex;flex-direction:column;width:100%!important;max-width:none;height:100%;min-height:100dvh;border:0;border-radius:0;background:#07111d;color:#e1edf7}
+.phone-card:fullscreen header,.phone-card:fullscreen .device-meta,.phone-card:fullscreen footer,.phone-card:fullscreen .unlock-notice,.phone-card:fullscreen .endpoint-status,.phone-card:fullscreen .phone-error{display:none}
+.phone-card:fullscreen .phone-screen{flex:1 1 0;min-height:0;width:100%;height:100%;aspect-ratio:auto!important}
+.phone-card:fullscreen .phone-screen video{object-fit:fill}
+.phone-card:fullscreen .fullscreen-stop{display:inline-flex;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:7}
 @media(max-width:600px){.floating-actions :deep(.p-button){width:36px;height:36px;min-width:36px}.side-actions{gap:2px!important}}
 </style>
