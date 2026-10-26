@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { Button, Dialog, InputText, Message, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
@@ -12,6 +12,7 @@ import DiscoveryDialog from './node-assets/DiscoveryDialog.vue';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../modules/automation-api';
 import type { AutomationContext, AutomationControl, AutomationControlReply, AutomationDevice, AutomationRun, AutomationStep, AutomationMediaSettings, AutomationComponentStatus, AutomationPhoneConnectionState } from '../types/automation';
 import PhoneCard from './automation/PhoneCard.vue';
+import UiInspectorDialog from './automation/UiInspectorDialog.vue';
 import ConnectionDialog from './automation/ConnectionDialog.vue';
 import ScriptLibrary from './automation/ScriptLibrary.vue';
 import RunHistory from './automation/RunHistory.vue';
@@ -27,6 +28,7 @@ interface PhoneHandle {
     cancelRestoreIntent(): void;
     send(message: AutomationControl): Promise<AutomationControlReply>;
     getState(): { phase: string; ready: boolean; width: number; height: number };
+    getStream(): MediaStream | null;
     cancelPointer(): void;
     resetPointer(): void;
 }
@@ -116,6 +118,8 @@ const syncPreparation = ref(false); const syncMaster = ref(''); const syncTarget
 const sync = ref<SyncSession | null>(null);
 const recordingId = ref<string | null>(null); const recordingPaused = ref(false); const recordedSteps = ref<AutomationStep[]>([]);
 const recordingDraft = ref<AutomationStep[]>([]);
+const inspectorDeviceId = ref<string | null>(null);
+const inspectorStream = shallowRef<MediaStream | null>(null);
 const textDialog = ref(false); const textTargets = ref<string[]>([]); const inputText = ref(''); const sendingText = ref(false);
 const results = ref<{ id: string; name: string; state: string; message?: string }[]>([]);
 const focusRunId = ref<string>(); const historyKey = ref(0);
@@ -127,6 +131,7 @@ let recordingGeneration = 0; let pendingRecordActions = 0;
 const runnerAvailable = computed(() => context.value?.available === true && context.value.runner_configured);
 const managedAccount = computed(() => accounts.value.find(account => account.id === ownerId.value)?.username ?? String(ownerId.value));
 const deviceNames = computed(() => Object.fromEntries(devices.value.map(device => [device.id, device.name])));
+const inspectorDevice = computed(() => devices.value.find(device => device.id === inspectorDeviceId.value));
 const nodeOptions = computed(() => [...new Map([
     ...catalogNodes.value.map(node => [node.machine_id, node.alias || node.hostname || node.machine_id] as const),
     ...devices.value.map(device => [device.machine_id, device.node_name] as const),
@@ -430,12 +435,14 @@ async function closeSelected() {
     await loadDevices();
 }
 async function closeAll() {
+    closeInspector();
     globalOpen.value = false; syncPreparation.value = false;
     await stopSync();
     if (recordingId.value) finishRecording(false);
     await Promise.all([...cards.values()].map(card => card.close()));
 }
 function onState(id: string, phase: string) {
+    if (phase !== 'live' && inspectorDeviceId.value === id) closeInspector();
     phases.value[id] = phase;
     if (phase === 'live') phoneConnections.value[id] = 'connected';
     if (phase !== 'live' && sync.value?.deviceIds.includes(id)) {
@@ -589,6 +596,26 @@ function pauseRecording() {
     if (recordingId.value) cards.get(recordingId.value)?.cancelPointer();
     ++recordingGeneration; gesture = null; recordingPaused.value = !recordingPaused.value;
 }
+function openInspector(id: string) {
+    if (sync.value || recordingId.value) { error.value = '请先结束群控同步或脚本录制，再拾取控件。'; return; }
+    const card = cards.get(id);
+    const stream = card?.getStream();
+    if (!card?.getState().ready || !stream) { error.value = '请先打开这台手机的实时画面，再拾取控件。'; return; }
+    inspectorDeviceId.value = id;
+    inspectorStream.value = stream;
+}
+function closeInspector() {
+    inspectorDeviceId.value = null;
+    inspectorStream.value = null;
+}
+function addInspectorStep(step: AutomationStep) {
+    if (recordingDraft.value.length >= 100) { error.value = '草稿已达到 100 个步骤，请先编辑已有步骤。'; return; }
+    recordingDraft.value = [...recordingDraft.value, step];
+}
+function editInspectorDraft() {
+    closeInspector();
+    void changeTab('scripts');
+}
 function finishRecording(edit: boolean) {
     if (gesture || pendingRecordActions) notice.value = t('recordIncomplete');
     ++recordingGeneration;
@@ -599,6 +626,7 @@ function finishRecording(edit: boolean) {
 }
 async function changeTab(next: typeof tab.value) {
     if (next === tab.value || switchingTab.value || connecting.value || sendingText.value) return;
+    if (next !== 'workbench') closeInspector();
     switchingTab.value = true;
     try {
         if (tab.value === 'workbench') {
@@ -706,7 +734,7 @@ onBeforeUnmount(() => { stopEvents?.();
                 <div v-if="!devices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-mobile" aria-hidden="true" /><h2>{{ t('noAssets') }}</h2><p>{{ t('noAssetsDetail') }}</p><Button :label="t('toAssets')" outlined @click="router.push({ name: 'nodeAssets' })" /></div>
                 <div v-else-if="!visibleDevices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-search" aria-hidden="true" /><h2>{{ t('noResults') }}</h2><Button :label="t('reset')" text @click="filters = { node: '', group: '', type: '', keyword: '' }; query()" /></div>
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
-                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @text="id => showText([id])" @record="toggleRecord" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
+                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @text="id => showText([id])" @record="toggleRecord" @inspect="openInspector" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
                 <button v-if="globalOpen && !fullscreenActive" class="global-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="globalOpen = false" />
                 <div v-if="devices.length && !fullscreenActive" class="global-controls" @pointerdown.stop @click.stop @keydown.esc="globalOpen = false">
@@ -720,6 +748,7 @@ onBeforeUnmount(() => { stopEvents?.();
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
+        <UiInspectorDialog v-if="inspectorDevice" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="recordingDraft.length" @close="closeInspector" @add-step="addInspectorStep" @edit="editInspectorDraft" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
         <Dialog v-model:visible="syncPreparation" modal :header="t('syncTitle')" :style="{ width: '500px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><Message severity="info" :closable="false">{{ t('syncHint') }}</Message><p>{{ t('targetCount', { count: syncTargets.length }) }}</p><ul><li v-for="id in syncTargets" :key="id">{{ deviceNames[id] ?? id }}</li></ul><label>{{ t('master') }}<select v-model="syncMaster"><option v-for="id in syncTargets" :key="id" :value="id">{{ deviceNames[id] ?? id }}</option></select></label></div><template #footer><Button :label="t('cancel')" text @click="syncPreparation = false" /><Button :label="t('sync')" icon="pi pi-share-alt" @click="beginSync" /></template></Dialog>
         <Dialog v-model:visible="textDialog" modal :header="t('textTitle')" :closable="!sendingText" :close-on-escape="!sendingText" :style="{ width: '520px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><p>{{ t('targetCount', { count: textTargets.length }) }} · {{ textTargets.map(id => deviceNames[id] ?? id).join('、') }}</p><Textarea v-model="inputText" :placeholder="t('textPlaceholder')" rows="5" maxlength="2000" :disabled="sendingText" autofocus /><p class="muted">{{ t('textHint') }}</p></div><template #footer><Button :label="t('cancel')" text :disabled="sendingText" @click="textDialog = false; inputText = ''" /><Button :label="t('send')" icon="pi pi-send" :loading="sendingText" :disabled="!inputText" @click="sendText" /></template></Dialog>
