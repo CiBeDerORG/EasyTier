@@ -45,7 +45,7 @@ class ActionHarness:
             return self.count(params[0])
         if method == "objInfo":
             return self.info(params[0])
-        if method == "swipe":
+        if method in ("swipe", "click", "drag"):
             return self.on_swipe() if self.on_swipe else True
         raise AssertionError("Unexpected method: " + method)
 
