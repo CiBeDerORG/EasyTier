@@ -167,7 +167,7 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                 <section class="preview-panel" aria-label="手机画面拾取">
                     <div class="preview-heading"><strong>手机实时画面</strong><small>{{ snapshot ? snapshot.width + ' × ' + snapshot.height : '等待控件树' }}</small></div>
                     <div class="video-well">
-                        <div ref="surface" class="video-surface" :style="{ aspectRatio: snapshot ? snapshot.width + ' / ' + snapshot.height : '9 / 19' }">
+                        <div ref="surface" class="video-surface" :style="{ aspectRatio: snapshot ? snapshot.width + ' / ' + snapshot.height : '9 / 19', width: snapshot ? 'min(100%, ' + (snapshot.width / snapshot.height * 58) + 'vh)' : 'min(100%, 27.5vh)' }">
                             <video ref="video" autoplay muted playsinline @loadedmetadata="videoMetadata" @resize="videoMetadata" />
                             <button v-if="snapshot && compatibleVideo" type="button" class="pick-layer" title="点击选取控件（不会操作手机）" aria-label="点击画面选择控件" @click="pick" />
                             <div v-if="nodeHighlight" class="node-highlight" :style="nodeHighlight" />
