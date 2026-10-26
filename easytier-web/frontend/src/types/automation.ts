@@ -1,5 +1,15 @@
 export type AutomationKey = 'HOME' | 'BACK' | 'RECENT' | 'WAKE';
 export interface AutomationSelector { resource_id?: string; description?: string; text?: string }
+export interface AutomationHierarchyNode {
+    id: number; parent_id: number | null; depth: number;
+    class_name: string; package: string; resource_id: string; text: string; description: string;
+    clickable: boolean; enabled: boolean; scrollable: boolean; selected: boolean; checked: boolean; password: boolean;
+    bounds: { left: number; top: number; right: number; bottom: number };
+}
+export interface AutomationHierarchy {
+    device_id: string; target_fingerprint: string;
+    snapshot: { width: number; height: number; truncated: boolean; nodes: AutomationHierarchyNode[] };
+}
 export type AutomationStepType = 'key' | 'tap' | 'swipe' | 'input_text' | 'launch_app' | 'wait_for' | 'assert' | 'screenshot';
 export interface AutomationStep {
     id: string;
