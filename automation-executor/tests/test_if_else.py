@@ -28,12 +28,41 @@ class IfElseValidationTests(unittest.TestCase):
                 + [key() for _ in range(23)],
             [item("if_else", selector=BUTTON, then_count=1, else_count=1),
              item("if_gone", selector=BUTTON, skip_count=1), key()],
-            [item("if_gone", selector=BUTTON, skip_count=3),
-             item("if_else", selector=BUTTON, then_count=1, else_count=1), key(), key()],
+            # A child condition cannot cross its parent's Then/Else boundary.
+            [item("if_else", selector=BUTTON, then_count=2, else_count=1),
+             key(), item("if_gone", selector=BUTTON, skip_count=1), key()],
         ]
         for flow in invalid:
             with self.subTest(flow=[x["type"] for x in flow]), self.assertRaises(Exception):
                 steps(flow)
+
+    def test_three_level_nested_conditions_are_valid(self):
+        flow = [
+            item("if_else", selector=BUTTON, then_count=5, else_count=1),
+            item("if_gone", selector=BUTTON, skip_count=4),
+            item("if_else", selector=BUTTON, then_count=1, else_count=2),
+            key(), key(), key(), key(),
+        ]
+        self.assertEqual(len(steps(flow)), len(flow))
+
+    def test_fourth_nested_level_is_blocked(self):
+        flow = [
+            item("if_gone", selector=BUTTON, skip_count=5),
+            item("if_gone", selector=BUTTON, skip_count=4),
+            item("if_gone", selector=BUTTON, skip_count=3),
+            item("if_gone", selector=BUTTON, skip_count=2),
+            key(), key(),
+        ]
+        with self.assertRaises(Exception):
+            steps(flow)
+
+    def test_legacy_if_can_contain_if_else_when_fully_nested(self):
+        flow = [
+            item("if_gone", selector=BUTTON, skip_count=3),
+            item("if_else", selector=BUTTON, then_count=1, else_count=1),
+            key(), key(),
+        ]
+        self.assertEqual(len(steps(flow)), len(flow))
 
     def test_disjoint_branches_are_accepted(self):
         flow = [item("if_else", selector=BUTTON, then_count=1, else_count=1), key(), key(),
