@@ -10,7 +10,7 @@ export interface AutomationHierarchy {
     device_id: string; target_fingerprint: string; captured_at: string;
     snapshot: { width: number; height: number; truncated: boolean; nodes: AutomationHierarchyNode[] };
 }
-export type AutomationStepType = 'key' | 'tap' | 'long_press' | 'swipe' | 'drag' | 'input_text' | 'launch_app' | 'wait_for' | 'wait_gone' | 'if_gone' | 'assert' | 'assert_property' | 'scroll_find' | 'screenshot';
+export type AutomationStepType = 'key' | 'tap' | 'long_press' | 'swipe' | 'drag' | 'input_text' | 'launch_app' | 'wait_for' | 'wait_gone' | 'if_gone' | 'if_else' | 'assert' | 'assert_property' | 'scroll_find' | 'screenshot';
 export interface AutomationStep {
     id: string;
     type: AutomationStepType;
@@ -22,7 +22,7 @@ export interface AutomationStep {
     property?: 'enabled' | 'checked' | 'selected' | 'clickable' | 'scrollable';
     expected?: boolean;
     scroll_container?: AutomationSelector;
-    direction?: 'up' | 'down'; max_swipes?: number; skip_count?: number;
+    direction?: 'up' | 'down'; max_swipes?: number; skip_count?: number; then_count?: number; else_count?: number;
 }
 export interface AutomationContext {
     available: boolean; runner_configured: boolean; can_manage_others: boolean;
@@ -104,6 +104,7 @@ export interface AutomationRunInput {
 export interface AutomationStepResult {
     step_id: string; state: string; message?: string; started_at?: string; finished_at?: string;
     artifact_id?: string; error?: string | { code?: string; message?: string };
+    branch_taken?: 'then' | 'else' | 'skip'; skipped_by_step_id?: string;
 }
 export interface AutomationRunDevice {
     device_id: string; name: string; state: string; current_step: number | string | null;
