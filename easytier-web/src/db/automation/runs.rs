@@ -24,24 +24,67 @@ fn aggregate(states:&[String])->&'static str {
     "partial_failed"
 }
 
+/// Compute business verification only from the immutable snapshot and
+/// authenticated, persisted step results; never trust an executor-supplied
+/// business outcome label or retroactively mark legacy runs as verified.
+fn business_check_id(snapshot:&Value)->Option<&str> {
+    let steps=snapshot["steps"].as_array()?;
+    let last=steps.last()?;
+    if last["business_verification"]!=true
+        || !matches!(last["type"].as_str(),Some("assert"|"assert_property"))
+        || steps.iter().filter(|s|s["business_verification"]==true).count()!=1
+    {return None;}
+    last["id"].as_str()
+}
+fn business_device_state(state:&str,steps:&Value,check:Option<&str>)->&'static str {
+    let Some(id)=check else{return "not_verified"};
+    let result=steps.as_array().and_then(|items|items.iter()
+        .find(|step|step["step_id"].as_str()==Some(id)));
+    let check_state=result.and_then(|step|step["state"].as_str()).unwrap_or("");
+    if matches!(state,"completed"|"succeeded") && check_state=="assertion_passed" {return "verified";}
+    if check_state=="failed" && state=="failed" {return "failed";}
+    if state=="outcome_unknown" || check_state=="outcome_unknown" || state=="cleanup_pending" {return "outcome_unknown";}
+    if matches!(state,"dispatch_pending"|"queued"|"accepted"|"starting"|"running"|"cancel_requested") {return "pending";}
+    "not_reached"
+}
+fn business_run_state(states:&[&str],configured:bool)->&'static str {
+    if !configured {return "not_verified";}
+    if states.is_empty() {return "not_reached";}
+    if states.iter().all(|v|*v=="verified") {return "verified";}
+    if states.iter().all(|v|*v=="failed") {return "failed";}
+    if states.iter().all(|v|*v=="not_reached") {return "not_reached";}
+    if states.iter().any(|v|*v=="outcome_unknown") {return "outcome_unknown";}
+    if states.iter().all(|v|*v=="pending") {return "pending";}
+    "partial"
+}
+
 async fn read_run(conn:&mut SqliteConnection,owner:i32,id:&str)->AutomationResult<Value> {
     let row=sqlx::query("SELECT * FROM automation_runs WHERE id=? AND owner_user_id=?").bind(id).bind(owner).fetch_optional(&mut *conn).await?.ok_or_else(not_found)?;
     let rows=sqlx::query("SELECT * FROM automation_run_devices WHERE run_id=? ORDER BY ordinal").bind(id).fetch_all(&mut *conn).await?;
+    let snapshot=parse_json(&row.try_get::<String,_>("snapshot_json")?)?;
+    let check=business_check_id(&snapshot);
+    let mut business_states=Vec::with_capacity(rows.len());
     let mut devices=Vec::with_capacity(rows.len());
     for d in rows {
         let current:Option<String>=d.try_get("current_step")?;
         let error:Option<String>=d.try_get("error_json")?;
+        let state:String=d.try_get("state")?;
+        let steps=parse_json(&d.try_get::<String,_>("steps_json")?)?;
+        let business_state=business_device_state(&state,&steps,check);
+        business_states.push(business_state);
         devices.push(json!({"device_id":d.try_get::<String,_>("device_id")?,"name":d.try_get::<String,_>("name")?,
             "withdraw_requested":d.try_get::<bool,_>("withdraw_requested")?,"cleanup_confirmed":d.try_get::<bool,_>("cleanup_confirmed")?,
-            "state":d.try_get::<String,_>("state")?,"current_step":current.map(|s|serde_json::from_str::<Value>(&s).unwrap_or(Value::String(s))),
-            "error":error.map(|s|parse_json(&s)).transpose()?,"steps":parse_json(&d.try_get::<String,_>("steps_json")?)?,
+            "state":state,"business_verification":business_state,
+            "current_step":current.map(|s|serde_json::from_str::<Value>(&s).unwrap_or(Value::String(s))),
+            "error":error.map(|s|parse_json(&s)).transpose()?,"steps":steps,
             "updated_at":d.try_get::<String,_>("updated_at")?}));
     }
     Ok(json!({"id":id,"name":row.try_get::<String,_>("name")?,"state":row.try_get::<String,_>("state")?,
         "executor_id":row.try_get::<Option<String>,_>("runner_identity")?,
         "executor_revision":row.try_get::<i64,_>("result_revision")?,
         "created_at":row.try_get::<String,_>("created_at")?,"updated_at":row.try_get::<String,_>("updated_at")?,
-        "script_snapshot":parse_json(&row.try_get::<String,_>("snapshot_json")?)?,
+        "script_snapshot":snapshot,
+        "business_verification":business_run_state(&business_states,check.is_some()),
         "parameter_names":parse_json(&row.try_get::<String,_>("parameters_json")?)?,
         "concurrency":row.try_get::<i64,_>("concurrency")?,"cancel_requested":row.try_get::<bool,_>("cancel_requested")?,"devices":devices}))
 }
@@ -252,8 +295,14 @@ impl AutomationStore {
         let snapshot=parse_json(&row.try_get::<String,_>("snapshot_json")?)?;
         let target_rows:Vec<String>=sqlx::query_scalar("SELECT target_json FROM automation_run_devices WHERE run_id=? ORDER BY ordinal").bind(id).fetch_all(&mut *conn).await?;
         let targets=target_rows.iter().map(|raw|parse_json(raw)).collect::<AutomationResult<Vec<_>>>()?;
+        let mut executor_steps=snapshot["steps"].clone();
+        if let Some(items)=executor_steps.as_array_mut() {
+            for step in items {
+                if let Some(object)=step.as_object_mut() {object.remove("business_verification");}
+            }
+        }
         Ok(json!({"id":id,"owner_user_id":owner,"actor_user_id":row.try_get::<i32,_>("actor_user_id")?,"name":row.try_get::<String,_>("name")?,
-            "steps":snapshot["steps"],"parameters":{},"concurrency":row.try_get::<i64,_>("concurrency")?,"targets":targets}))
+            "steps":executor_steps,"parameters":{},"concurrency":row.try_get::<i64,_>("concurrency")?,"targets":targets}))
     }
 
     pub(crate) async fn set_run_dispatch_unknown(&self,owner:i32,id:&str)->AutomationResult<()> {
