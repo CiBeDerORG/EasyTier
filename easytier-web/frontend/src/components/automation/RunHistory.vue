@@ -6,7 +6,7 @@ import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
 import { analyzeAutomationFlow } from '../../modules/automation-flow';
 import { getApiBase } from '../../modules/api-host';
-import type { AutomationRun, AutomationRunInput, AutomationRunDevice, AutomationStep } from '../../types/automation';
+import type { AutomationRun, AutomationRunInput, AutomationRunDevice, AutomationStep, BusinessVerificationStatus } from '../../types/automation';
 
 const props = defineProps<{ ownerId: number; focusRunId?: string }>();
 const api = new AutomationApi();
@@ -177,6 +177,29 @@ function cleanupNotice(device: AutomationRunDevice): string {
     return '';
 }
 
+function businessLabel(state: BusinessVerificationStatus | undefined): string {
+    const labels: Record<BusinessVerificationStatus, [string, string]> = {
+        verified: ['业务已验证', 'Business verified'],
+        failed: ['业务验证失败', 'Business check failed'],
+        not_verified: ['业务未验证', 'Business not verified'],
+        pending: ['业务验证待执行', 'Business check pending'],
+        not_reached: ['业务条件未到达', 'Business check not reached'],
+        outcome_unknown: ['业务结果未知', 'Business outcome unknown'],
+        partial: ['部分设备业务未验证', 'Partial verification'],
+    };
+    const pair=labels[state ?? 'not_verified'];
+    return text(pair[0],pair[1]);
+}
+function businessSeverity(state: BusinessVerificationStatus | undefined): 'success' | 'secondary' | 'warn' | 'danger' | 'info' {
+    switch (state) {
+        case 'verified': return 'success';
+        case 'failed': return 'danger';
+        case 'outcome_unknown':
+        case 'partial': return 'warn';
+        case 'pending': return 'info';
+        default: return 'secondary';
+    }
+}
 function statusLabel(state: string): string {
     const labels: Record<string, [string, string]> = {
         dispatch_pending: ['等待派发', 'Awaiting dispatch'], queued: ['排队中', 'Queued'], accepted: ['已接收', 'Accepted'],
@@ -482,21 +505,30 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
         <div v-else class="history-columns">
             <aside class="console-panel run-list-panel">
                 <div class="section-heading"><h2>{{ text('运行记录', 'Runs') }}</h2><span class="muted">{{ runs.length }}</span></div>
-                <ul class="run-list"><li v-for="run in runs" :key="run.id" :class="{ active: run.id === selectedId }"><button type="button" :aria-pressed="run.id === selectedId" :disabled="busy" @click="selectRun(run)"><span class="run-list-title"><strong>{{ run.name }}</strong><Tag :value="statusLabel(run.state)" :severity="severity(run.state)" /></span><small>{{ date(run.created_at) }}</small><small>{{ text(`${run.devices.length} 台设备`, `${run.devices.length} devices`) }}</small></button></li></ul>
+                <ul class="run-list"><li v-for="run in runs" :key="run.id" :class="{ active: run.id === selectedId }"><button type="button" :aria-pressed="run.id === selectedId" :disabled="busy" @click="selectRun(run)"><span class="run-list-title"><strong>{{ run.name }}</strong><Tag :value="statusLabel(run.state)" :severity="severity(run.state)" /></span>
+                            <small>{{ businessLabel(run.business_verification) }}</small><small>{{ date(run.created_at) }}</small><small>{{ text(`${run.devices.length} 台设备`, `${run.devices.length} devices`) }}</small></button></li></ul>
             </aside>
             <div v-if="selected" class="console-panel result-panel">
                 <header class="section-heading result-heading"><div><h2>{{ selected.name }}</h2><span class="run-id">{{ selected.id }}</span></div><Tag :value="statusLabel(selected.state)" :severity="severity(selected.state)" /></header>
+                <div class="business-verification-header" role="status">
+                    <Tag :value="businessLabel(selected.business_verification)" :severity="businessSeverity(selected.business_verification)" />
+                    <span>{{ text('脚本完成只表示动作与检查流程结束；业务验证仅由用户明确标记的最后一步断言决定。',
+                        'Script completion means the procedure ended; business success requires an explicitly marked final assertion.') }}</span>
+                </div>
                 <div class="result-meta"><span>{{ text('创建于', 'Created') }} {{ date(selected.created_at) }}</span><span>{{ text('记录更新于', 'Record updated') }} {{ date(selected.updated_at) }}</span><span>{{ text('执行快照', 'Run snapshot') }} · {{ selected.script_snapshot?.steps?.length ?? 0 }} {{ text('步', 'steps') }}</span></div>
                 <div class="result-actions"><Button :label="text('查询执行器', 'Query executor')" icon="pi pi-refresh" size="small" outlined :loading="working === 'refresh'" :disabled="busy && working !== 'refresh'" @click="refreshRun" /><Button :label="text('取消运行 / 清理占用', 'Cancel run / release control')" icon="pi pi-stop" severity="danger" outlined size="small" :disabled="busy || !canCancel" @click="askCancel" /><Button :label="text('选择设备重新运行', 'Run selected devices again')" icon="pi pi-replay" severity="secondary" outlined size="small" :disabled="busy || !canRerun" @click="openRerun" /></div>
                 <p class="result-explanation">{{ text('“动作已发送”只表示命令已送出；“条件检查通过”仅代表脚本声明的条件满足。未确认结果不会自动重放。', '“Action sent” confirms dispatch only. “Condition passed” applies only to the stated assertion. Unconfirmed actions are not replayed automatically.') }}</p>
                 <div class="device-results">
                     <article v-for="device in selected.devices" :key="device.device_id" class="device-result">
-                        <button type="button" class="device-toggle" :aria-expanded="expandedDevices.has(device.device_id)" :aria-controls="`run-steps-${selected.id}-${device.device_id}`" @click="toggleDevice(device.device_id)"><i class="pi" :class="expandedDevices.has(device.device_id) ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true" /><span class="device-name"><strong>{{ device.name }}</strong><small>{{ progress(device) }}</small></span><Tag :value="statusLabel(device.state)" :severity="severity(device.state)" /></button>
+                        <button type="button" class="device-toggle" :aria-expanded="expandedDevices.has(device.device_id)" :aria-controls="`run-steps-${selected.id}-${device.device_id}`" @click="toggleDevice(device.device_id)"><i class="pi" :class="expandedDevices.has(device.device_id) ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true" /><span class="device-name"><strong>{{ device.name }}</strong><small>{{ progress(device) }}</small></span>
+                            <Tag :value="businessLabel(device.business_verification)" :severity="businessSeverity(device.business_verification)" />
+                            <Tag :value="statusLabel(device.state)" :severity="severity(device.state)" /></button>
                         <div v-if="cleanupNotice(device)" class="cleanup-notice" role="status"><Tag :value="device.cleanup_confirmed ? text('控制进程已清理', 'Control process cleaned up') : text('控制进程待清理', 'Control cleanup pending')" :severity="device.cleanup_confirmed ? 'secondary' : 'warn'" /><p>{{ cleanupNotice(device) }}</p></div>
                         <p v-if="message(device.error)" class="device-error">{{ message(device.error) }}</p>
                         <div v-if="expandedDevices.has(device.device_id)" :id="`run-steps-${selected.id}-${device.device_id}`" class="step-results">
                             <p v-if="!device.steps?.length" class="muted empty-steps">{{ text('暂无步骤结果；未开始或执行器尚未回报。', 'No step results yet. Execution may not have started or reported back.') }}</p>
                             <ol v-else><li v-for="step in device.steps" :key="step.step_id"><div class="result-step-title"><span class="step-number">{{ stepNumber(step.step_id) }}</span><strong>{{ stepTitle(snapshotStep(step.step_id)) }}</strong>
+                                <Tag v-if="snapshotStep(step.step_id)?.business_verification" :value="text('业务验证步骤', 'Business check')" severity="info" />
                                 <small v-if="nestedBranchPath(step.step_id)" class="run-branch-path">{{ nestedBranchPath(step.step_id) }}</small>
                                 <Tag :value="statusLabel(step.state)" :severity="severity(step.state)" /></div><p v-if="step.branch_taken" class="branch-decision">
                                     <Tag :value="branchLabel(step.branch_taken)" severity="info" />
@@ -535,6 +567,7 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
 </template>
 
 <style scoped>
+.business-verification-header{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:10px 0;font-size:12px;color:var(--console-muted);line-height:1.5}
 .run-branch-path{font-size:10px;color:var(--console-muted);overflow-wrap:anywhere}
 .branch-decision{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .branch-skip-source{color:var(--console-muted);font-size:12px}
