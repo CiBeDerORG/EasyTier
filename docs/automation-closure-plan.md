@@ -8,7 +8,7 @@
 | AUT-00 | P0 | **验收规范已提交，等待真机** | `automation-aut00-acceptance.md` A00-01～10；Android 17、其他 Android 版本、FnOS 镜像 |
 | AUT-01 | P0 | **已提交第一批，CI 待核对** | `automation-flow-tree.ts` 编辑器树结构与扁平执行协议互转；整块删除；自动计数；禁止默认 HOME 占位；禁止手改分支范围；回归测试 |
 | AUT-03 | P0 | **已提交第一批，CI 待核对** | `automation-draft.ts` 单一账号会话草稿，拾取/录制/编辑共用；切换 tab 保留；切脚本确认丢弃；不会把运行参数存入浏览器。**刷新页面后持久恢复尚未实现** |
-| AUT-02 | P0 | 未开始 | 长按/短按/滑动识别；拖拽不确定时要求确认 |
+| AUT-02 | P0 | **第一版已提交，CI/真机待验收** | `automation-gesture.ts` 按时长、最大位移分类短按/长按；明显位移必须手动选「滑动/拖拽/不录制」；超时/回到原点/坏几何拒绝生成；前端回归测试 |
 | AUT-04 | P0 | 未开始 | 既有步骤重新打开拾取器；唯一性验证；步骤 ID 不变 |
 | AUT-05 | P0 | 未开始 | 异步逐台 ADB/控件/独占预检；最终派发仍在服务端校验 |
 | AUT-06 | P0 | 未开始 | 区分「脚本完成」「业务验证成功」「业务未验证」；旧数据不误报 |
@@ -24,6 +24,8 @@
 - `easytier-web/frontend/src/components/automation/ScriptStepEditor.vue`：锁定条件类型/跨度；补充 If/Else 定位配置。
 - `easytier-web/frontend/src/modules/automation-draft.ts`：按账号隔离的页面会话草稿和去重合并。
 - `easytier-web/frontend/src/components/AutomationCenter.vue`：录制和拾取直接追加同一草稿。
+- `easytier-web/frontend/src/modules/automation-gesture.ts`：O(1) 采样轨迹统计，短按/长按与位移手势分类；无法判断滑动还是拖拽则阻止新增动作并请求用户确认。
+- `easytier-web/frontend/tests/automation-gesture.test.mjs`：长按 500/800/1500/3000ms、位移确认、返回原点、异常几何和超时的回归测试。
 - `easytier-web/frontend/tests/automation-flow-tree.test.mjs`、`automation-draft.test.mjs`：结构与草稿回归用例。
 - `.github/workflows/node-attributes-image.yml`：自动化分支主镜像构建前新增前端 `test:unit`。
 
