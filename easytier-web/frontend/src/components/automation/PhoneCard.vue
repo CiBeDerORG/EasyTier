@@ -264,7 +264,9 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
             <span class="node-name" :title="device.gateway_name || t('ungrouped')">{{ device.gateway_name || t('ungrouped') }}</span>
             <div class="device-meta-actions">
                 <PhoneAutomationPanel :device="device" :owner-id="ownerId" :runner-available="runnerAvailable" :observed-status="componentStatus" />
-                <Button icon="pi pi-crosshairs" text rounded size="small" aria-label="控件拾取" title="在实时画面中拾取 UiAutomator2 控件" :disabled="!ready || !!syncRole || recording" @click="emit('inspect', device.id)" />
+                <Button class="inspector-trigger" label="拾取控件" icon="pi pi-search" outlined size="small"
+                    aria-label="拾取控件" :title="!ready ? '先打开手机实时画面并等待控制就绪' : syncRole ? '请先结束群控同步' : recording ? '请先结束录制' : '在实时画面中拾取 UiAutomator2 控件'"
+                    :disabled="!ready || !!syncRole || recording" @click="emit('inspect', device.id)" />
             <button type="button" class="adb-port" :disabled="!runnerAvailable || !device.connection.enabled || pending"
                 :title="t(ready ? 'close' : 'open')" :aria-label="t('adbPort') + ': ' + device.connection.adb_port"
                 @click="emit('toggle-screen', device.id)">
@@ -324,8 +326,8 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
 .phone-card.selected{border-color:var(--p-primary-color);box-shadow:0 0 0 1px color-mix(in srgb,var(--p-primary-color) 20%,transparent)}
 .phone-card.master{box-shadow:0 0 0 2px var(--p-primary-color)}
 header{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 0 14px;gap:8px}.device-heading{display:flex;align-items:center;gap:6px;min-width:0;flex:1}.device-selection{display:flex;align-items:center;gap:8px;min-width:0;font-weight:600}.device-selection .device-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.device-model{flex:0 1 auto;min-width:0;max-width:95px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:400;color:var(--console-muted)}.device-selection input{accent-color:var(--p-primary-color);width:16px;height:16px;flex-shrink:0}
-.device-meta{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--console-muted);padding:1px 14px 10px}
-.device-meta-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.device-meta{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--console-muted);padding:1px 14px 10px}
+.device-meta-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;min-width:0}.inspector-trigger{flex-shrink:0;white-space:nowrap}.device-meta-actions :deep(.inspector-trigger){font-size:11px;padding:5px 8px}
 .device-meta .node-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .adb-status{border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;padding:0;cursor:pointer;flex-shrink:0;border-radius:50%}
 .adb-status:hover:not(:disabled){background:var(--console-accent-soft)}.adb-status:disabled{cursor:default;opacity:.6}
