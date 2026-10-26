@@ -79,9 +79,9 @@ const selectedStep = computed(() => steps.value.find(step => step.id === selecte
 const businessCheckId = computed(() => businessCheckStepId(steps.value));
 const selectedIsFinalAssertion = computed(() => {
     const selected = selectedStep.value;
-    const last = steps.value.at(-1);
+    const last = steps.value[steps.value.length - 1];
     return !!selected && selected.id === last?.id && ['assert', 'assert_property'].includes(selected.type)
-        && !flowLayout.value.problem && !flowLayout.value.entries.at(-1)?.ancestors.length;
+        && !flowLayout.value.problem && !flowLayout.value.entries[flowLayout.value.entries.length - 1]?.ancestors.length;
 });
 function setBusinessCheck(enabled: boolean) {
     if (busy.value || !selectedIsFinalAssertion.value || !selectedStep.value) return;
@@ -370,7 +370,7 @@ function validationError(): string | null {
     if (!steps.value.length || steps.value.length > 100) return text('脚本需要 1–100 个步骤。', 'A script needs 1–100 steps.');
     const normalized = normalizeSteps();
     const marked = normalized.filter(step => step.business_verification !== undefined);
-    if (marked.length && (!businessCheckStepId(normalized) || flowLayout.value.entries.at(-1)?.ancestors.length)) {
+    if (marked.length && (!businessCheckStepId(normalized) || flowLayout.value.entries[flowLayout.value.entries.length - 1]?.ancestors.length)) {
         return text('业务验证只能标记最后一个、不属于条件分支的控件断言或属性断言。',
             'Only a final, unconditional element or property assertion may verify business success.');
     }
