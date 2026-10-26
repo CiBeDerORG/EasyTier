@@ -6,6 +6,7 @@ import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
 import type { AutomationRun, AutomationRunInput, AutomationScript, AutomationStep, AutomationStepType } from '../../types/automation';
 import ScriptStepEditor from './ScriptStepEditor.vue';
+import { analyzeAutomationFlow, canInsertBranchStep, insertBranchStep, type BranchLane } from '../../modules/automation-flow';
 
 const props = defineProps<{
     ownerId: number;
@@ -30,6 +31,8 @@ const name = ref('');
 const description = ref('');
 const steps = ref<AutomationStep[]>([]);
 const selectedStepId = ref<string>();
+const flowView = ref(true);
+const flowLayout = computed(() => analyzeAutomationFlow(steps.value));
 const baseline = ref('');
 const deleteVisible = ref(false);
 const deleteTarget = ref<AutomationScript>();
@@ -93,17 +96,28 @@ function normalizeSteps(): AutomationStep[] {
     });
 }
 function branchScope(index: number): string {
-    for (let at = 0; at < index; at++) {
-        const condition = steps.value[at];
-        if (condition.type === 'if_else') {
-            const then = condition.then_count ?? 0, otherwise = condition.else_count ?? 0;
-            if (index <= at + then) return text('Then · 控件消失', 'Then · gone');
-            if (index <= at + then + otherwise) return text('Else · 控件存在', 'Else · present');
-        } else if (condition.type === 'if_gone' && index <= at + (condition.skip_count ?? 0)) {
-            return text('Then · 控件消失', 'Then · gone');
-        }
+    const entry = flowLayout.value.entries[index];
+    if (!entry) return '';
+    return entry.ancestors.map(ancestor => {
+        const prefix = text('条件', 'If') + ' ' + (ancestor.conditionIndex + 1);
+        return prefix + ': ' + (ancestor.lane === 'then' ? 'Then' : 'Else');
+    }).join(' / ');
+}
+function branchInsertEnabled(index: number, lane: BranchLane): boolean {
+    return !busy.value && canInsertBranchStep(steps.value, flowLayout.value, index, lane);
+}
+function addBranchStep(index: number, lane: BranchLane) {
+    if (busy.value) return;
+    const newStep: AutomationStep = { id: uuid(), type: 'key', key: 'HOME' };
+    const proposed = insertBranchStep(steps.value, flowLayout.value, index, lane, newStep);
+    if (!proposed) {
+        error.value = text('无法在这个分支插入步骤：请检查嵌套层级、分支跨度或 20 步上限。',
+            'Cannot insert into this branch. Check nesting, branch spans and the 20-step limit.');
+        return;
     }
-    return '';
+    steps.value = proposed;
+    selectedStepId.value = newStep.id;
+    error.value = '';
 }
 function resetEditor(script?: AutomationScript) {
     editingId.value = script?.id;
@@ -145,9 +159,18 @@ function removeStep(index: number) {
     steps.value = steps.value.filter((_, position) => position !== index);
     if (removed?.id === selectedStepId.value) selectedStepId.value = steps.value[Math.min(index, steps.value.length - 1)]?.id;
 }
+function canMoveStep(index: number, delta: number): boolean {
+    const next = index + delta;
+    if (busy.value || flowLayout.value.problem || next < 0 || next >= steps.value.length) return false;
+    // Moving a conditional marker alone would detach its owned branch. Only
+    // swap ordinary steps inside the exact same nested lane.
+    if (['if_else', 'if_gone'].includes(steps.value[index].type) ||
+        ['if_else', 'if_gone'].includes(steps.value[next].type)) return false;
+    return branchScope(index) === branchScope(next);
+}
 function moveStep(index: number, delta: number) {
     const next = index + delta;
-    if (busy.value || next < 0 || next >= steps.value.length) return;
+    if (!canMoveStep(index, delta)) return;
     const reordered = [...steps.value];
     [reordered[index], reordered[next]] = [reordered[next], reordered[index]];
     steps.value = reordered;
@@ -214,12 +237,7 @@ function validationError(): string | null {
                 || step.then_count! + step.else_count! > normalized.length - index - 1) {
                 return prefix + text('Then/Else 必须各有 1–20 步，且两段不能超过脚本结尾。', 'Then/Else must each contain 1–20 steps within the script.');
             }
-            const end = index + step.then_count! + step.else_count!;
-            if (normalized.slice(index + 1, end + 1).some(inner => ['if_gone', 'if_else'].includes(inner.type))
-                || normalized.slice(0, index).some((earlier, position) =>
-                    earlier.type === 'if_gone' && (earlier.skip_count ?? 0) >= index - position)) {
-                return prefix + text('当前不支持嵌套或交叉条件分支。', 'Nested or crossing conditions are not supported.');
-            }
+
         }
         if (['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(step.type) && !validNumber(step.timeout_ms, 100, 30000, true)) return prefix + text('等待上限为 100–30000 毫秒。', 'The timeout must be 100–30000 ms.');
         if (step.type === 'assert_property') {
@@ -245,6 +263,15 @@ function validationError(): string | null {
             if (step.parameter !== undefined && !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(step.parameter)) return prefix + text('参数名使用英文字母、数字和下划线，且不能以数字开头。', 'Parameter names use letters, digits and underscores, starting with a letter or underscore.');
             if (step.parameter === undefined && (typeof step.text !== 'string' || new TextEncoder().encode(step.text).length > 2000)) return prefix + text('输入文字不能超过 2000 字节。', 'Text must be at most 2000 bytes.');
         }
+    }
+    const layout = analyzeAutomationFlow(normalized);
+    if (layout.problem) {
+        const reason = layout.problem.reason === 'too_deep'
+            ? text('条件最多嵌套 3 层。', 'Maximum branch depth is 3.')
+            : layout.problem.reason === 'crossing'
+                ? text('子条件跨越了父条件的 Then/Else 边界。', 'Child branch crosses a parent Then/Else boundary.')
+                : text('条件区域长度无效。', 'Branch span is invalid.');
+        return text(`第 ${layout.problem.index + 1} 步：`, `Step ${layout.problem.index + 1}: `) + reason;
     }
     return null;
 }
