@@ -111,6 +111,9 @@ function videoReady() {
 const cleaningSaved = ref(false);
 const pointer = ref<{ id: number; width: number; height: number } | null>(null);
 const currentGeometry = ref({ width: 0, height: 0 });
+// Match EasyADB: the card tracks encoded video width, not an expanding grid
+// column. Keep the phone's natural width unless the viewport is narrower.
+const cardWidth = computed(() => `${(currentGeometry.value.width > 0 ? currentGeometry.value.width : 360) + 26}px`);
 const ready = computed(() => session.state.phase === 'live' && session.state.controlReady);
 const manualAllowed = computed(() => ready.value && !props.syncRole);
 const touchAllowed = computed(() => ready.value && props.syncRole !== 'follower');
@@ -130,7 +133,10 @@ const canOpen = computed(() => props.runnerAvailable && props.device.connection.
 watch(() => session.state.phase, phase => emit('state', props.device.id, phase));
 watch(session.stream, value => {
     if (video.value) video.value.srcObject = value;
-    if (!value) stopFrameChase();
+    if (!value) {
+        stopFrameChase();
+        currentGeometry.value = { width: 0, height: 0 };
+    }
 }, { flush: 'post' });
 
 function geometry() { return { width: video.value?.videoWidth ?? 0, height: video.value?.videoHeight ?? 0 }; }
@@ -240,7 +246,7 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
 </script>
 
 <template>
-    <article ref="card" class="phone-card" :class="{ selected, master: syncRole === 'master' }">
+    <article ref="card" class="phone-card" :class="{ selected, master: syncRole === 'master' }" :style="{ width: cardWidth }">
         <header>
             <div class="device-heading">
                 <label class="device-selection"><input type="checkbox" :checked="selected" :aria-label="device.name" @change="emit('selection', device.id, ($event.target as HTMLInputElement).checked)"><span class="device-name">{{ device.name }}</span></label>
@@ -303,9 +309,10 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
             </div>
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
-        <small v-if="session.state.unlockState === 'lock_state_unknown' || session.state.unlockState === 'lock_state_changed'"
-            class="unlock-notice">未能确认手机锁屏状态，已唤醒但未输入密码，请手动解锁。</small>
-        <small v-else-if="session.state.unlockState === 'unlock_sent'" class="unlock-notice">已尝试自动输入开屏密码，请核对手机是否解锁。</small>
+        <small v-if="['lock_state_unknown', 'lock_state_changed', 'unlock_size_unknown'].includes(session.state.unlockState)"
+            class="unlock-notice">未能确认安全的解锁条件，已唤醒但未输入密码，请手动解锁。</small>
+        <small v-else-if="session.state.unlockState === 'unlock_sent'" class="unlock-notice">已输入开屏密码并回车，请核对手机是否解锁。</small>
+        <small v-else-if="session.state.unlockState === 'unlock_confirmed'" class="unlock-notice">已确认手机解锁。</small>
         <div v-if="device.endpoint_event" class="endpoint-status"><small>目标切换：{{ device.endpoint_event.cleanup.state }} / {{ device.endpoint_event.connection.state }}</small><Button v-if="device.endpoint_event.cleanup.state !== 'confirmed'" label="重试清理" text size="small" :loading="cleaningSaved" @click="retryEndpoint('cleanup')" /><Button v-else-if="device.endpoint_event.connection.state === 'pending'" label="重试连接" text size="small" :loading="cleaningSaved" @click="retryEndpoint('connection')" /><Button v-if="device.endpoint_event.publication && !['applied','not_applicable'].includes(device.endpoint_event.publication.state)" label="重试公开应用" text size="small" :loading="cleaningSaved" @click="retryEndpoint('publication')" /></div>
         <p v-if="session.state.error || device.availability_reason" class="phone-error" role="status">{{ session.state.error || device.availability_reason }}</p>
     </article>
@@ -313,7 +320,7 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
 
 <style scoped>
 .endpoint-status{padding:8px 14px;display:flex;gap:6px;flex-wrap:wrap;color:var(--console-muted)}
-.phone-card{min-width:0;border:1px solid var(--console-border);border-radius:14px;background:var(--console-panel);overflow:hidden;box-shadow:var(--console-shadow)}
+.phone-card{min-width:0;max-width:100%;flex:0 1 auto;border:1px solid var(--console-border);border-radius:14px;background:var(--console-panel);overflow:hidden;box-shadow:var(--console-shadow)}
 .phone-card.selected{border-color:var(--p-primary-color);box-shadow:0 0 0 1px color-mix(in srgb,var(--p-primary-color) 20%,transparent)}
 .phone-card.master{box-shadow:0 0 0 2px var(--p-primary-color)}
 header{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 0 14px;gap:8px}.device-heading{display:flex;align-items:center;gap:6px;min-width:0;flex:1}.device-selection{display:flex;align-items:center;gap:8px;min-width:0;font-weight:600}.device-selection .device-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.device-model{flex:0 1 auto;min-width:0;max-width:95px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:400;color:var(--console-muted)}.device-selection input{accent-color:var(--p-primary-color);width:16px;height:16px;flex-shrink:0}
@@ -328,7 +335,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 @keyframes adb-pulse{50%{opacity:.35}}.adb-port{border:0;background:transparent;color:var(--console-muted);font:inherit;white-space:nowrap;cursor:pointer;padding:3px 0;display:inline-flex;align-items:center;gap:4px}
 .adb-port:hover:not(:disabled){color:var(--p-primary-color);text-decoration:underline}.adb-port:disabled{cursor:default;opacity:.6}
 .adb-port strong{color:var(--p-text-color);font-weight:600}.adb-port .pi{font-size:9px}
-.phone-screen{width:100%;height:auto;aspect-ratio:9/19.5;position:relative;background:#07111d;overflow:hidden}.phone-screen video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;touch-action:none;user-select:none}.phone-screen video.interactive{cursor:crosshair}
+.phone-screen{width:100%;height:auto;aspect-ratio:9/16;position:relative;background:#07111d;overflow:hidden}.phone-screen video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;touch-action:none;user-select:none}.phone-screen video.interactive{cursor:crosshair}
 .screen-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#91a6bd;background:radial-gradient(ellipse at center,#11273a,#07111d 75%);padding:18px;text-align:center}.screen-placeholder>.pi{font-size:34px;color:#54738f}.screen-placeholder small{font-size:11px}
 .role-badge{position:absolute;top:10px;left:10px;pointer-events:none}.record-badge{position:absolute;top:12px;right:12px;color:#fda4af;font-size:11px;display:flex;align-items:center;gap:5px}.record-badge>span{width:7px;height:7px;border-radius:50%;background:#fb7185}
 .phone-controls{position:absolute;z-index:6;transform:translateY(-50%);display:flex;align-items:center;gap:6px;transition:left .16s ease;touch-action:none}
@@ -344,6 +351,6 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .dock-left .side-actions{left:calc(100% + 7px)}
 .control-dismiss{position:absolute;inset:0;z-index:5;background:transparent;border:0;cursor:default}
 footer{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;gap:8px;font-size:11px}.phase{color:var(--console-muted)}.phase.live{color:var(--p-green-500)}.phase.live:before{content:'';display:inline-block;width:6px;height:6px;background:currentColor;border-radius:50%;margin-right:6px}.unlock-notice{display:block;padding:0 12px 10px;color:var(--console-muted);font-size:11px}.phone-error{font-size:11px;padding:0 12px 10px;color:var(--p-red-500);overflow-wrap:anywhere;max-height:80px;overflow:auto}.fullscreen-stop{display:none}
-.phone-card:fullscreen{display:flex;flex-direction:column;width:100vw;height:100dvh;border:0;border-radius:0;background:#07111d;color:#e1edf7}.phone-card:fullscreen .phone-screen{flex:1;height:auto;aspect-ratio:auto!important}.phone-card:fullscreen .fullscreen-stop{display:inline-flex;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:7}.phone-card:fullscreen .device-meta{display:none}
+.phone-card:fullscreen{display:flex;flex-direction:column;width:100vw!important;max-width:none;height:100dvh;border:0;border-radius:0;background:#07111d;color:#e1edf7}.phone-card:fullscreen .phone-screen{flex:1;height:auto;aspect-ratio:auto!important}.phone-card:fullscreen .fullscreen-stop{display:inline-flex;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:7}.phone-card:fullscreen .device-meta{display:none}
 @media(max-width:600px){.floating-actions :deep(.p-button){width:36px;height:36px;min-width:36px}.side-actions{gap:2px!important}}
 </style>
