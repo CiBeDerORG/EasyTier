@@ -17,6 +17,7 @@ const video = ref<HTMLVideoElement | null>(null);
 const surface = ref<HTMLDivElement | null>(null);
 const response = ref<AutomationHierarchy | null>(null);
 const selectedId = ref<number | null>(null);
+const collapsedIds = ref<number[]>([]);
 const search = ref('');
 const mode = ref<'resource_id' | 'text' | 'description' | 'coordinates'>('resource_id');
 const loading = ref(false);
@@ -26,12 +27,57 @@ const videoSize = ref({ width: 0, height: 0 });
 let requestGeneration = 0;
 
 const snapshot = computed(() => response.value?.snapshot);
-const selected = computed(() => snapshot.value?.nodes.find(node => node.id === selectedId.value) ?? null);
-const matches = computed(() => {
-    const term = search.value.trim().toLocaleLowerCase();
+const nodeIndex = computed(() => new Map((snapshot.value?.nodes ?? []).map(node => [node.id, node])));
+const parentIds = computed(() => new Set((snapshot.value?.nodes ?? [])
+    .map(node => node.parent_id).filter((value): value is number => value !== null)));
+const selected = computed(() => selectedId.value === null ? null : nodeIndex.value.get(selectedId.value) ?? null);
+const lineage = computed(() => {
+    const chain: AutomationHierarchyNode[] = [];
+    const visited = new Set<number>();
+    let node = selected.value;
+    while (node && !visited.has(node.id)) {
+        visited.add(node.id);
+        chain.unshift(node);
+        node = node.parent_id === null ? undefined : nodeIndex.value.get(node.parent_id);
+    }
+    return chain;
+});
+const clickableParent = computed(() => [...lineage.value].slice(0, -1).reverse()
+    .find(node => node.clickable && node.enabled) ?? null);
+const capturedAt = computed(() => {
+    if (!response.value?.captured_at) return '';
+    const date = new Date(response.value.captured_at);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('zh-CN', { hour12: false });
+});
+const visibleNodes = computed(() => {
     const nodes = snapshot.value?.nodes ?? [];
-    return (term ? nodes.filter(node => [node.text, node.description, node.resource_id, node.class_name]
-        .some(value => value.toLocaleLowerCase().includes(term))) : nodes).slice(0, 180);
+    const term = search.value.trim().toLocaleLowerCase();
+    if (term) {
+        const included = new Set<number>();
+        for (const node of nodes) {
+            if (![node.text, node.description, node.resource_id, node.class_name]
+                .some(value => value.toLocaleLowerCase().includes(term))) continue;
+            let parent: AutomationHierarchyNode | undefined = node;
+            const visited = new Set<number>();
+            while (parent && !visited.has(parent.id)) {
+                included.add(parent.id);
+                visited.add(parent.id);
+                parent = parent.parent_id === null ? undefined : nodeIndex.value.get(parent.parent_id);
+            }
+        }
+        return nodes.filter(node => included.has(node.id)).slice(0, 250);
+    }
+    const collapsed = new Set(collapsedIds.value);
+    return nodes.filter(node => {
+        let parent = node.parent_id;
+        const visited = new Set<number>();
+        while (parent !== null && !visited.has(parent)) {
+            if (collapsed.has(parent)) return false;
+            visited.add(parent);
+            parent = nodeIndex.value.get(parent)?.parent_id ?? null;
+        }
+        return true;
+    }).slice(0, 250);
 });
 const compatibleVideo = computed(() => {
     if (!snapshot.value || !videoSize.value.width || !videoSize.value.height) return false;
@@ -69,7 +115,24 @@ const nodeHighlight = computed(() => {
 function title(node: AutomationHierarchyNode) {
     return node.text || node.description || node.resource_id || node.class_name || '未命名控件';
 }
-function selectNode(id: number) { selectedId.value = id; feedback.value = ''; }
+function selectNode(id: number) {
+    selectedId.value = id; feedback.value = '';
+    const expanded = new Set(collapsedIds.value);
+    const visited = new Set<number>();
+    let parent = nodeIndex.value.get(id)?.parent_id ?? null;
+    while (parent !== null && !visited.has(parent)) {
+        expanded.delete(parent);
+        visited.add(parent);
+        parent = nodeIndex.value.get(parent)?.parent_id ?? null;
+    }
+    collapsedIds.value = [...expanded];
+}
+function toggleBranch(id: number) {
+    const next = new Set(collapsedIds.value);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    collapsedIds.value = [...next];
+}
 function setVideo() {
     if (!video.value) return;
     video.value.srcObject = props.visible ? props.stream : null;
@@ -81,7 +144,8 @@ function videoMetadata() {
 async function refresh() {
     if (!props.visible || loading.value) return;
     const generation = ++requestGeneration;
-    response.value = null; selectedId.value = null; error.value = ''; feedback.value = ''; loading.value = true;
+    response.value = null; selectedId.value = null; collapsedIds.value = [];
+    error.value = ''; feedback.value = ''; loading.value = true;
     try {
         const result = await api.hierarchy(props.ownerId, props.device.id);
         if (generation !== requestGeneration || !props.visible) return;
@@ -144,7 +208,7 @@ function add(type: 'tap' | 'wait_for' | 'assert' | 'input_text') {
 }
 watch([() => props.visible, () => props.device.id, () => props.ownerId], async () => {
     ++requestGeneration;
-    response.value = null; selectedId.value = null; loading.value = false;
+    response.value = null; selectedId.value = null; collapsedIds.value = []; loading.value = false;
     error.value = ''; feedback.value = ''; videoSize.value = { width: 0, height: 0 };
     await nextTick();
     setVideo();
