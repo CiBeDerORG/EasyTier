@@ -81,12 +81,20 @@ async fn read_run(conn:&mut SqliteConnection,owner:i32,id:&str)->AutomationResul
         let current:Option<String>=d.try_get("current_step")?;
         let error:Option<String>=d.try_get("error_json")?;
         let state:String=d.try_get("state")?;
+        // Only return constrained, read-only connection facts already fixed
+        // at dispatch. Never return credentials or raw target JSON.
+        let target=parse_json(&d.try_get::<String,_>("target_json")?)?;
+        let diagnostic_target=json!({
+            "ip":target["ip"],"adb_port":target["adb_port"],
+            "target_fingerprint":d.try_get::<String,_>("target_fingerprint")?,
+        });
         let steps=parse_json(&d.try_get::<String,_>("steps_json")?)?;
         let business_state=business_device_state(&state,&steps,check);
         business_states.push(business_state);
         devices.push(json!({"device_id":d.try_get::<String,_>("device_id")?,"name":d.try_get::<String,_>("name")?,
             "withdraw_requested":d.try_get::<bool,_>("withdraw_requested")?,"cleanup_confirmed":d.try_get::<bool,_>("cleanup_confirmed")?,
             "state":state,"business_verification":business_state,
+            "diagnostic_target":diagnostic_target,
             "current_step":current.map(|s|serde_json::from_str::<Value>(&s).unwrap_or(Value::String(s))),
             "error":error.map(|s|parse_json(&s)).transpose()?,"steps":steps,
             "updated_at":d.try_get::<String,_>("updated_at")?}));
