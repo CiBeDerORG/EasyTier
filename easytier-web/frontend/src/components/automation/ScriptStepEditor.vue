@@ -16,8 +16,11 @@ const actionOptions = computed(() => [
     { value: 'swipe', label: text('滑动', 'Swipe') },
     { value: 'input_text', label: text('输入文字', 'Enter text') },
     { value: 'launch_app', label: text('打开应用', 'Launch app') },
-    { value: 'wait_for', label: text('等待控件', 'Wait for element') },
-    { value: 'assert', label: text('检查控件', 'Assert element') },
+    { value: 'wait_for', label: text('等待控件出现', 'Wait for element') },
+    { value: 'wait_gone', label: text('等待控件消失', 'Wait until element disappears') },
+    { value: 'assert', label: text('断言控件存在', 'Assert element exists') },
+    { value: 'assert_property', label: text('断言控件属性', 'Assert element property') },
+    { value: 'scroll_find', label: text('滚动查找控件', 'Scroll until element appears') },
     { value: 'screenshot', label: text('截图检查点', 'Screenshot checkpoint') },
 ]);
 const keys = computed(() => [
@@ -31,6 +34,21 @@ const positionModes = computed(() => [
 const selectorModes = computed(() => [
     { value: 'native', label: text('组合控件条件', 'Combined element fields') },
     { value: 'xpath', label: 'XPath 1.0' },
+]);
+const propertyOptions = computed(() => [
+    { value: 'enabled', label: text('已启用', 'Enabled') },
+    { value: 'checked', label: text('已勾选', 'Checked') },
+    { value: 'selected', label: text('已选中', 'Selected') },
+    { value: 'clickable', label: text('可点击', 'Clickable') },
+    { value: 'scrollable', label: text('可滚动', 'Scrollable') },
+]);
+const booleanOptions = computed(() => [
+    { value: true, label: text('是 / True', 'True') },
+    { value: false, label: text('否 / False', 'False') },
+]);
+const directionOptions = computed(() => [
+    { value: 'down', label: text('向下查找（上滑列表）', 'Down (swipe up)') },
+    { value: 'up', label: text('向上查找（下滑列表）', 'Up (swipe down)') },
 ]);
 const inputModes = computed(() => [
     { value: 'literal', label: text('固定文字', 'Fixed text') },
@@ -48,11 +66,16 @@ function changeType(type: AutomationStepType) {
     if (props.disabled || type === props.modelValue.type) return;
     const step: AutomationStep = { id: props.modelValue.id, type };
     if (type === 'key') step.key = 'HOME';
-    if (type === 'tap' || type === 'wait_for' || type === 'assert') step.selector = { resource_id: '' };
+    if (['tap', 'wait_for', 'wait_gone', 'assert', 'assert_property', 'scroll_find'].includes(type)) step.selector = { resource_id: '' };
     if (type === 'swipe') Object.assign(step, { x: 0.5, y: 0.8, to_x: 0.5, to_y: 0.2, duration_ms: 400 });
     if (type === 'input_text') step.text = '';
     if (type === 'launch_app') step.package = '';
-    if (type === 'wait_for' || type === 'assert') step.timeout_ms = 10000;
+    if (['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(type)) step.timeout_ms = 10000;
+    if (type === 'assert_property') { step.property = 'enabled'; step.expected = true; }
+    if (type === 'scroll_find') {
+        step.scroll_container = { resource_id: '' };
+        step.direction = 'down'; step.max_swipes = 3; step.duration_ms = 350;
+    }
     emit('update:modelValue', step);
 }
 function positionMode(mode: string) {
@@ -80,6 +103,11 @@ function changeSelectorMode(value: string) {
 }
 function selectorValue(field: keyof AutomationSelector, value: string | undefined) {
     update({ selector: { ...props.modelValue.selector, [field]: value ?? '' } });
+}
+function scrollContainerValue(field: keyof AutomationSelector, value: string | undefined) {
+    if (props.disabled) return;
+    const scroll_container: AutomationSelector = { ...props.modelValue.scroll_container, [field]: value ?? '' };
+    update({ scroll_container });
 }
 function numberValue(key: string): number | undefined {
     return (props.modelValue as unknown as Record<string, number | undefined>)[key];
@@ -128,13 +156,13 @@ function updateNumber(key: string, value: number | null | undefined) {
             <small v-if="!modelValue.selector" class="hint">{{ text('将文字输入当前已聚焦的输入框。', 'Text goes to the currently focused input field.') }}</small>
         </template>
 
-        <fieldset v-if="modelValue.selector && ['tap', 'input_text', 'wait_for', 'assert'].includes(modelValue.type)" class="selector-fields">
+        <fieldset v-if="modelValue.selector && ['tap', 'input_text', 'wait_for', 'wait_gone', 'assert', 'assert_property', 'scroll_find'].includes(modelValue.type)" class="selector-fields">
             <legend>{{ text('控件条件（至少填写一项）', 'Element conditions (at least one)') }}</legend>
             <label class="field" :for="fieldId('selector-mode')">
                 <span>{{ text('定位策略', 'Locator mode') }}</span>
                 <Select :input-id="fieldId('selector-mode')" :model-value="modelValue.selector.xpath !== undefined ? 'xpath' : 'native'"
                     :options="selectorModes" option-label="label" option-value="value"
-                    :disabled="disabled || modelValue.type === 'input_text'" @update:model-value="changeSelectorMode" />
+                    :disabled="disabled || ['input_text', 'assert_property'].includes(modelValue.type)" @update:model-value="changeSelectorMode" />
             </label>
             <label v-if="modelValue.selector.xpath !== undefined" class="field" :for="fieldId('xpath')">
                 <span>XPath 1.0</span>
@@ -185,9 +213,55 @@ function updateNumber(key: string, value: number | null | undefined) {
             </div>
         </template>
 
-        <label v-if="modelValue.type === 'swipe'" class="field" :for="fieldId('duration')">
+        <template v-if="modelValue.type === 'assert_property'">
+            <label class="field" :for="fieldId('property')">
+                <span>{{ text('断言属性', 'Property to assert') }}</span>
+                <Select :input-id="fieldId('property')" :model-value="modelValue.property"
+                    :options="propertyOptions" option-label="label" option-value="value"
+                    :disabled="disabled" @update:model-value="update({ property: $event })" />
+            </label>
+            <label class="field" :for="fieldId('expected')">
+                <span>{{ text('预期状态', 'Expected state') }}</span>
+                <Select :input-id="fieldId('expected')" :model-value="modelValue.expected"
+                    :options="booleanOptions" option-label="label" option-value="value"
+                    :disabled="disabled" @update:model-value="update({ expected: $event })" />
+            </label>
+        </template>
+
+        <fieldset v-if="modelValue.type === 'scroll_find'" class="selector-fields">
+            <legend>{{ text('滚动容器（必须唯一且可滚动）', 'Unique scrollable container') }}</legend>
+            <label class="field" :for="fieldId('scroll-resource-id')">
+                <span>Resource ID</span>
+                <InputText :id="fieldId('scroll-resource-id')" :model-value="modelValue.scroll_container?.resource_id"
+                    :disabled="disabled" :maxlength="256" @update:model-value="scrollContainerValue('resource_id', $event)" />
+            </label>
+            <label class="field" :for="fieldId('scroll-class')">
+                <span>{{ text('控件类名', 'Class name') }}</span>
+                <InputText :id="fieldId('scroll-class')" :model-value="modelValue.scroll_container?.class_name"
+                    :disabled="disabled" :maxlength="256" @update:model-value="scrollContainerValue('class_name', $event)" />
+            </label>
+            <label class="field" :for="fieldId('scroll-package')">
+                <span>{{ text('应用包名', 'Package name') }}</span>
+                <InputText :id="fieldId('scroll-package')" :model-value="modelValue.scroll_container?.package"
+                    :disabled="disabled" :maxlength="256" @update:model-value="scrollContainerValue('package', $event)" />
+            </label>
+            <label class="field" :for="fieldId('direction')">
+                <span>{{ text('查找方向', 'Search direction') }}</span>
+                <Select :input-id="fieldId('direction')" :model-value="modelValue.direction"
+                    :options="directionOptions" option-label="label" option-value="value"
+                    :disabled="disabled" @update:model-value="update({ direction: $event })" />
+            </label>
+            <label class="field" :for="fieldId('max-swipes')">
+                <span>{{ text('最多滚动次数', 'Maximum swipes') }}</span>
+                <InputNumber :input-id="fieldId('max-swipes')" :model-value="modelValue.max_swipes"
+                    :min="1" :max="5" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('max_swipes', $event)" />
+            </label>
+            <small>{{ text('先检查目标是否存在，再滚动指定容器。每次仅发送一个手势；结果不确定立即停止。', 'Check before scrolling; only one gesture per pass. Uncertain actions stop immediately.') }}</small>
+        </fieldset>
+
+        <label v-if="modelValue.type === 'swipe' || modelValue.type === 'scroll_find'" class="field" :for="fieldId('duration')">
             <span>{{ text('滑动时长（毫秒）', 'Swipe duration (ms)') }}</span>
-            <InputNumber :input-id="fieldId('duration')" :model-value="modelValue.duration_ms" :min="100" :max="3000" :step="100" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('duration_ms', $event)" />
+            <InputNumber :input-id="fieldId('duration')" :model-value="modelValue.duration_ms" :min="modelValue.type === 'scroll_find' ? 200 : 100" :max="modelValue.type === 'scroll_find' ? 1000 : 3000" :step="100" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('duration_ms', $event)" />
         </label>
 
         <label v-if="modelValue.type === 'launch_app'" class="field" :for="fieldId('package')">
@@ -195,7 +269,7 @@ function updateNumber(key: string, value: number | null | undefined) {
             <InputText :id="fieldId('package')" :model-value="modelValue.package" :maxlength="255" :disabled="disabled" autocomplete="off" placeholder="com.android.settings" @update:model-value="update({ package: $event ?? '' })" />
         </label>
 
-        <label v-if="modelValue.type === 'wait_for' || modelValue.type === 'assert'" class="field" :for="fieldId('timeout')">
+        <label v-if="['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(modelValue.type)" class="field" :for="fieldId('timeout')">
             <span>{{ text('最长等待（毫秒）', 'Maximum wait (ms)') }}</span>
             <InputNumber :input-id="fieldId('timeout')" :model-value="modelValue.timeout_ms" :min="100" :max="30000" :step="100" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('timeout_ms', $event)" />
             <small>{{ text('仅在本次步骤内检查条件；超时后停止该设备后续步骤。', 'Checks only during this step. A timeout stops subsequent steps on this device.') }}</small>
