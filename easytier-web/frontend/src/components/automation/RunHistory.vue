@@ -47,7 +47,7 @@ const overviewMode = ref<'runs' | 'devices'>('runs');
 const progressStates = new Set(['dispatch_pending', 'queued', 'accepted', 'starting', 'running', 'cancel_requested', 'cleanup_pending']);
 const deviceBusyStates = new Set(['starting', 'running', 'accepted']);
 const deviceQueuedStates = new Set(['dispatch_pending', 'queued']);
-const settledSteps = new Set(['completed', 'succeeded', 'action_sent', 'action_completed', 'assertion_passed', 'passed', 'failed', 'cancelled', 'interrupted', 'outcome_unknown', 'skipped']);
+const settledSteps = new Set(['completed', 'succeeded', 'action_sent', 'action_completed', 'assertion_passed', 'condition_passed', 'passed', 'failed', 'cancelled', 'interrupted', 'outcome_unknown', 'skipped']);
 const activeRuns = computed(() => runs.value.filter(run => progressStates.has(run.state)));
 const activeDevices = computed(() => activeRuns.value.flatMap(run => run.devices.map(device => ({ run, device }))));
 const summary = computed(() => ({
@@ -171,7 +171,8 @@ function statusLabel(state: string): string {
         dispatch_pending: ['等待派发', 'Awaiting dispatch'], queued: ['排队中', 'Queued'], accepted: ['已接收', 'Accepted'],
         starting: ['准备中', 'Starting'], running: ['执行中', 'Running'], succeeded: ['计划已完成', 'Plan completed'],
         completed: ['计划已完成', 'Plan completed'], action_sent: ['动作已发送', 'Action sent'], dispatched: ['动作已派发', 'Action dispatched'],
-        action_completed: ['动作已完成', 'Action completed'], assertion_passed: ['条件检查通过', 'Condition passed'], passed: ['条件检查通过', 'Condition passed'],
+        action_completed: ['动作已完成', 'Action completed'], assertion_passed: ['条件检查通过', 'Condition passed'],
+        condition_passed: ['条件已判定', 'Condition evaluated'], passed: ['条件检查通过', 'Condition passed'],
         failed: ['失败', 'Failed'], partial_failed: ['部分失败', 'Partially failed'], partial: ['部分完成', 'Partially completed'],
         cancel_requested: ['停止待确认', 'Stop pending'], cancelled: ['已取消', 'Cancelled'], interrupted: ['已中断', 'Interrupted'],
         outcome_unknown: ['结果未确认', 'Outcome unconfirmed'], unknown: ['结果未确认', 'Outcome unconfirmed'],
@@ -182,7 +183,7 @@ function statusLabel(state: string): string {
     return label ? text(label[0], label[1]) : state;
 }
 function severity(state: string): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
-    if (['assertion_passed', 'passed', 'completed', 'succeeded'].includes(state)) return 'success';
+    if (['assertion_passed', 'condition_passed', 'passed', 'completed', 'succeeded'].includes(state)) return 'success';
     if (['failed', 'partial_failed'].includes(state)) return 'danger';
     if (['outcome_unknown', 'unknown', 'incomplete', 'cancel_requested', 'cleanup_pending', 'interrupted', 'partial'].includes(state)) return 'warn';
     if (['running', 'starting', 'accepted', 'action_sent', 'action_completed', 'dispatched'].includes(state)) return 'info';
@@ -335,11 +336,24 @@ async function submitRerun() {
 function stepTitle(step?: AutomationStep): string {
     if (!step) return text('历史步骤', 'Historical step');
     const labels: Record<string, [string, string]> = {
-        key: ['导航按键', 'Navigation key'], tap: ['点击', 'Tap'], swipe: ['滑动', 'Swipe'], input_text: ['输入文字', 'Enter text'],
-        launch_app: ['打开应用', 'Launch app'], wait_for: ['等待控件', 'Wait for element'], assert: ['检查控件', 'Assert element'], screenshot: ['截图检查点', 'Screenshot checkpoint'],
+        key: ['导航按键', 'Navigation key'], tap: ['点击', 'Tap'], long_press: ['长按', 'Long press'],
+        swipe: ['滑动', 'Swipe'], drag: ['拖拽', 'Drag'], input_text: ['输入文字', 'Enter text'],
+        launch_app: ['打开应用', 'Launch app'], wait_for: ['等待控件', 'Wait for element'],
+        wait_gone: ['等待消失', 'Wait until gone'], if_gone: ['条件判断（If）', 'If condition'],
+        if_else: ['条件判断（If/Else）', 'If/Else condition'],
+        assert: ['检查控件', 'Assert element'], assert_property: ['属性断言', 'Property assertion'],
+        scroll_find: ['滚动查找', 'Scroll find'], screenshot: ['截图检查点', 'Screenshot checkpoint'],
     };
     const title = labels[step.type];
     return title ? text(title[0], title[1]) : step.type;
+}
+function branchLabel(value: 'then' | 'else' | 'skip'): string {
+    const labels = {
+        then: text('已选 Then（控件消失）', 'Then selected (gone)'),
+        else: text('已选 Else（控件存在）', 'Else selected (present)'),
+        skip: text('控件存在，If 条件不成立', 'If skipped (element present)'),
+    };
+    return labels[value];
 }
 function snapshotStep(id: string): AutomationStep | undefined {
     return selected.value?.script_snapshot?.steps?.find(step => step.id === id);
@@ -471,7 +485,16 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
                         <p v-if="message(device.error)" class="device-error">{{ message(device.error) }}</p>
                         <div v-if="expandedDevices.has(device.device_id)" :id="`run-steps-${selected.id}-${device.device_id}`" class="step-results">
                             <p v-if="!device.steps?.length" class="muted empty-steps">{{ text('暂无步骤结果；未开始或执行器尚未回报。', 'No step results yet. Execution may not have started or reported back.') }}</p>
-                            <ol v-else><li v-for="step in device.steps" :key="step.step_id"><div class="result-step-title"><span class="step-number">{{ stepNumber(step.step_id) }}</span><strong>{{ stepTitle(snapshotStep(step.step_id)) }}</strong><Tag :value="statusLabel(step.state)" :severity="severity(step.state)" /></div><p v-if="step.message">{{ step.message }}</p><p v-if="message(step.error)" class="device-error">{{ message(step.error) }}</p><small>{{ date(step.started_at) }} <template v-if="step.finished_at"> → {{ date(step.finished_at) }}</template></small><Button v-if="step.artifact_id" class="artifact-button" icon="pi pi-image" :label="text('查看截图证据', 'View screenshot')" text size="small" @click="previewArtifact(selected.id, step.artifact_id, device.name)" /></li></ol>
+                            <ol v-else><li v-for="step in device.steps" :key="step.step_id"><div class="result-step-title"><span class="step-number">{{ stepNumber(step.step_id) }}</span><strong>{{ stepTitle(snapshotStep(step.step_id)) }}</strong><Tag :value="statusLabel(step.state)" :severity="severity(step.state)" /></div><p v-if="step.branch_taken" class="branch-decision">
+                                    <Tag :value="branchLabel(step.branch_taken)" severity="info" />
+                                    <small v-if="snapshotStep(step.step_id)?.type === 'if_else'">
+                                        Then {{ snapshotStep(step.step_id)?.then_count ?? 0 }} · Else {{ snapshotStep(step.step_id)?.else_count ?? 0 }}
+                                    </small>
+                                </p>
+                                <p v-if="step.skipped_by_step_id" class="branch-skip-source">
+                                    {{ text('由第', 'Skipped by step') }} {{ stepNumber(step.skipped_by_step_id) }} {{ text('步条件分支跳过', 'condition') }}
+                                </p>
+                                <p v-if="step.message">{{ step.message }}</p><p v-if="message(step.error)" class="device-error">{{ message(step.error) }}</p><small>{{ date(step.started_at) }} <template v-if="step.finished_at"> → {{ date(step.finished_at) }}</template></small><Button v-if="step.artifact_id" class="artifact-button" icon="pi pi-image" :label="text('查看截图证据', 'View screenshot')" text size="small" @click="previewArtifact(selected.id, step.artifact_id, device.name)" /></li></ol>
                         </div>
                     </article>
                 </div>
@@ -499,6 +522,9 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
 </template>
 
 <style scoped>
+.branch-decision{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.branch-skip-source{color:var(--console-muted);font-size:12px}
+
 .run-history { display: grid; gap: 16px; }
 .history-intro { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; }
 .parallel-overview{padding:16px;display:grid;gap:14px}
