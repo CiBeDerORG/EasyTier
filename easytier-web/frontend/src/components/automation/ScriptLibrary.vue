@@ -201,6 +201,12 @@ async function checkRunPreflight() {
         if (valid()) preflightRunning.value = false;
     }
 }
+watch(runTrialDevice, (next, previous) => {
+    // Side-effect acknowledgement is scoped to the selected phone. Moving
+    // to another target always requires a fresh explicit confirmation.
+    if (runVisible.value && runMode.value === 'step' && next !== previous)
+        stepTrialConsent.value = false;
+});
 watch([runVisible, runTrialDevice], ([visible], [wasVisible]) => {
     if (!visible) {
         preflightGeneration++;
