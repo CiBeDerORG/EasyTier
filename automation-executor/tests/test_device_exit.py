@@ -1,6 +1,7 @@
 """Simulated device isolation using the real durable journal and run scheduler."""
 import asyncio
 import json
+import struct
 from pathlib import Path
 import sys
 import tempfile
@@ -612,8 +613,29 @@ class AndroidKeyguardTests(unittest.TestCase):
             self.assertEqual(src.wake_and_unlock('123456'),'unlock_sent')
         self.assertIn(('shell','input','swipe','540','1920','540','720','240'), calls)
         self.assertGreaterEqual(sum(args[:2] == ('shell','dumpsys') for args in calls), 4)
-        self.assertIn(b'123456',b''.join(packets))
-        self.assertEqual(packets[-2],bytes([1,0,0,0,6])+b'123456')
+        # Numeric PINs use digit key events, not INJECT_TEXT.
+        self.assertEqual(len(packets),8)
+        self.assertFalse(any(packet[0] == 1 for packet in packets))
+        for packet, digit in zip(packets[1:-1], '123456'):
+            code = 7 + int(digit)
+            self.assertEqual(packet,struct.pack('>BBIII',0,0,code,0,0)
+                             +struct.pack('>BBIII',0,1,code,0,0))
+
+    def test_numeric_pin_auto_submit_does_not_send_enter_to_unlocked_app(self):
+        src,packets=self.make_source()
+        src._adb=lambda *args,**kwargs: 'Physical size: 1080x2400'
+        with patch.object(src,'_stable_keyguard',side_effect=[True,True,False]):
+            self.assertEqual(src.wake_and_unlock('0123'),'unlock_confirmed')
+        codes=[struct.unpack('>BBIII',packet[:14])[2] for packet in packets]
+        self.assertEqual(codes[1:],[7,8,9,10])
+        self.assertNotIn(66,codes)
+
+    def test_mixed_password_keeps_private_text_input(self):
+        src,packets=self.make_source()
+        src._adb=lambda *args,**kwargs: 'Physical size: 1080x2400'
+        with patch.object(src,'_stable_keyguard',return_value=True), patch.object(src,'_keyguard',return_value=True):
+            self.assertEqual(src.wake_and_unlock('a123'),'unlock_sent')
+        self.assertEqual(packets[-2],bytes([1,0,0,0,4])+b'a123')
         self.assertEqual(len(packets),3)
 
     def test_lock_state_becomes_unknown_never_types_password(self):

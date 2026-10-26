@@ -378,7 +378,7 @@ onBeforeUnmount(() => {
         <small v-else-if="session.state.unlockState === 'unlock_size_unknown'" class="unlock-notice">读取手机屏幕尺寸失败，无法执行解锁上滑；请检查 ADB 权限。</small>
         <small v-else-if="session.state.unlockState === 'unlock_swipe_failed'" class="unlock-notice">手机拒绝或未完成解锁上滑，已跳过密码输入；请检查 ADB 权限。</small>
         <small v-else-if="session.state.unlockState === 'unlock_skipped'" class="unlock-notice">本次解锁中途停止，未确认最终锁屏状态。</small>
-        <small v-else-if="session.state.unlockState === 'unlock_sent'" class="unlock-notice">已输入开屏密码并回车，但手机尚未确认解锁成功。</small>
+        <small v-else-if="session.state.unlockState === 'unlock_sent'" class="unlock-notice">已发送开屏密码输入和确认指令，但手机尚未确认解锁成功。</small>
         <small v-else-if="session.state.unlockState === 'unlock_confirmed'" class="unlock-notice">已确认手机解锁。</small>
         <div v-if="device.endpoint_event" class="endpoint-status"><small>目标切换：{{ device.endpoint_event.cleanup.state }} / {{ device.endpoint_event.connection.state }}</small><Button v-if="device.endpoint_event.cleanup.state !== 'confirmed'" label="重试清理" text size="small" :loading="cleaningSaved" @click="retryEndpoint('cleanup')" /><Button v-else-if="device.endpoint_event.connection.state === 'pending'" label="重试连接" text size="small" :loading="cleaningSaved" @click="retryEndpoint('connection')" /><Button v-if="device.endpoint_event.publication && !['applied','not_applicable'].includes(device.endpoint_event.publication.state)" label="重试公开应用" text size="small" :loading="cleaningSaved" @click="retryEndpoint('publication')" /></div>
         <p v-if="session.state.error || device.availability_reason" class="phone-error" role="status">{{ session.state.error || device.availability_reason }}</p>
