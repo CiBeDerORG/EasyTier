@@ -107,7 +107,7 @@ watch(() => props.observedStatus, value => {
     if (!value || value.device_id !== props.device.id) return;
     status.value = value;
     queried.value = true;
-});
+}, { immediate: true });
 watch(visible, open => {
     if (open) void query();
     else { stopPolling(); ++epoch; busy.value = false; }
@@ -121,12 +121,13 @@ onBeforeUnmount(() => { disposed = true; ++epoch; stopPolling(); });
 </script>
 
 <template>
-    <button type="button" class="component-chip" :class="status?.state ?? 'unchecked'"
-        :disabled="!runnerAvailable" :title="'管理 UiAutomator 控件组件 · ' + caption(status?.state)"
-        :aria-label="'控件状态：' + caption(status?.state)" @click.stop="visible = true">
-        <i class="pi pi-microchip" aria-hidden="true" />
-        <span>控件 · {{ caption(status?.state) }}</span>
-    </button>
+    <span class="component-action" :title="'UiAutomator2 控件 · ' + caption(status?.state) + (runnerAvailable ? ' · 点击管理初始化和日志' : ' · 执行器不可用')">
+        <button type="button" class="component-chip" :class="status?.state ?? 'unchecked'"
+            :disabled="!runnerAvailable"
+            :aria-label="'管理控件组件，状态：' + caption(status?.state)" @click.stop="visible = true">
+            <i class="pi pi-microchip" aria-hidden="true" />
+        </button>
+    </span>
     <Dialog v-model:visible="visible" modal append-to="body" :header="device.name + ' · 控件组件'"
         :style="{width:'640px',maxWidth:'calc(100vw - 24px)'}">
         <div class="component-content">
@@ -171,10 +172,15 @@ onBeforeUnmount(() => { disposed = true; ++epoch; stopPolling(); });
 </template>
 
 <style scoped>
-.component-chip{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;border:1px solid var(--console-border);background:var(--console-panel-raised);color:var(--console-muted);border-radius:6px;padding:3px 5px;font-size:10px;cursor:pointer}
-.component-chip.ready{color:var(--p-green-500)}.component-chip.unavailable,.component-chip.adb_unavailable{color:var(--p-red-500)}
-.component-chip.preparing{color:var(--p-primary-color)}.component-chip:disabled{opacity:.6;cursor:default}
-.component-chip:hover:not(:disabled){border-color:var(--p-primary-color)}
+.component-action{display:inline-flex;flex:0 0 28px;align-items:center;justify-content:center}
+.component-chip{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--console-muted);font-size:15px;cursor:pointer}
+.component-chip.ready{color:var(--p-green-500)}
+.component-chip.not_prepared{color:var(--p-orange-500)}
+.component-chip.preparing,.component-chip.checking{color:var(--p-primary-color)}
+.component-chip.unavailable,.component-chip.adb_unavailable,.component-chip.query_failed{color:var(--p-red-500)}
+.component-chip:disabled{opacity:.65;cursor:default}
+.component-chip:hover:not(:disabled){background:var(--console-accent-soft)}
+.component-chip:focus-visible{outline:2px solid var(--p-primary-color);outline-offset:2px}
 .component-content{display:flex;flex-direction:column;gap:14px}
 .hint{font-size:12px;color:var(--console-muted);line-height:1.6}
 .status-row,.history-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px}
