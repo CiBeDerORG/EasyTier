@@ -356,15 +356,23 @@ class ScrcpySource:
         # Use physical display coordinates and an actual timed swipe, like
         # EasyADB. Three immediate scrcpy touch packets are not a swipe gesture
         # on several Android/EMUI keyguards.
-        size = self._adb("shell", "wm", "size", timeout=6)
+        try:
+            size = self._adb("shell", "wm", "size", timeout=6)
+        except SourceError:
+            # A locked or OEM-restricted shell must not break video viewing.
+            return "unlock_size_unknown"
         sizes = SIZE_PATTERN.findall(size)
         if not sizes:
             return "unlock_size_unknown"
         width, height = map(int, sizes[-1])
         if not (240 <= width <= 10000 and 400 <= height <= 20000):
             return "unlock_size_unknown"
-        self._adb("shell", "input", "swipe", str(width // 2), str(height * 8 // 10),
-                  str(width // 2), str(height * 3 // 10), "240", timeout=7)
+        try:
+            self._adb("shell", "input", "swipe", str(width // 2), str(height * 8 // 10),
+                      str(width // 2), str(height * 3 // 10), "240", timeout=7)
+        except SourceError:
+            # Skip password injection if the swipe could not be completed.
+            return "unlock_swipe_failed"
         if self.stop_event.wait(0.45):
             return "unlock_skipped"
         # The user may have unlocked with biometrics while the swipe ran.
