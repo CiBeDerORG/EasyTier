@@ -168,7 +168,7 @@ const modeOptions = computed(() => {
         { value: 'resource_id', label: 'Resource ID', unique: false },
         { value: 'text', label: '控件文字', unique: false },
         { value: 'description', label: '无障碍描述', unique: false },
-        { value: 'composite', label: '组合条件（自动推荐）', unique: !!bestComposite.value },
+        { value: 'composite', label: '组合条件（自动推荐）', unique: !!bestComposite.value || !!confirmedLocator.value },
         { value: 'xpath', label: 'XPath 1.0（自动生成）', unique: !!suggestedXPath.value },
         { value: 'coordinates', label: '画面坐标', unique: compatibleVideo.value },
     ];
@@ -302,7 +302,9 @@ function chooseCandidate(id: string) {
     const candidate = locatorCandidates.value.find(item => item.id === id && item.unique);
     if (!candidate || !snapshot.value || selectedId.value === null
         || !locatorIsUnique(snapshot.value, selectedId.value, candidate.selector)) return;
-    mode.value = 'composite';
+    const keys = Object.keys(candidate.selector);
+    mode.value = keys.length === 1 && ['resource_id', 'text', 'description'].includes(keys[0])
+        ? keys[0] as LocatorMode : 'composite';
     selectedCandidate.value = id;
 }
 function locator(): AutomationSelector | null {
