@@ -50,8 +50,9 @@ const modeOptions = computed(() => {
     ];
     for (const choice of choices) {
         if (choice.value === 'coordinates') continue;
-        const value = node[choice.value];
-        choice.unique = !!value && snapshot.value.nodes.filter(item => item[choice.value as 'resource_id' | 'text' | 'description'] === value).length === 1
+        const key = choice.value as 'resource_id' | 'text' | 'description';
+        const value = node[key];
+        choice.unique = !!value && snapshot.value.nodes.filter(item => item[key] === value).length === 1
             && !snapshot.value.truncated;
     }
     return choices;
@@ -118,8 +119,11 @@ watch(selected, node => {
         .find(key => modeOptions.value.some(option => option.value === key && option.unique)) ?? 'coordinates';
 });
 function locator(): AutomationSelector | null {
-    if (!selected.value || mode.value === 'coordinates' || !activeMode.value?.unique) return null;
-    return { [mode.value]: selected.value[mode.value] };
+    if (!selected.value || !activeMode.value?.unique) return null;
+    if (mode.value === 'resource_id') return { resource_id: selected.value.resource_id };
+    if (mode.value === 'text') return { text: selected.value.text };
+    if (mode.value === 'description') return { description: selected.value.description };
+    return null;
 }
 function add(type: 'tap' | 'wait_for' | 'assert' | 'input_text') {
     if (!selected.value || !snapshot.value || !canAdd.value) return;
