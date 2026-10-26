@@ -293,7 +293,6 @@ function pick(event: MouseEvent) {
     if (candidates.length) selectNode(candidates[0].id);
     else { selectedId.value = null; feedback.value = '点击位置未找到有效控件，请刷新控件树。'; }
 }
-watch(mode, () => { selectedCandidate.value = null; });
 watch(selected, node => {
     if (!node) return;
     mode.value = (['resource_id', 'text', 'description', 'composite', 'xpath'] as const)
@@ -480,7 +479,7 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                             <small>仅验证当前快照；不使用 instance 序号。界面变化后请刷新。</small>
                         </div>
                         <label class="locator-label" for="ui-inspector-locator">定位方式</label>
-                        <select id="ui-inspector-locator" v-model="mode" class="locator-select">
+                        <select id="ui-inspector-locator" v-model="mode" class="locator-select" @change="selectedCandidate = null">
                             <option v-for="option in modeOptions" :key="option.value" :value="option.value" :disabled="!option.unique">{{ option.label }}{{ option.unique ? '' : ' · 不可用或不唯一' }}</option>
                         </select>
                         <p v-if="mode === 'coordinates'" class="hint">坐标仅适用于当前画面比例；优先选择唯一控件条件。</p>
