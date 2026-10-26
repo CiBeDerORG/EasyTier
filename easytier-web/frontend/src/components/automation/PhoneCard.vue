@@ -309,7 +309,7 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
             </div>
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
-        <small v-if="['lock_state_unknown', 'lock_state_changed', 'unlock_size_unknown'].includes(session.state.unlockState)"
+        <small v-if="['lock_state_unknown', 'lock_state_changed', 'unlock_size_unknown', 'unlock_swipe_failed'].includes(session.state.unlockState)"
             class="unlock-notice">未能确认安全的解锁条件，已唤醒但未输入密码，请手动解锁。</small>
         <small v-else-if="session.state.unlockState === 'unlock_sent'" class="unlock-notice">已输入开屏密码并回车，请核对手机是否解锁。</small>
         <small v-else-if="session.state.unlockState === 'unlock_confirmed'" class="unlock-notice">已确认手机解锁。</small>
