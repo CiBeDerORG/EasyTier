@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, toRef, watch } from 'vue';
 import { Button, Dialog, InputNumber, InputText, Select, Tag, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
@@ -8,14 +8,15 @@ import type { AutomationRun, AutomationRunInput, AutomationScript, AutomationSte
 import ScriptStepEditor from './ScriptStepEditor.vue';
 import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
 import { addFlowBranchStep, createFlowCondition, removeFlowBlock } from '../../modules/automation-flow-tree';
+import { emptyAutomationDraft, type AutomationDraftWorkspace } from '../../modules/automation-draft';
 
 const props = defineProps<{
     ownerId: number;
     selectedDeviceIds: string[];
-    recordedSteps: AutomationStep[];
+    draft: AutomationDraftWorkspace;
     deviceNames?: Record<string, string>;
 }>();
-const emit = defineEmits<{ 'run-created': [run: AutomationRun]; 'recording-consumed': [] }>();
+const emit = defineEmits<{ 'run-created': [run: AutomationRun] }>();
 const api = new AutomationApi();
 const { locale } = useI18n();
 const cn = computed(() => locale.value === 'cn' || locale.value.startsWith('zh'));
@@ -26,15 +27,18 @@ const saving = ref(false);
 const deleting = ref(false);
 const error = ref('');
 const notice = ref('');
-const editingId = ref<string>();
-const revision = ref<number>();
-const name = ref('');
-const description = ref('');
-const steps = ref<AutomationStep[]>([]);
-const selectedStepId = ref<string>();
+// The parent owns this workspace; changing tabs never destroys unsaved edits.
+const editingId = toRef(props.draft, 'editingId');
+const revision = toRef(props.draft, 'revision');
+const name = toRef(props.draft, 'name');
+const description = toRef(props.draft, 'description');
+const steps = toRef(props.draft, 'steps');
+const selectedStepId = toRef(props.draft, 'selectedStepId');
 const flowView = ref(true);
 const flowLayout = computed(() => analyzeAutomationFlow(steps.value));
-const baseline = ref('');
+const baseline = toRef(props.draft, 'baseline');
+const replaceDraftVisible = ref(false);
+const pendingOpenScript = ref<AutomationScript | null>(null);
 const deleteVisible = ref(false);
 const deleteTarget = ref<AutomationScript>();
 const runVisible = ref(false);
@@ -219,22 +223,20 @@ function moveStep(index: number, delta: number) {
     [reordered[index], reordered[next]] = [reordered[next], reordered[index]];
     steps.value = reordered;
 }
-function importRecording() {
-    if (busy.value || !props.recordedSteps.length) return;
-    if (props.recordedSteps.length > 100) {
-        error.value = text('录制超过 100 步，请先缩短录制后再导入。', 'The recording exceeds 100 steps. Shorten it before importing.');
+function requestOpenScript(script?: AutomationScript) {
+    if (busy.value) return;
+    if (dirty.value) {
+        pendingOpenScript.value = script ?? null;
+        replaceDraftVisible.value = true;
         return;
     }
-    resetEditor();
-    name.value = text('录制草稿', 'Recorded draft');
-    const used = new Set<string>();
-    steps.value = cloneSteps(props.recordedSteps).map(step => {
-        const id = step.id && !used.has(step.id) ? step.id : uuid();
-        used.add(id); return { ...step, id };
-    });
-    selectedStepId.value = steps.value[0]?.id;
-    emit('recording-consumed');
-    notice.value = text('录制已转成未保存草稿。请检查定位和参数，再试跑。', 'Recording imported as an unsaved draft. Review targets and parameters before trying it.');
+    resetEditor(script);
+}
+function confirmOpenScript() {
+    if (busy.value) return;
+    resetEditor(pendingOpenScript.value ?? undefined);
+    pendingOpenScript.value = null;
+    replaceDraftVisible.value = false;
 }
 function validationError(): string | null {
     if (!name.value.trim()) return text('请填写脚本名称。', 'Enter a script name.');
@@ -437,7 +439,9 @@ watch(() => props.ownerId, () => {
     runVisible.value = false; deleteVisible.value = false; runSubmitting.value = false;
     runParameters.value = Object.create(null); pendingRun.value = undefined; uncertainRun.value = false;
     runSteps.value = []; runDevices.value = []; runName.value = ''; deleteTarget.value = undefined;
-    resetEditor();
+    if (props.draft.ownerId !== props.ownerId) {
+        Object.assign(props.draft, emptyAutomationDraft(props.ownerId));
+    }
     if (props.ownerId > 0) void loadScripts();
 }, { immediate: true });
 onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runParameters.value = Object.create(null); pendingRun.value = undefined; });
@@ -445,10 +449,6 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
 
 <template>
     <section class="script-library" :aria-label="text('脚本库', 'Script library')">
-        <div v-if="recordedSteps.length" class="recording-notice" role="status">
-            <span><i class="pi pi-circle-fill" aria-hidden="true" /> {{ text(`有 ${recordedSteps.length} 个录制步骤等待整理`, `${recordedSteps.length} recorded steps ready to edit`) }}</span>
-            <Button :label="text('新建录制草稿', 'Create recorded draft')" icon="pi pi-file-edit" size="small" :disabled="busy" @click="importRecording" />
-        </div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
         <p v-if="notice" class="notice-message" role="status">{{ notice }}</p>
         <div class="library-columns">
@@ -457,11 +457,11 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
                     <h2>{{ text('已保存脚本', 'Saved scripts') }} <span class="muted">{{ scripts.length }}</span></h2>
                     <Button icon="pi pi-refresh" text rounded size="small" :loading="loading" :disabled="busy" :aria-label="text('刷新脚本列表', 'Refresh scripts')" @click="loadScripts" />
                 </div>
-                <div class="new-script"><Button :label="text('新建脚本', 'New script')" icon="pi pi-plus" outlined size="small" :disabled="busy" @click="resetEditor()" /></div>
+                <div class="new-script"><Button :label="text('新建脚本', 'New script')" icon="pi pi-plus" outlined size="small" :disabled="busy" @click="requestOpenScript()" /></div>
                 <p v-if="!loading && !scripts.length" class="sidebar-empty">{{ text('还没有保存的脚本。新增步骤，或导入一次录制。', 'No saved scripts yet. Add steps or import a recording.') }}</p>
                 <ul class="script-list">
                     <li v-for="script in scripts" :key="script.id" :class="{ active: script.id === editingId }">
-                        <button type="button" class="script-select" :disabled="busy" :aria-pressed="script.id === editingId" @click="resetEditor(script)">
+                        <button type="button" class="script-select" :disabled="busy" :aria-pressed="script.id === editingId" @click="requestOpenScript(script)">
                             <i class="pi pi-file" aria-hidden="true" />
                             <span><strong>{{ script.name }}</strong><small>{{ text(`${script.steps.length} 步 · 修订 ${script.revision}`, `${script.steps.length} steps · revision ${script.revision}`) }}</small></span>
                         </button>
@@ -547,6 +547,13 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
             </div>
         </div>
 
+        <Dialog v-model:visible="replaceDraftVisible" modal :header="text('覆盖未保存草稿？', 'Discard unsaved draft?')" :style="{ width: '440px', maxWidth: 'calc(100vw - 24px)' }">
+            <p>{{ text('当前草稿存在未保存的录制、拾取或编辑步骤。切换脚本会丢失这些更改。', 'Your current draft contains unsaved recording, inspection or editing changes. Switching scripts discards them.') }}</p>
+            <template #footer>
+                <Button :label="text('继续编辑', 'Keep editing')" text @click="replaceDraftVisible = false" />
+                <Button :label="text('丢弃并切换', 'Discard and switch')" severity="danger" @click="confirmOpenScript" />
+            </template>
+        </Dialog>
         <Dialog v-model:visible="deleteVisible" modal :header="text('删除脚本', 'Delete script')" :style="{ width: '430px', maxWidth: 'calc(100vw - 24px)' }" :closable="!deleting" :close-on-escape="!deleting">
             <p>{{ text(`永久删除“${deleteTarget?.name ?? ''}”？已有执行记录和运行快照会保留。`, `Permanently delete “${deleteTarget?.name ?? ''}”? Existing run snapshots and results are retained.`) }}</p>
             <p v-if="error" class="error-message" role="alert">{{ error }}</p>
