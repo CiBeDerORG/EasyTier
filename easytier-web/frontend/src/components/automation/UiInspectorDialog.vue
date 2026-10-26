@@ -156,6 +156,7 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
 <template>
     <Dialog :visible="visible" modal append-to="body" :header="device.name + ' · UiAutomator2 控件拾取'"
         :style="{ width: '1160px', maxWidth: 'calc(100vw - 24px)' }" :content-style="{ padding: '0' }"
+        @show="setVideo"
         @update:visible="value => { if (!value) emit('close'); }">
         <div class="ui-inspector">
             <div class="inspector-toolbar">
