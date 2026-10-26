@@ -198,3 +198,10 @@
 - 回归：扩展 `automation-locator-candidates.test.mjs` 重复节点、密码、非法字段和快照变化测试，加入 `easytier-web/frontend/package.json` 的 `test:unit` 列表，避免新增测试被 CI 漏跑。
 - **执行结果**：GitHub API 确认相关源码变更已推送；最近前端源码提交 `12e12b31a9b6` 的 GHCR 工作流 `40336156086` 已创建，检查时状态 pending，不表示镜像已构建成功。
 - **未执行**：本地单元测试、Vue 类型检查、前端构建、浏览器交互和 FnOS/Android 真机验证。必须待对应 CI 最终结论和真实设备验证后更新状态。旧版本运行成功不能代替本轮验收。
+
+## 2026-10-26 AUT-10 前端构建 TS2367 修复
+
+- 失败证据：GHCR 工作流 [40336156086](https://github.com/CiBeDerORG/EasyTier/actions/runs/40336156086)，`Build Web and config generator` 中 `vue-tsc -b` 报 `UiInspectorDialog.vue:340-344 TS2367`。执行到函数 `locator()` 后 TypeScript 已判定 `mode.value` 为 `coordinates`，再与 `resource_id/text/description/composite/xpath` 比较无交集。
+- 最小修复：删除条件收窄后不可到达的旧分支；当且仅当模式不是坐标时返回 AUT-10 经人工确认、当前快照唯一的 `confirmedLocator`，坐标模式返回 `null`，由已有显式坐标确认及动作类型门禁处理。未调整数据协议、运行授权或执行器。
+- GitHub 提交：`47667af23ce59c270acd73d9e339bcb5b6dc5d5b`；push 后自动创建主镜像工作流 [40338472154](https://github.com/CiBeDerORG/EasyTier/actions/runs/40338472154)。创建时为 queued，不能宣称已构建成功。
+- **未执行**：额外本地类型检查、测试、构建、安卓或 FnOS 验收；遵循本需求当前调试模式规则。后续必须依据对应提交的 CI 和真机结果验收。
