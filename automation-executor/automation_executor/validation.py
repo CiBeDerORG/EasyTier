@@ -108,6 +108,7 @@ def steps(value):
         "wait_for": {"selector", "timeout_ms"}, "assert": {"selector", "timeout_ms"},
         "wait_gone": {"selector", "timeout_ms"},
         "if_gone": {"selector", "skip_count"},
+        "if_else": {"selector", "then_count", "else_count"},
         "assert_property": {"selector", "property", "expected"},
         "scroll_find": {"selector", "scroll_container", "direction", "max_swipes", "duration_ms", "timeout_ms"},
         "screenshot": set(),
@@ -161,6 +162,12 @@ def steps(value):
             integer(item.get("skip_count"), 1, 20)
             if item["skip_count"] > len(value) - len(result) - 1:
                 raise invalid("条件跳过的步骤数量超过脚本剩余步骤")
+        if kind == "if_else":
+            selector(item.get("selector"))
+            integer(item.get("then_count"), 1, 20)
+            integer(item.get("else_count"), 1, 20)
+            if item["then_count"] + item["else_count"] > len(value) - len(result) - 1:
+                raise invalid("if-else 分支范围超出脚本剩余步骤")
         if kind == "assert_property":
             chosen = selector(item.get("selector"))
             if "xpath" in chosen:
@@ -178,6 +185,17 @@ def steps(value):
             integer(item.get("max_swipes"), 1, 5)
             integer(item.get("duration_ms"), 200, 1000)
         result.append({**item, "id": sid})
+    # No nested/crossing condition blocks in the first if-else release.
+    # Legacy if_gone scripts remain accepted unless they would overlap if_else.
+    for index, item in enumerate(result):
+        if item["type"] != "if_else":
+            continue
+        end = index + item["then_count"] + item["else_count"]
+        if any(inner["type"] in ("if_else", "if_gone") for inner in result[index + 1:end + 1]):
+            raise invalid("if-else 分支中不支持嵌套条件")
+        if any(previous["type"] == "if_gone" and previous["skip_count"] >= index - before
+               for before, previous in enumerate(result[:index])):
+            raise invalid("if-else 分支不能位于其他条件的控制范围中")
     return result
 
 
