@@ -101,10 +101,13 @@ def steps(value):
     result, ids = [], set()
     allowed = {
         "key": {"key"}, "tap": {"selector", "x", "y", "width", "height"},
+        "long_press": {"selector", "x", "y", "width", "height", "duration_ms"},
+        "drag": {"x", "y", "to_x", "to_y", "width", "height", "duration_ms"},
         "swipe": {"x", "y", "to_x", "to_y", "duration_ms", "width", "height"},
         "input_text": {"text", "parameter", "selector"}, "launch_app": {"package"},
         "wait_for": {"selector", "timeout_ms"}, "assert": {"selector", "timeout_ms"},
         "wait_gone": {"selector", "timeout_ms"},
+        "if_gone": {"selector", "skip_count"},
         "assert_property": {"selector", "property", "expected"},
         "scroll_find": {"selector", "scroll_container", "direction", "max_swipes", "duration_ms", "timeout_ms"},
         "screenshot": set(),
@@ -120,17 +123,21 @@ def steps(value):
         ids.add(sid)
         if kind == "key" and item.get("key") not in ("HOME", "BACK", "RECENT", "WAKE"):
             raise invalid("不支持该按键")
-        if kind == "tap" and "selector" in item:
+        if kind in ("tap", "long_press") and "selector" in item:
             selector(item["selector"])
             if any(key in item for key in ("x", "y", "width", "height")):
                 raise invalid("控件点击与坐标点击不能混用")
-        elif kind in ("tap", "swipe"):
-            for key in (("x", "y") if kind == "tap" else ("x", "y", "to_x", "to_y")):
+        elif kind in ("tap", "long_press", "swipe", "drag"):
+            for key in (("x", "y") if kind in ("tap", "long_press") else ("x", "y", "to_x", "to_y")):
                 coordinate(item.get(key))
             integer(item.get("width"), 1, 16384)
             integer(item.get("height"), 1, 16384)
             if kind == "swipe":
                 integer(item.get("duration_ms"), 100, 3000)
+        if kind == "long_press":
+            integer(item.get("duration_ms"), 400, 3000)
+        if kind == "drag":
+            integer(item.get("duration_ms"), 300, 3000)
         if kind == "input_text" and isinstance(item.get("selector"), dict) and "xpath" in item["selector"]:
             raise invalid("文字输入暂不支持 XPath，请使用唯一控件条件")
         if kind == "input_text":
@@ -149,6 +156,11 @@ def steps(value):
         if kind in ("wait_for", "assert", "wait_gone", "scroll_find"):
             selector(item.get("selector"))
             integer(item.get("timeout_ms"), 100, 30000)
+        if kind == "if_gone":
+            selector(item.get("selector"))
+            integer(item.get("skip_count"), 1, 20)
+            if item["skip_count"] > len(value) - len(result) - 1:
+                raise invalid("条件跳过的步骤数量超过脚本剩余步骤")
         if kind == "assert_property":
             chosen = selector(item.get("selector"))
             if "xpath" in chosen:
