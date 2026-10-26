@@ -619,8 +619,8 @@ class Runtime:
                 return
             await self._authorize(rid, target)
             await self._update(rid, did, {"state": "running", "steps": results})
-            skip_remaining = 0
-            skip_source = None
+            # One skip map per phone. A skipped outer branch also skips nested
+            # conditions without ever evaluating their predicates.
             branch_skips = {}
             for index, step in enumerate(body["steps"]):
                 if cancel.is_set() or (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)):
@@ -628,11 +628,8 @@ class Runtime:
                     return
                 await self._authorize(rid, target)
                 current_step = step["id"]
-                if skip_remaining or index in branch_skips:
-                    reason, origin = (("控件仍存在，If 条件区域未执行", skip_source)
-                                      if skip_remaining else branch_skips.pop(index))
-                    if skip_remaining:
-                        skip_remaining -= 1
+                if index in branch_skips:
+                    reason, origin = branch_skips.pop(index)
                     results[index].update(state="skipped", message=reason,
                                           skipped_by_step_id=origin, finished_at=now())
                     await self._update(rid, did, {"state": "running", "current_step": current_step, "steps": results})
@@ -672,8 +669,13 @@ class Runtime:
                     expected = step["skip_count"]
                     if type(count) is not int or count not in (0, expected) or count > len(body["steps"]) - index - 1:
                         raise ExecutorError("condition_result_invalid", "条件判定与脚本结构不一致，停止执行")
-                    skip_remaining = count
-                    skip_source = step["id"]
+                    if result.get("state") != "condition_passed":
+                        raise ExecutorError("condition_result_invalid", "If 条件结果无效，停止执行")
+                    if count:
+                        for skipped_index in range(index + 1, index + count + 1):
+                            if skipped_index in branch_skips:
+                                raise ExecutorError("condition_overlap", "条件跳过范围发生冲突")
+                            branch_skips[skipped_index] = ("控件仍存在，If 条件区域未执行", step["id"])
                 if step["type"] == "if_else":
                     branch = result.get("branch_taken")
                     then_count, else_count = step["then_count"], step["else_count"]
@@ -688,6 +690,8 @@ class Runtime:
                         ignored = range(index + 1, index + then_count + 1)
                         reason = "Else 分支执行，Then 分支未执行"
                     for skipped_index in ignored:
+                        if skipped_index in branch_skips:
+                            raise ExecutorError("condition_overlap", "条件分支范围发生冲突")
                         branch_skips[skipped_index] = (reason, step["id"])
                 results[index].update(result)
                 results[index]["finished_at"] = now()
