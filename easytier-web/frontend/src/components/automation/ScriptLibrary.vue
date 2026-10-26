@@ -64,17 +64,24 @@ const shownRunDevices = computed(() => runMode.value === 'draft'
 const stepTitles = computed<Record<AutomationStepType, string>>(() => ({
     key: text('导航按键', 'Navigation key'), tap: text('点击', 'Tap'), swipe: text('滑动', 'Swipe'),
     input_text: text('输入文字', 'Enter text'), launch_app: text('打开应用', 'Launch app'),
-    wait_for: text('等待控件', 'Wait for element'), assert: text('检查控件', 'Assert element'),
-    screenshot: text('截图检查点', 'Screenshot checkpoint'),
+    wait_for: text('等待出现', 'Wait for element'), wait_gone: text('等待消失', 'Wait until gone'),
+    assert: text('检查控件', 'Assert element'), assert_property: text('属性断言', 'Assert property'),
+    scroll_find: text('滚动查找', 'Scroll find'), screenshot: text('截图检查点', 'Screenshot checkpoint'),
 }));
 
 function cloneSteps(value: AutomationStep[]): AutomationStep[] {
-    return value.map(step => ({ ...step, selector: step.selector ? { ...step.selector } : undefined }));
+    return value.map(step => ({ ...step,
+        selector: step.selector ? { ...step.selector } : undefined,
+        scroll_container: step.scroll_container ? { ...step.scroll_container } : undefined,
+    }));
 }
 function normalizeSteps(): AutomationStep[] {
     return steps.value.map(step => {
         const result = { ...step };
         if (step.selector) result.selector = Object.fromEntries(Object.entries(step.selector)
+            .filter(([, value]) => typeof value === 'string' && value.trim().length)
+            .map(([key, value]) => [key, value!.trim()]));
+        if (step.scroll_container) result.scroll_container = Object.fromEntries(Object.entries(step.scroll_container)
             .filter(([, value]) => typeof value === 'string' && value.trim().length)
             .map(([key, value]) => [key, value!.trim()]));
         if (result.parameter !== undefined) result.parameter = result.parameter.trim();
@@ -157,7 +164,7 @@ function validationError(): string | null {
         const prefix = text(`第 ${index + 1} 步：`, `Step ${index + 1}: `);
         const validNumber = (value: unknown, min: number, max: number, integer = false) =>
             typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));
-        if (['wait_for', 'assert'].includes(step.type) && !step.selector) return prefix + text('请选择控件。', 'Choose an element.');
+        if (['wait_for', 'wait_gone', 'assert', 'assert_property', 'scroll_find'].includes(step.type) && !step.selector) return prefix + text('请选择控件。', 'Choose an element.');
         if (step.selector) {
             const attrs = Object.entries(step.selector);
             if (!attrs.length || !attrs.some(([, value]) => value?.trim())) return prefix + text('至少填写一个控件条件。', 'Specify at least one element condition.');
@@ -166,7 +173,8 @@ function validationError(): string | null {
                 return prefix + text('定位条件不能为空且不能超过 512 字节。', 'Each selector must be nonempty and at most 512 bytes.');
             }
             if (step.selector.xpath !== undefined) {
-                if (attrs.length !== 1 || !/^[/(]/.test(step.selector.xpath) || step.type === 'input_text') {
+                if (attrs.length !== 1 || !/^[/(]/.test(step.selector.xpath)
+                    || ['input_text', 'assert_property'].includes(step.type)) {
                     return prefix + text('XPath 必须独立使用，文字输入不支持 XPath。', 'XPath must be standalone and is not supported for text input.');
                 }
             }
@@ -178,7 +186,25 @@ function validationError(): string | null {
             if (!validNumber(step.width, 1, 16384, true) || !validNumber(step.height, 1, 16384, true)) return prefix + text('请填写参考画面宽高。', 'Enter the reference screen dimensions.');
         }
         if (step.type === 'swipe' && !validNumber(step.duration_ms, 100, 3000, true)) return prefix + text('滑动时长为 100–3000 毫秒。', 'Swipe duration must be 100–3000 ms.');
-        if (['wait_for', 'assert'].includes(step.type) && !validNumber(step.timeout_ms, 100, 30000, true)) return prefix + text('等待上限为 100–30000 毫秒。', 'The timeout must be 100–30000 ms.');
+        if (['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(step.type) && !validNumber(step.timeout_ms, 100, 30000, true)) return prefix + text('等待上限为 100–30000 毫秒。', 'The timeout must be 100–30000 ms.');
+        if (step.type === 'assert_property') {
+            if (!['enabled', 'checked', 'selected', 'clickable', 'scrollable'].includes(step.property ?? '')
+                || typeof step.expected !== 'boolean') {
+                return prefix + text('请选择布尔属性及明确的预期状态。', 'Choose a boolean property and expected state.');
+            }
+        }
+        if (step.type === 'scroll_find') {
+            const container = Object.entries(step.scroll_container ?? {});
+            if (!container.length || container.some(([key, value]) =>
+                !['resource_id', 'description', 'text', 'class_name', 'package'].includes(key)
+                || !value?.trim() || new TextEncoder().encode(value).length > 512)) {
+                return prefix + text('滚动容器需要有效的唯一原生条件。', 'Provide a unique native scroll-container selector.');
+            }
+            if (!['up', 'down'].includes(step.direction ?? '') || !validNumber(step.max_swipes, 1, 5, true)
+                || !validNumber(step.duration_ms, 200, 1000, true)) {
+                return prefix + text('滚动方向、次数或时长不合法。', 'Scroll direction, count or duration is invalid.');
+            }
+        }
         if (step.type === 'launch_app' && !/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/.test(step.package ?? '')) return prefix + text('请填写有效应用包名。', 'Enter a valid Android package name.');
         if (step.type === 'input_text') {
             if (step.parameter !== undefined && !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(step.parameter)) return prefix + text('参数名使用英文字母、数字和下划线，且不能以数字开头。', 'Parameter names use letters, digits and underscores, starting with a letter or underscore.');
