@@ -406,29 +406,14 @@ class ScrcpySource:
         if after_swipe is not True:
             return "already_unlocked" if after_swipe is False else "lock_state_changed"
 
-        numeric_pin = password.isascii() and password.isdigit()
-        if numeric_pin:
-            # A PIN keypad may ignore INJECT_TEXT even while touch works.
-            # Send real Android digit keys over the private scrcpy channel;
-            # neither the PIN nor its keycodes enter ADB argv or logs.
-            for digit in password:
-                if self.stop_event.wait(0.06):
-                    return "unlock_skipped"
-                self._keycode(7 + int(digit))  # KEYCODE_0 ... KEYCODE_9
-        else:
-            encoded = password.encode("ascii")
-            with self.lock:
-                self._send_locked(struct.pack(">BI", 1, len(encoded)) + encoded)
+        # Match EasyADB: transmit the entire saved PIN/password in one scrcpy
+        # INJECT_TEXT packet. Never put the credential in an ADB shell command.
+        encoded = password.encode("ascii")
+        with self.lock:
+            self._send_locked(struct.pack(">BI", 1, len(encoded)) + encoded)
+        # Give Android's password field time to receive the text before Enter.
         if self.stop_event.wait(0.18):
             return "unlock_skipped"
-        if numeric_pin:
-            # Some PIN keypads submit the last digit automatically. Do not
-            # send ENTER into the app revealed by a successful unlock.
-            after_input = self._stable_keyguard()
-            if after_input is False:
-                return "unlock_confirmed"
-            if after_input is None:
-                return "lock_state_changed"
         self._keycode(66)  # KEYCODE_ENTER
         if self.stop_event.wait(0.4):
             return "unlock_sent"

@@ -673,24 +673,25 @@ class AndroidKeyguardTests(unittest.TestCase):
             self.assertEqual(src.wake_and_unlock('123456'),'unlock_sent')
         self.assertIn(('shell','input','swipe','540','1920','540','720','240'), calls)
         self.assertGreaterEqual(sum(args[:2] == ('shell','dumpsys') for args in calls), 4)
-        # Numeric PINs use digit key events, not INJECT_TEXT.
-        self.assertEqual(len(packets),9)
+        # Numeric PIN uses the same full scrcpy text frame as other passwords.
+        self.assertEqual(len(packets),4)
         self.assertEqual(packets[0],struct.pack('>BB',10,1))
-        self.assertFalse(any(packet[0] == 1 for packet in packets))
-        for packet, digit in zip(packets[2:-1], '123456'):
-            code = 7 + int(digit)
-            self.assertEqual(packet,struct.pack('>BBIII',0,0,code,0,0)
-                             +struct.pack('>BBIII',0,1,code,0,0))
+        self.assertEqual(packets[2],bytes([1])+struct.pack('>I',6)+b'123456')
+        self.assertEqual(packets[3],struct.pack('>BBIII',0,0,66,0,0)
+                         +struct.pack('>BBIII',0,1,66,0,0))
+        self.assertFalse(any(packet[:2] == bytes([0,0]) and
+                             struct.unpack('>BBIII',packet[:14])[2] in range(7,17)
+                             for packet in packets if len(packet)>=14))
 
-    def test_numeric_pin_auto_submit_does_not_send_enter_to_unlocked_app(self):
+    def test_numeric_pin_preserves_leading_zero_and_checks_result_after_enter(self):
         src,packets=self.make_source()
         src._adb=lambda *args,**kwargs: 'Physical size: 1080x2400'
-        with patch.object(src,'_stable_keyguard',side_effect=[True,True,False]):
+        with patch.object(src,'_stable_keyguard',side_effect=[True,True]), patch.object(src,'_keyguard',return_value=False):
             self.assertEqual(src.wake_and_unlock('0123'),'unlock_confirmed')
         self.assertEqual(packets[0],struct.pack('>BB',10,1))
-        codes=[struct.unpack('>BBIII',packet[:14])[2] for packet in packets if packet[0] == 0]
-        self.assertEqual(codes[1:],[7,8,9,10])
-        self.assertNotIn(66,codes)
+        self.assertEqual(packets[2],bytes([1])+struct.pack('>I',4)+b'0123')
+        self.assertEqual(packets[3],struct.pack('>BBIII',0,0,66,0,0)
+                         +struct.pack('>BBIII',0,1,66,0,0))
 
     def test_mixed_password_keeps_private_text_input(self):
         src,packets=self.make_source()
@@ -716,7 +717,10 @@ class AndroidKeyguardTests(unittest.TestCase):
         self.assertIn(0.8,waits)
         self.assertLess(waits.index(1.0),waits.index(0.8))
         self.assertIn(('shell','input','swipe','540','1920','540','720','240'),stages)
-        self.assertEqual(len([p for p in packets if p[0] == 0]),6) # WAKE, 4 digits, ENTER
+        self.assertEqual(packets[2],bytes([1])+struct.pack('>I',4)+b'1234')
+        self.assertEqual(len([p for p in packets if p[0] == 0]),2) # WAKE, ENTER
+        self.assertIn(0.18,waits)
+        self.assertLess(waits.index(0.8),waits.index(0.18))
 
     def test_lock_state_becomes_unknown_never_types_password(self):
         src,packets=self.make_source()
