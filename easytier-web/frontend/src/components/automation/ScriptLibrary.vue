@@ -10,6 +10,7 @@ import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../
 import { addFlowBranchStep, createFlowCondition, removeFlowBlock } from '../../modules/automation-flow-tree';
 import { emptyAutomationDraft, type AutomationDraftWorkspace } from '../../modules/automation-draft';
 import { stepCanPickTarget } from '../../modules/automation-step-target';
+import { businessCheckStepId } from '../../modules/automation-business-verification';
 import {
     initPreflightRow, probePreflightDevices, requiresAutomationHelper, selectedReadyIds, type PreflightRow,
 } from '../../modules/automation-preflight';
@@ -75,6 +76,22 @@ let disposed = false;
 
 const busy = computed(() => saving.value || deleting.value || runSubmitting.value);
 const selectedStep = computed(() => steps.value.find(step => step.id === selectedStepId.value));
+const businessCheckId = computed(() => businessCheckStepId(steps.value));
+const selectedIsFinalAssertion = computed(() => {
+    const selected = selectedStep.value;
+    const last = steps.value.at(-1);
+    return !!selected && selected.id === last?.id && ['assert', 'assert_property'].includes(selected.type)
+        && !flowLayout.value.problem && !flowLayout.value.entries.at(-1)?.ancestors.length;
+});
+function setBusinessCheck(enabled: boolean) {
+    if (busy.value || !selectedIsFinalAssertion.value || !selectedStep.value) return;
+    const id = selectedStep.value.id;
+    steps.value = steps.value.map(step => {
+        const { business_verification: _old, ...rest } = step;
+        return step.id === id && enabled ? { ...rest, business_verification: true as const } : rest;
+    });
+    error.value = '';
+}
 const pickerDeviceId = ref<string>();
 const pickerOptions = computed(() => props.pickerDevices.map(device => ({
     label: device.name, value: device.id,
@@ -352,6 +369,11 @@ function validationError(): string | null {
     if (new TextEncoder().encode(description.value.trim()).length > 2000) return text('脚本说明不能超过 2000 字节。', 'The description must be at most 2000 bytes.');
     if (!steps.value.length || steps.value.length > 100) return text('脚本需要 1–100 个步骤。', 'A script needs 1–100 steps.');
     const normalized = normalizeSteps();
+    const marked = normalized.filter(step => step.business_verification !== undefined);
+    if (marked.length && (!businessCheckStepId(normalized) || flowLayout.value.entries.at(-1)?.ancestors.length)) {
+        return text('业务验证只能标记最后一个、不属于条件分支的控件断言或属性断言。',
+            'Only a final, unconditional element or property assertion may verify business success.');
+    }
     for (let index = 0; index < normalized.length; index++) {
         const step = normalized[index];
         const prefix = text(`第 ${index + 1} 步：`, `Step ${index + 1}: `);
@@ -604,6 +626,11 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
                 <div class="draft-meta">
+                    <div class="business-check-summary" role="status">
+                        <Tag :value="businessCheckId ? text('已配置业务成功验证', 'Business check configured') : text('未配置业务验证', 'No business check')" :severity="businessCheckId ? 'success' : 'secondary'" />
+                        <small>{{ text('只有明确标记的最后一步断言通过，并且该手机的脚本完整执行，才认定业务成功。否则仅显示脚本执行完成。',
+                            'Business success requires an explicitly marked terminal assertion to pass and the device run to complete. Otherwise only script completion is reported.') }}</small>
+                    </div>
                     <label class="field" for="automation-script-name"><span>{{ text('脚本名称', 'Script name') }}</span><InputText id="automation-script-name" v-model="name" :maxlength="120" :disabled="busy" /></label>
                     <label class="field" for="automation-script-description"><span>{{ text('说明（选填）', 'Description (optional)') }}</span><Textarea id="automation-script-description" v-model="description" :rows="2" :maxlength="2000" :disabled="busy" /></label>
                 </div>
@@ -676,6 +703,17 @@ onBeforeUnmount(() => {
                             </div>
                             <small class="hint">{{ text('不新增步骤；保留步骤 ID、动作、参数和条件范围。未初始化 UiAutomator2 时请先到工作台准备手机。',
                                 'Keeps the current step ID and action; prepare UiAutomator2 on the workbench first if needed.') }}</small>
+                        </div>
+                        <div v-if="selectedStep" class="business-check-editor">
+                            <label v-if="selectedIsFinalAssertion" class="business-check-label">
+                                <Checkbox :model-value="selectedStep.business_verification === true" binary
+                                    :disabled="busy" @update:model-value="setBusinessCheck(!!$event)" />
+                                <strong>{{ text('将这一步作为业务成功验证', 'Verify business success with this assertion') }}</strong>
+                            </label>
+                            <small v-else>
+                                {{ text('业务成功条件必须放在脚本最后一步、位于所有 If / Else 分支之外，类型为“检查控件”或“属性断言”。',
+                                    'Place an element or property assertion at the very end, outside any If / Else branch, to enable business verification.') }}
+                            </small>
                         </div>
                         <ScriptStepEditor v-if="selectedStep" :model-value="selectedStep" :disabled="busy" @update:model-value="updateStep" />
                         <div v-else class="console-empty-state"><i class="pi pi-list" aria-hidden="true" /><h2>{{ text('从第一个步骤开始', 'Add the first step') }}</h2><p>{{ text('选择有限操作，填写目标与条件。运行前可先在一台手机试跑。', 'Choose an action and its target conditions. Try the draft on one phone before a batch run.') }}</p></div>
@@ -771,6 +809,11 @@ onBeforeUnmount(() => {
 .draft-state { display: block; margin-top: 5px; font-size: 12px; }
 .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .draft-meta { padding: 18px 20px; display: grid; gap: 14px; border-bottom: 1px solid var(--console-border); }
+.business-check-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.business-check-summary small{font-size:12px;line-height:1.6;color:var(--console-muted);flex:1;min-width:200px}
+.business-check-editor{padding:10px 0;display:grid;gap:8px}
+.business-check-label{display:flex;align-items:center;gap:8px;font-size:13px}
+.business-check-editor small{font-size:11px;line-height:1.6;color:var(--console-muted)}
 .field { display: grid; gap: 7px; min-width: 0; font-size: 13px; }
 .field > span { font-weight: 550; }
 .field :deep(.p-inputnumber-input) { width: 100%; }
