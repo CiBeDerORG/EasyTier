@@ -620,15 +620,21 @@ class Runtime:
             await self._authorize(rid, target)
             await self._update(rid, did, {"state": "running", "steps": results})
             skip_remaining = 0
+            skip_source = None
+            branch_skips = {}
             for index, step in enumerate(body["steps"]):
                 if cancel.is_set() or (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)):
                     await self._update(rid, did, {"state": "cancelled", "steps": results})
                     return
                 await self._authorize(rid, target)
                 current_step = step["id"]
-                if skip_remaining:
-                    skip_remaining -= 1
-                    results[index].update(state="skipped", message="控件仍存在，条件区域未执行", finished_at=now())
+                if skip_remaining or index in branch_skips:
+                    reason, origin = (("控件仍存在，If 条件区域未执行", skip_source)
+                                      if skip_remaining else branch_skips.pop(index))
+                    if skip_remaining:
+                        skip_remaining -= 1
+                    results[index].update(state="skipped", message=reason,
+                                          skipped_by_step_id=origin, finished_at=now())
                     await self._update(rid, did, {"state": "running", "current_step": current_step, "steps": results})
                     continue
                 results[index].update(state="running", started_at=now())
@@ -667,6 +673,22 @@ class Runtime:
                     if type(count) is not int or count not in (0, expected) or count > len(body["steps"]) - index - 1:
                         raise ExecutorError("condition_result_invalid", "条件判定与脚本结构不一致，停止执行")
                     skip_remaining = count
+                    skip_source = step["id"]
+                if step["type"] == "if_else":
+                    branch = result.get("branch_taken")
+                    then_count, else_count = step["then_count"], step["else_count"]
+                    if result.get("state") != "condition_passed" or branch not in ("then", "else") or (
+                        index + then_count + else_count >= len(body["steps"])
+                    ):
+                        raise ExecutorError("condition_result_invalid", "if-else 条件结果或分支范围无效，停止执行")
+                    if branch == "then":
+                        ignored = range(index + then_count + 1, index + then_count + else_count + 1)
+                        reason = "Then 分支执行，Else 分支未执行"
+                    else:
+                        ignored = range(index + 1, index + then_count + 1)
+                        reason = "Else 分支执行，Then 分支未执行"
+                    for skipped_index in ignored:
+                        branch_skips[skipped_index] = (reason, step["id"])
                 results[index].update(result)
                 results[index]["finished_at"] = now()
                 await self._update(rid, did, {"state": "running", "steps": results})
