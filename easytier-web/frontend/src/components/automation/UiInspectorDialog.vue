@@ -45,6 +45,16 @@ const lineage = computed(() => {
 });
 const clickableParent = computed(() => [...lineage.value].slice(0, -1).reverse()
     .find(node => node.clickable && node.enabled) ?? null);
+const scrollContainer = computed<AutomationSelector | null>(() => {
+    const shot = snapshot.value;
+    if (!shot || shot.truncated) return null;
+    for (const ancestor of [...lineage.value].reverse()) {
+        if (!ancestor.scrollable || !ancestor.resource_id) continue;
+        const count = shot.nodes.filter(node => node.resource_id === ancestor.resource_id).length;
+        if (count === 1) return { resource_id: ancestor.resource_id };
+    }
+    return null;
+});
 const capturedAt = computed(() => {
     if (!response.value?.captured_at) return '';
     const date = new Date(response.value.captured_at);
@@ -240,11 +250,13 @@ function locator(): AutomationSelector | null {
     if (mode.value === 'xpath' && suggestedXPath.value) return { xpath: suggestedXPath.value };
     return null;
 }
-function add(type: 'tap' | 'wait_for' | 'assert' | 'input_text') {
+function add(type: 'tap' | 'wait_for' | 'wait_gone' | 'assert' | 'assert_property' | 'scroll_find' | 'input_text') {
     if (!selected.value || !snapshot.value || !canAdd.value) return;
     const selector = locator();
     if (!selector && type !== 'tap') return;
     if (type === 'input_text' && selector?.xpath) return;
+    if (type === 'assert_property' && selector?.xpath) return;
+    if (type === 'scroll_find' && (!selector || !scrollContainer.value)) return;
     const step: AutomationStep = { id: uuid(), type };
     if (selector) step.selector = selector;
     else {
@@ -253,10 +265,17 @@ function add(type: 'tap' | 'wait_for' | 'assert' | 'input_text') {
         step.y = (bounds.top + bounds.bottom) / 2 / height;
         step.width = width; step.height = height;
     }
-    if (type === 'wait_for' || type === 'assert') step.timeout_ms = 10000;
+    if (['wait_for', 'wait_gone', 'assert'].includes(type)) step.timeout_ms = 10000;
+    if (type === 'assert_property') { step.property = 'enabled'; step.expected = selected.value.enabled; }
+    if (type === 'scroll_find') {
+        step.scroll_container = scrollContainer.value ?? undefined;
+        step.direction = 'down'; step.max_swipes = 3; step.duration_ms = 350;
+        step.timeout_ms = 20000;
+    }
     if (type === 'input_text') step.parameter = 'picked_' + uuid().slice(0, 8);
     emit('add-step', step);
-    feedback.value = '已添加到脚本草稿：' + ({ tap: '点击', wait_for: '等待控件', assert: '检查控件', input_text: '输入文字' }[type]);
+    feedback.value = '已添加到脚本草稿：' + ({ tap: '点击', wait_for: '等待控件', wait_gone: '等待消失', assert: '检查控件',
+        assert_property: '断言属性', scroll_find: '滚动查找', input_text: '输入文字' }[type]);
 }
 watch([() => props.visible, () => props.device.id, () => props.ownerId], async () => {
     ++requestGeneration;
@@ -350,7 +369,11 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                         <div class="step-actions">
                             <Button label="添加点击" icon="pi pi-plus" size="small" :disabled="!canAdd" @click="add('tap')" />
                             <Button label="等待出现" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('wait_for')" />
+                            <Button label="等待消失" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('wait_gone')" />
                             <Button label="断言存在" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('assert')" />
+                            <Button label="属性断言" outlined size="small" :disabled="!canAdd || mode === 'coordinates' || mode === 'xpath'" @click="add('assert_property')" />
+                            <Button label="滚动查找" outlined size="small" :disabled="!canAdd || mode === 'coordinates' || !scrollContainer"
+                                :title="scrollContainer ? '自动使用唯一滚动父容器' : '请先在脚本编辑器中指定滚动容器'" @click="add('scroll_find')" />
                             <Button label="输入文字" outlined size="small" :disabled="!canAdd || mode === 'coordinates' || mode === 'xpath'" @click="add('input_text')" />
                         </div>
                     </template>
