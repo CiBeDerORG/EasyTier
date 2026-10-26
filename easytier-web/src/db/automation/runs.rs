@@ -70,7 +70,7 @@ fn sanitized_steps(incoming:&Value,script:&Value,previous:&Value)->AutomationRes
         let id=validation::text(item,"step_id",64,true)?;
         if !order.contains_key(id.as_str())||!seen.insert(id.clone()) {return Err(AutomationError::field("step_id","Result does not match the fixed script steps."));}
         let state=validation::text(item,"state",64,true)?;
-        if !matches!(state.as_str(),"pending"|"queued"|"not_started"|"accepted"|"running"|"started"|"action_sent"|"action_completed"|"assertion_passed"|"completed"|"succeeded"|"passed"|"failed"|"cancelled"|"interrupted"|"outcome_unknown"|"skipped") {return Err(AutomationError::field("state","Invalid step result state."));}
+        if !matches!(state.as_str(),"pending"|"queued"|"not_started"|"accepted"|"running"|"started"|"action_sent"|"action_completed"|"assertion_passed"|"condition_passed"|"completed"|"succeeded"|"passed"|"failed"|"cancelled"|"interrupted"|"outcome_unknown"|"skipped") {return Err(AutomationError::field("state","Invalid step result state."));}
         let artifact=match item.get("artifact_id").filter(|v|!v.is_null()) {
             Some(value)=>{
                 let identifier=value.as_str().filter(|s|Uuid::parse_str(s).is_ok()).ok_or_else(||AutomationError::field("artifact_id","Use a valid screenshot identifier."))?;
@@ -90,7 +90,38 @@ fn sanitized_steps(incoming:&Value,script:&Value,previous:&Value)->AutomationRes
                 continue;
             }
         }
+        let definition=&definitions[*order.get(id.as_str()).ok_or_else(not_found)?];
+        if state=="condition_passed" && !matches!(definition["type"].as_str(),Some("if_gone"|"if_else")) {
+            return Err(AutomationError::field("state","Only conditional steps may return a branch decision."));
+        }
         let mut sanitized=json!({"step_id":id,"state":state});
+        if let Some(value)=item.get("branch_taken").filter(|v|!v.is_null()) {
+            let branch=value.as_str().ok_or_else(||AutomationError::field("branch_taken","Invalid branch label."))?;
+            let valid=match definition["type"].as_str() {
+                Some("if_else")=>matches!(branch,"then"|"else"),
+                Some("if_gone")=>matches!(branch,"then"|"skip"),
+                _=>false,
+            };
+            if state!="condition_passed"||!valid {
+                return Err(AutomationError::field("branch_taken","Branch label does not match the conditional action."));
+            }
+            sanitized["branch_taken"]=json!(branch);
+        }
+        if let Some(value)=item.get("skipped_by_step_id").filter(|v|!v.is_null()) {
+            let source=value.as_str().ok_or_else(||AutomationError::field("skipped_by_step_id","Invalid skip source."))?;
+            let source_index=*order.get(source).ok_or_else(||AutomationError::field("skipped_by_step_id","Unknown skip source."))?;
+            let index=*order.get(id.as_str()).ok_or_else(not_found)?;
+            let origin=&definitions[source_index];
+            let span=match origin["type"].as_str() {
+                Some("if_gone")=>origin["skip_count"].as_u64().unwrap_or(0),
+                Some("if_else")=>origin["then_count"].as_u64().unwrap_or(0)+origin["else_count"].as_u64().unwrap_or(0),
+                _=>0,
+            };
+            if state!="skipped"||source_index>=index||(index-source_index) as u64>span {
+                return Err(AutomationError::field("skipped_by_step_id","Skip source is outside its valid conditional block."));
+            }
+            sanitized["skipped_by_step_id"]=json!(source);
+        }
         for field in ["message","started_at","finished_at"] {
             if !item[field].is_null() {sanitized[field]=json!(validation::text(item,field,if field=="message"{2000}else{256},false)?);}
         }
