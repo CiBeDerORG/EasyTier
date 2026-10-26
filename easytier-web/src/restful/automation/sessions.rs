@@ -59,20 +59,29 @@ pub(super) async fn create(auth: AuthSession, State(manager): State<AppStateInne
     if !matches!(quality,"wall"|"focus") {
         return Err(error(StatusCode::UNPROCESSABLE_ENTITY,"invalid_quality","请选择有效的画质档位。"));
     }
-    // Read the ciphertext separately from normal asset APIs. Decrypt only
-    // for a new, user-requested viewing session; no credential is persisted
-    // in automation_sessions or included in any browser response.
-    let secret:Option<(String,String)>=sqlx::query_as(
-        "SELECT u.service_id,u.secret_cipher FROM adb_service_unlock_secrets u JOIN asset_services s ON s.id=u.service_id AND s.owner_user_id=u.owner_user_id WHERE s.device_id=? AND s.owner_user_id=? AND s.service_type='adb'"
-    ).bind(&device_id).bind(owner).fetch_optional(&service.db.inner()).await
+    // Resolve the precise ADB service selected by the automation target.
+    // A phone may have historical/other ADB service records: a device-only
+    // lookup could read the wrong (or no) credential without an error.
+    let store = observed_store(&manager,&service,owner,Some(&[device_id.clone()])).await?;
+    let current_target = store.target(owner,&device_id).await.map_err(store_error)?;
+    let adb_service_id = id(current_target["adb_service_id"].as_str().unwrap_or_default())?;
+    // Read only the matching service's ciphertext; neither the password nor
+    // the ciphertext is returned to the browser or persisted in the session.
+    let secret:Option<String>=sqlx::query_scalar(
+        "SELECT u.secret_cipher FROM adb_service_unlock_secrets u JOIN asset_services s ON s.id=u.service_id AND s.owner_user_id=u.owner_user_id WHERE u.service_id=? AND u.owner_user_id=? AND s.device_id=? AND s.service_type='adb'"
+    ).bind(&adb_service_id).bind(owner).bind(&device_id).fetch_optional(&service.db.inner()).await
         .map_err(|_|error(StatusCode::INTERNAL_SERVER_ERROR,"unlock_storage_error","无法读取 ADB 服务凭据。"))?;
-    let unlock_password=secret.map(|(sid,cipher)|
-        settings.open_unlock_password(owner,&sid,&cipher).map_err(|_|error(StatusCode::SERVICE_UNAVAILABLE,"unlock_vault_unavailable","开屏密码的加密密钥无法读取，请恢复密钥备份。"))
+    let unlock_password=secret.map(|cipher|
+        settings.open_unlock_password(owner,&adb_service_id,&cipher)
+            .map_err(|_|error(StatusCode::SERVICE_UNAVAILABLE,"unlock_vault_unavailable","开屏密码的加密密钥无法读取，请恢复密钥备份。"))
     ).transpose()?;
     let executor=runner.identity().await?;
-    let store = observed_store(&manager,&service,owner,Some(&[device_id.clone()])).await?;
     let mut session = store.create_session(actor,owner,&device_id,quality).await.map_err(store_error)?;
     let session_id = id(session["id"].as_str().unwrap_or_default())?;
+    if session["target"]["adb_service_id"].as_str() != Some(adb_service_id.as_str()) {
+        let _ = store.update_session(&session_id,"failed").await;
+        return Err(error(StatusCode::CONFLICT,"adb_service_changed","ADB 服务在创建会话时发生变化，请重新打开画面。"));
+    }
     sqlx::query("UPDATE automation_sessions SET executor_identity=? WHERE id=?").bind(&executor).bind(&session_id).execute(&service.db.inner()).await.map_err(|e|store_error(e.into()))?;
     crate::discovery::reconnect::remember_target(&service,&session["target"],&executor).await.map_err(|e|store_error(e.into()))?;
     let outbound = json!({"id":session_id,"target":wire_target(&session["target"]),"quality":quality,"media":media,"unlock_password":unlock_password,"lease_seconds":60,"expected_executor_id":executor});
