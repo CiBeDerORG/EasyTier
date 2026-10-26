@@ -14,7 +14,7 @@
 | AUT-06 | P0 | **代码与回归测试已提交，CI/真机待验收** | 只允许显式标记最后一个、分支外的 `assert` / `assert_property` 为业务成功验证；标记保存在原脚本步骤及不可变运行快照中，派发 Python 前剥离；Rust 从逐台最终断言结果推导业务状态，旧运行一律未验证 |
 | AUT-07 | P0 | **前端构建及 89 项单元测试通过，最新全量 CI/真机待验收** | 失败步骤关联历史执行快照、原步骤 UUID、脚本修订与设备 ADB 目标；支持一键定位编辑。同修订可编辑当前脚本，较新/删除/内联脚本只能从不可变快照创建独立草稿；未知动作不自动重放。截图仅查看历史原有证据 |
 | AUT-08 | P0 | **跨模块与执行器模拟回归已通过；真机/正式发布待验收** | `automation-closure-integration.test.mjs` 串联录制→草稿→脚本树→重拾取→异步预检→两设备验证→历史失败修复；Python 真实调度器+SQLite journal 模拟双手机不同分支与最终断言失败；FnOS/Android A17 实测见 `automation-aut08-e2e-acceptance.md` |
-| AUT-09 | P1 | 未开始 | 安全单步诊断，保持独占、授权及未知结果不重放 |
+| AUT-09 | P1 | **第一版功能与测试已提交，CI/真机待验收** | 选中步骤直接单机试跑，按实际步骤类型区分只读检查与需确认的动作；If/Else 拒绝脱离上下文；复用已有 REST 运行任务、设备预检、独占与鉴权，不新增特权 ADB 接口；标记为业务验证的断言单独试跑时不会冒充完整脚本成功 |
 | AUT-10 | P1 | 未开始 | 候选控件半自动匹配，用户确认，禁止自动退化到不稳定序号定位 |
 
 ## 已提交的第一批实现
@@ -132,6 +132,26 @@
 - 两条 CI：Web GHCR [40331799359](https://github.com/CiBeDerORG/EasyTier/actions/runs/40331799359) 的 Web build / 前端 91 单测已成功；executor GHCR [40331918668](https://github.com/CiBeDerORG/EasyTier/actions/runs/40331918668) 已完整成功。Web 的完整 native / package / publish 状态仍须以最新 CI 为准。
 - 真机验收：`docs/automation-aut08-e2e-acceptance.md` 定义 G1～G6 门禁与 E08-01～E08-16 现场矩阵。由于没有连接用户 FnOS/Android，本轮全部现场用例均**未测**，不得批准正式发布。
 - 对外状态准确表达：**模拟端到端闭环完成，FnOS/Android 真机端到端及发布准入未完成**。
+
+## AUT-09 单步骤试跑实现与验收
+
+### 操作与授权边界
+
+1. 在自动化中心「脚本库」选中一个已配置步骤，点击「单独试跑此步骤」。
+2. 条件分支控制节点 `if_gone` / `if_else` 必须随完整脚本运行，不能跳过条件的上下文直接试跑。其余操作会先保存**仅含当前步骤**的临时运行快照，保留原步骤 UUID，并从单步快照中去掉整条业务成功验证标记。
+3. 弹窗选择**一台**当前账号已授权且绑定有效的手机，然后复用 AUT-05 设备预检：最新设备绑定、手动控制或其他脚本占用、ADB 与必要时的 UiAutomator2 都需要就绪；组件未初始化时只能返回工作台主动准备。
+4. `wait_for`、`wait_gone`、`assert`、`assert_property` 作为只读检查，不要求额外副作用确认；`key`、`tap`、`long_press`、`swipe`、`drag`、`input_text`、`launch_app`、`scroll_find` 均可能改变应用状态，必须主动勾选风险确认；`screenshot` 虽不触碰手机应用，但会持久化截图证据，同样需要确认。
+5. 直接调用现有 `POST /runs`（`device_ids` 仅 1 项、`concurrency=1`、`steps` 仅 1 项），原 Rust 账号授权、设备指纹与占用检查、Python 每步授权/独占和未知结果不重发的约束保持不变。**没有创建新的高权限直接 ADB 接口**。
+6. 断言单步通过仅证明这一检查在测试时刻通过，不等于整套业务流程完成。脚本运行历史会以独立的 `单步骤诊断` 任务登记；自动化中心不会静默重复动作。
+7. HTTP 请求结果未知时保留原 `request_id` 与相同请求内容；人工重试此 HTTP 接收操作不会新建任务 ID，但不代表允许重试结果未知的手机动作。必须检查执行历史和手机实际结果之后才能另发新任务。
+
+### 回归与待验收
+
+- `easytier-web/frontend/src/modules/automation-single-step.ts`：风险分级、安全复制、无条件分支/整脚本元数据隔离，独立单步运行请求。
+- `easytier-web/frontend/tests/automation-single-step.test.mjs`：只读分类、不同危险动作确认、业务断言标记剥离、敏感输入参数只存在此次运行参数、脚本其他步骤不混入。
+- `easytier-web/frontend/src/components/automation/ScriptLibrary.vue`：步骤入口、设备选择、预检、确认框、仅一次请求和普通任务提交后的历史入口。
+- FnOS + Android 真机仍需验证：分别试跑断言、点击、长按、输入与截图，确认没有绕过主服务独占、鉴权和执行器；测试不应针对真实支付或不可逆业务执行。
+- CI 前端回归与正式镜像测试以最新 GitHub Actions 结果为准；**代码完成不等于 AUT-09 真机验收完成**。
 
 ## 本轮未改的边界
 
