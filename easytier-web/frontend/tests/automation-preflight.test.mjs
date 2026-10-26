@@ -61,6 +61,7 @@ test('stale registration, occupied or disabled device never executes any probe',
     undefined, device('a',{connection:{enabled:false,adb_port:1,connection_mode:'tcp'}}),
     device('a',{target_fingerprint:null}), device('a',{availability_reason:'gateway unavailable'}),
     device('a',{active_session:{id:'active',state:'live',actor_user_id:1,expires_at:''}}),
+    device('a',{run_occupied:true}),
   ];
   for (const item of problematic) {
     const client = probes();
