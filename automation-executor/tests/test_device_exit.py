@@ -455,12 +455,22 @@ class AndroidKeyguardTests(unittest.TestCase):
 
     def test_password_injected_only_after_two_positive_keyguard_checks(self):
         src,packets=self.make_source()
-        src._adb=lambda *args,**kwargs: 'mShowingLockscreen=true'
+        calls=[]
+        def fake_adb(*args, **kwargs):
+            calls.append(args)
+            if args[:3] == ('shell', 'wm', 'size'):
+                return 'Physical size: 1080x2400'
+            if args[:3] == ('shell', 'input', 'swipe'):
+                return ''
+            return 'mShowingLockscreen=true'
+        src._adb=fake_adb
         with patch('automation_executor.vendor.scrcpy_source.time.sleep',return_value=None):
             self.assertEqual(src.wake_and_unlock('123456'),'unlock_sent')
+        self.assertIn(('shell','input','swipe','540','1920','540','720','240'), calls)
+        self.assertGreaterEqual(sum(args[:2] == ('shell','dumpsys') for args in calls), 4)
         self.assertIn(b'123456',b''.join(packets))
         self.assertEqual(packets[-2],bytes([1,0,0,0,6])+b'123456')
-        self.assertGreaterEqual(len(packets),7)
+        self.assertEqual(len(packets),3)
 
     def test_lock_state_becomes_unknown_never_types_password(self):
         src,packets=self.make_source()
