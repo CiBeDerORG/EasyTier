@@ -138,6 +138,11 @@ async def automation_status(request: Request, body: dict):
     return await request.app.state.runtime.automation_status(body)
 
 
+@app.post("/internal/v1/automation/hierarchy")
+async def automation_hierarchy(request: Request, body: dict):
+    return await request.app.state.runtime.hierarchy(body)
+
+
 @app.post("/internal/v1/sessions")
 async def create_session(request: Request, body: dict):
     return await request.app.state.runtime.create_session(body)
