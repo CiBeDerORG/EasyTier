@@ -229,6 +229,23 @@ class Runtime:
         self.journal.ensure_target(target)
         return await adb.connection_status(self.settings.adb_binary, target)
 
+    async def hierarchy(self, body):
+        """Capture a single bounded UI tree without pairing or restarting UiAutomator."""
+        validation.object_fields(body, {"target"}, {"target"})
+        target = validation.target(body["target"])
+        self.journal.ensure_target(target)
+        if self.shutting_down:
+            raise ExecutorError("executor_stopping", "执行器正在停止", 503)
+        if not self.prepared(target):
+            raise ExecutorError("automation_not_prepared", "请先初始化该手机的 UiAutomator2 控件组件", 409)
+        await adb.require_connected(self.settings.adb_binary, target)
+        # Reuse the supervised short-lived worker; a hung RPC is terminated.
+        return await execute_step(
+            self.journal, "hierarchy:" + str(uuid4()), target,
+            {"id": str(uuid4()), "type": "hierarchy", "timeout_ms": 20000},
+            {}, asyncio.Event(), self.settings.adb_binary,
+        )
+
     async def automation_status(self, body):
         validation.object_fields(body, {"target"}, {"target"})
         target = validation.target(body["target"])
