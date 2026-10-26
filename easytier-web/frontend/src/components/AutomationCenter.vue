@@ -20,6 +20,8 @@ import ExecutorSettings from './automation/ExecutorSettings.vue';
 import { automationMessages } from './automation/messages';
 import { analyzeAutomationFlow } from '../modules/automation-flow';
 import { appendAutomationDraftSteps, emptyAutomationDraft } from '../modules/automation-draft';
+import { replaceAutomationStepTarget, type StepTarget } from '../modules/automation-step-target';
+import type { AutomationStepType } from '../types/automation';
 import {
     beginCapturedGesture, observeCapturedGesture, finishCapturedGesture,
     type CapturedGesture, type GestureRecordingResult,
@@ -126,6 +128,14 @@ const draftWorkspace = reactive(emptyAutomationDraft(0));
 watch(ownerId, id => Object.assign(draftWorkspace, emptyAutomationDraft(id)), { immediate: true });
 const inspectorDeviceId = ref<string | null>(null);
 const inspectorStream = shallowRef<MediaStream | null>(null);
+interface PickerEditScope {
+    ownerId: number; stepId: string; stepType: AutomationStepType;
+    editingId?: string; revision?: number;
+}
+const inspectorEditScope = ref<PickerEditScope | null>(null);
+const inspectorReplaceStep = computed(() => inspectorEditScope.value
+    ? { id: inspectorEditScope.value.stepId, type: inspectorEditScope.value.stepType }
+    : null);
 const textDialog = ref(false); const textTargets = ref<string[]>([]); const inputText = ref(''); const sendingText = ref(false);
 const results = ref<{ id: string; name: string; state: string; message?: string }[]>([]);
 const focusRunId = ref<string>(); const historyKey = ref(0);
@@ -300,6 +310,7 @@ async function changeOwner(id: number) {
     ++workspaceGeneration; ++loadGeneration; ++statusQueryGeneration;
     adbActionVersions.clear();
     await closeAll();
+    closeInspector();
     ownerId.value = id; devices.value = []; selectedIds.value = []; phases.value = {}; results.value = [];
     componentStatuses.value = {}; componentStatusResults.value = [];
     initialSelectionDone = false; initialConnectDone = false;
@@ -646,14 +657,62 @@ function openInspector(id: string) {
     const card = cards.get(id);
     const stream = card?.getStream();
     if (!card?.getState().ready || !stream) { error.value = '请先打开这台手机的实时画面，再拾取控件。'; return; }
+    inspectorEditScope.value = null;
     inspectorDeviceId.value = id;
     inspectorStream.value = stream;
+}
+function openScriptInspector(stepId: string, stepType: AutomationStepType, deviceId: string) {
+    if (tab.value !== 'scripts' || sync.value || recordingId.value
+        || draftWorkspace.ownerId !== ownerId.value) {
+        error.value = '当前脚本或手机状态已变化，请重新进入脚本库。';
+        return;
+    }
+    const step = draftWorkspace.steps.find(item => item.id === stepId);
+    const device = devices.value.find(item => item.id === deviceId);
+    if (!step || step.type !== stepType || !device
+        || device.owner_user_id !== ownerId.value
+        || !device.connection.enabled || !device.target_fingerprint) {
+        error.value = '无法拾取：步骤或手机配置已变化。请先确认该手机已启用 ADB 服务。';
+        return;
+    }
+    inspectorEditScope.value = {
+        ownerId: ownerId.value, stepId, stepType,
+        editingId: draftWorkspace.editingId, revision: draftWorkspace.revision,
+    };
+    inspectorDeviceId.value = deviceId;
+    // The hierarchy API is read-only and does not require opening a WebRTC
+    // session. Editing scripts must not steal a live manual-control session.
+    inspectorStream.value = null;
 }
 function closeInspector() {
     inspectorDeviceId.value = null;
     inspectorStream.value = null;
+    inspectorEditScope.value = null;
+}
+function replaceInspectorTarget(stepId: string, target: StepTarget) {
+    const scope = inspectorEditScope.value;
+    const device = devices.value.find(item => item.id === inspectorDeviceId.value);
+    if (!scope || !device || scope.stepId !== stepId || scope.ownerId !== ownerId.value
+        || draftWorkspace.ownerId !== scope.ownerId
+        || draftWorkspace.editingId !== scope.editingId
+        || draftWorkspace.revision !== scope.revision
+        || tab.value !== 'scripts') {
+        error.value = '脚本、账号或设备上下文已发生变化，未修改草稿。';
+        closeInspector();
+        return;
+    }
+    const next = replaceAutomationStepTarget(draftWorkspace.steps, stepId, scope.stepType, target);
+    if (!next) {
+        error.value = '无法替换该步骤的定位条件：请检查动作类型及所选控件。';
+        return;
+    }
+    draftWorkspace.steps = next;
+    draftWorkspace.selectedStepId = stepId;
+    closeInspector();
+    notice.value = '已重新绑定当前步骤控件；动作参数和步骤编号保持不变。请先单机试跑。';
 }
 function addInspectorStep(step: AutomationStep) {
+    if (inspectorEditScope.value) return; // replacement mode can never append
     if (!appendAutomationDraftSteps(draftWorkspace, ownerId.value, [step], uuid)) {
         error.value = '无法添加控件：草稿超过 100 步或分支结构无效，请先在脚本库处理。';
         return;
@@ -803,12 +862,15 @@ onBeforeUnmount(() => { stopEvents?.();
                 </div>
             </div>
             <p v-if="liveCount" class="manual-release-hint">{{ t('tabReleaseHint') }}</p>
-            <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace" @run-created="onRunCreated" />
+            <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace"
+                :picker-devices="devices.filter(device => device.connection.enabled && !!device.target_fingerprint).map(device => ({ id: device.id, name: device.name }))"
+                @pick-step-target="openScriptInspector" @run-created="onRunCreated" />
             <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" />
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
-        <UiInspectorDialog v-if="inspectorDevice" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" @close="closeInspector" @add-step="addInspectorStep" @edit="editInspectorDraft" />
+        <UiInspectorDialog v-if="inspectorDevice" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" :replace-step="inspectorReplaceStep"
+            @close="closeInspector" @add-step="addInspectorStep" @replace-target="replaceInspectorTarget" @edit="editInspectorDraft" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
         <Dialog :visible="!!gestureConfirmation" :appendTo="textDialogTarget" modal
             :closable="false" :close-on-escape="false"
