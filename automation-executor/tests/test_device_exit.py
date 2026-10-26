@@ -185,6 +185,64 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(final['state'], 'completed')
         self.assertTrue(all(device['state'] == 'completed' for device in final['devices']))
 
+    async def test_if_else_executes_different_branches_per_phone(self):
+        first, second = target("10.60.8.21"), target("10.60.8.22")
+        body = run_body(self.runtime.journal, [first, second])
+        body["steps"] = [
+            {"id": str(uuid4()), "type": "if_else", "selector": {"text": "Dialog"},
+             "then_count": 2, "else_count": 1},
+            {"id": str(uuid4()), "type": "key", "key": "HOME"},
+            {"id": str(uuid4()), "type": "key", "key": "BACK"},
+            {"id": str(uuid4()), "type": "key", "key": "RECENT"},
+            {"id": str(uuid4()), "type": "key", "key": "WAKE"},
+        ]
+        calls = []
+        async def execute(journal, holder, phone, step, *args):
+            calls.append((phone["device_id"], step["id"]))
+            if step["type"] == "if_else":
+                branch = "then" if phone["device_id"] == first["device_id"] else "else"
+                return {"state": "condition_passed", "branch_taken": branch}
+            return {"state": "action_sent"}
+        with patch("automation_executor.runtime.execute_step", new=execute):
+            await self.runtime.create_run(body)
+            await asyncio.wait_for(self.runtime.tasks[body["id"]], 3)
+        devices = {item["device_id"]: item for item in self.runtime.journal.run(body["id"])["devices"]}
+        self.assertEqual(devices[first["device_id"]]["state"], "completed")
+        self.assertEqual(devices[second["device_id"]]["state"], "completed")
+        self.assertEqual([x["state"] for x in devices[first["device_id"]]["steps"]],
+                         ["condition_passed", "action_sent", "action_sent", "skipped", "action_sent"])
+        self.assertEqual([x["state"] for x in devices[second["device_id"]]["steps"]],
+                         ["condition_passed", "skipped", "skipped", "action_sent", "action_sent"])
+        self.assertEqual(devices[first["device_id"]]["steps"][0]["branch_taken"], "then")
+        self.assertEqual(devices[second["device_id"]]["steps"][0]["branch_taken"], "else")
+        self.assertEqual(devices[first["device_id"]]["steps"][3]["skipped_by_step_id"], body["steps"][0]["id"])
+        self.assertNotIn((second["device_id"], body["steps"][1]["id"]), calls)
+        self.assertNotIn((first["device_id"], body["steps"][3]["id"]), calls)
+        self.assertIn((first["device_id"], body["steps"][4]["id"]), calls)
+        self.assertIn((second["device_id"], body["steps"][4]["id"]), calls)
+
+    async def test_if_else_invalid_worker_branch_blocks_all_actions(self):
+        phone = target("10.60.8.23")
+        body = run_body(self.runtime.journal, [phone])
+        body["steps"] = [
+            {"id": str(uuid4()), "type": "if_else", "selector": {"text": "Dialog"},
+             "then_count": 1, "else_count": 1},
+            {"id": str(uuid4()), "type": "key", "key": "HOME"},
+            {"id": str(uuid4()), "type": "key", "key": "BACK"},
+        ]
+        calls = []
+        async def execute(journal, holder, target_item, step, *args):
+            calls.append(step["id"])
+            return {"state": "condition_passed", "branch_taken": "maybe"}
+        with patch("automation_executor.runtime.execute_step", new=execute):
+            await self.runtime.create_run(body)
+            await asyncio.wait_for(self.runtime.tasks[body["id"]], 3)
+        device = self.runtime.journal.run(body["id"])["devices"][0]
+        self.assertEqual(device["state"], "failed")
+        self.assertEqual(device["error"]["code"], "condition_result_invalid")
+        self.assertEqual(calls, [body["steps"][0]["id"]])
+        self.assertTrue(all(x["state"] == "skipped" for x in device["steps"][1:]))
+
     async def test_if_gone_skips_only_its_own_phone_actions_and_records_skipped(self):
         first, second = target("10.60.7.21"), target("10.60.7.22")
         body = run_body(self.runtime.journal, [first, second])
