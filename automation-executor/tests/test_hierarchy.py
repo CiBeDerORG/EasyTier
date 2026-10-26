@@ -35,6 +35,11 @@ class HierarchyTests(unittest.TestCase):
         xml = '<hierarchy><node bounds="[1,1][1,10]"/><node bounds="[300,10][400,50]"/><node bounds="[1,2][8,9]"/></hierarchy>'
         self.assertEqual(len(parse_hierarchy(xml, 200, 400)["nodes"]), 1)
 
+    def test_overlong_unicode_text_is_not_a_broken_exact_selector(self):
+        xml = '<hierarchy><node bounds="[0,0][100,100]" text="' + "测" * 300 + '"/></hierarchy>'
+        result = parse_hierarchy(xml, 100, 100)
+        self.assertEqual(result["nodes"][0]["text"], "")
+
     def test_only_valid_hierarchy_root(self):
         with self.assertRaises(ExecutorError):
             parse_hierarchy("<payload/>", 200, 400)
