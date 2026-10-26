@@ -207,7 +207,6 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
             return Err(AutomationError::field("business_verification",
                 "The business assertion must be outside all conditional lanes."));
         }
-        let _=marked_step;
     }
     Ok(input.clone())
 }
