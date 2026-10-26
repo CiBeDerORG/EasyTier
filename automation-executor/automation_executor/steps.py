@@ -106,6 +106,77 @@ def execute(target, step, parameters, artifact_path=None):
     if kind in ("wait_for", "assert"):
         find(step["selector"], step["timeout_ms"])
         return {"state": "assertion_passed", "message": "指定控件条件检查通过"}
+
+    def probe(raw):
+        """A single, non-mutating presence check; never suppress transport errors."""
+        try:
+            return find(raw) is not None
+        except StepFailure as exc:
+            if exc.code == "selector_not_found":
+                return False
+            if exc.code == "selector_ambiguous":
+                return True  # More than one element still means it is present.
+            raise
+
+    if kind == "wait_gone":
+        deadline = time.monotonic() + step["timeout_ms"] / 1000
+        while True:
+            if not probe(step["selector"]):
+                return {"state": "assertion_passed", "message": "控件已消失"}
+            if time.monotonic() >= deadline:
+                raise StepFailure("wait_gone_timeout", "等待控件消失超时")
+            time.sleep(min(.25, max(0, deadline - time.monotonic())))
+
+    if kind == "assert_property":
+        selected = find(step["selector"])
+        details = rpc("objInfo", selected)
+        name = step["property"]
+        # Reject missing/nullable fields rather than coercing them to False.
+        actual = details.get(name) if isinstance(details, dict) else None
+        if type(actual) is not bool:
+            raise StepFailure("property_unavailable", "手机未返回可确认的控件布尔属性")
+        if actual is not step["expected"]:
+            raise StepFailure("property_mismatch", "控件属性与预期值不一致")
+        return {"state": "assertion_passed", "message": "控件布尔属性检查通过"}
+
+    if kind == "scroll_find":
+        deadline = time.monotonic() + step["timeout_ms"] / 1000
+        swipes = 0
+        while True:
+            # A target is tested before any swipe, preventing needless movements.
+            try:
+                found = find(step["selector"])
+            except StepFailure as exc:
+                if exc.code != "selector_not_found":
+                    raise
+                found = None
+            if found is not None:
+                return {"state": "assertion_passed", "message": "滚动查找已找到唯一控件", "swipes": swipes}
+            if swipes >= step["max_swipes"] or time.monotonic() >= deadline:
+                raise StepFailure("scroll_target_not_found", "已达到滚动次数或等待上限，仍未找到目标控件")
+            container = find(step["scroll_container"])
+            details = rpc("objInfo", container)
+            if not isinstance(details, dict) or details.get("scrollable") is not True:
+                raise StepFailure("scroll_container_invalid", "指定控件不是可滚动容器")
+            bounds = details.get("visibleBounds") or details.get("bounds")
+            if not isinstance(bounds, dict) or not all(type(bounds.get(k)) is int
+                                                     for k in ("left", "top", "right", "bottom")):
+                raise StepFailure("scroll_container_invalid", "滚动容器范围无效")
+            left, top = bounds["left"], bounds["top"]
+            right, bottom = bounds["right"], bounds["bottom"]
+            if right - left < 24 or bottom - top < 100:
+                raise StepFailure("scroll_container_invalid", "滚动容器尺寸过小")
+            if time.monotonic() + step["duration_ms"] / 1000 + .2 >= deadline:
+                raise StepFailure("scroll_target_not_found", "滚动剩余等待时间不足")
+            x = (left + right) // 2
+            start = top + (bottom - top) * (80 if step["direction"] == "down" else 20) // 100
+            end = top + (bottom - top) * (20 if step["direction"] == "down" else 80) // 100
+            # One explicit gesture per iteration. If its result is uncertain,
+            # do not repeat it or silently advance the list.
+            rpc("swipe", x, start, x, end, max(1, step["duration_ms"] // 5))
+            swipes += 1
+            time.sleep(min(.3, max(0, deadline - time.monotonic())))
+
     if kind == "tap" and "selector" in step:
         selected = find(step["selector"])
         if isinstance(selected, dict) and "xpath_bounds" in selected:
