@@ -32,13 +32,19 @@ fn dimension(step:&Value,field:&str)->AutomationResult<()> {
 }
 
 fn selector(value:&Value)->AutomationResult<()> {
-    keys(value,&["resource_id","description","text"])?;
+    keys(value,&["resource_id","description","text","class_name","package","xpath"])?;
     let object=value.as_object().ok_or_else(||AutomationError::field("selector","A selector is required."))?;
     if object.is_empty() {return Err(AutomationError::field("selector","Choose at least one selector field."));}
+    if object.contains_key("xpath") && object.len()!=1 {
+        return Err(AutomationError::field("selector","XPath cannot be combined with native selector fields."));
+    }
     for field in object.keys() {
         if !value[field].as_str().is_some_and(|s|!s.trim().is_empty()&&s.len()<=512&&!s.contains('\0')) {
             return Err(AutomationError::field(field,"Selector text is empty or exceeds 512 bytes."));
         }
+    }
+    if object.contains_key("xpath") && !value["xpath"].as_str().is_some_and(|s|s.starts_with('/')||s.starts_with('(')) {
+        return Err(AutomationError::field("xpath","XPath must begin with / or (."));
     }
     Ok(())
 }
@@ -83,7 +89,12 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
                     let name=step["parameter"].as_str().ok_or_else(||AutomationError::field("parameter","A parameter name is required."))?;
                     if !parameter_name(name){return Err(AutomationError::field("parameter","Use a variable name containing ASCII letters, digits or underscores."));}
                 }
-                if let Some(value)=step.get("selector") {selector(value)?;}
+                if let Some(value)=step.get("selector") {
+                    selector(value)?;
+                    if value.get("xpath").is_some() {
+                        return Err(AutomationError::field("selector","XPath input is not supported; choose native fields."));
+                    }
+                }
             },
             "launch_app"=>{
                 keys(step,&["id","type","package"])?;
