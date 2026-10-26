@@ -194,7 +194,7 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
     }
     // An assertion inside Then/Else may be skipped on one device and can
     // never prove the run-level business outcome. Reject such markers.
-    if let Some(marked_step)=marked.first() {
+    if !marked.is_empty() {
         let index=items.len()-1;
         if items[..index].iter().enumerate().any(|(at,step)| {
             match step["type"].as_str() {
