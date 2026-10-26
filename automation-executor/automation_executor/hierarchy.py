@@ -74,3 +74,52 @@ def parse_hierarchy(xml, width, height):
         if truncated:
             break
     return {"width": width, "height": height, "nodes": nodes, "truncated": truncated}
+
+
+def xpath_match(xml, expression, width, height):
+    """Evaluate an XPath 1.0 element selector against one bounded UI snapshot.
+
+    This is read-only; returns a unique on-screen bounds dict or raises a
+    controlled exception. The caller sends a click only after this completes.
+    """
+    from lxml import etree
+
+    if not isinstance(expression, str) or not 1 <= len(expression.encode("utf-8")) <= 512 or not expression.startswith(("/", "(")):
+        raise ExecutorError("xpath_invalid", "XPath 必须以 / 或 ( 开头，且不超过 512 字节", 422)
+    if not isinstance(xml, str) or len(xml.encode("utf-8")) > MAX_XML_BYTES or width <= 0 or height <= 0:
+        raise ExecutorError("hierarchy_too_large", "控件树或屏幕尺寸无效", 502)
+    if "<!DOCTYPE" in xml.upper() or "<!ENTITY" in xml.upper():
+        raise ExecutorError("hierarchy_invalid", "控件树包含不支持的声明", 502)
+    try:
+        parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=False)
+        root = etree.fromstring(xml.encode("utf-8"), parser=parser)
+        if root.tag != "hierarchy":
+            raise ExecutorError("hierarchy_invalid", "控件树根节点无效", 502)
+        count = 0
+        for element in root.iter("node"):
+            count += 1
+            if count > MAX_ELEMENTS:
+                raise ExecutorError("hierarchy_too_large", "控件数量超出 XPath 安全上限", 502)
+            # Match UiAutomator2's conventional //android.widget.Button paths.
+            tag = element.get("class", "")
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]{0,255}", tag):
+                element.tag = tag
+        result = etree.XPath(expression, smart_strings=False)(root)
+    except (etree.XMLSyntaxError, etree.XPathError, ValueError, TypeError):
+        raise ExecutorError("xpath_invalid", "控件树或 XPath 表达式无效", 422) from None
+
+    if not isinstance(result, list) or any(not isinstance(node, etree._Element) for node in result):
+        raise ExecutorError("xpath_invalid", "XPath 必须返回控件元素", 422)
+    if len(result) > 1:
+        raise ExecutorError("selector_ambiguous", "XPath 匹配多个控件，请缩小条件", 409)
+    if not result:
+        return None
+    match = BOUNDS.fullmatch(result[0].get("bounds", ""))
+    if not match:
+        raise ExecutorError("selector_geometry_invalid", "XPath 控件缺少有效区域", 422)
+    left, top, right, bottom = map(int, match.groups())
+    left, top = max(0, left), max(0, top)
+    right, bottom = min(width, right), min(height, bottom)
+    if left >= right or top >= bottom:
+        raise ExecutorError("selector_geometry_invalid", "XPath 控件不在有效屏幕内", 422)
+    return {"left": left, "top": top, "right": right, "bottom": bottom}
