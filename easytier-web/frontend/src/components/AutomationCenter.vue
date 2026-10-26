@@ -124,6 +124,12 @@ const textDialog = ref(false); const textTargets = ref<string[]>([]); const inpu
 const results = ref<{ id: string; name: string; state: string; message?: string }[]>([]);
 const focusRunId = ref<string>(); const historyKey = ref(0);
 const fullscreenActive = ref(false);
+// The fullscreen element is a browser top-layer boundary: dialogs attached
+// to document.body are invisible behind it. Teleport text input into the
+// active phone card while fullscreen, and back into the page afterward.
+const textDialogTarget = computed<HTMLElement | 'body'>(() =>
+    fullscreenActive.value && document.fullscreenElement instanceof HTMLElement
+        ? document.fullscreenElement : 'body');
 const cards = new Map<string, PhoneHandle>();
 let loadGeneration = 0; let workspaceGeneration = 0; let disposed = false;
 let gesture: Gesture | null = null;
@@ -755,7 +761,7 @@ onBeforeUnmount(() => { stopEvents?.();
         <UiInspectorDialog v-if="inspectorDevice" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="recordingDraft.length" @close="closeInspector" @add-step="addInspectorStep" @edit="editInspectorDraft" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
         <Dialog v-model:visible="syncPreparation" modal :header="t('syncTitle')" :style="{ width: '500px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><Message severity="info" :closable="false">{{ t('syncHint') }}</Message><p>{{ t('targetCount', { count: syncTargets.length }) }}</p><ul><li v-for="id in syncTargets" :key="id">{{ deviceNames[id] ?? id }}</li></ul><label>{{ t('master') }}<select v-model="syncMaster"><option v-for="id in syncTargets" :key="id" :value="id">{{ deviceNames[id] ?? id }}</option></select></label></div><template #footer><Button :label="t('cancel')" text @click="syncPreparation = false" /><Button :label="t('sync')" icon="pi pi-share-alt" @click="beginSync" /></template></Dialog>
-        <Dialog v-model:visible="textDialog" modal :header="t('textTitle')" :closable="!sendingText" :close-on-escape="!sendingText" :style="{ width: '520px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><p>{{ t('targetCount', { count: textTargets.length }) }} · {{ textTargets.map(id => deviceNames[id] ?? id).join('、') }}</p><Textarea v-model="inputText" :placeholder="t('textPlaceholder')" rows="5" maxlength="2000" :disabled="sendingText" autofocus /><p class="muted">{{ t('textHint') }}</p></div><template #footer><Button :label="t('cancel')" text :disabled="sendingText" @click="textDialog = false; inputText = ''" /><Button :label="t('send')" icon="pi pi-send" :loading="sendingText" :disabled="!inputText" @click="sendText" /></template></Dialog>
+        <Dialog :key="fullscreenActive ? 'fullscreen-text' : 'page-text'" v-model:visible="textDialog" :appendTo="textDialogTarget" modal :header="t('textTitle')" :closable="!sendingText" :close-on-escape="!sendingText" :style="{ width: '520px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><p>{{ t('targetCount', { count: textTargets.length }) }} · {{ textTargets.map(id => deviceNames[id] ?? id).join('、') }}</p><Textarea v-model="inputText" :placeholder="t('textPlaceholder')" rows="5" maxlength="2000" :disabled="sendingText" autofocus /><p class="muted">{{ t('textHint') }}</p></div><template #footer><Button :label="t('cancel')" text :disabled="sendingText" @click="textDialog = false; inputText = ''" /><Button :label="t('send')" icon="pi pi-send" :loading="sendingText" :disabled="!inputText" @click="sendText" /></template></Dialog>
     </section>
 </template>
 
