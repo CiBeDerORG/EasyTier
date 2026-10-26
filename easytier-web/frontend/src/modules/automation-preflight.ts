@@ -35,6 +35,8 @@ export function initPreflightRow(device: AutomationDevice | undefined, id: strin
         return { ...base, state: 'unavailable', message: '设备不可用：' + device.availability_reason };
     if (device.active_session)
         return { ...base, state: 'unavailable', message: '设备正在被手动控制会话占用' };
+    if (device.run_occupied)
+        return { ...base, state: 'unavailable', message: '设备已有未结束脚本或待确认的清理任务' };
     return base;
 }
 
