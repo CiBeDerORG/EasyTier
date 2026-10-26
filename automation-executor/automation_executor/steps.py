@@ -120,6 +120,15 @@ def execute(target, step, parameters, artifact_path=None):
                 return True  # More than one element still means it is present.
             raise
 
+    if kind == "if_else":
+        # One read-only observation. Multiple matches mean present, never absent.
+        present = probe(step["selector"])
+        return {
+            "state": "condition_passed",
+            "branch_taken": "else" if present else "then",
+            "message": "控件仍存在，执行 Else 分支" if present else "控件已消失，执行 Then 分支",
+        }
+
     if kind == "if_gone":
         # A one-arm conditional: execute following N steps when gone;
         # if still present, the supervisor marks them skipped explicitly.
@@ -128,6 +137,7 @@ def execute(target, step, parameters, artifact_path=None):
             "state": "condition_passed",
             "message": "控件仍存在，跳过条件区域" if present else "控件已消失，进入条件区域",
             "skip_steps": step["skip_count"] if present else 0,
+            "branch_taken": "skip" if present else "then",
         }
 
     if kind == "wait_gone":
