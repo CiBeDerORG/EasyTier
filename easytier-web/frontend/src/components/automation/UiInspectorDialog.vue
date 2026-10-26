@@ -250,10 +250,10 @@ function locator(): AutomationSelector | null {
     if (mode.value === 'xpath' && suggestedXPath.value) return { xpath: suggestedXPath.value };
     return null;
 }
-function add(type: 'tap' | 'wait_for' | 'wait_gone' | 'assert' | 'assert_property' | 'scroll_find' | 'input_text') {
+function add(type: 'tap' | 'long_press' | 'wait_for' | 'wait_gone' | 'assert' | 'assert_property' | 'scroll_find' | 'input_text') {
     if (!selected.value || !snapshot.value || !canAdd.value) return;
     const selector = locator();
-    if (!selector && type !== 'tap') return;
+    if (!selector && type !== 'tap' && type !== 'long_press') return;
     if (type === 'input_text' && selector?.xpath) return;
     if (type === 'assert_property' && selector?.xpath) return;
     if (type === 'scroll_find' && (!selector || !scrollContainer.value)) return;
@@ -265,6 +265,7 @@ function add(type: 'tap' | 'wait_for' | 'wait_gone' | 'assert' | 'assert_propert
         step.y = (bounds.top + bounds.bottom) / 2 / height;
         step.width = width; step.height = height;
     }
+    if (type === 'long_press') step.duration_ms = 800;
     if (['wait_for', 'wait_gone', 'assert'].includes(type)) step.timeout_ms = 10000;
     if (type === 'assert_property') { step.property = 'enabled'; step.expected = selected.value.enabled; }
     if (type === 'scroll_find') {
@@ -274,7 +275,7 @@ function add(type: 'tap' | 'wait_for' | 'wait_gone' | 'assert' | 'assert_propert
     }
     if (type === 'input_text') step.parameter = 'picked_' + uuid().slice(0, 8);
     emit('add-step', step);
-    feedback.value = '已添加到脚本草稿：' + ({ tap: '点击', wait_for: '等待控件', wait_gone: '等待消失', assert: '检查控件',
+    feedback.value = '已添加到脚本草稿：' + ({ tap: '点击', long_press: '长按', wait_for: '等待控件', wait_gone: '等待消失', assert: '检查控件',
         assert_property: '断言属性', scroll_find: '滚动查找', input_text: '输入文字' }[type]);
 }
 watch([() => props.visible, () => props.device.id, () => props.ownerId], async () => {
@@ -368,6 +369,7 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                         <p v-else-if="mode === 'xpath'" class="hint"><code>{{ suggestedXPath }}</code></p>
                         <div class="step-actions">
                             <Button label="添加点击" icon="pi pi-plus" size="small" :disabled="!canAdd" @click="add('tap')" />
+                            <Button label="添加长按" outlined size="small" :disabled="!canAdd" @click="add('long_press')" />
                             <Button label="等待出现" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('wait_for')" />
                             <Button label="等待消失" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('wait_gone')" />
                             <Button label="断言存在" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('assert')" />
