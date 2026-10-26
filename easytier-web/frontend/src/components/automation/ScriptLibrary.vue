@@ -151,7 +151,48 @@ function addStep() {
     selectedStepId.value = step.id;
 }
 function updateStep(step: AutomationStep) {
-    if (!busy.value) steps.value = steps.value.map(current => current.id === step.id ? step : current);
+    if (busy.value) return;
+    const index = steps.value.findIndex(item => item.id === step.id);
+    if (index < 0) return;
+    const previous = steps.value[index];
+    if (!['if_else', 'if_gone'].includes(previous.type) && ['if_else', 'if_gone'].includes(step.type)) {
+        // A new conditional must include its own editable body immediately;
+        // otherwise the editor has a dead end (no valid branch to insert into).
+        const required = step.type === 'if_else' ? 2 : 1;
+        const layout = flowLayout.value;
+        const parents = layout.entries[index]?.ancestors ?? [];
+        if (layout.problem || steps.value.length + required > 100 ||
+            parents.length >= 3 || parents.some(parent => {
+                const ancestor = steps.value[parent.conditionIndex];
+                const size = parent.lane === 'then'
+                    ? (ancestor.type === 'if_gone' ? ancestor.skip_count : ancestor.then_count) : ancestor.else_count;
+                return size === undefined || size + required > 20;
+            })) {
+            error.value = text('无法创建新的嵌套条件：最多 3 层，且父分支不能超出 20 步。',
+                'Cannot create nested condition: max depth 3, parent lanes limited to 20 steps.');
+            return;
+        }
+        const updated = steps.value.map(item => ({ ...item }));
+        updated[index] = step;
+        for (const parent of parents) {
+            const ancestor = updated[parent.conditionIndex];
+            if (parent.lane === 'then') {
+                if (ancestor.type === 'if_gone') ancestor.skip_count! += required;
+                else ancestor.then_count! += required;
+            } else ancestor.else_count! += required;
+        }
+        updated.splice(index + 1, 0, ...Array.from({ length: required }, (): AutomationStep =>
+            ({ id: uuid(), type: 'key', key: 'HOME' })));
+        if (analyzeAutomationFlow(updated).problem) {
+            error.value = text('新增条件会造成分支交叉，请调整原有分支结构。',
+                'This condition would cross a branch boundary. Adjust the existing flow.');
+            return;
+        }
+        steps.value = updated;
+        error.value = '';
+        return;
+    }
+    steps.value = steps.value.map(current => current.id === step.id ? step : current);
 }
 function removeStep(index: number) {
     if (busy.value) return;
