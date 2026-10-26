@@ -58,6 +58,10 @@ jobs:
           token: ${{ github.token }}
           build-filter: './easytier-web/*'
 
+      - name: Check automation frontend unit tests
+        if: github.ref == 'refs/heads/feat/automation-center'
+        run: pnpm --dir easytier-web/frontend test:unit
+
       - name: Check frontend inputs
         run: |
           test -s easytier-web/frontend/dist/index.html
