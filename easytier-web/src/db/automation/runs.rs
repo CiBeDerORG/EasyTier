@@ -409,3 +409,45 @@ impl AutomationStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod branch_result_tests {
+    use super::*;
+
+    #[test]
+    fn conditional_branch_and_skip_origin_survive_run_sanitization() {
+        let branch=Uuid::new_v4().to_string();
+        let then_id=Uuid::new_v4().to_string();
+        let else_id=Uuid::new_v4().to_string();
+        let script=json!({"steps":[
+            {"id":branch,"type":"if_else","selector":{"text":"Dialog"},"then_count":1,"else_count":1},
+            {"id":then_id,"type":"key","key":"HOME"},
+            {"id":else_id,"type":"key","key":"BACK"}
+        ]});
+        let received=json!([
+            {"step_id":branch,"state":"condition_passed","branch_taken":"then",
+             "message":"Gone","finished_at":"2026-10-26T12:00:00Z"},
+            {"step_id":then_id,"state":"action_sent"},
+            {"step_id":else_id,"state":"skipped","skipped_by_step_id":branch}
+        ]);
+        let stored=sanitized_steps(&received,&script,&json!([])).unwrap();
+        assert_eq!(stored[0]["branch_taken"],"then");
+        assert_eq!(stored[2]["state"],"skipped");
+        assert_eq!(stored[2]["skipped_by_step_id"],branch);
+    }
+
+    #[test]
+    fn forged_skip_origins_and_branch_labels_are_rejected() {
+        let branch=Uuid::new_v4().to_string();
+        let action=Uuid::new_v4().to_string();
+        let script=json!({"steps":[
+            {"id":branch,"type":"if_else","selector":{"text":"Dialog"},"then_count":1,"else_count":1},
+            {"id":action,"type":"key","key":"HOME"},
+            {"id":Uuid::new_v4().to_string(),"type":"key","key":"BACK"}
+        ]});
+        let forged=json!([{"step_id":branch,"state":"condition_passed","branch_taken":"arbitrary"}]);
+        assert!(sanitized_steps(&forged,&script,&json!([])).is_err());
+        let forged=json!([{"step_id":action,"state":"skipped","skipped_by_step_id":Uuid::new_v4().to_string()}]);
+        assert!(sanitized_steps(&forged,&script,&json!([])).is_err());
+    }
+}
