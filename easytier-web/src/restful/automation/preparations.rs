@@ -58,6 +58,28 @@ pub(super) async fn status(
     Ok(Json(result))
 }
 
+/// Read-only, explicitly requested UI hierarchy for a single authorized asset.
+pub(super) async fn hierarchy(
+    auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service,
+    Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput,
+    Path(raw_id): Path<String>, headers: HeaderMap,
+) -> HttpResult<([(&'static str, &'static str); 1], Json<Value>)> {
+    require_origin(&headers, false)?;
+    let owner = owner(query)?;
+    let did = id(&raw_id)?;
+    let target = observed(&auth, &manager, &service, &config, owner, &did).await?;
+    let result = runner(&runtime)?.post("automation/hierarchy", &json!({"target":wire_target(&target)})).await?;
+    let snapshot = &result["snapshot"];
+    if result["device_id"] != did || result["target_fingerprint"] != target["target_fingerprint"]
+        || snapshot["width"].as_u64().is_none_or(|value| value == 0)
+        || snapshot["height"].as_u64().is_none_or(|value| value == 0)
+        || snapshot["nodes"].as_array().is_none()
+    {
+        return Err(error(StatusCode::BAD_GATEWAY, "runner_response_invalid", "控件树与当前设备不匹配"));
+    }
+    Ok(([("Cache-Control", "no-store")], Json(result)))
+}
+
 pub(super) async fn adb_status(
     auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service,
     Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput,
