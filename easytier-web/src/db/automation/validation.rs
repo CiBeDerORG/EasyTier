@@ -266,3 +266,64 @@ mod nested_flow_tests {
         assert!(steps(&valid).is_ok());
     }
 }
+
+
+#[cfg(test)]
+mod business_verification_contract_tests {
+    use super::*;
+
+    fn assert_step(marked: bool) -> Value {
+        let mut step=json!({
+            "id":Uuid::new_v4().to_string(),
+            "type":"assert",
+            "selector":{"text":"Operation successful"},
+            "timeout_ms":10000
+        });
+        if marked {step["business_verification"]=json!(true);}
+        step
+    }
+
+    #[test]
+    fn legacy_assertion_does_not_get_marked_implicitly() {
+        let legacy=json!([assert_step(false)]);
+        let verified=json!([assert_step(true)]);
+        assert!(steps(&legacy).is_ok());
+        assert!(steps(&verified).is_ok());
+        assert_eq!(steps(&legacy).unwrap()[0].get("business_verification"),None);
+        assert_eq!(steps(&verified).unwrap()[0]["business_verification"],true);
+    }
+
+    #[test]
+    fn verifier_must_be_one_final_assertion_and_explicitly_true() {
+        let normal=json!({"id":Uuid::new_v4().to_string(),"type":"key","key":"BACK"});
+        assert!(steps(&json!([assert_step(true),normal.clone()])).is_err());
+        let mut illegal_key=normal.clone();
+        illegal_key["business_verification"]=json!(true);
+        assert!(steps(&json!([illegal_key])).is_err());
+        let mut bad_marker=assert_step(false);
+        bad_marker["business_verification"]=json!(false);
+        assert!(steps(&json!([bad_marker])).is_err());
+        assert!(steps(&json!([assert_step(true),assert_step(true)])).is_err());
+        assert!(steps(&json!([normal,assert_step(true)])).is_ok());
+    }
+
+    #[test]
+    fn final_business_check_cannot_be_inside_a_skippable_branch() {
+        let if_gone=json!({
+            "id":Uuid::new_v4().to_string(),"type":"if_gone",
+            "selector":{"text":"Overlay"},"skip_count":1
+        });
+        assert!(steps(&json!([if_gone,assert_step(true)])).is_err());
+    }
+
+    #[test]
+    fn property_assertion_can_verify_business_success() {
+        let p=json!({
+            "id":Uuid::new_v4().to_string(),
+            "type":"assert_property","selector":{"resource_id":"com.example:id/ok"},
+            "property":"enabled","expected":true,
+            "business_verification":true
+        });
+        assert!(steps(&json!([p])).is_ok());
+    }
+}
