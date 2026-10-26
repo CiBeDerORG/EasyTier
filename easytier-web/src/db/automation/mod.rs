@@ -181,6 +181,11 @@ impl AutomationStore {
         let active_session=sqlx::query("SELECT id,state,actor_user_id,expires_at FROM automation_sessions WHERE owner_user_id=? AND device_id=? AND state NOT IN ('closed','failed') ORDER BY created_at DESC LIMIT 1")
             .bind(owner).bind(&id).fetch_optional(&mut *conn).await?
             .map(|row|->AutomationResult<Value>{Ok(json!({"id":row.try_get::<String,_>("id")?,"state":row.try_get::<String,_>("state")?,"actor_user_id":row.try_get::<i32,_>("actor_user_id")?,"expires_at":row.try_get::<String,_>("expires_at")?}))}).transpose()?;
+        // Expose the same in-flight or unconfirmed-cleanup fence as create_run:
+        // manual sessions alone do not reflect all occupied devices.
+        let route_key = format!("default:{}:{}", asset["overlay_ip"].as_str().unwrap_or(""), row.try_get::<i64,_>("adb_port")?);
+        let run_occupied:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_run_devices WHERE (device_id=? OR target_key=?) AND cleanup_confirmed=0 AND state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending'))")
+            .bind(&id).bind(&route_key).fetch_one(&mut *conn).await?;
         let endpoint_event:Option<String>=sqlx::query_scalar("SELECT json_object('event_id',event_id,'endpoint_revision',endpoint_revision,'publication',json(publication_json),'cleanup',json(cleanup_json),'connection',json(connection_json)) FROM discovery_endpoint_events WHERE owner_user_id=? AND device_id=? ORDER BY seq DESC LIMIT 1").bind(owner).bind(&id).fetch_optional(&mut *conn).await?;
         Ok(json!({
             "endpoint_event":endpoint_event.map(|s|parse_json(&s)).transpose()?,
@@ -192,7 +197,8 @@ impl AutomationStore {
             "overlay_ip":asset["overlay_ip"],"lan_ip":asset["lan_ip"],"binding_state":binding,
             "adb_service_id":row.try_get::<String,_>("adb_service_id")?,"endpoint_revision":row.try_get::<i64,_>("endpoint_revision")?,
             "connection":{"enabled":enabled,"adb_port":row.try_get::<i64,_>("adb_port")?,"connection_mode":row.try_get::<String,_>("connection_mode")?},
-            "target_fingerprint":version,"availability_reason":reason,"active_session":active_session
+            "target_fingerprint":version,"availability_reason":reason,"active_session":active_session,
+            "run_occupied":run_occupied
         }))
     }
 
