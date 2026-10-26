@@ -13,11 +13,14 @@ const fieldId = (name: string) => `automation-step-${props.modelValue.id}-${name
 const actionOptions = computed(() => [
     { value: 'key', label: text('导航按键', 'Navigation key') },
     { value: 'tap', label: text('点击', 'Tap') },
+    { value: 'long_press', label: text('长按', 'Long press') },
     { value: 'swipe', label: text('滑动', 'Swipe') },
+    { value: 'drag', label: text('拖拽', 'Drag') },
     { value: 'input_text', label: text('输入文字', 'Enter text') },
     { value: 'launch_app', label: text('打开应用', 'Launch app') },
     { value: 'wait_for', label: text('等待控件出现', 'Wait for element') },
     { value: 'wait_gone', label: text('等待控件消失', 'Wait until element disappears') },
+    { value: 'if_gone', label: text('如果控件消失，则执行后续步骤', 'If gone, execute following steps') },
     { value: 'assert', label: text('断言控件存在', 'Assert element exists') },
     { value: 'assert_property', label: text('断言控件属性', 'Assert element property') },
     { value: 'scroll_find', label: text('滚动查找控件', 'Scroll until element appears') },
@@ -54,7 +57,7 @@ const inputModes = computed(() => [
     { value: 'literal', label: text('固定文字', 'Fixed text') },
     { value: 'parameter', label: text('运行时参数', 'Run parameter') },
 ]);
-const coordinateFields = computed(() => props.modelValue.type === 'swipe'
+const coordinateFields = computed(() => ['swipe', 'drag'].includes(props.modelValue.type)
     ? [{ key: 'x', label: text('起点 X', 'Start X') }, { key: 'y', label: text('起点 Y', 'Start Y') },
         { key: 'to_x', label: text('终点 X', 'End X') }, { key: 'to_y', label: text('终点 Y', 'End Y') }]
     : [{ key: 'x', label: 'X' }, { key: 'y', label: 'Y' }]);
@@ -66,8 +69,13 @@ function changeType(type: AutomationStepType) {
     if (props.disabled || type === props.modelValue.type) return;
     const step: AutomationStep = { id: props.modelValue.id, type };
     if (type === 'key') step.key = 'HOME';
-    if (['tap', 'wait_for', 'wait_gone', 'assert', 'assert_property', 'scroll_find'].includes(type)) step.selector = { resource_id: '' };
-    if (type === 'swipe') Object.assign(step, { x: 0.5, y: 0.8, to_x: 0.5, to_y: 0.2, duration_ms: 400 });
+    if (['tap', 'long_press', 'wait_for', 'wait_gone', 'if_gone', 'assert', 'assert_property', 'scroll_find'].includes(type)) step.selector = { resource_id: '' };
+    if (type === 'swipe' || type === 'drag') Object.assign(step, {
+        x: 0.5, y: 0.8, to_x: 0.5, to_y: 0.2,
+        duration_ms: type === 'drag' ? 700 : 400,
+    });
+    if (type === 'long_press') step.duration_ms = 800;
+    if (type === 'if_gone') step.skip_count = 1;
     if (type === 'input_text') step.text = '';
     if (type === 'launch_app') step.package = '';
     if (['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(type)) step.timeout_ms = 10000;
@@ -129,7 +137,7 @@ function updateNumber(key: string, value: number | null | undefined) {
             <Select :input-id="fieldId('key')" :model-value="modelValue.key" :options="keys" option-label="label" option-value="value" :disabled="disabled" @update:model-value="update({ key: $event as AutomationKey })" />
         </label>
 
-        <label v-if="modelValue.type === 'tap'" class="field" :for="fieldId('position')">
+        <label v-if="modelValue.type === 'tap' || modelValue.type === 'long_press'" class="field" :for="fieldId('position')">
             <span>{{ text('定位方式', 'Targeting') }}</span>
             <Select :input-id="fieldId('position')" :model-value="modelValue.selector ? 'element' : 'coordinates'" :options="positionModes" option-label="label" option-value="value" :disabled="disabled" @update:model-value="positionMode" />
         </label>
@@ -156,7 +164,7 @@ function updateNumber(key: string, value: number | null | undefined) {
             <small v-if="!modelValue.selector" class="hint">{{ text('将文字输入当前已聚焦的输入框。', 'Text goes to the currently focused input field.') }}</small>
         </template>
 
-        <fieldset v-if="modelValue.selector && ['tap', 'input_text', 'wait_for', 'wait_gone', 'assert', 'assert_property', 'scroll_find'].includes(modelValue.type)" class="selector-fields">
+        <fieldset v-if="modelValue.selector && ['tap', 'long_press', 'input_text', 'wait_for', 'wait_gone', 'if_gone', 'assert', 'assert_property', 'scroll_find'].includes(modelValue.type)" class="selector-fields">
             <legend>{{ text('控件条件（至少填写一项）', 'Element conditions (at least one)') }}</legend>
             <label class="field" :for="fieldId('selector-mode')">
                 <span>{{ text('定位策略', 'Locator mode') }}</span>
@@ -195,7 +203,7 @@ function updateNumber(key: string, value: number | null | undefined) {
             </template>
         </fieldset>
 
-        <template v-if="modelValue.type === 'swipe' || (modelValue.type === 'tap' && !modelValue.selector)">
+        <template v-if="['swipe', 'drag'].includes(modelValue.type) || (['tap', 'long_press'].includes(modelValue.type) && !modelValue.selector)">
             <p class="hint">{{ text('坐标范围为 0–1，以有效手机画面为基准；不同应用布局需重新校准。', 'Coordinates range from 0 to 1 within the phone image. Different layouts need calibration.') }}</p>
             <div class="number-grid">
                 <label v-for="field in coordinateFields" :key="field.key" class="field" :for="fieldId(field.key)">
@@ -259,14 +267,24 @@ function updateNumber(key: string, value: number | null | undefined) {
             <small>{{ text('先检查目标是否存在，再滚动指定容器。每次仅发送一个手势；结果不确定立即停止。', 'Check before scrolling; only one gesture per pass. Uncertain actions stop immediately.') }}</small>
         </fieldset>
 
-        <label v-if="modelValue.type === 'swipe' || modelValue.type === 'scroll_find'" class="field" :for="fieldId('duration')">
-            <span>{{ text('滑动时长（毫秒）', 'Swipe duration (ms)') }}</span>
-            <InputNumber :input-id="fieldId('duration')" :model-value="modelValue.duration_ms" :min="modelValue.type === 'scroll_find' ? 200 : 100" :max="modelValue.type === 'scroll_find' ? 1000 : 3000" :step="100" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('duration_ms', $event)" />
+        <label v-if="['swipe', 'drag', 'long_press', 'scroll_find'].includes(modelValue.type)" class="field" :for="fieldId('duration')">
+            <span>{{ modelValue.type === 'long_press' ? text('按住时长（毫秒）', 'Press duration (ms)')
+                : modelValue.type === 'drag' ? text('拖拽时长（毫秒）', 'Drag duration (ms)') : text('滑动时长（毫秒）', 'Swipe duration (ms)') }}</span>
+            <InputNumber :input-id="fieldId('duration')" :model-value="modelValue.duration_ms"
+                :min="modelValue.type === 'long_press' ? 400 : modelValue.type === 'drag' ? 300 : modelValue.type === 'scroll_find' ? 200 : 100"
+                :max="modelValue.type === 'scroll_find' ? 1000 : 3000" :step="100" :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('duration_ms', $event)" />
         </label>
 
         <label v-if="modelValue.type === 'launch_app'" class="field" :for="fieldId('package')">
             <span>{{ text('Android 应用包名', 'Android package name') }}</span>
             <InputText :id="fieldId('package')" :model-value="modelValue.package" :maxlength="255" :disabled="disabled" autocomplete="off" placeholder="com.android.settings" @update:model-value="update({ package: $event ?? '' })" />
+        </label>
+
+        <label v-if="modelValue.type === 'if_gone'" class="field" :for="fieldId('skip-count')">
+            <span>{{ text('条件控制范围（后续步骤数）', 'Conditional range (following steps)') }}</span>
+            <InputNumber :input-id="fieldId('skip-count')" :model-value="modelValue.skip_count" :min="1" :max="20"
+                :use-grouping="false" :disabled="disabled" @update:model-value="updateNumber('skip_count', $event)" />
+            <small>{{ text('控件消失时继续执行后续 N 步；仍存在时将这些步骤标记为已跳过。不支持跨越脚本结尾。', 'When gone, run the next N steps; otherwise mark them skipped. Cannot extend past the script end.') }}</small>
         </label>
 
         <label v-if="['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(modelValue.type)" class="field" :for="fieldId('timeout')">
