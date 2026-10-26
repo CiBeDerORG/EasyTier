@@ -124,6 +124,18 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
                     return Err(AutomationError::field("skip_count","Skipped steps extend past the end of the script."));
                 }
             },
+            "if_else"=>{
+                keys(step,&["id","type","selector","then_count","else_count"])?;
+                selector(&step["selector"])?;
+                let then_count=step["then_count"].as_u64().filter(|v|(1..=20).contains(v))
+                    .ok_or_else(||AutomationError::field("then_count","Choose 1 to 20 then steps."))?;
+                let else_count=step["else_count"].as_u64().filter(|v|(1..=20).contains(v))
+                    .ok_or_else(||AutomationError::field("else_count","Choose 1 to 20 else steps."))?;
+                let index=ids.len()-1;
+                if then_count+else_count>(items.len()-index-1) as u64 {
+                    return Err(AutomationError::field("then_count","The conditional blocks extend past the script end."));
+                }
+            },
             "assert_property"=>{
                 keys(step,&["id","type","selector","property","expected"])?;
                 selector(&step["selector"])?;
@@ -145,6 +157,19 @@ pub(super) fn steps(input:&Value)->AutomationResult<Value> {
             },
             "screenshot"=>keys(step,&["id","type"])?,
             _=>return Err(AutomationError::field("steps.type","This action is not supported.")),
+        }
+    }
+    // No nested or crossing conditional regions in the bounded first release.
+    for (index,step) in items.iter().enumerate() {
+        if step["type"]!="if_else" {continue;}
+        let end=index+step["then_count"].as_u64().unwrap_or(0) as usize
+            +step["else_count"].as_u64().unwrap_or(0) as usize;
+        if items[index+1..=end].iter().any(|candidate| matches!(candidate["type"].as_str(),Some("if_gone"|"if_else"))) {
+            return Err(AutomationError::field("steps","Nested if-else conditional blocks are not supported."));
+        }
+        if items[..index].iter().enumerate().any(|(earlier,candidate)|
+            candidate["type"]=="if_gone" && candidate["skip_count"].as_u64().unwrap_or(0) >= (index-earlier) as u64) {
+            return Err(AutomationError::field("steps","if-else cannot be nested within a legacy condition."));
         }
     }
     Ok(input.clone())
