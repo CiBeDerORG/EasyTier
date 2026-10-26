@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Button, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
@@ -26,8 +26,14 @@ const { t } = useI18n({ useScope: 'local', messages: automationMessages });
 const api = new AutomationApi();
 const session = usePhoneSession(api);
 const video = ref<HTMLVideoElement | null>(null);
+const ambientVideo = ref<HTMLVideoElement | null>(null);
 const card = ref<HTMLElement | null>(null);
 const screen = ref<HTMLElement | null>(null);
+const isFullscreen = ref(false);
+function syncFullscreen() {
+    isFullscreen.value = document.fullscreenElement === screen.value;
+}
+onMounted(() => document.addEventListener('fullscreenchange', syncFullscreen));
 const dock = ref<'left' | 'right'>('right');
 const anchorFraction = ref(0.5);
 const menuOpen = ref(false);
@@ -150,7 +156,7 @@ const screenActionHint = computed(() => {
 watch(() => session.state.phase, phase => {
     emit('state', props.device.id, phase);
     // The browser must not remain fullscreen once this card loses its stream.
-    if (phase !== 'live' && document.fullscreenElement === card.value) {
+    if (phase !== 'live' && document.fullscreenElement === screen.value) {
         void document.exitFullscreen().catch(() => undefined);
     }
 });
@@ -160,6 +166,11 @@ watch(session.stream, value => {
         stopFrameChase();
         currentGeometry.value = { width: 0, height: 0 };
     }
+}, { flush: 'post' });
+// An ambient copy only exists in fullscreen, behind the real un-cropped frame.
+// It fills unused monitor space without distorting the interactive picture.
+watch([isFullscreen, session.stream], ([active, stream]) => {
+    if (ambientVideo.value) ambientVideo.value.srcObject = active ? stream : null;
 }, { flush: 'post' });
 
 function geometry() { return { width: video.value?.videoWidth ?? 0, height: video.value?.videoHeight ?? 0 }; }
@@ -175,15 +186,13 @@ function point(event: PointerEvent, clamp: boolean) {
     const { width, height } = geometry();
     if (!width || !height) return null;
     const rect = video.value.getBoundingClientRect();
-    // Fullscreen stretches the *entire* frame to the available monitor.
-    // Its touch transform must use the same independent X/Y scaling,
-    // otherwise clicks hit the wrong Android coordinates.
-    const fill = document.fullscreenElement === card.value;
+    // Match EasyADB: map only the undistorted picture (object-fit:contain).
+    // Ignore the surrounding fullscreen ambient backdrop when tapping.
     const scale = Math.min(rect.width / width, rect.height / height);
-    const left = fill ? rect.left : rect.left + (rect.width - width * scale) / 2;
-    const top = fill ? rect.top : rect.top + (rect.height - height * scale) / 2;
-    const x = (event.clientX - left) / (fill ? rect.width / width : scale);
-    const y = (event.clientY - top) / (fill ? rect.height / height : scale);
+    const left = rect.left + (rect.width - width * scale) / 2;
+    const top = rect.top + (rect.height - height * scale) / 2;
+    const x = (event.clientX - left) / scale;
+    const y = (event.clientY - top) / scale;
     if (!clamp && (x < 0 || y < 0 || x >= width || y >= height)) return null;
     return { x: Math.max(0, Math.min(width - 1, Math.round(x))), y: Math.max(0, Math.min(height - 1, Math.round(y))), width, height };
 }
@@ -221,8 +230,10 @@ function resetPointer() {
 }
 async function fullscreen() {
     menuOpen.value = false;
-    if (document.fullscreenElement === card.value) await document.exitFullscreen();
-    else await card.value?.requestFullscreen();
+    // Fullscreen only the video surface, not its card/header/footer.
+    // The screen owns the floating controls and the input dialog portal.
+    if (document.fullscreenElement === screen.value) await document.exitFullscreen();
+    else await screen.value?.requestFullscreen();
 }
 function localAction(message: AutomationControl) { if (manualAllowed.value) emit('action', props.device.id, message); }
 let watching = false, disposed = false, intentVersion = 0, latestEndpoint = -1, restoredEndpoint = -1;
@@ -236,7 +247,7 @@ function cancelRestoreIntent() { watching = false; ++intentVersion; }
 async function close() {
     cancelRestoreIntent(); cancelPointer(); menuOpen.value = false; clearMenuTimer(); stopFrameChase();
     // Close the fullscreen container *before* tearing down its video.
-    if (document.fullscreenElement === card.value) {
+    if (document.fullscreenElement === screen.value) {
         try { await document.exitFullscreen(); } catch { /* session cleanup still takes priority */ }
     }
     await session.close();
@@ -277,7 +288,12 @@ async function retryEndpoint(stage: 'cleanup'|'connection'|'publication') {
 function getState() { return { phase: session.state.phase, ready: ready.value, ...geometry() }; }
 function getStream() { return session.stream.value; }
 defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, getState, getStream, cancelPointer, resetPointer });
-onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clearMenuTimer(); stopFrameChase(); cancelPointer(); void session.close(); });
+onBeforeUnmount(() => {
+    document.removeEventListener('fullscreenchange', syncFullscreen);
+    if (document.fullscreenElement === screen.value) void document.exitFullscreen().catch(() => undefined);
+    if (ambientVideo.value) ambientVideo.value.srcObject = null;
+    disposed = true; watching = false; ++intentVersion; clearMenuTimer(); stopFrameChase(); cancelPointer(); void session.close();
+});
 </script>
 
 <template>
@@ -319,7 +335,8 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
             <span class="node-name" :title="device.gateway_name || t('ungrouped')">{{ device.gateway_name || t('ungrouped') }}</span>
         </div>
         <div ref="screen" class="phone-screen" :style="currentGeometry.width && currentGeometry.height ? { aspectRatio: `${currentGeometry.width} / ${currentGeometry.height}` } : undefined" @keydown.esc="menuOpen = false">
-            <video ref="video" autoplay muted playsinline :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent />
+            <video v-if="isFullscreen && session.state.phase === 'live'" ref="ambientVideo" class="ambient-video" autoplay muted playsinline aria-hidden="true" tabindex="-1" />
+            <video ref="video" class="primary-video" autoplay muted playsinline :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent />
             <div v-if="session.state.phase !== 'live'" class="screen-placeholder">
                 <i :class="pending ? 'pi pi-spin pi-spinner' : 'pi pi-mobile'" aria-hidden="true" />
                 <span>{{ t(session.state.phase) }}</span>
@@ -415,10 +432,13 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .dock-left .side-actions{left:calc(100% + 7px)}
 .control-dismiss{position:absolute;inset:0;z-index:5;background:transparent;border:0;cursor:default}
 footer{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;gap:8px;font-size:11px}.phase{color:var(--console-muted)}.phase.live{color:var(--p-green-500)}.phase.live:before{content:'';display:inline-block;width:6px;height:6px;background:currentColor;border-radius:50%;margin-right:6px}.unlock-notice{display:block;padding:0 12px 10px;color:var(--console-muted);font-size:11px}.phone-error{font-size:11px;padding:0 12px 10px;color:var(--p-red-500);overflow-wrap:anywhere;max-height:80px;overflow:auto}.fullscreen-stop{display:none}
-.phone-card:fullscreen{display:flex;flex-direction:column;width:100%!important;max-width:none;height:100%;min-height:100dvh;border:0;border-radius:0;background:#07111d;color:#e1edf7}
-.phone-card:fullscreen header,.phone-card:fullscreen .device-meta,.phone-card:fullscreen footer,.phone-card:fullscreen .unlock-notice,.phone-card:fullscreen .endpoint-status,.phone-card:fullscreen .phone-error{display:none}
-.phone-card:fullscreen .phone-screen{flex:1 1 0;min-height:0;width:100%;height:100%;aspect-ratio:auto!important}
-.phone-card:fullscreen .phone-screen video{object-fit:fill}
-.phone-card:fullscreen .fullscreen-stop{display:inline-flex;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:7}
+/* Match EasyADB: only the phone SCREEN enters the browser top layer.
+   The decoded image is never stretched or cropped, on desktop or mobile. */
+.phone-screen:fullscreen{width:100vw;max-width:none;height:100dvh;max-height:none;aspect-ratio:auto!important;border-radius:0;background:#142033}
+.phone-screen:fullscreen .primary-video{object-fit:contain;z-index:1}
+.phone-screen:fullscreen .ambient-video{object-fit:cover;z-index:0;pointer-events:none;filter:blur(28px) brightness(.4);transform:scale(1.04);touch-action:none}
+.phone-screen:fullscreen .phone-controls.dock-right{left:auto!important;right:14px;top:50%}
+.phone-screen:fullscreen .phone-controls.dock-left{left:14px!important;right:auto;top:50%}
+.phone-screen:fullscreen .fullscreen-stop{display:inline-flex;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:7}
 @media(max-width:600px){.floating-actions :deep(.p-button){width:36px;height:36px;min-width:36px}.side-actions{gap:2px!important}}
 </style>
