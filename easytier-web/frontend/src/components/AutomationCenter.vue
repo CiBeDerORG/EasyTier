@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
 import { Button, Dialog, InputText, Message, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
@@ -18,6 +18,8 @@ import ScriptLibrary from './automation/ScriptLibrary.vue';
 import RunHistory from './automation/RunHistory.vue';
 import ExecutorSettings from './automation/ExecutorSettings.vue';
 import { automationMessages } from './automation/messages';
+import { analyzeAutomationFlow } from '../modules/automation-flow';
+import { appendAutomationDraftSteps, emptyAutomationDraft } from '../modules/automation-draft';
 
 defineOptions({ name: 'AutomationCenter' });
 
@@ -117,7 +119,8 @@ const globalOpen = ref(false);
 const syncPreparation = ref(false); const syncMaster = ref(''); const syncTargets = ref<string[]>([]);
 const sync = ref<SyncSession | null>(null);
 const recordingId = ref<string | null>(null); const recordingPaused = ref(false); const recordedSteps = ref<AutomationStep[]>([]);
-const recordingDraft = ref<AutomationStep[]>([]);
+const draftWorkspace = reactive(emptyAutomationDraft(0));
+watch(ownerId, id => Object.assign(draftWorkspace, emptyAutomationDraft(id)), { immediate: true });
 const inspectorDeviceId = ref<string | null>(null);
 const inspectorStream = shallowRef<MediaStream | null>(null);
 const textDialog = ref(false); const textTargets = ref<string[]>([]); const inputText = ref(''); const sendingText = ref(false);
@@ -297,7 +300,7 @@ async function changeOwner(id: number) {
     initialSelectionDone = false; initialConnectDone = false;
     ++catalogGeneration; catalogOwner = 0; catalogNodes.value = []; catalogGroups.value = [];
     phoneConnections.value = {}; phoneConnectionErrors.value = {}; discoveryGateway.value = null;
-    connectionDevice.value = null; textDialog.value = false; recordingDraft.value = []; focusRunId.value = undefined;
+    connectionDevice.value = null; textDialog.value = false; focusRunId.value = undefined;
     filters.value = { node: '', group: '', type: '', keyword: '' }; applied.value = { ...filters.value };
     await loadDevices();
 }
@@ -505,7 +508,7 @@ function onGeometry(id: string) {
 }
 function addStep(step: AutomationStep) {
     if (!recordingId.value || recordingPaused.value) return;
-    if (recordedSteps.value.length >= 100) { notice.value = t('recordLimit'); finishRecording(false); return; }
+    if (draftWorkspace.steps.length + recordedSteps.value.length >= 100) { notice.value = t('recordLimit'); finishRecording(false); return; }
     recordedSteps.value.push(step);
 }
 async function routeInput(id: string, message: AutomationControl) {
@@ -599,6 +602,10 @@ function toggleRecord(id: string) {
     if (recordingId.value === id) { finishRecording(true); return; }
     if (recordingId.value || sync.value) { error.value = recordingId.value ? t('recordingExists') : t('controlsLocked'); return; }
     if (!requireTargets([id])) return;
+    if (draftWorkspace.steps.length >= 100 || analyzeAutomationFlow(draftWorkspace.steps).problem) {
+        error.value = '当前脚本草稿已满或分支范围无效，请先在脚本编辑器处理。';
+        return;
+    }
     ++recordingGeneration; recordingId.value = id; recordingPaused.value = false; recordedSteps.value = []; gesture = null;
 }
 function pauseRecording() {
@@ -619,8 +626,11 @@ function closeInspector() {
     inspectorStream.value = null;
 }
 function addInspectorStep(step: AutomationStep) {
-    if (recordingDraft.value.length >= 100) { error.value = '草稿已达到 100 个步骤，请先编辑已有步骤。'; return; }
-    recordingDraft.value = [...recordingDraft.value, step];
+    if (!appendAutomationDraftSteps(draftWorkspace, ownerId.value, [step], uuid)) {
+        error.value = '无法添加控件：草稿超过 100 步或分支结构无效，请先在脚本库处理。';
+        return;
+    }
+    notice.value = '控件步骤已加入当前脚本草稿。';
 }
 function editInspectorDraft() {
     closeInspector();
@@ -631,7 +641,14 @@ function finishRecording(edit: boolean) {
     ++recordingGeneration;
     const id = recordingId.value; recordingId.value = null; gesture = null;
     if (id) cards.get(id)?.cancelPointer();
-    recordingDraft.value = recordedSteps.value.map(step => ({ ...step })); recordedSteps.value = [];
+    if (recordedSteps.value.length) {
+        if (appendAutomationDraftSteps(draftWorkspace, ownerId.value, recordedSteps.value, uuid)) {
+            notice.value = `已将 ${recordedSteps.value.length} 个录制步骤追加到当前脚本草稿。`;
+            recordedSteps.value = [];
+        } else {
+            error.value = '录制步骤未能合并到草稿，请检查草稿上限和分支结构；录制数据暂时保留。';
+        }
+    }
     if (edit) void changeTab('scripts');
 }
 async function changeTab(next: typeof tab.value) {
@@ -753,12 +770,12 @@ onBeforeUnmount(() => { stopEvents?.();
                 </div>
             </div>
             <p v-if="liveCount" class="manual-release-hint">{{ t('tabReleaseHint') }}</p>
-            <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :recorded-steps="recordingDraft" @run-created="onRunCreated" @recording-consumed="recordingDraft = []" />
+            <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace" @run-created="onRunCreated" />
             <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" />
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
-        <UiInspectorDialog v-if="inspectorDevice" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="recordingDraft.length" @close="closeInspector" @add-step="addInspectorStep" @edit="editInspectorDraft" />
+        <UiInspectorDialog v-if="inspectorDevice" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" @close="closeInspector" @add-step="addInspectorStep" @edit="editInspectorDraft" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
         <Dialog v-model:visible="syncPreparation" modal :header="t('syncTitle')" :style="{ width: '500px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><Message severity="info" :closable="false">{{ t('syncHint') }}</Message><p>{{ t('targetCount', { count: syncTargets.length }) }}</p><ul><li v-for="id in syncTargets" :key="id">{{ deviceNames[id] ?? id }}</li></ul><label>{{ t('master') }}<select v-model="syncMaster"><option v-for="id in syncTargets" :key="id" :value="id">{{ deviceNames[id] ?? id }}</option></select></label></div><template #footer><Button :label="t('cancel')" text @click="syncPreparation = false" /><Button :label="t('sync')" icon="pi pi-share-alt" @click="beginSync" /></template></Dialog>
         <Dialog :key="fullscreenActive ? 'fullscreen-text' : 'page-text'" v-model:visible="textDialog" :appendTo="textDialogTarget" modal :header="t('textTitle')" :closable="!sendingText" :close-on-escape="!sendingText" :style="{ width: '520px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><p>{{ t('targetCount', { count: textTargets.length }) }} · {{ textTargets.map(id => deviceNames[id] ?? id).join('、') }}</p><Textarea v-model="inputText" :placeholder="t('textPlaceholder')" rows="5" maxlength="2000" :disabled="sendingText" autofocus /><p class="muted">{{ t('textHint') }}</p></div><template #footer><Button :label="t('cancel')" text :disabled="sendingText" @click="textDialog = false; inputText = ''" /><Button :label="t('send')" icon="pi pi-send" :loading="sendingText" :disabled="!inputText" @click="sendText" /></template></Dialog>
