@@ -5,10 +5,12 @@ import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
 import { analyzeAutomationFlow } from '../../modules/automation-flow';
+import { createAutomationRepairRequest, type AutomationRepairRequest } from '../../modules/automation-run-repair';
 import { getApiBase } from '../../modules/api-host';
 import type { AutomationRun, AutomationRunInput, AutomationRunDevice, AutomationStep, BusinessVerificationStatus } from '../../types/automation';
 
 const props = defineProps<{ ownerId: number; focusRunId?: string }>();
+const emit = defineEmits<{ 'repair-step': [request: AutomationRepairRequest] }>();
 const api = new AutomationApi();
 const { locale } = useI18n();
 const cn = computed(() => locale.value === 'cn' || locale.value.startsWith('zh'));
@@ -389,6 +391,20 @@ function branchLabel(value: 'then' | 'else' | 'skip'): string {
     };
     return labels[value];
 }
+function repairStep(device: AutomationRunDevice, step: AutomationRunDevice['steps'][number]) {
+    if (!selected.value || busy.value) return;
+    const request=createAutomationRepairRequest(selected.value,device,step,props.ownerId,uuid());
+    if (!request) {
+        error.value=text('找不到原始失败步骤或其历史快照，无法安全定位编辑。', 'The historical failed step or snapshot is missing.');
+        return;
+    }
+    emit('repair-step',request);
+}
+function diagnosticTarget(device: AutomationRunDevice): string {
+    const target=device.diagnostic_target;
+    if (!target) return '';
+    return target.ip && target.adb_port ? target.ip + ':' + target.adb_port : '';
+}
 function snapshotStep(id: string): AutomationStep | undefined {
     return selected.value?.script_snapshot?.steps?.find(step => step.id === id);
 }
@@ -539,7 +555,28 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
                                 <p v-if="step.skipped_by_step_id" class="branch-skip-source">
                                     {{ text('由第', 'Skipped by step') }} {{ stepNumber(step.skipped_by_step_id) }} {{ text('步条件分支跳过', 'condition') }}
                                 </p>
-                                <p v-if="step.message">{{ step.message }}</p><p v-if="message(step.error)" class="device-error">{{ message(step.error) }}</p><small>{{ date(step.started_at) }} <template v-if="step.finished_at"> → {{ date(step.finished_at) }}</template></small><Button v-if="step.artifact_id" class="artifact-button" icon="pi pi-image" :label="text('查看截图证据', 'View screenshot')" text size="small" @click="previewArtifact(selected.id, step.artifact_id, device.name)" /></li></ol>
+                                <p v-if="step.message">{{ step.message }}</p><p v-if="message(step.error)" class="device-error">{{ message(step.error) }}</p>
+                                <small>{{ date(step.started_at) }} <template v-if="step.finished_at"> → {{ date(step.finished_at) }}</template></small>
+                                <div v-if="['failed','interrupted','outcome_unknown'].includes(step.state)" class="failure-diagnostics">
+                                    <strong>{{ text('失败诊断', 'Failure diagnostics') }}</strong>
+                                    <span>{{ text('步骤 ID', 'Step ID') }} · {{ step.step_id }}</span>
+                                    <span>{{ text('历史脚本', 'Historical script') }} · {{ selected.script_snapshot.script_id || text('内联试跑', 'Inline trial') }}
+                                        <template v-if="selected.script_snapshot.revision"> / {{ text('修订', 'revision') }} {{ selected.script_snapshot.revision }}</template></span>
+                                    <span>{{ text('设备', 'Device') }} · {{ device.name }} ({{ device.device_id }})</span>
+                                    <span v-if="diagnosticTarget(device)">{{ text('运行时 ADB 目标', 'Run-time ADB target') }} · {{ diagnosticTarget(device) }}</span>
+                                    <span v-if="device.diagnostic_target?.target_fingerprint">{{ text('设备绑定指纹', 'Device fingerprint') }} · {{ device.diagnostic_target.target_fingerprint.slice(0, 16) }}…</span>
+                                    <span v-if="message(device.error)">{{ text('设备异常', 'Device error') }} · {{ message(device.error) }}</span>
+                                    <span v-if="step.state === 'outcome_unknown'" class="device-error">{{ text('动作结果未知。先人工核对手机现状，修复不会自动重试或继续执行。',
+                                        'Action outcome is unknown. Check the phone before editing; no automatic replay occurs.') }}</span>
+                                    <div class="failure-diagnostics-actions">
+                                        <Button icon="pi pi-pencil" size="small" outlined
+                                            :label="text('定位并修复此步骤', 'Locate and repair step')" :disabled="busy"
+                                            @click="repairStep(device, step)" />
+                                    </div>
+                                    <small>{{ text('历史记录只读；截图仅在该运行原本保存了证据时可查看。',
+                                        'History remains read-only; screenshots are available only if originally captured.') }}</small>
+                                </div>
+                                <Button v-if="step.artifact_id" class="artifact-button" icon="pi pi-image" :label="text('查看截图证据', 'View screenshot')" text size="small" @click="previewArtifact(selected.id, step.artifact_id, device.name)" /></li></ol>
                         </div>
                     </article>
                 </div>
@@ -567,6 +604,11 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
 </template>
 
 <style scoped>
+.failure-diagnostics{display:grid;gap:6px;margin-top:8px;padding:10px 12px;border:1px solid var(--console-border);border-radius:8px;font-size:12px;overflow-wrap:anywhere}
+.failure-diagnostics strong{font-size:13px}
+.failure-diagnostics span,.failure-diagnostics small{color:var(--console-muted)}
+.failure-diagnostics-actions{display:flex;gap:8px;flex-wrap:wrap}
+
 .business-verification-header{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:10px 0;font-size:12px;color:var(--console-muted);line-height:1.5}
 .run-branch-path{font-size:10px;color:var(--console-muted);overflow-wrap:anywhere}
 .branch-decision{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
