@@ -19,7 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     selection: [id: string, selected: boolean]; configure: [device: AutomationDevice];
     input: [id: string, message: AutomationControl]; action: [id: string, message: AutomationControl];
-    text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string];
+    text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string]; inspect: [id: string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -234,7 +234,8 @@ async function retryEndpoint(stage: 'cleanup'|'connection'|'publication') {
     finally { cleaningSaved.value = false; }
 }
 function getState() { return { phase: session.state.phase, ready: ready.value, ...geometry() }; }
-defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, getState, cancelPointer, resetPointer });
+function getStream() { return session.stream.value; }
+defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, getState, getStream, cancelPointer, resetPointer });
 onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clearMenuTimer(); stopFrameChase(); cancelPointer(); void session.close(); });
 </script>
 
@@ -257,6 +258,7 @@ onBeforeUnmount(() => { disposed = true; watching = false; ++intentVersion; clea
             <span class="node-name" :title="device.gateway_name || t('ungrouped')">{{ device.gateway_name || t('ungrouped') }}</span>
             <div class="device-meta-actions">
                 <PhoneAutomationPanel :device="device" :owner-id="ownerId" :runner-available="runnerAvailable" :observed-status="componentStatus" />
+                <Button icon="pi pi-crosshairs" text rounded size="small" aria-label="控件拾取" title="在实时画面中拾取 UiAutomator2 控件" :disabled="!ready || !!syncRole || recording" @click="emit('inspect', device.id)" />
             <button type="button" class="adb-port" :disabled="!runnerAvailable || !device.connection.enabled || pending"
                 :title="t(ready ? 'close' : 'open')" :aria-label="t('adbPort') + ': ' + device.connection.adb_port"
                 @click="emit('toggle-screen', device.id)">
