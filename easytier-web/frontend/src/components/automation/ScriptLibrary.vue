@@ -561,7 +561,7 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; listRequest++; runPara
                         <div v-if="selectedStep && stepCanPickTarget(selectedStep)" class="step-pick-controls">
                             <strong>{{ text('重新拾取当前步骤的控件', 'Re-pick the current step target') }}</strong>
                             <div class="button-row">
-                                <Select v-model="pickerDeviceId" :options="pickerOptions" option-label="label" option-value="value"
+                                <Select :model-value="defaultPickerDevice" @update:model-value="pickerDeviceId = $event" :options="pickerOptions" option-label="label" option-value="value"
                                     :placeholder="pickerOptions.length ? text('选择手机', 'Select phone') : text('无可用手机', 'No available phone')"
                                     :disabled="busy || !pickerOptions.length"
                                     :aria-label="text('用于控件拾取的手机', 'Phone for element inspection')" />
