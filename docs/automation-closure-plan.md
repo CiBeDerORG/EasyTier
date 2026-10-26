@@ -13,7 +13,7 @@
 | AUT-05 | P0 | **前端构建和 75 项单测通过，原生 CI/真机待验收** | 每次打开运行确认弹窗时查询当前账号最新设备绑定与占用状态；3 路并发独立检查 ADB 与需要时的 UiAutomator2；仅就绪设备可勾选；拒绝不完整预检或空设备集；Rust/执行器最终仍二次验证 |
 | AUT-06 | P0 | **代码与回归测试已提交，CI/真机待验收** | 只允许显式标记最后一个、分支外的 `assert` / `assert_property` 为业务成功验证；标记保存在原脚本步骤及不可变运行快照中，派发 Python 前剥离；Rust 从逐台最终断言结果推导业务状态，旧运行一律未验证 |
 | AUT-07 | P0 | **前端构建及 89 项单元测试通过，最新全量 CI/真机待验收** | 失败步骤关联历史执行快照、原步骤 UUID、脚本修订与设备 ADB 目标；支持一键定位编辑。同修订可编辑当前脚本，较新/删除/内联脚本只能从不可变快照创建独立草稿；未知动作不自动重放。截图仅查看历史原有证据 |
-| AUT-08 | P0 | 未开始 | FnOS + 多台 Android 端到端验收与发布 |
+| AUT-08 | P0 | **跨模块与执行器模拟回归已通过；真机/正式发布待验收** | `automation-closure-integration.test.mjs` 串联录制→草稿→脚本树→重拾取→异步预检→两设备验证→历史失败修复；Python 真实调度器+SQLite journal 模拟双手机不同分支与最终断言失败；FnOS/Android A17 实测见 `automation-aut08-e2e-acceptance.md` |
 | AUT-09 | P1 | 未开始 | 安全单步诊断，保持独占、授权及未知结果不重放 |
 | AUT-10 | P1 | 未开始 | 候选控件半自动匹配，用户确认，禁止自动退化到不稳定序号定位 |
 
@@ -124,6 +124,14 @@
 - 多设备中某台失败、另一台成功：诊断入口只指向该台的失败结果。
 - 账号切换和取消未保存确认不会泄露其他账号脚本，旧请求不能重放。
 - Android 控件重拾取、实际执行、断线未知结果及原生编译通过仍需独立验证。
+
+## AUT-08 端到端模拟回归、真机验收与发布门禁
+
+- 前端新增 `easytier-web/frontend/tests/automation-closure-integration.test.mjs`，复用真实 TypeScript 模块进行跨模块联动测试，包括录制长按、脚本树解析/编译、重选控件、按需检查 UiAutomator2、两台手机不同业务结果及历史修复复制；包括离线手机、占用、未标记断言、未知结果的反例。
+- 执行器新增 `automation-executor/tests/test_device_exit.py` 中 `test_aut08_two_phone_success_and_terminal_assert_failure`，使用真实调度器+SQLite journal，手机 RPC 模拟；验证两台不同分支、一台业务断言成功、一台失败，以及失败隔离、不重复发送断言。
+- 两条 CI：Web GHCR [40331799359](https://github.com/CiBeDerORG/EasyTier/actions/runs/40331799359) 的 Web build / 前端 91 单测已成功；executor GHCR [40331918668](https://github.com/CiBeDerORG/EasyTier/actions/runs/40331918668) 已完整成功。Web 的完整 native / package / publish 状态仍须以最新 CI 为准。
+- 真机验收：`docs/automation-aut08-e2e-acceptance.md` 定义 G1～G6 门禁与 E08-01～E08-16 现场矩阵。由于没有连接用户 FnOS/Android，本轮全部现场用例均**未测**，不得批准正式发布。
+- 对外状态准确表达：**模拟端到端闭环完成，FnOS/Android 真机端到端及发布准入未完成**。
 
 ## 本轮未改的边界
 
