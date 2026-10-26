@@ -59,6 +59,7 @@ export interface AutomationDevice {
     overlay_ip: string; lan_ip: string | null; binding_state: string;
     connection: AutomationConnection; target_fingerprint: string | null; availability_reason: string | null;
     active_session?: { id: string; state: string; actor_user_id: number; expires_at: string } | null;
+    run_occupied?: boolean;
 }
 export interface AutomationPreparation {
     id: string; request_id: string; device_id: string; owner_user_id: number;
