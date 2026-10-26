@@ -5,3 +5,6 @@ httpx==0.28.1
 aiortc==1.13.0
 av==14.2.0
 uiautomator2==3.7.1
+
+# XPath 1.0 evaluation uses lxml against a bounded, locally parsed UI snapshot.
+lxml==6.1.3
