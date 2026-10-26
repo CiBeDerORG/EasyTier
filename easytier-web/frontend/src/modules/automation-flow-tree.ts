@@ -1,5 +1,5 @@
 import type { AutomationStep } from '../types/automation';
-import { analyzeAutomationFlow, type BranchLane } from './automation-flow';
+import { analyzeAutomationFlow, type BranchLane } from './automation-flow.ts';
 
 /**
  * Editor-only tree. The persisted/executor wire format remains the existing
