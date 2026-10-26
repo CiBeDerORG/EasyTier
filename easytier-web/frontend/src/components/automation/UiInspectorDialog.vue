@@ -27,14 +27,14 @@ const videoSize = ref({ width: 0, height: 0 });
 let requestGeneration = 0;
 
 const snapshot = computed(() => response.value?.snapshot);
-const nodeIndex = computed(() => new Map((snapshot.value?.nodes ?? []).map(node => [node.id, node])));
+const nodeIndex = computed(() => new Map((snapshot.value?.nodes ?? []).map(node => [node.id, node] as const)));
 const parentIds = computed(() => new Set((snapshot.value?.nodes ?? [])
     .map(node => node.parent_id).filter((value): value is number => value !== null)));
 const selected = computed(() => selectedId.value === null ? null : nodeIndex.value.get(selectedId.value) ?? null);
 const lineage = computed(() => {
     const chain: AutomationHierarchyNode[] = [];
     const visited = new Set<number>();
-    let node = selected.value;
+    let node: AutomationHierarchyNode | null | undefined = selected.value;
     while (node && !visited.has(node.id)) {
         visited.add(node.id);
         chain.unshift(node);
