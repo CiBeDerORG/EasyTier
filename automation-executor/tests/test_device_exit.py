@@ -185,6 +185,43 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(final['state'], 'completed')
         self.assertTrue(all(device['state'] == 'completed' for device in final['devices']))
 
+    async def test_nested_if_else_never_evaluates_skipped_child_condition(self):
+        first, second = target("10.60.9.21"), target("10.60.9.22")
+        body = run_body(self.runtime.journal, [first, second])
+        body["steps"] = [
+            {"id": str(uuid4()), "type": "if_else", "selector": {"text": "Outer"},
+             "then_count": 3, "else_count": 1},
+            {"id": str(uuid4()), "type": "if_else", "selector": {"text": "Inner"},
+             "then_count": 1, "else_count": 1},
+            {"id": str(uuid4()), "type": "key", "key": "HOME"},
+            {"id": str(uuid4()), "type": "key", "key": "BACK"},
+            {"id": str(uuid4()), "type": "key", "key": "RECENT"},
+            {"id": str(uuid4()), "type": "key", "key": "WAKE"},
+        ]
+        calls = []
+        async def execute(journal, holder, phone, step, *args):
+            calls.append((phone["device_id"], step["id"]))
+            if step["type"] == "if_else":
+                if step["id"] == body["steps"][0]["id"]:
+                    return {"state": "condition_passed",
+                            "branch_taken": "then" if phone["device_id"] == first["device_id"] else "else"}
+                if phone["device_id"] == second["device_id"]:
+                    raise AssertionError("Nested predicate must not run in skipped outer branch")
+                return {"state": "condition_passed", "branch_taken": "else"}
+            return {"state": "action_sent"}
+        with patch("automation_executor.runtime.execute_step", new=execute):
+            await self.runtime.create_run(body)
+            await asyncio.wait_for(self.runtime.tasks[body["id"]], 3)
+        devices = {device["device_id"]: device for device in self.runtime.journal.run(body["id"])["devices"]}
+        self.assertEqual([entry["state"] for entry in devices[first["device_id"]]["steps"]],
+                         ["condition_passed", "condition_passed", "skipped", "action_sent", "skipped", "action_sent"])
+        self.assertEqual([entry["state"] for entry in devices[second["device_id"]]["steps"]],
+                         ["condition_passed", "skipped", "skipped", "skipped", "action_sent", "action_sent"])
+        self.assertNotIn((second["device_id"], body["steps"][1]["id"]), calls)
+        self.assertEqual(devices[second["device_id"]]["steps"][1]["skipped_by_step_id"], body["steps"][0]["id"])
+        self.assertEqual(devices[first["device_id"]]["steps"][2]["skipped_by_step_id"], body["steps"][1]["id"])
+        self.assertTrue(all(device["state"] == "completed" for device in devices.values()))
+
     async def test_if_else_executes_different_branches_per_phone(self):
         first, second = target("10.60.8.21"), target("10.60.8.22")
         body = run_body(self.runtime.journal, [first, second])
