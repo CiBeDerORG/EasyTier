@@ -642,7 +642,11 @@ class AndroidKeyguardTests(unittest.TestCase):
     def test_wake_without_password_sends_only_wakeup(self):
         src,packets=self.make_source()
         self.assertEqual(src.wake_and_unlock(None),'wake_sent')
-        self.assertEqual(len(packets),1)
+        # Explicit physical screen-on packet must precede the WAKE key.
+        self.assertEqual(len(packets),2)
+        self.assertEqual(packets[0],struct.pack('>BB',10,1))
+        self.assertEqual(packets[1],struct.pack('>BBIII',0,0,224,0,0)
+                         +struct.pack('>BBIII',0,1,224,0,0))
         self.assertNotIn(b'1234',b''.join(packets))
 
     def test_unlocked_device_never_receives_secret(self):
@@ -651,7 +655,8 @@ class AndroidKeyguardTests(unittest.TestCase):
         with patch('automation_executor.vendor.scrcpy_source.time.sleep',return_value=None):
             self.assertEqual(src.wake_and_unlock('123456'),'already_unlocked')
         self.assertNotIn(b'123456',b''.join(packets))
-        self.assertEqual(len(packets),1)
+        self.assertEqual(len(packets),2)
+        self.assertEqual(packets[0],struct.pack('>BB',10,1))
 
     def test_password_injected_only_after_two_positive_keyguard_checks(self):
         src,packets=self.make_source()
@@ -669,9 +674,10 @@ class AndroidKeyguardTests(unittest.TestCase):
         self.assertIn(('shell','input','swipe','540','1920','540','720','240'), calls)
         self.assertGreaterEqual(sum(args[:2] == ('shell','dumpsys') for args in calls), 4)
         # Numeric PINs use digit key events, not INJECT_TEXT.
-        self.assertEqual(len(packets),8)
+        self.assertEqual(len(packets),9)
+        self.assertEqual(packets[0],struct.pack('>BB',10,1))
         self.assertFalse(any(packet[0] == 1 for packet in packets))
-        for packet, digit in zip(packets[1:-1], '123456'):
+        for packet, digit in zip(packets[2:-1], '123456'):
             code = 7 + int(digit)
             self.assertEqual(packet,struct.pack('>BBIII',0,0,code,0,0)
                              +struct.pack('>BBIII',0,1,code,0,0))
@@ -681,7 +687,8 @@ class AndroidKeyguardTests(unittest.TestCase):
         src._adb=lambda *args,**kwargs: 'Physical size: 1080x2400'
         with patch.object(src,'_stable_keyguard',side_effect=[True,True,False]):
             self.assertEqual(src.wake_and_unlock('0123'),'unlock_confirmed')
-        codes=[struct.unpack('>BBIII',packet[:14])[2] for packet in packets]
+        self.assertEqual(packets[0],struct.pack('>BB',10,1))
+        codes=[struct.unpack('>BBIII',packet[:14])[2] for packet in packets if packet[0] == 0]
         self.assertEqual(codes[1:],[7,8,9,10])
         self.assertNotIn(66,codes)
 
@@ -691,7 +698,25 @@ class AndroidKeyguardTests(unittest.TestCase):
         with patch.object(src,'_stable_keyguard',return_value=True), patch.object(src,'_keyguard',return_value=True):
             self.assertEqual(src.wake_and_unlock('a123'),'unlock_sent')
         self.assertEqual(packets[-2],bytes([1,0,0,0,4])+b'a123')
-        self.assertEqual(len(packets),3)
+        self.assertEqual(len(packets),4)
+        self.assertEqual(packets[0],struct.pack('>BB',10,1))
+
+    def test_wake_waits_before_swipe_and_password_ui_waits_before_pin(self):
+        src,packets=self.make_source()
+        waits=[]
+        stages=[]
+        src.stop_event.wait=lambda seconds: (waits.append(seconds), False)[1]
+        src._adb=lambda *args,**kwargs: stages.append(args) or (
+            'Physical size: 1080x2400' if args[:3] == ('shell','wm','size')
+            else 'mShowingLockscreen=true')
+        with patch.object(src,'_stable_keyguard',return_value=True):
+            self.assertEqual(src.wake_and_unlock('1234'),'unlock_sent')
+        self.assertEqual(packets[0],struct.pack('>BB',10,1))
+        self.assertEqual(waits[0],1.0)
+        self.assertIn(0.8,waits)
+        self.assertLess(waits.index(1.0),waits.index(0.8))
+        self.assertIn(('shell','input','swipe','540','1920','540','720','240'),stages)
+        self.assertEqual(len([p for p in packets if p[0] == 0]),6) # WAKE, 4 digits, ENTER
 
     def test_lock_state_becomes_unknown_never_types_password(self):
         src,packets=self.make_source()
