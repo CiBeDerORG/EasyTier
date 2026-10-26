@@ -128,7 +128,7 @@ def steps(value):
             integer(item.get("height"), 1, 16384)
             if kind == "swipe":
                 integer(item.get("duration_ms"), 100, 3000)
-        if kind == "input_text" and item.get("selector", {}).get("xpath") is not None:
+        if kind == "input_text" and isinstance(item.get("selector"), dict) and "xpath" in item["selector"]:
             raise invalid("文字输入暂不支持 XPath，请使用唯一控件条件")
         if kind == "input_text":
             if ("text" in item) == ("parameter" in item):
