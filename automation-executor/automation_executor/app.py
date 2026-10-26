@@ -153,6 +153,11 @@ async def offer(request: Request, sid: str, body: dict):
     return await request.app.state.runtime.offer(identifier(sid), body)
 
 
+@app.post("/internal/v1/sessions/{sid}/unlock")
+async def unlock(request: Request, sid: str, body: dict):
+    return await request.app.state.runtime.unlock(identifier(sid), body)
+
+
 @app.post("/internal/v1/sessions/{sid}/commands")
 async def command(request: Request, sid: str, body: dict):
     return await request.app.state.runtime.command(identifier(sid), body)

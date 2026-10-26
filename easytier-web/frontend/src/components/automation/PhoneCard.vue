@@ -14,11 +14,11 @@ const props = defineProps<{
     device: AutomationDevice; ownerId: number; selected: boolean; runnerAvailable: boolean;
     phoneConnection?: AutomationPhoneConnectionState; phoneConnectionError?: string;
     componentStatus?: AutomationComponentStatus;
-    syncRole?: 'master' | 'follower'; syncActive: boolean; recording: boolean;
+    syncRole?: 'master' | 'follower'; syncActive: boolean; recording: boolean; unlocking?: boolean;
 }>();
 const emit = defineEmits<{
     selection: [id: string, selected: boolean]; configure: [device: AutomationDevice];
-    input: [id: string, message: AutomationControl]; action: [id: string, message: AutomationControl];
+    input: [id: string, message: AutomationControl]; action: [id: string, message: AutomationControl]; unlock: [id: string];
     text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string]; inspect: [id: string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
@@ -287,7 +287,7 @@ async function retryEndpoint(stage: 'cleanup'|'connection'|'publication') {
 }
 function getState() { return { phase: session.state.phase, ready: ready.value, ...geometry() }; }
 function getStream() { return session.stream.value; }
-defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, getState, getStream, cancelPointer, resetPointer });
+defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock, getState, getStream, cancelPointer, resetPointer });
 onBeforeUnmount(() => {
     document.removeEventListener('fullscreenchange', syncFullscreen);
     if (document.fullscreenElement === screen.value) void document.exitFullscreen().catch(() => undefined);
@@ -353,7 +353,8 @@ onBeforeUnmount(() => {
                 <div v-if="menuOpen" class="floating-actions" role="group" :aria-label="t('localControl')">
                     <div class="input-actions">
                         <Button icon="pi pi-pencil" rounded :aria-label="t('text')" :title="t('text')" :disabled="!manualAllowed" @click="emit('text', device.id)" />
-                        <Button icon="pi pi-unlock" rounded :aria-label="t('releaseManual')" :title="t('releaseManual')" :disabled="!manualAllowed" @click="localAction({ type: 'stop' })" />
+                        <Button icon="pi pi-unlock" rounded severity="primary" :aria-label="t('unlockPhone')" :title="t('unlockPhone')" :loading="unlocking" :disabled="!manualAllowed || unlocking || recording" @click="emit('unlock', device.id)" />
+                        <Button icon="pi pi-ban" rounded severity="secondary" :aria-label="t('releaseManual')" :title="t('releaseManual')" :disabled="!manualAllowed || unlocking" @click="localAction({ type: 'stop' })" />
                     </div>
                     <div class="side-actions">
                         <Button icon="pi pi-stop" rounded severity="danger" :aria-label="t('close')" :title="t('close')" @click="close().then(() => emit('refresh'))" />
@@ -371,7 +372,7 @@ onBeforeUnmount(() => {
             </div>
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
-        <small v-if="session.state.unlockState === 'wake_sent'" class="unlock-notice">已发送亮屏指令，但该手机的 ADB 服务未配置开屏密码；请在设备管理中保存密码。</small>
+        <small v-if="session.state.unlockState === 'wake_sent'" class="unlock-notice">手机已发送亮屏指令；该 ADB 服务没有保存开屏密码，请在设备管理中配置后重试。</small>
         <small v-else-if="session.state.unlockState === 'already_unlocked'" class="unlock-notice">已检测到手机处于解锁状态，因此没有输入密码。</small>
         <small v-else-if="session.state.unlockState === 'lock_state_unknown'" class="unlock-notice">手机已唤醒，但 Android 未返回可靠的锁屏状态；为避免把密码输入其他应用，已跳过自动解锁。</small>
         <small v-else-if="session.state.unlockState === 'lock_state_changed'" class="unlock-notice">上滑后锁屏状态不明确，已停止自动输入密码；请检查手机锁屏界面。</small>

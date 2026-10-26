@@ -185,10 +185,21 @@ export function usePhoneSession(api: AutomationApi) {
             throw cause;
         }
     }
+    async function unlock(): Promise<{ unlock_state: string }> {
+        const current = session;
+        const mine = generation;
+        if (!current || closing || state.phase !== 'live' || !state.controlReady) {
+            throw new Error('请先打开手机画面并等待控制就绪。');
+        }
+        const answer = await api.unlockSession(sessionOwner, current.id);
+        if (mine !== generation || session !== current || closing) throw new Error('会话已变化，解锁结果不可确认。');
+        state.unlockState = answer.unlock_state;
+        return answer;
+    }
     function videoReady() {
         if (!stream.value || !state.controlReady || closing) return;
         if (firstFrameTimer) { clearTimeout(firstFrameTimer); firstFrameTimer = null; }
         state.phase = 'live';
     }
-    return { state, stream, open, close, send, videoReady };
+    return { state, stream, open, close, send, unlock, videoReady };
 }

@@ -45,6 +45,7 @@ pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner>
         .route("/api/v1/automation/devices/{id}/preparations/{pid}/cancel", post(preparations::cancel))
         .route("/api/v1/automation/sessions", post(sessions::create))
         .route("/api/v1/automation/sessions/{id}/offer", post(sessions::offer))
+        .route("/api/v1/automation/sessions/{id}/unlock", post(sessions::unlock))
         .route("/api/v1/automation/sessions/{id}/control", get(sessions::control))
         .route("/api/v1/automation/sessions/{id}/close", post(sessions::close))
         .route("/api/v1/automation/scripts", get(scripts::list).post(scripts::create))

@@ -286,6 +286,20 @@ class MediaManager:
             finally:
                 await self._starting.release()
 
+    async def unlock(self, session_id: str, password: str | None) -> dict:
+        session = self._get(session_id)
+        async with session.operation_lock:
+            source = session.source
+            if (session.closing or session.state != "streaming" or source is None
+                    or source.finished.is_set() or not source.ready.is_set()):
+                raise MediaError("media_not_ready", "请先打开手机画面并等待控制连接就绪")
+            try:
+                # Single bounded attempt. No credential in a media response or journal.
+                state = await asyncio.to_thread(source.wake_and_unlock, password)
+            except SourceError as exc:
+                raise MediaError(exc.code, exc.message, exc.status) from exc
+            return {"id": session_id, "unlock_state": state}
+
     async def command(self, session_id: str, message: dict) -> dict:
         session = self._get(session_id)
         source = session.source

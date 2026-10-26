@@ -36,6 +36,7 @@ interface PhoneHandle {
     close(): Promise<void>;
     cancelRestoreIntent(): void;
     send(message: AutomationControl): Promise<AutomationControlReply>;
+    unlock(): Promise<{ unlock_state: string }>;
     getState(): { phase: string; ready: boolean; width: number; height: number };
     getStream(): MediaStream | null;
     cancelPointer(): void;
@@ -140,6 +141,7 @@ const inspectorReplaceStep = computed(() => inspectorEditScope.value
     : null);
 const textDialog = ref(false); const textTargets = ref<string[]>([]); const inputText = ref(''); const sendingText = ref(false);
 const results = ref<{ id: string; name: string; state: string; message?: string }[]>([]);
+const unlockingIds = ref<string[]>([]);
 const focusRunId = ref<string>(); const historyKey = ref(0);
 const fullscreenActive = ref(false);
 // The fullscreen element is a browser top-layer boundary: dialogs attached
@@ -320,6 +322,7 @@ async function changeOwner(id: number) {
     ++catalogGeneration; catalogOwner = 0; catalogNodes.value = []; catalogGroups.value = [];
     phoneConnections.value = {}; phoneConnectionErrors.value = {}; discoveryGateway.value = null;
     connectionDevice.value = null; textDialog.value = false; focusRunId.value = undefined;
+    unlockingIds.value = [];
     filters.value = { node: '', group: '', type: '', keyword: '' }; applied.value = { ...filters.value };
     await loadDevices();
 }
@@ -512,6 +515,7 @@ async function stopSync() {
 }
 async function releaseManual(ids: string[]) {
     const targets = [...ids];
+    if (targets.some(id => unlockingIds.value.includes(id))) { error.value = t('unlockBusy'); return false; }
     if (recordingId.value && targets.includes(recordingId.value)) finishRecording(false);
     if (sync.value && targets.some(id => sync.value!.deviceIds.includes(id))) await stopSync();
     for (const id of targets) cards.get(id)?.resetPointer();
@@ -603,6 +607,7 @@ async function sendAction(ids: string[], message: AutomationControl) {
     const targets = [...ids]; error.value = '';
     const mine = workspaceGeneration;
     if (!requireTargets(targets)) return;
+    if (targets.some(id => unlockingIds.value.includes(id))) { error.value = t('unlockBusy'); return; }
     if (recordingId.value && (targets.length !== 1 || targets[0] !== recordingId.value)) { error.value = t('recordingExists'); return; }
     results.value = targets.map(id => ({ id, name: deviceNames.value[id] ?? id, state: 'sending' }));
     const recordEpoch = recordingGeneration;
@@ -618,13 +623,52 @@ async function sendAction(ids: string[], message: AutomationControl) {
         if (message.type === 'input_text') addStep({ id: uuid(), type: 'input_text', parameter: `input_${recordedSteps.value.length + 1}` });
     }
 }
+const unlockMessages: Record<string, string> = {
+    unlock_confirmed: '已确认手机解锁成功',
+    already_unlocked: '手机已处于解锁状态，没有输入密码',
+    wake_sent: '屏幕已唤醒；未配置开屏密码，请在 ADB 服务中保存',
+    lock_state_unknown: '锁屏状态不明确，为避免误输入密码已停止',
+    lock_state_changed: '锁屏状态发生变化，已停止密码输入',
+    unlock_size_unknown: '无法取得正确的屏幕尺寸，已停止解锁',
+    unlock_swipe_failed: '锁屏上滑失败，未输入密码',
+    unlock_skipped: '解锁中断，最终状态尚未确认',
+    unlock_sent: '已发送密码及确认键，但尚未验证解锁成功',
+};
+async function unlockPhones(ids: string[]) {
+    error.value = '';
+    const targets = [...new Set(ids)];
+    if (!requireTargets(targets)) return;
+    if (sync.value || recordingId.value) {
+        error.value = sync.value ? t('controlsLocked') : t('recordingExists');
+        return;
+    }
+    if (targets.some(id => unlockingIds.value.includes(id))) return;
+    const epoch = workspaceGeneration;
+    unlockingIds.value = [...new Set([...unlockingIds.value, ...targets])];
+    results.value = targets.map(id => ({ id, name: deviceNames.value[id] ?? id, state: 'sending' }));
+    try {
+        const responses = await Promise.allSettled(targets.map(id => cards.get(id)!.unlock()));
+        if (disposed || epoch !== workspaceGeneration) return;
+        results.value = responses.map((response, i) => ({
+            id: targets[i], name: deviceNames.value[targets[i]] ?? targets[i],
+            state: response.status === 'fulfilled' ? 'action_sent' : 'outcome_unknown',
+            message: response.status === 'fulfilled'
+                ? unlockMessages[response.value.unlock_state] ?? '解锁结果未知，请检查手机'
+                : automationErrorMessage(response.reason) + '；不要自动重试，先检查手机状态',
+        }));
+    } finally {
+        if (epoch === workspaceGeneration) unlockingIds.value = unlockingIds.value.filter(id => !targets.includes(id));
+    }
+}
 function localAction(id: string, message: AutomationControl) {
     if (sync.value?.deviceIds.includes(id)) { error.value = t('controlsLocked'); return; }
+    if (unlockingIds.value.includes(id)) return;
     if (message.type === 'stop') { void releaseManual([id]); return; }
     void sendAction([id], message);
 }
 function globalAction(message: AutomationControl) {
     const targets = [...globalTargets.value];
+    if (targets.some(id => unlockingIds.value.includes(id))) return;
     if (sync.value?.blocked.length) { error.value = `${t('targetsUnavailable')} ${sync.value.blocked.map(id => deviceNames.value[id] ?? id).join('、')}`; return; }
     void sendAction(targets, message);
 }
@@ -848,7 +892,7 @@ onBeforeUnmount(() => { stopEvents?.();
                 </form>
                 <div class="workbench-toolbar">
                     <div class="summary"><span>{{ t('registered') }} <strong>{{ visibleDevices.length }}</strong></span><span>{{ t('selected') }} <strong>{{ selectedIds.length }}</strong></span><span>{{ t('live') }} <strong>{{ liveCount }}</strong></span></div>
-                    <div class="toolbar-actions"><Button :label="t('selectShown')" text size="small" @click="selectedIds = [...new Set([...selectedIds, ...visibleDevices.map(device => device.id)])]" /><Button :label="t('clearSelection')" text size="small" @click="selectedIds = []" /><label class="quality" :title="t('qualityHint')"><span>{{ t('resolution') }}</span><select v-model.number="mediaSettings.max_size"><option :value="640">640</option><option :value="960">960</option><option :value="1280">1280</option><option :value="1920">1920</option><option :value="2560">2560</option><option :value="3840">3840</option><option :value="0">{{ t('originalResolution') }}</option></select></label><label class="quality"><span>{{ t('bitrate') }}</span><select v-model.number="mediaSettings.video_bit_rate"><option :value="1000000">1 Mbps</option><option :value="2000000">2 Mbps</option><option :value="4000000">4 Mbps</option><option :value="8000000">8 Mbps</option><option :value="12000000">12 Mbps</option><option :value="16000000">16 Mbps</option><option :value="20000000">20 Mbps</option><option :value="24000000">24 Mbps</option></select></label><label class="quality"><span>FPS</span><select v-model.number="mediaSettings.max_fps"><option :value="15">15</option><option :value="24">24</option><option :value="30">30</option><option :value="60">60</option><option :value="90">90</option><option :value="120">120</option></select></label><label class="media-toggle"><input v-model="mediaSettings.low_latency" type="checkbox" />{{ t('lowLatency') }}</label><label class="media-toggle"><input v-model="mediaSettings.screen_off" type="checkbox" />{{ t('screenOff') }}</label><Button v-if="filters.group || applied.group" :label="t('discoverAdb')" icon="pi pi-search" size="small" outlined :loading="discoveryBusy" :disabled="discoveryBusy" @click="discoverAdb" /><span class="screen-action-pair"><Button :label="t('openSelected')" icon="pi pi-play" size="small" :loading="connecting" :disabled="!runnerAvailable || !selectedIds.length" @click="openSelected" /><Button :label="t('closeSelected')" icon="pi pi-stop" outlined size="small" :disabled="!selectedIds.length" @click="closeSelected" /></span><Button :label="t('connect')" icon="pi pi-link" size="small" :loading="phoneConnecting" :disabled="!runnerAvailable || !selectedIds.length" @click="connectPhones([...selectedIds])" /><Button label="查询控件状态" icon="pi pi-microchip" size="small" outlined :loading="componentChecking" :disabled="!runnerAvailable || !selectedIds.length || componentChecking" title="只读查询勾选手机的 UiAutomator 状态，不初始化组件" @click="querySelectedComponentStatuses" /><Button :label="t('releaseManual')" icon="pi pi-unlock" text size="small" :disabled="!selectedIds.length" @click="releaseManual([...selectedIds])" /></div>
+                    <div class="toolbar-actions"><Button :label="t('selectShown')" text size="small" @click="selectedIds = [...new Set([...selectedIds, ...visibleDevices.map(device => device.id)])]" /><Button :label="t('clearSelection')" text size="small" @click="selectedIds = []" /><label class="quality" :title="t('qualityHint')"><span>{{ t('resolution') }}</span><select v-model.number="mediaSettings.max_size"><option :value="640">640</option><option :value="960">960</option><option :value="1280">1280</option><option :value="1920">1920</option><option :value="2560">2560</option><option :value="3840">3840</option><option :value="0">{{ t('originalResolution') }}</option></select></label><label class="quality"><span>{{ t('bitrate') }}</span><select v-model.number="mediaSettings.video_bit_rate"><option :value="1000000">1 Mbps</option><option :value="2000000">2 Mbps</option><option :value="4000000">4 Mbps</option><option :value="8000000">8 Mbps</option><option :value="12000000">12 Mbps</option><option :value="16000000">16 Mbps</option><option :value="20000000">20 Mbps</option><option :value="24000000">24 Mbps</option></select></label><label class="quality"><span>FPS</span><select v-model.number="mediaSettings.max_fps"><option :value="15">15</option><option :value="24">24</option><option :value="30">30</option><option :value="60">60</option><option :value="90">90</option><option :value="120">120</option></select></label><label class="media-toggle"><input v-model="mediaSettings.low_latency" type="checkbox" />{{ t('lowLatency') }}</label><label class="media-toggle"><input v-model="mediaSettings.screen_off" type="checkbox" />{{ t('screenOff') }}</label><Button v-if="filters.group || applied.group" :label="t('discoverAdb')" icon="pi pi-search" size="small" outlined :loading="discoveryBusy" :disabled="discoveryBusy" @click="discoverAdb" /><span class="screen-action-pair"><Button :label="t('openSelected')" icon="pi pi-play" size="small" :loading="connecting" :disabled="!runnerAvailable || !selectedIds.length" @click="openSelected" /><Button :label="t('closeSelected')" icon="pi pi-stop" outlined size="small" :disabled="!selectedIds.length" @click="closeSelected" /></span><Button :label="t('connect')" icon="pi pi-link" size="small" :loading="phoneConnecting" :disabled="!runnerAvailable || !selectedIds.length" @click="connectPhones([...selectedIds])" /><Button label="查询控件状态" icon="pi pi-microchip" size="small" outlined :loading="componentChecking" :disabled="!runnerAvailable || !selectedIds.length || componentChecking" title="只读查询勾选手机的 UiAutomator 状态，不初始化组件" @click="querySelectedComponentStatuses" /><Button :label="t('releaseManual')" icon="pi pi-ban" text size="small" :disabled="!selectedIds.length" @click="releaseManual([...selectedIds])" /></div>
                 </div>
                 <section v-if="componentStatusResults.length" class="console-panel component-results" aria-live="polite">
                     <div class="component-results-heading"><strong>控件状态查询结果</strong><Button label="收起" icon="pi pi-times" text size="small" :disabled="componentChecking" @click="componentStatusResults = []" /></div>
@@ -865,11 +909,11 @@ onBeforeUnmount(() => { stopEvents?.();
                 <div v-if="!devices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-mobile" aria-hidden="true" /><h2>{{ t('noAssets') }}</h2><p>{{ t('noAssetsDetail') }}</p><Button :label="t('toAssets')" outlined @click="router.push({ name: 'nodeAssets' })" /></div>
                 <div v-else-if="!visibleDevices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-search" aria-hidden="true" /><h2>{{ t('noResults') }}</h2><Button :label="t('reset')" text @click="filters = { node: '', group: '', type: '', keyword: '' }; query()" /></div>
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
-                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @text="id => showText([id])" @record="toggleRecord" @inspect="openInspector" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
+                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" @inspect="openInspector" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
                 <button v-if="globalOpen && !fullscreenActive" class="global-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="globalOpen = false" />
                 <div v-if="devices.length && !fullscreenActive" class="global-controls" @pointerdown.stop @click.stop @keydown.esc="globalOpen = false">
-                    <div v-if="globalOpen" class="global-actions" role="group" :aria-label="t('globalControl')"><span class="global-scope">{{ t('globalControl') }} · {{ t('targetCount', { count: globalTargets.length }) }}</span><Button icon="pi pi-arrow-left" rounded :title="t('back')" :aria-label="t('back')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'BACK' })" /><Button icon="pi pi-home" rounded :title="t('home')" :aria-label="t('home')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'HOME' })" /><Button icon="pi pi-clone" rounded :title="t('recent')" :aria-label="t('recent')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'RECENT' })" /><Button icon="pi pi-pencil" rounded :title="t('text')" :aria-label="t('text')" :disabled="!globalTargets.length" @click="showText([...globalTargets])" /><Button icon="pi pi-power-off" rounded :title="t('wake')" :aria-label="t('wake')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'WAKE' })" /><Button icon="pi pi-unlock" rounded :title="t('releaseManual')" :aria-label="t('releaseManual')" :disabled="!globalTargets.length" @click="releaseManual([...globalTargets])" /><Button :icon="sync ? 'pi pi-stop-circle' : 'pi pi-share-alt'" rounded :severity="sync ? 'danger' : 'primary'" :title="t(sync ? 'stopSync' : 'sync')" :aria-label="t(sync ? 'stopSync' : 'sync')" @click="sync ? stopSync() : prepareSync()" /></div>
+                    <div v-if="globalOpen" class="global-actions" role="group" :aria-label="t('globalControl')"><span class="global-scope">{{ t('globalControl') }} · {{ t('targetCount', { count: globalTargets.length }) }}</span><Button icon="pi pi-arrow-left" rounded :title="t('back')" :aria-label="t('back')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'BACK' })" /><Button icon="pi pi-home" rounded :title="t('home')" :aria-label="t('home')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'HOME' })" /><Button icon="pi pi-clone" rounded :title="t('recent')" :aria-label="t('recent')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'RECENT' })" /><Button icon="pi pi-pencil" rounded :title="t('text')" :aria-label="t('text')" :disabled="!globalTargets.length" @click="showText([...globalTargets])" /><Button icon="pi pi-power-off" rounded :title="t('wake')" :aria-label="t('wake')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'WAKE' })" /><Button icon="pi pi-unlock" rounded severity="primary" :title="t('unlockPhone')" :aria-label="t('unlockPhone')" :loading="globalTargets.some(id => unlockingIds.includes(id))" :disabled="!globalTargets.length || !!sync || !!recordingId || globalTargets.some(id => unlockingIds.includes(id))" @click="unlockPhones([...globalTargets])" /><Button icon="pi pi-ban" rounded severity="secondary" :title="t('releaseManual')" :aria-label="t('releaseManual')" :disabled="!globalTargets.length || globalTargets.some(id => unlockingIds.includes(id))" @click="releaseManual([...globalTargets])" /><Button :icon="sync ? 'pi pi-stop-circle' : 'pi pi-share-alt'" rounded :severity="sync ? 'danger' : 'primary'" :title="t(sync ? 'stopSync' : 'sync')" :aria-label="t(sync ? 'stopSync' : 'sync')" @click="sync ? stopSync() : prepareSync()" /></div>
                     <Button class="global-orb" :icon="globalOpen ? 'pi pi-times' : 'pi pi-sliders-h'" rounded :aria-label="t('globalControl')" :aria-expanded="globalOpen" @click="globalOpen = !globalOpen" /><span class="target-badge" aria-hidden="true">{{ globalTargets.length }}</span>
                 </div>
             </div>

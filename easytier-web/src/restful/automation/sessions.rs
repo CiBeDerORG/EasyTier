@@ -149,6 +149,46 @@ pub(super) async fn offer(auth: AuthSession, State(manager): State<AppStateInner
     Ok(Json(result))
 }
 
+pub(super) async fn unlock(auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service, Extension(config): Config, Extension(runtime): Runtime, Extension(settings): Extension<Arc<Settings>>, query: OwnerInput, Path(raw_id): Path<String>, headers: HeaderMap) -> HttpResult<Json<Value>> {
+    require_origin(&headers,false)?;
+    let owner=owner(query)?;
+    let actor=authorize(&auth,&config,&service,owner).await?;
+    let session_id=id(&raw_id)?;
+    let (_,session)=observed_session(&manager,&service,owner,&session_id).await?;
+    creator(&session,actor)?;
+    let device_id=id(session["device_id"].as_str().unwrap_or_default())?;
+    let service_id=id(session["target"]["adb_service_id"].as_str().unwrap_or_default())?;
+    // A session belongs to the executor which created it; never send a secret
+    // to a replacement executor when the original identity is unavailable.
+    let expected:Option<String>=sqlx::query_scalar("SELECT executor_identity FROM automation_sessions WHERE id=? AND owner_user_id=?")
+        .bind(&session_id).bind(owner).fetch_one(&service.db.inner()).await
+        .map_err(|_|error(StatusCode::INTERNAL_SERVER_ERROR,"unlock_storage_error","无法核验投屏会话的执行器身份。"))?;
+    let expected=expected.ok_or_else(||error(StatusCode::CONFLICT,"executor_identity_missing","会话缺少执行器身份，必须重新打开画面。"))?;
+    let runner=runner(&runtime)?;
+    if runner.identity().await? != expected {
+        return Err(error(StatusCode::CONFLICT,"executor_identity_changed","执行器已变更，请先清理原投屏会话。"));
+    }
+    // Resolve the exact bound ADB service: do not accept a device ID or
+    // credential from the browser. Never return/decode a password in JSON.
+    let cipher:Option<String>=sqlx::query_scalar(
+        "SELECT u.secret_cipher FROM adb_service_unlock_secrets u JOIN asset_services s ON s.id=u.service_id AND s.owner_user_id=u.owner_user_id WHERE u.service_id=? AND u.owner_user_id=? AND s.device_id=? AND s.service_type='adb'"
+    ).bind(&service_id).bind(owner).bind(&device_id).fetch_optional(&service.db.inner()).await
+        .map_err(|_|error(StatusCode::INTERNAL_SERVER_ERROR,"unlock_storage_error","无法读取 ADB 服务凭据。"))?;
+    let password=cipher.map(|value|settings.open_unlock_password(owner,&service_id,&value)
+        .map_err(|_|error(StatusCode::SERVICE_UNAVAILABLE,"unlock_vault_unavailable","开屏密码的加密密钥不可用。"))).transpose()?;
+    let result=runner.post(&format!("sessions/{session_id}/unlock"),
+        &json!({"expected_executor_id":expected,"unlock_password":password})).await?;
+    let state=result["unlock_state"].as_str().unwrap_or_default();
+    if result["id"]!=session_id || result["executor_id"]!=expected || !matches!(state,
+        "wake_sent"|"already_unlocked"|"lock_state_unknown"|"lock_state_changed"|
+        "unlock_size_unknown"|"unlock_swipe_failed"|"unlock_skipped"|"unlock_sent"|"unlock_confirmed") {
+        return Err(invalid_response());
+    }
+    // Do not report a result for a device which was re-bound or revoked mid-flight.
+    observed_session(&manager,&service,owner,&session_id).await?;
+    Ok(Json(json!({"unlock_state":state})))
+}
+
 pub(super) async fn close(auth: AuthSession, Extension(service): Service, Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput, Path(raw_id): Path<String>, headers: HeaderMap) -> HttpResult<Json<Value>> {
     require_origin(&headers,false)?;
     let owner = owner(query)?;

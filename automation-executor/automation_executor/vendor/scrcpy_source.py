@@ -353,6 +353,9 @@ class ScrcpySource:
 
     def wake_and_unlock(self, password: str | None) -> str:
         """One bounded, opt-in attempt; the credential never enters ADB argv."""
+        # A manual unlock must first light the physical screen, including for a
+        # stream started with screen_off. Never toggle POWER (which can turn it off).
+        self.set_screen_power(True)
         self.key("WAKE")
         # Some OEM firmware ignores scrcpy's wake key while the display is
         # dozing. KEYCODE_WAKEUP is idempotent (unlike POWER) and is safe to
@@ -364,7 +367,7 @@ class ScrcpySource:
         if not password:
             return "wake_sent"
         # Waking the display and revealing the keyguard are asynchronous.
-        if self.stop_event.wait(0.6):
+        if self.stop_event.wait(1.0):
             return "unlock_skipped"
         lock_state = self._stable_keyguard()
         if lock_state is not True:
@@ -394,7 +397,9 @@ class ScrcpySource:
         except SourceError:
             # Skip password injection if the swipe could not be completed.
             return "unlock_swipe_failed"
-        if self.stop_event.wait(0.45):
+        # PIN/password UI can appear well after the swipe finishes on MIUI/EMUI.
+        # Delay is cancellable; re-check keyguard before injecting any secret.
+        if self.stop_event.wait(0.8):
             return "unlock_skipped"
         # The user may have unlocked with biometrics while the swipe ran.
         after_swipe = self._stable_keyguard()

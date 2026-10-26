@@ -400,6 +400,21 @@ class Runtime:
         self.journal.session_state(sid, "active")
         return result
 
+    async def unlock(self, sid, body):
+        validation.object_fields(body, {"expected_executor_id", "unlock_password"}, {"expected_executor_id"})
+        self.require_identity(body["expected_executor_id"])
+        secret = body.get("unlock_password")
+        if secret is not None and (not isinstance(secret, str) or not 4 <= len(secret) <= 64
+                                  or not all(33 <= ord(ch) <= 126 for ch in secret)):
+            raise invalid("开屏密码格式无效")
+        current = self.session(sid)
+        async with current.lock:
+            self.session(sid)
+            # Same ownership/ADB endpoint arbitration as other manual commands.
+            self.journal.claim(current.target, "session:" + sid, "manual")
+            result = await self.media.unlock(sid, secret)
+            return {**result, "executor_id": self.journal.executor_id}
+
     async def renew(self, sid, body):
         validation.object_fields(body, {"target_fingerprint", "lease_seconds"}, {"target_fingerprint", "lease_seconds"})
         seconds = validation.integer(body["lease_seconds"], 1, 60)
