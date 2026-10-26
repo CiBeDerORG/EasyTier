@@ -62,9 +62,11 @@ const runDeviceOptions = computed(() => runDevices.value.map(id => ({ value: id,
 const shownRunDevices = computed(() => runMode.value === 'draft'
     ? runDevices.value.filter(id => id === runTrialDevice.value) : runDevices.value);
 const stepTitles = computed<Record<AutomationStepType, string>>(() => ({
-    key: text('导航按键', 'Navigation key'), tap: text('点击', 'Tap'), swipe: text('滑动', 'Swipe'),
+    key: text('导航按键', 'Navigation key'), tap: text('点击', 'Tap'),
+    long_press: text('长按', 'Long press'), swipe: text('滑动', 'Swipe'), drag: text('拖拽', 'Drag'),
     input_text: text('输入文字', 'Enter text'), launch_app: text('打开应用', 'Launch app'),
     wait_for: text('等待出现', 'Wait for element'), wait_gone: text('等待消失', 'Wait until gone'),
+    if_gone: text('消失则执行', 'If gone, run following steps'),
     assert: text('检查控件', 'Assert element'), assert_property: text('属性断言', 'Assert property'),
     scroll_find: text('滚动查找', 'Scroll find'), screenshot: text('截图检查点', 'Screenshot checkpoint'),
 }));
@@ -164,7 +166,7 @@ function validationError(): string | null {
         const prefix = text(`第 ${index + 1} 步：`, `Step ${index + 1}: `);
         const validNumber = (value: unknown, min: number, max: number, integer = false) =>
             typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));
-        if (['wait_for', 'wait_gone', 'assert', 'assert_property', 'scroll_find'].includes(step.type) && !step.selector) return prefix + text('请选择控件。', 'Choose an element.');
+        if (['wait_for', 'wait_gone', 'if_gone', 'assert', 'assert_property', 'scroll_find'].includes(step.type) && !step.selector) return prefix + text('请选择控件。', 'Choose an element.');
         if (step.selector) {
             const attrs = Object.entries(step.selector);
             if (!attrs.length || !attrs.some(([, value]) => value?.trim())) return prefix + text('至少填写一个控件条件。', 'Specify at least one element condition.');
@@ -180,12 +182,19 @@ function validationError(): string | null {
             }
         }
         if (step.type === 'key' && !['HOME', 'BACK', 'RECENT', 'WAKE'].includes(step.key ?? '')) return prefix + text('请选择导航按键。', 'Choose a navigation key.');
-        if ((step.type === 'tap' && !step.selector) || step.type === 'swipe') {
-            const points = step.type === 'swipe' ? [step.x, step.y, step.to_x, step.to_y] : [step.x, step.y];
+        if ((['tap', 'long_press'].includes(step.type) && !step.selector) || ['swipe', 'drag'].includes(step.type)) {
+            const points = ['swipe', 'drag'].includes(step.type) ? [step.x, step.y, step.to_x, step.to_y] : [step.x, step.y];
             if (points.some(value => !validNumber(value, 0, 1))) return prefix + text('坐标必须位于 0–1。', 'Coordinates must be between 0 and 1.');
             if (!validNumber(step.width, 1, 16384, true) || !validNumber(step.height, 1, 16384, true)) return prefix + text('请填写参考画面宽高。', 'Enter the reference screen dimensions.');
         }
         if (step.type === 'swipe' && !validNumber(step.duration_ms, 100, 3000, true)) return prefix + text('滑动时长为 100–3000 毫秒。', 'Swipe duration must be 100–3000 ms.');
+        if (step.type === 'long_press' && !validNumber(step.duration_ms, 400, 3000, true)) return prefix + text('长按时长为 400–3000 毫秒。', 'Long-press duration must be 400–3000 ms.');
+        if (step.type === 'drag' && !validNumber(step.duration_ms, 300, 3000, true)) return prefix + text('拖拽时长为 300–3000 毫秒。', 'Drag duration must be 300–3000 ms.');
+        if (step.type === 'if_gone') {
+            if (!validNumber(step.skip_count, 1, 20, true) || step.skip_count! > normalized.length - index - 1) {
+                return prefix + text('条件控制需要 1–20 个有效的后续步骤，不能超出脚本结尾。', 'Conditional range must contain 1–20 following steps within the script.');
+            }
+        }
         if (['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(step.type) && !validNumber(step.timeout_ms, 100, 30000, true)) return prefix + text('等待上限为 100–30000 毫秒。', 'The timeout must be 100–30000 ms.');
         if (step.type === 'assert_property') {
             if (!['enabled', 'checked', 'selected', 'clickable', 'scrollable'].includes(step.property ?? '')
