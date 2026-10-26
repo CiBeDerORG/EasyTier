@@ -56,6 +56,7 @@ const baseline = toRef(props.draft, 'baseline');
 const replaceDraftVisible = ref(false);
 const pendingOpenScript = ref<AutomationScript | null>(null);
 const pendingRepairPlan = ref<AutomationRepairPlan | null>(null);
+const repairOrigin = ref<{ runId: string; deviceId: string; revision?: number; isCopy: boolean } | null>(null);
 let repairGeneration = 0;
 const deleteVisible = ref(false);
 const deleteTarget = ref<AutomationScript>();
@@ -260,6 +261,7 @@ function addBranchStep(index: number, lane: BranchLane) {
     error.value = '';
 }
 function resetEditor(script?: AutomationScript) {
+    repairOrigin.value = null;
     editingId.value = script?.id;
     revision.value = script?.revision;
     name.value = script?.name ?? '';
@@ -383,6 +385,11 @@ function applyRepairPlan(plan: AutomationRepairPlan) {
         baseline.value = JSON.stringify({name:'',description:'',steps:[]});
     }
     selectedStepId.value = plan.stepId;
+    repairOrigin.value = {
+        runId: plan.sourceRunId, deviceId: plan.sourceDeviceId,
+        revision: plan.kind === 'saved' ? plan.script.revision : plan.sourceRevision,
+        isCopy: plan.kind === 'copy',
+    };
     flowView.value = true;
     replaceDraftVisible.value = false;
     pendingRepairPlan.value = null;
@@ -656,7 +663,7 @@ async function submitRun() {
 
 watch(() => props.ownerId, () => {
     scopeRevision++; listRequest++; repairGeneration++;
-    pendingRepairPlan.value = null;
+    pendingRepairPlan.value = null; repairOrigin.value = null;
     scripts.value = []; loading.value = false; saving.value = false; deleting.value = false;
     runVisible.value = false; deleteVisible.value = false; runSubmitting.value = false;
     runParameters.value = Object.create(null); pendingRun.value = undefined; uncertainRun.value = false;
@@ -702,6 +709,16 @@ watch(() => props.repairRequest, request => {
             </aside>
 
             <div class="console-panel draft-panel">
+                <div v-if="repairOrigin" class="repair-origin-banner" role="status">
+                    <Tag :value="repairOrigin.isCopy ? text('历史快照修复副本', 'Historical repair copy') : text('原脚本同修订', 'Matching saved revision')"
+                        :severity="repairOrigin.isCopy ? 'warn' : 'info'" />
+                    <span>{{ text('来源运行', 'Source run') }} {{ repairOrigin.runId }}
+                        · {{ text('设备', 'Device') }} {{ repairOrigin.deviceId }}
+                        <template v-if="repairOrigin.revision">· {{ text('原修订', 'Original revision') }} {{ repairOrigin.revision }}</template>
+                    </span>
+                    <small>{{ text('当前只在编辑草稿；历史执行记录不会修改，手机也不会自动重新操作。',
+                        'Editing only the current draft; history remains unchanged and no phone action is replayed.') }}</small>
+                </div>
                 <div class="section-heading draft-heading">
                     <div><h2>{{ text('步骤编辑器', 'Step editor') }}</h2><span class="muted draft-state">{{ dirty || !editingId ? text('草稿 · 未保存', 'Draft · unsaved') : text(`草稿 · 已保存（修订 ${revision}）`, `Draft · saved (revision ${revision})`) }}</span></div>
                     <div class="button-row">
@@ -879,6 +896,10 @@ watch(() => props.repairRequest, request => {
 
 <style scoped>
 .script-library { display: grid; gap: 16px; }
+.repair-origin-banner{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 18px;border-bottom:1px solid var(--console-border);font-size:12px;overflow-wrap:anywhere}
+.repair-origin-banner span{flex:1;min-width:200px}
+.repair-origin-banner small{width:100%;color:var(--console-muted)}
+
 .library-columns { display: grid; grid-template-columns: minmax(210px, .65fr) minmax(0, 2fr); gap: 20px; align-items: start; }
 .recording-notice { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; padding: 14px 18px; border: 1px solid var(--console-border); border-radius: 12px; background: var(--console-accent-soft); }
 .recording-notice .pi { color: var(--p-red-500); font-size: 10px; margin-right: 8px; }
