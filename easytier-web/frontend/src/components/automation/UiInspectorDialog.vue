@@ -226,7 +226,8 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
             <div class="inspector-toolbar">
                 <div class="status">
                     <Tag :value="loading ? '正在读取' : snapshot ? '控件树已加载' : '未加载'" :severity="snapshot ? 'success' : 'secondary'" />
-                    <span>只读取当前界面，不会触发手机点击。切换页面后请重新读取。</span>
+                    <span v-if="capturedAt">层级采集时间：{{ capturedAt }}</span>
+                    <span>视频是实时流，控件树是独立快照；切换页面后请重新读取。</span>
                 </div>
                 <Button label="刷新控件树" icon="pi pi-refresh" outlined size="small" :loading="loading" @click="refresh" />
             </div>
@@ -246,22 +247,42 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                     <small v-else class="hint">在画面上点选控件，右侧自动读取属性；如果界面发生变化，请刷新。</small>
                 </section>
                 <section class="tree-panel" aria-label="控件列表">
-                    <div class="pane-heading"><strong>控件树</strong><small>{{ snapshot?.nodes.length ?? 0 }} 个</small></div>
+                    <div class="pane-heading"><strong>控件树</strong><small>{{ snapshot?.nodes.length ?? 0 }} 个节点</small></div>
                     <InputText v-model="search" placeholder="搜索文字 / ID / 类名" size="small" :disabled="!snapshot" />
                     <div class="node-list">
-                        <button v-for="node in matches" :key="node.id" type="button" class="node-row" :class="{ active: selectedId === node.id }"
-                            :style="{ paddingLeft: Math.min(30, node.depth * 5 + 8) + 'px' }" @click="selectNode(node.id)">
-                            <i :class="node.clickable ? 'pi pi-circle-fill' : 'pi pi-circle'" aria-hidden="true" />
-                            <span><strong :title="title(node)">{{ title(node) }}</strong><small>{{ node.class_name.split('.').pop() }}</small></span>
-                        </button>
+                        <div v-for="node in visibleNodes" :key="node.id" class="tree-item"
+                            :style="{ paddingLeft: Math.min(100, node.depth * 10) + 'px' }">
+                            <button v-if="parentIds.has(node.id)" type="button" class="branch-toggle"
+                                :disabled="!!search.trim()" :aria-label="collapsedIds.includes(node.id) ? '展开子控件' : '折叠子控件'"
+                                :aria-expanded="!collapsedIds.includes(node.id)" @click="toggleBranch(node.id)">
+                                <i :class="collapsedIds.includes(node.id) && !search.trim() ? 'pi pi-chevron-right' : 'pi pi-chevron-down'" aria-hidden="true" />
+                            </button>
+                            <span v-else class="branch-spacer" aria-hidden="true" />
+                            <button type="button" class="node-row" :class="{ active: selectedId === node.id }"
+                                :aria-pressed="selectedId === node.id" @click="selectNode(node.id)">
+                                <i :class="node.clickable ? 'pi pi-circle-fill' : 'pi pi-circle'" aria-hidden="true" />
+                                <span><strong :title="title(node)">{{ title(node) }}</strong><small>{{ node.class_name.split('.').pop() }}</small></span>
+                            </button>
+                        </div>
                         <div v-if="!snapshot" class="empty-tree">{{ loading ? '正在读取手机控件树…' : '暂无控件信息' }}</div>
-                        <div v-else-if="!matches.length" class="empty-tree">没有匹配的控件</div>
+                        <div v-else-if="!visibleNodes.length" class="empty-tree">没有匹配的控件</div>
                     </div>
-                    <small class="hint">列表最多显示 180 条；可搜索缩小范围。</small>
+                    <small class="hint">按层级展开或折叠；搜索时会显示匹配节点及其祖先。最多展示 250 条。</small>
                 </section>
                 <section class="details-panel" aria-label="控件属性及生成步骤">
                     <div class="pane-heading"><strong>控件属性</strong><Tag v-if="selected" :value="selected.clickable ? '可点击' : '非可点击'" severity="secondary" /></div>
                     <template v-if="selected">
+                        <div class="ancestry" aria-label="控件父子层级">
+                            <span>控件路径</span>
+                            <div class="ancestry-nodes">
+                                <button v-for="node in lineage" :key="node.id" type="button" :class="{ current: node.id === selectedId }"
+                                    :title="title(node)" @click="selectNode(node.id)">{{ node.class_name.split('.').pop() || 'Node' }} #{{ node.id }}</button>
+                            </div>
+                        </div>
+                        <div v-if="!selected.clickable && clickableParent" class="parent-recommendation">
+                            <span>当前控件不可点击，建议使用最近的可点击父节点。</span>
+                            <Button label="选中可点击父节点" text size="small" @click="selectNode(clickableParent.id)" />
+                        </div>
                         <div class="property"><span>类名</span><code>{{ selected.class_name || '—' }}</code></div>
                         <div class="property"><span>Resource ID</span><code>{{ selected.resource_id || '—' }}</code></div>
                         <div class="property"><span>文字</span><code>{{ selected.password ? '敏感输入框（已隐藏）' : selected.text || '—' }}</code></div>
@@ -309,12 +330,21 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
 .node-highlight{position:absolute;z-index:3;border:2px solid #31c48d;background:#31c48d26;pointer-events:none;box-shadow:0 0 0 1px #000a}
 .tree-panel :deep(input){width:100%}
 .node-list{max-height:480px;min-height:265px;overflow:auto;border-radius:8px;border:1px solid var(--console-border);background:var(--console-panel-raised)}
-.node-row{width:100%;display:flex;align-items:center;gap:9px;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--console-border);padding:8px;color:var(--p-text-color);cursor:pointer}
+.tree-item{display:flex;align-items:center;border-bottom:1px solid var(--console-border);min-width:0}
+.branch-toggle,.branch-spacer{width:22px;min-width:22px;height:28px;display:grid;place-items:center;border:0;background:transparent;color:var(--console-muted)}
+.branch-toggle{cursor:pointer}.branch-toggle:hover:not(:disabled){color:var(--p-primary-color)}.branch-toggle:disabled{opacity:.5;cursor:default}
+.branch-toggle i{font-size:10px}
+.node-row{flex:1;min-width:0;display:flex;align-items:center;gap:9px;text-align:left;background:transparent;border:0;padding:8px;color:var(--p-text-color);cursor:pointer}
 .node-row:hover,.node-row.active{background:var(--console-accent-soft)}.node-row.active{box-shadow:inset 3px 0 var(--p-primary-color)}
 .node-row i{font-size:7px;color:var(--console-muted)}.node-row span{min-width:0;display:grid;gap:3px}
 .node-row strong{font-size:12px;font-weight:550;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
 .node-row small{font-size:10px;color:var(--console-muted)}
 .empty-tree,.empty-detail{padding:25px 10px;color:var(--console-muted);font-size:12px;line-height:1.7}
+.ancestry{display:grid;gap:7px}.ancestry>span{font-size:11px;color:var(--console-muted)}.ancestry-nodes{display:flex;gap:4px;flex-wrap:wrap}
+.ancestry-nodes button{max-width:100%;overflow-wrap:anywhere;border:1px solid var(--console-border);border-radius:6px;padding:4px 6px;font-size:10px;background:var(--console-panel-raised);color:var(--p-text-color);cursor:pointer}
+.ancestry-nodes button.current{border-color:var(--p-primary-color);background:var(--console-accent-soft)}
+.parent-recommendation{padding:9px;border:1px solid var(--console-border);border-radius:8px;background:var(--console-accent-soft);display:grid;gap:4px;font-size:11px;line-height:1.6}
+.parent-recommendation :deep(.p-button){justify-self:start}
 .property{display:grid;gap:4px;padding:5px 0;border-bottom:1px solid var(--console-border)}
 .property span,.locator-label{font-size:11px;color:var(--console-muted)}
 .property code{font-family:ui-monospace,monospace;font-size:11px;overflow-wrap:anywhere;white-space:normal}
