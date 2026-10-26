@@ -20,6 +20,10 @@ import ExecutorSettings from './automation/ExecutorSettings.vue';
 import { automationMessages } from './automation/messages';
 import { analyzeAutomationFlow } from '../modules/automation-flow';
 import { appendAutomationDraftSteps, emptyAutomationDraft } from '../modules/automation-draft';
+import {
+    beginCapturedGesture, observeCapturedGesture, finishCapturedGesture,
+    type CapturedGesture, type GestureRecordingResult,
+} from '../modules/automation-gesture';
 
 defineOptions({ name: 'AutomationCenter' });
 
@@ -35,7 +39,6 @@ interface PhoneHandle {
     resetPointer(): void;
 }
 interface SyncSession { masterId: string; deviceIds: string[]; blocked: string[]; geometry: Record<string, { width: number; height: number }> }
-interface Gesture { id: string; x: number; y: number; width: number; height: number; started: number; valid: boolean }
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
 const router = useRouter();
 const api = new AutomationApi();
@@ -135,7 +138,8 @@ const textDialogTarget = computed<HTMLElement | 'body'>(() =>
         ? document.fullscreenElement : 'body');
 const cards = new Map<string, PhoneHandle>();
 let loadGeneration = 0; let workspaceGeneration = 0; let disposed = false;
-let gesture: Gesture | null = null;
+let gesture: CapturedGesture | null = null;
+const gestureConfirmation = ref<Extract<GestureRecordingResult, { kind: 'confirm' }> | null>(null);
 let recordingGeneration = 0; let pendingRecordActions = 0;
 const runnerAvailable = computed(() => context.value?.available === true && context.value.runner_configured);
 const managedAccount = computed(() => accounts.value.find(account => account.id === ownerId.value)?.username ?? String(ownerId.value));
@@ -291,6 +295,7 @@ async function query() {
 }
 async function changeOwner(id: number) {
     if (id === ownerId.value || busy.value || connecting.value || switchingTab.value) return;
+    if (gestureConfirmation.value) { notice.value = '请先确认滑动或拖拽，才能切换管理账号。'; return; }
     stopEvents?.(); stopEvents = undefined;
     ++workspaceGeneration; ++loadGeneration; ++statusQueryGeneration;
     adbActionVersions.clear();
@@ -515,14 +520,22 @@ async function routeInput(id: string, message: AutomationControl) {
     const activeSync = sync.value;
     if (activeSync && id !== activeSync.masterId) return;
     const targets = activeSync ? activeSync.deviceIds.filter(target => !activeSync.blocked.includes(target)) : [id];
+    // While a motion is waiting for a swipe/drag decision, do not send
+    // another pointer stream and accidentally record an out-of-order action.
+    if (gestureConfirmation.value && message.type === 'touch') {
+        notice.value = '先确认刚才的滑动或拖拽类型，再继续操作手机。';
+        return;
+    }
     if (message.type === 'touch' && message.action === 'down' && recordingId.value === id && !recordingPaused.value) {
-        gesture = { id, x: message.x!, y: message.y!, width: message.width!, height: message.height!, started: performance.now(), valid: true };
+        gesture = beginCapturedGesture(id, message, performance.now());
+    } else if (message.type === 'touch' && message.action === 'move' && gesture?.deviceId === id) {
+        observeCapturedGesture(gesture, message);
     }
     const activeGesture = gesture;
     const recordEpoch = recordingGeneration;
-    const finishesGesture = message.type === 'touch' && message.action === 'up' && activeGesture?.id === id;
+    const finishesGesture = message.type === 'touch' && message.action === 'up' && activeGesture?.deviceId === id;
     if (finishesGesture) { gesture = null; ++pendingRecordActions; }
-    if (message.type === 'touch.release' && activeGesture?.id === id) { activeGesture.valid = false; gesture = null; }
+    if (message.type === 'touch.release' && activeGesture?.deviceId === id) { activeGesture.valid = false; gesture = null; }
     const gestureEndedAt = performance.now();
     const responses = await Promise.allSettled(targets.map(async target => {
         const card = cards.get(target); if (!card) throw new Error(t('notReady'));
@@ -545,17 +558,31 @@ async function routeInput(id: string, message: AutomationControl) {
         }
     }
     if (message.type === 'touch.release') return;
-    if (message.type === 'touch' && message.action === 'up' && activeGesture?.id === id) {
+    if (finishesGesture && activeGesture) {
         if (recordEpoch !== recordingGeneration || recordingId.value !== id) return;
-        if (!activeGesture.valid || activeGesture.width !== message.width || activeGesture.height !== message.height) { notice.value = t('recordIncomplete'); return; }
-        const elapsed = Math.round(gestureEndedAt - activeGesture.started);
-        if (elapsed > 3000) { notice.value = t('recordIncomplete'); return; }
-        const duration = Math.max(100, elapsed);
-        const distance = Math.hypot((message.x! - activeGesture.x) / activeGesture.width, (message.y! - activeGesture.y) / activeGesture.height);
-        const origin = { x: activeGesture.x / activeGesture.width, y: activeGesture.y / activeGesture.height, width: activeGesture.width, height: activeGesture.height };
-        addStep(duration < 500 && distance < 0.025
-            ? { id: uuid(), type: 'tap', ...origin }
-            : { id: uuid(), type: 'swipe', ...origin, to_x: message.x! / activeGesture.width, to_y: message.y! / activeGesture.height, duration_ms: duration });
+        if (!activeGesture.valid || recordingPaused.value) { notice.value = t('recordIncomplete'); return; }
+        const result = finishCapturedGesture(activeGesture, message, gestureEndedAt, uuid());
+        if (result.kind === 'invalid') {
+            notice.value = result.reason === 'returned_to_origin'
+                ? '轨迹返回起点，无法通过单条直线手势复现；这次操作没有录入。'
+                : '手势超时或采集不完整，这次操作没有录入。';
+        } else if (result.kind === 'step') {
+            addStep(result.step);
+        } else {
+            gestureConfirmation.value = result;
+        }
+    }
+}
+function confirmRecordedMotion(choice: 'swipe' | 'drag' | 'discard') {
+    const pending = gestureConfirmation.value;
+    if (!pending) return;
+    gestureConfirmation.value = null;
+    if (choice !== 'discard') {
+        if (recordingId.value && !recordingPaused.value) {
+            addStep(choice === 'swipe' ? pending.swipe : pending.drag);
+        } else notice.value = '录制会话已结束，未保存这一条手势。';
+    } else {
+        notice.value = '已忽略这一条未确认的移动手势。';
     }
 }
 async function sendAction(ids: string[], message: AutomationControl) {
@@ -609,6 +636,7 @@ function toggleRecord(id: string) {
     ++recordingGeneration; recordingId.value = id; recordingPaused.value = false; recordedSteps.value = []; gesture = null;
 }
 function pauseRecording() {
+    if (gestureConfirmation.value) { notice.value = '请先确认滑动或拖拽，再暂停录制。'; return; }
     if (gesture || pendingRecordActions) notice.value = t('recordIncomplete');
     if (recordingId.value) cards.get(recordingId.value)?.cancelPointer();
     ++recordingGeneration; gesture = null; recordingPaused.value = !recordingPaused.value;
@@ -637,6 +665,7 @@ function editInspectorDraft() {
     void changeTab('scripts');
 }
 function finishRecording(edit: boolean) {
+    if (gestureConfirmation.value) { notice.value = '请先确认刚才的滑动或拖拽，才能结束录制。'; return; }
     if (gesture || pendingRecordActions) notice.value = t('recordIncomplete');
     ++recordingGeneration;
     const id = recordingId.value; recordingId.value = null; gesture = null;
@@ -653,6 +682,10 @@ function finishRecording(edit: boolean) {
 }
 async function changeTab(next: typeof tab.value) {
     if (next === tab.value || switchingTab.value || connecting.value || sendingText.value) return;
+    if (gestureConfirmation.value && tab.value === 'workbench') {
+        notice.value = '还有待确认的滑动或拖拽，确认后再切换页面。';
+        return;
+    }
     if (next !== 'workbench') closeInspector();
     switchingTab.value = true;
     try {
@@ -777,6 +810,21 @@ onBeforeUnmount(() => { stopEvents?.();
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
         <UiInspectorDialog v-if="inspectorDevice" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" @close="closeInspector" @add-step="addInspectorStep" @edit="editInspectorDraft" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
+        <Dialog :visible="!!gestureConfirmation" :appendTo="textDialogTarget" modal
+            :closable="false" :close-on-escape="false"
+            header="录制手势 · 确认操作类型"
+            :style="{ width: '470px', maxWidth: 'calc(100vw - 24px)' }">
+            <div class="modal-content">
+                <p>检测到手指移动。单凭轨迹无法可靠区分页面滑动和拖动物体，请根据刚才实际操作选择。</p>
+                <p v-if="gestureConfirmation" class="muted">实测持续 {{ gestureConfirmation.durationMs }} 毫秒；拖拽最短按 300 毫秒重放。</p>
+                <p class="muted">确认前不会写入脚本，也不会自动重新执行手机动作。</p>
+            </div>
+            <template #footer>
+                <Button label="不录制" text severity="secondary" @click="confirmRecordedMotion('discard')" />
+                <Button label="记为滑动" icon="pi pi-arrows-v" outlined @click="confirmRecordedMotion('swipe')" />
+                <Button label="记为拖拽" icon="pi pi-arrows-alt" @click="confirmRecordedMotion('drag')" />
+            </template>
+        </Dialog>
         <Dialog v-model:visible="syncPreparation" modal :header="t('syncTitle')" :style="{ width: '500px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><Message severity="info" :closable="false">{{ t('syncHint') }}</Message><p>{{ t('targetCount', { count: syncTargets.length }) }}</p><ul><li v-for="id in syncTargets" :key="id">{{ deviceNames[id] ?? id }}</li></ul><label>{{ t('master') }}<select v-model="syncMaster"><option v-for="id in syncTargets" :key="id" :value="id">{{ deviceNames[id] ?? id }}</option></select></label></div><template #footer><Button :label="t('cancel')" text @click="syncPreparation = false" /><Button :label="t('sync')" icon="pi pi-share-alt" @click="beginSync" /></template></Dialog>
         <Dialog :key="fullscreenActive ? 'fullscreen-text' : 'page-text'" v-model:visible="textDialog" :appendTo="textDialogTarget" modal :header="t('textTitle')" :closable="!sendingText" :close-on-escape="!sendingText" :style="{ width: '520px', maxWidth: 'calc(100vw - 24px)' }"><div class="modal-content"><p>{{ t('targetCount', { count: textTargets.length }) }} · {{ textTargets.map(id => deviceNames[id] ?? id).join('、') }}</p><Textarea v-model="inputText" :placeholder="t('textPlaceholder')" rows="5" maxlength="2000" :disabled="sendingText" autofocus /><p class="muted">{{ t('textHint') }}</p></div><template #footer><Button :label="t('cancel')" text :disabled="sendingText" @click="textDialog = false; inputText = ''" /><Button :label="t('send')" icon="pi pi-send" :loading="sendingText" :disabled="!inputText" @click="sendText" /></template></Dialog>
     </section>
