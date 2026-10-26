@@ -287,7 +287,8 @@ async function retryEndpoint(stage: 'cleanup'|'connection'|'publication') {
 }
 function getState() { return { phase: session.state.phase, ready: ready.value, ...geometry() }; }
 function getStream() { return session.stream.value; }
-defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock, getState, getStream, cancelPointer, resetPointer });
+function getSessionId() { return session.getSessionId(); }
+defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock, getState, getStream, getSessionId, cancelPointer, resetPointer });
 onBeforeUnmount(() => {
     document.removeEventListener('fullscreenchange', syncFullscreen);
     if (document.fullscreenElement === screen.value) void document.exitFullscreen().catch(() => undefined);

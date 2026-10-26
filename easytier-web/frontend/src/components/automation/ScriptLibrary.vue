@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, toRef, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, shallowRef, toRef, watch } from 'vue';
 import { Button, Checkbox, Dialog, InputNumber, InputText, Select, Tag, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
@@ -17,7 +17,7 @@ import {
     type AutomationRepairRequest, type AutomationRepairPlan,
 } from '../../modules/automation-run-repair';
 import {
-    initPreflightRow, probePreflightDevices, requiresAutomationHelper, selectedReadyIds, type PreflightRow,
+    initPreflightRow, probePreflightRow, requiresAutomationHelper, selectedReadyIds, type PreflightRow,
 } from '../../modules/automation-preflight';
 
 const props = defineProps<{
@@ -28,6 +28,10 @@ const props = defineProps<{
     pickerDevices: { id: string; name: string }[];
     runDeviceSnapshots: AutomationDevice[];
     repairRequest?: AutomationRepairRequest | null;
+    prepareRunDevice: (id: string, needsHelper: boolean, preview: boolean,
+        progress: (message: string) => void, current: () => boolean) =>
+        Promise<{ sessionId?: string; stream?: MediaStream | null }>;
+    releaseRunPreviews: (ids: string[], progress: (message: string) => void) => Promise<void>;
 }>();
 const emit = defineEmits<{
     'run-created': [run: AutomationRun];
@@ -82,6 +86,10 @@ const uncertainRun = ref(false);
 const preflightRows = ref<PreflightRow[]>([]);
 const preflightRunning = ref(false);
 const preflightError = ref('');
+const previewId = ref<string | null>(null);
+const previewStream = shallowRef<MediaStream | null>(null);
+const previewPlayer = ref<HTMLVideoElement | null>(null);
+watch(previewStream, stream => { if (previewPlayer.value) previewPlayer.value.srcObject = stream; },{flush:'post'});
 const runFingerprints = ref<Record<string, string | null>>({});
 let preflightGeneration = 0;
 let scopeRevision = 0;
@@ -163,6 +171,7 @@ async function checkRunPreflight() {
         return;
     }
     const initialDevices = new Map(props.runDeviceSnapshots.map(device => [device.id, device]));
+    previewId.value = null; previewStream.value = null;
     preflightRows.value = ids.map(id => ({
         ...initPreflightRow(initialDevices.get(id), id),
         state: 'checking' as const, message: text('等待最新设备状态', 'Awaiting fresh device state'), selected: false,
@@ -173,29 +182,56 @@ async function checkRunPreflight() {
         && owner === props.ownerId && runVisible.value && !pendingRun.value
         && ids.join('\u0000') === shownRunDevices.value.join('\u0000');
     try {
-        // Read the latest account-scoped bindings/occupancy once, then query
-        // ADB + UiAutomator2 independently per phone. Never connect or pair.
+        // The trial dialog is an explicit user request to connect and prepare.
+        // Keep each phone independent, and surface slow stages immediately.
         const fresh = await api.devices(owner);
         if (!valid()) return;
         const latest = new Map(fresh.items.map(device => [device.id, device]));
-        const current = ids.map(id => {
-            const row = initPreflightRow(latest.get(id), id);
-            if (row.state === 'checking' && row.targetFingerprint !== runFingerprints.value[id])
-                return { ...row, state: 'unavailable' as const, selected: false,
-                    message: text('设备绑定已变化，请关闭弹窗重新选择。', 'Device binding changed. Reopen the run dialog.') };
-            return row;
-        });
-        preflightRows.value = current;
-        await probePreflightDevices(current, owner, requiresAutomationHelper(runSteps.value), api, row => {
+        const queue = [...ids];
+        const update = (row: PreflightRow) => {
+            if (!valid()) return;
             const index = preflightRows.value.findIndex(item => item.id === row.id);
-            if (index >= 0 && valid()) preflightRows.value[index] = row;
-        }, valid, 3);
+            if (index >= 0) preflightRows.value[index] = row;
+        };
+        const worker = async () => {
+            while (queue.length && valid()) {
+                const id = queue.shift()!;
+                const device = latest.get(id);
+                const base = initPreflightRow(device ? {...device,active_session:null} : undefined,id);
+                if (base.state !== 'checking' || base.targetFingerprint !== runFingerprints.value[id]) {
+                    update(base.targetFingerprint !== runFingerprints.value[id] && base.state === 'checking'
+                        ? {...base,state:'unavailable',message:'设备绑定已改变，请重新选择机器。'} : base);
+                    continue;
+                }
+                try {
+                    const progress = (message: string) => update({...base,state:'checking',message,selected:false});
+                    const own = await props.prepareRunDevice(id,requiresAutomationHelper(runSteps.value),
+                        id === ids[0],progress,valid);
+                    if (!valid()) return;
+                    const latestDevice = (await api.devices(owner)).items.find(item=>item.id===id);
+                    if (!valid()) return;
+                    const row = initPreflightRow(latestDevice,id,own.sessionId);
+                    if (row.targetFingerprint !== runFingerprints.value[id]) {
+                        update({...row,state:'unavailable',selected:false,message:'设备绑定已变化，请重新打开试跑对话框。'});
+                        continue;
+                    }
+                    if (row.state === 'checking') update(await probePreflightRow(row,owner,requiresAutomationHelper(runSteps.value),api));
+                    else update(row);
+                    if (id===ids[0] && own.stream) {
+                        previewId.value=id; previewStream.value=own.stream;
+                    }
+                } catch (cause) {
+                    if (valid()) update({...base,state:'unavailable',selected:false,message:automationErrorMessage(cause)});
+                }
+            }
+        };
+        await Promise.all([worker(),worker()]);
     } catch (cause) {
         if (!valid()) return;
         preflightError.value = automationErrorMessage(cause);
         preflightRows.value = ids.map(id => ({
             ...initPreflightRow(initialDevices.get(id), id),
-            state: 'query_failed', selected: false, message: text('无法刷新设备注册状态。', 'Cannot refresh device registration.'),
+            state: 'query_failed', selected: false, message: text('设备准备或查询失败。', 'Device preparation or check failed.'),
         }));
     } finally {
         if (valid()) preflightRunning.value = false;
@@ -211,6 +247,8 @@ watch([runVisible, runTrialDevice], ([visible], [wasVisible]) => {
     if (!visible) {
         preflightGeneration++;
         preflightRows.value = []; preflightRunning.value = false; preflightError.value = '';
+        previewId.value = null; previewStream.value = null;
+        void props.releaseRunPreviews([],()=>{}).catch(()=>{ /* next submission still checks server cleanup */ });
         return;
     }
     if (!pendingRun.value && (runMode.value !== 'saved' || !wasVisible))
@@ -665,7 +703,7 @@ function prepareRun(mode: 'saved' | 'draft') {
     runError.value = ''; runVisible.value = true;
 }
 async function submitRun() {
-    if (runSubmitting.value) return;
+    if (runSubmitting.value || preflightRunning.value) return;
     if (!pendingRun.value) {
         if (!preflightFinished.value) {
             runError.value = text('请先完成设备预检。', 'Complete device preflight first.');
@@ -710,7 +748,23 @@ async function submitRun() {
     const payload = pendingRun.value;
     if (!payload) return;
     runSubmitting.value = true; runError.value = '';
+    let dispatched = false;
     try {
+        // The browser preview is not allowed to execute a script. Close and
+        // verify its cleanup BEFORE the normal exclusive run admission.
+        await props.releaseRunPreviews([...payload.device_ids],message=>{ if (!disposed && scope===scopeRevision) runError.value=message; });
+        if (disposed || scope !== scopeRevision) return;
+        const confirmed = await api.devices(owner);
+        if (disposed || scope !== scopeRevision) return;
+        for (const id of payload.device_ids) {
+            const device = confirmed.items.find(item=>item.id===id);
+            if (!device || device.target_fingerprint !== runFingerprints.value[id] ||
+                device.availability_reason || device.active_session || device.run_occupied)
+                throw new Error('设备会话尚未移交或绑定状态已改变，请重新检查该手机：'+(device?.name || id));
+        }
+        previewId.value=null; previewStream.value=null;
+        runError.value='';
+        dispatched = true;
         const run = await api.createRun(owner, payload);
         if (disposed || scope !== scopeRevision) return;
         runVisible.value = false; pendingRun.value = undefined; uncertainRun.value = false;
@@ -720,7 +774,7 @@ async function submitRun() {
     } catch (cause) {
         if (disposed || scope !== scopeRevision) return;
         runError.value = automationErrorMessage(cause);
-        uncertainRun.value = !(cause instanceof AutomationApiError) || cause.status >= 500;
+        uncertainRun.value = dispatched && (!(cause instanceof AutomationApiError) || cause.status >= 500);
         if (!uncertainRun.value) pendingRun.value = undefined;
         else runError.value += text(' 接收结果未确认；再次提交会使用相同请求编号，不另建任务。', ' Acceptance is unconfirmed. Retrying uses the same request ID.');
     } finally {
@@ -952,8 +1006,13 @@ watch(() => props.repairRequest, request => {
                             :loading="preflightRunning" :disabled="runSubmitting || !!pendingRun"
                             @click="checkRunPreflight" />
                     </div>
-                    <p class="muted">{{ text('只读、逐台异步检查最新绑定、设备占用和 ADB；涉及控件操作时再检查 UiAutomator2。不会自动配对或初始化。',
-                        'Read-only checks for current binding, occupancy and ADB. UiAutomator2 is checked only when the script needs it. No automatic pairing or preparation.') }}</p>
+                    <p class="muted">{{ text('选择机器后自动连接 ADB、按需初始化 UiAutomator2 并打开预览；进度逐台显示。不会自动无线配对。确认运行前将先关闭本页预览并核实清理完成。',
+                        'Selecting a phone connects ADB, prepares UI automation when needed and opens a preview. Progress is shown per device. No automatic wireless pairing; preview closes before run.') }}</p>
+                    <div v-if="previewStream && previewId" class="trial-preview">
+                        <strong>{{ text('实时画面预览', 'Live phone preview') }} · {{ deviceNames?.[previewId] || previewId }}</strong>
+                        <video ref="previewPlayer" :key="previewId" autoplay muted playsinline />
+                        <small>{{ text('此画面将在确认运行时关闭，完成控制权移交后才执行步骤。', 'Preview closes before exclusive execution begins.') }}</small>
+                    </div>
                     <p v-if="preflightError" class="error-message" role="alert">{{ preflightError }}</p>
                     <ul class="preflight-list">
                         <li v-for="row in preflightRows" :key="row.id" class="preflight-device">
@@ -990,6 +1049,9 @@ watch(() => props.repairRequest, request => {
 
 <style scoped>
 .script-library { display: grid; gap: 16px; }
+.trial-preview{display:flex;flex-direction:column;align-items:center;gap:6px;border:1px solid var(--console-border);padding:10px;border-radius:10px}
+.trial-preview strong,.trial-preview small{align-self:flex-start}
+.trial-preview video{width:auto;max-width:100%;height:auto;max-height:240px;background:#141414;border-radius:8px}
 .repair-origin-banner{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 18px;border-bottom:1px solid var(--console-border);font-size:12px;overflow-wrap:anywhere}
 .repair-origin-banner span{flex:1;min-width:200px}
 .repair-origin-banner small{width:100%;color:var(--console-muted)}

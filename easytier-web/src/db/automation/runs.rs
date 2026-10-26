@@ -252,6 +252,12 @@ impl AutomationStore {
             let occupied:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_run_devices WHERE (device_id=? OR target_key=?) AND cleanup_confirmed=0 AND state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending'))")
                 .bind(id).bind(target_key(target)?).fetch_one(&mut *tx).await?;
             if occupied{return Err(conflict("device_busy","A selected device has an unfinished task or unconfirmed result. Resolve that task before starting another."));}
+            // A script can start only AFTER any preview has confirmed cleanup.
+            // The check remains in this BEGIN IMMEDIATE transaction, guarding
+            // against a competing browser opening a session before dispatch.
+            let viewing:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_sessions WHERE (device_id=? OR target_key=?) AND state NOT IN ('closed','failed'))")
+                .bind(id).bind(target_key(target)?).fetch_one(&mut *tx).await?;
+            if viewing{return Err(conflict("device_busy","请先关闭设备预览并确认会话清理后再执行脚本。"));}
         }
         let id=Uuid::new_v4().to_string();let timestamp=now();
         sqlx::query("INSERT INTO automation_runs(id,actor_user_id,owner_user_id,request_id,request_hash,name,state,snapshot_json,parameters_json,concurrency,created_at,updated_at) VALUES(?,?,?,?,?,?,'dispatch_pending',?,?,?,?,?)")

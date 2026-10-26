@@ -201,5 +201,6 @@ export function usePhoneSession(api: AutomationApi) {
         if (firstFrameTimer) { clearTimeout(firstFrameTimer); firstFrameTimer = null; }
         state.phase = 'live';
     }
-    return { state, stream, open, close, send, unlock, videoReady };
+    function getSessionId() { return closing ? null : session?.id ?? null; }
+    return { state, stream, open, close, send, unlock, videoReady, getSessionId };
 }

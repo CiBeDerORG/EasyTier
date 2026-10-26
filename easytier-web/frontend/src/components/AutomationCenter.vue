@@ -39,6 +39,7 @@ interface PhoneHandle {
     unlock(): Promise<{ unlock_state: string }>;
     getState(): { phase: string; ready: boolean; width: number; height: number };
     getStream(): MediaStream | null;
+    getSessionId(): string | null;
     cancelPointer(): void;
     resetPointer(): void;
 }
@@ -151,6 +152,113 @@ const textDialogTarget = computed<HTMLElement | 'body'>(() =>
     fullscreenActive.value && document.fullscreenElement instanceof HTMLElement
         ? document.fullscreenElement : 'body');
 const cards = new Map<string, PhoneHandle>();
+// Preview sessions opened/adopted from the run dialog, never other users' sessions.
+const scriptPreviewIds = new Set<string>();
+async function releaseRunPreviews(ids: string[], progress: (message: string) => void): Promise<void> {
+    const targets = ids.length ? ids.filter(id => scriptPreviewIds.has(id)) : [...scriptPreviewIds];
+    for (const id of targets) {
+        const card = cards.get(id);
+        if (!card) throw new Error('手机预览卡片已丢失，不能确认控制权移交。');
+        if (card.getSessionId()) {
+            progress((deviceNames.value[id] ?? id) + '：正在关闭预览并确认资源清理');
+            await card.close();
+            if (card.getState().phase === 'cleanup_pending' || card.getSessionId())
+                throw new Error('手机预览尚未确认清理，不能安全执行脚本。');
+        }
+        scriptPreviewIds.delete(id);
+    }
+}
+async function prepareRunDevice(
+    id: string, needsHelper: boolean, preview: boolean,
+    progress: (message: string) => void, active: () => boolean,
+): Promise<{ sessionId?: string; stream?: MediaStream | null }> {
+    const owner = ownerId.value;
+    const alive = () => {
+        if (!active() || disposed || owner !== ownerId.value) throw new Error('试跑目标已切换，停止本次设备准备。');
+    };
+    const card = cards.get(id);
+    if (!card) throw new Error('手机卡片不存在，请刷新工作台。');
+    progress('检查最新设备绑定及占用');
+    const current = (await api.devices(owner)).items.find(item => item.id === id);
+    alive();
+    if (!current?.connection.enabled || !current.target_fingerprint || current.availability_reason)
+        throw new Error('手机绑定不可用，请先确认 ADB 服务配置。');
+    if (current.run_occupied) throw new Error('手机有正在执行或未确认清理的脚本，不能接管。');
+    const localId = card.getSessionId();
+    if (current.active_session && (!localId || current.active_session.id !== localId))
+        throw new Error('手机正在被其他页面或历史投屏会话占用，请先由原会话关闭。');
+    progress('检查 ADB 连接');
+    let adb = await api.adbStatus(owner,id); alive();
+    if (adb.state !== 'connected') {
+        if (adb.state === 'unauthorized') throw new Error('ADB 未授权，请先在手机上确认授权。');
+        progress('正在连接 ADB（不会自动无线配对）');
+        const connected = await api.prepare(owner,id,{action:'connect'}); alive();
+        if (connected.state !== 'connected') throw new Error(connected.message || 'ADB 连接失败');
+        adb = await api.adbStatus(owner,id); alive();
+        if (adb.state !== 'connected') throw new Error('ADB 连接状态仍未确认，请检查手机。');
+    }
+    if (needsHelper) {
+        progress('检查 UiAutomator2 控件服务');
+        let component = await api.componentStatus(owner,id); alive();
+        if (component.state !== 'ready') {
+            // Preparation claims the device exclusively: release only OUR
+            // preview first, never close another operator's session.
+            if (localId && current.active_session?.id === localId) {
+                progress('暂停本页预览以准备控件服务');
+                await card.close(); alive();
+                if (card.getState().phase === 'cleanup_pending' || card.getSessionId())
+                    throw new Error('预览尚未安全关闭，无法初始化控件。');
+                scriptPreviewIds.delete(id);
+            }
+            progress('正在初始化 UiAutomator2（可能需要较长时间）');
+            let preparation = await api.startPreparation(owner,id,uuid()); alive();
+            // One explicitly initiated preparation; poll only while the dialog
+            // is current, never loop on a rejected request or restart a job.
+            for (let attempt=0; !['succeeded','failed','cancelled','interrupted','cleanup_pending'].includes(preparation.state) && attempt<75; attempt++) {
+                progress('初始化控件：' + (preparation.stage || preparation.state) + '（请勿断开 ADB）');
+                await new Promise<void>(resolve => setTimeout(resolve,1200));
+                alive();
+                preparation = await api.preparationDetail(owner,id,preparation.id);
+                alive();
+            }
+            if (preparation.state !== 'succeeded')
+                throw new Error(preparation.state === 'queued' || preparation.state === 'running'
+                    ? '控件初始化仍在执行，可查看控件组件进度并点击重新检查；不会重复启动任务。'
+                    : preparation.message || '控件初始化失败，请查看执行器准备日志。');
+            component = await api.componentStatus(owner,id); alive();
+            if (component.state !== 'ready') throw new Error('初始化已结束，但 UiAutomator2 尚未确认就绪。');
+        }
+    }
+    if (preview) {
+        // Only one run-dialog video is needed. Never consume all media slots
+        // when selecting a large batch of phones.
+        await releaseRunPreviews([...scriptPreviewIds].filter(other=>other!==id),progress);
+        alive();
+        if (!card.getSessionId()) {
+            progress('正在打开实时画面');
+            await card.open('wall',{...mediaSettings.value,screen_off:false});
+            alive();
+        }
+        if (!card.getSessionId()) throw new Error('实时画面会话创建失败。');
+        scriptPreviewIds.add(id);
+        let stream = card.getStream();
+        for (let n=0; !stream && n<30; n++) {
+            progress('等待实时画面视频流（已连接，继续处理中）');
+            await new Promise<void>(resolve=>setTimeout(resolve,250));
+            alive();
+            stream=card.getStream();
+        }
+        if (!stream) throw new Error('视频流尚未建立，请检查 WebRTC 后重新预检。');
+        progress('实时画面与控件已准备，可以检查步骤');
+        return {sessionId:card.getSessionId()??undefined,stream};
+    }
+    if (localId && current.active_session?.id === localId && card.getSessionId()) {
+        scriptPreviewIds.add(id);
+        return {sessionId:card.getSessionId()??undefined};
+    }
+    progress('ADB 与控件检查完成');
+    return {};
+}
 let loadGeneration = 0; let workspaceGeneration = 0; let disposed = false;
 let gesture: CapturedGesture | null = null;
 const gestureConfirmation = ref<Extract<GestureRecordingResult, { kind: 'confirm' }> | null>(null);
@@ -475,6 +583,7 @@ async function closeAll() {
     await stopSync();
     if (recordingId.value) finishRecording(false);
     await Promise.all([...cards.values()].map(card => card.close()));
+    scriptPreviewIds.clear();
 }
 function onState(id: string, phase: string) {
     if (phase !== 'live' && inspectorDeviceId.value === id) closeInspector();
@@ -919,7 +1028,7 @@ onBeforeUnmount(() => { stopEvents?.();
             </div>
             <p v-if="liveCount" class="manual-release-hint">{{ t('tabReleaseHint') }}</p>
             <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace" :run-device-snapshots="devices"
-                :repair-request="repairRequest"
+                :repair-request="repairRequest" :prepare-run-device="prepareRunDevice" :release-run-previews="releaseRunPreviews"
                 :picker-devices="devices.filter(device => device.connection.enabled && !!device.target_fingerprint).map(device => ({ id: device.id, name: device.name }))"
                 @pick-step-target="openScriptInspector" @run-created="onRunCreated"
                 @repair-consumed="id => { if (repairRequest?.requestId === id) repairRequest = null; }" />

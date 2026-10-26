@@ -23,7 +23,7 @@ export function requiresAutomationHelper(steps: AutomationStep[]): boolean {
     return steps.some(step => step.type !== 'key' && step.type !== 'launch_app');
 }
 
-export function initPreflightRow(device: AutomationDevice | undefined, id: string): PreflightRow {
+export function initPreflightRow(device: AutomationDevice | undefined, id: string, ownedSessionId?: string | null): PreflightRow {
     const base: PreflightRow = {
         id, name: device?.name || id, targetFingerprint: device?.target_fingerprint ?? null,
         state: 'checking', message: '正在独立查询设备状态', selected: false,
@@ -33,8 +33,10 @@ export function initPreflightRow(device: AutomationDevice | undefined, id: strin
         return { ...base, state: 'unavailable', message: 'ADB 服务未启用或设备绑定无效' };
     if (device.availability_reason)
         return { ...base, state: 'unavailable', message: '设备不可用：' + device.availability_reason };
-    if (device.active_session)
-        return { ...base, state: 'unavailable', message: '设备正在被手动控制会话占用' };
+    // Only an exact preview owned by this page may pass advisory checking.
+    // Run dispatch must still close it and the database will recheck exclusivity.
+    if (device.active_session && (!ownedSessionId || device.active_session.id !== ownedSessionId))
+        return { ...base, state: 'unavailable', message: '设备正在被其他投屏或手动控制会话占用' };
     if (device.run_occupied)
         return { ...base, state: 'unavailable', message: '设备已有未结束脚本或待确认的清理任务' };
     return base;

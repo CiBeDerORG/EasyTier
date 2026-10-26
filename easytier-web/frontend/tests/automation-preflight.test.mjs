@@ -72,6 +72,14 @@ test('stale registration, occupied or disabled device never executes any probe',
   }
 });
 
+test('only an exact preview session bypasses advisory video occupancy', () => {
+  const item=device('a',{active_session:{id:'ours',state:'active',actor_user_id:1,expires_at:''}});
+  assert.equal(initPreflightRow(item,'a').state,'unavailable');
+  assert.equal(initPreflightRow(item,'a','other').state,'unavailable');
+  assert.equal(initPreflightRow(item,'a','ours').state,'checking');
+  assert.equal(initPreflightRow(device('a',{...item,run_occupied:true}),'a','ours').state,'unavailable');
+});
+
 test('mismatched response ID and rejected RPC both fail closed', async () => {
   const wrong = {
     adbStatus: async()=>({device_id:'different',state:'connected'}),
