@@ -28,6 +28,10 @@ const positionModes = computed(() => [
     { value: 'element', label: text('控件定位', 'Element selector') },
     { value: 'coordinates', label: text('画面坐标', 'Screen coordinates') },
 ]);
+const selectorModes = computed(() => [
+    { value: 'native', label: text('组合控件条件', 'Combined element fields') },
+    { value: 'xpath', label: 'XPath 1.0' },
+]);
 const inputModes = computed(() => [
     { value: 'literal', label: text('固定文字', 'Fixed text') },
     { value: 'parameter', label: text('运行时参数', 'Run parameter') },
@@ -69,6 +73,10 @@ function inputMode(mode: string) {
     if (mode === 'parameter') { delete step.text; step.parameter = ''; }
     else { delete step.parameter; step.text = ''; }
     emit('update:modelValue', step);
+}
+function changeSelectorMode(value: string) {
+    if (props.disabled || !props.modelValue.selector) return;
+    update({ selector: value === 'xpath' ? { xpath: '//*[@text=""]' } : { resource_id: '' } });
 }
 function selectorValue(field: keyof AutomationSelector, value: string | undefined) {
     update({ selector: { ...props.modelValue.selector, [field]: value ?? '' } });
@@ -122,19 +130,41 @@ function updateNumber(key: string, value: number | null | undefined) {
 
         <fieldset v-if="modelValue.selector && ['tap', 'input_text', 'wait_for', 'assert'].includes(modelValue.type)" class="selector-fields">
             <legend>{{ text('控件条件（至少填写一项）', 'Element conditions (at least one)') }}</legend>
-            <label class="field" :for="fieldId('resource-id')">
+            <label class="field" :for="fieldId('selector-mode')">
+                <span>{{ text('定位策略', 'Locator mode') }}</span>
+                <Select :input-id="fieldId('selector-mode')" :model-value="modelValue.selector.xpath !== undefined ? 'xpath' : 'native'"
+                    :options="selectorModes" option-label="label" option-value="value"
+                    :disabled="disabled || modelValue.type === 'input_text'" @update:model-value="changeSelectorMode" />
+            </label>
+            <label v-if="modelValue.selector.xpath !== undefined" class="field" :for="fieldId('xpath')">
+                <span>XPath 1.0</span>
+                <Textarea :id="fieldId('xpath')" :model-value="modelValue.selector.xpath" :rows="2" :maxlength="512"
+                    :disabled="disabled" @update:model-value="selectorValue('xpath', $event)" />
+                <small>{{ text('例如 //*[@text="设置"] 或 //android.widget.Button[@text="确定"]；匹配多个控件会停止。', 'Example: //*[@text="Settings"]. Ambiguous matches stop execution.') }}</small>
+            </label>
+            <label v-if="modelValue.selector.xpath === undefined" class="field" :for="fieldId('resource-id')">
                 <span>Resource ID</span>
                 <InputText :id="fieldId('resource-id')" :model-value="modelValue.selector.resource_id" :maxlength="256" :disabled="disabled" @update:model-value="selectorValue('resource_id', $event)" />
             </label>
-            <label class="field" :for="fieldId('description')">
+            <label v-if="modelValue.selector.xpath === undefined" class="field" :for="fieldId('description')">
                 <span>{{ text('无障碍描述', 'Accessibility description') }}</span>
                 <InputText :id="fieldId('description')" :model-value="modelValue.selector.description" :maxlength="256" :disabled="disabled" @update:model-value="selectorValue('description', $event)" />
             </label>
-            <label class="field" :for="fieldId('selector-text')">
+            <label v-if="modelValue.selector.xpath === undefined" class="field" :for="fieldId('selector-text')">
                 <span>{{ text('控件文字', 'Element text') }}</span>
                 <InputText :id="fieldId('selector-text')" :model-value="modelValue.selector.text" :maxlength="256" :disabled="disabled" @update:model-value="selectorValue('text', $event)" />
             </label>
-            <small>{{ text('同时填写的条件一起生效；匹配多个控件时会停止，不会任意点击。', 'All specified conditions apply. Ambiguous matches stop the step.') }}</small>
+            <template v-if="modelValue.selector.xpath === undefined">
+                <label class="field" :for="fieldId('selector-class')">
+                    <span>{{ text('控件类名', 'Class name') }}</span>
+                    <InputText :id="fieldId('selector-class')" :model-value="modelValue.selector.class_name" :maxlength="256" :disabled="disabled" @update:model-value="selectorValue('class_name', $event)" />
+                </label>
+                <label class="field" :for="fieldId('selector-package')">
+                    <span>{{ text('应用包名', 'Package') }}</span>
+                    <InputText :id="fieldId('selector-package')" :model-value="modelValue.selector.package" :maxlength="256" :disabled="disabled" @update:model-value="selectorValue('package', $event)" />
+                </label>
+                <small>{{ text('多个非空条件需同时匹配且只命中一个控件；文字输入仅支持组合控件条件。', 'All nonempty fields must uniquely match. Text input supports native fields only.') }}</small>
+            </template>
         </fieldset>
 
         <template v-if="modelValue.type === 'swipe' || (modelValue.type === 'tap' && !modelValue.selector)">
