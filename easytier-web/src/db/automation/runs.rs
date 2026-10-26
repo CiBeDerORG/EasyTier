@@ -501,3 +501,48 @@ mod branch_result_tests {
         assert!(sanitized_steps(&forged,&script,&json!([])).is_err());
     }
 }
+
+
+#[cfg(test)]
+mod business_verification_run_tests {
+    use super::*;
+
+    #[test]
+    fn old_run_never_becomes_verified_from_assertions_alone() {
+        let old=json!({"steps":[{"id":"verify","type":"assert"}]});
+        assert!(business_check_id(&old).is_none());
+        assert_eq!(business_device_state("completed",
+            &json!([{"step_id":"verify","state":"assertion_passed"}]),None),"not_verified");
+    }
+
+    #[test]
+    fn marked_assertion_requires_completed_phone_and_actual_passed_result() {
+        let snapshot=json!({"steps":[
+            {"id":"action","type":"tap"},
+            {"id":"verify","type":"assert","business_verification":true}
+        ]});
+        let id=business_check_id(&snapshot);
+        assert_eq!(id,Some("verify"));
+        let passed=json!([{"step_id":"action","state":"action_sent"},
+            {"step_id":"verify","state":"assertion_passed"}]);
+        assert_eq!(business_device_state("completed",&passed,id),"verified");
+        assert_eq!(business_device_state("running",&passed,id),"pending");
+        assert_eq!(business_device_state("completed",&json!([
+            {"step_id":"verify","state":"action_sent"}]),id),"not_reached");
+    }
+
+    #[test]
+    fn verify_failure_and_unknown_action_have_distinct_meanings() {
+        let check=Some("verify");
+        assert_eq!(business_device_state("failed",&json!([
+            {"step_id":"verify","state":"failed"}]),check),"failed");
+        assert_eq!(business_device_state("failed",&json!([
+            {"step_id":"action","state":"failed"}]),check),"not_reached");
+        assert_eq!(business_device_state("outcome_unknown",&json!([
+            {"step_id":"verify","state":"outcome_unknown"}]),check),"outcome_unknown");
+        assert_eq!(business_run_state(&["verified","verified"],true),"verified");
+        assert_eq!(business_run_state(&["verified","failed"],true),"partial");
+        assert_eq!(business_run_state(&["verified","outcome_unknown"],true),"outcome_unknown");
+        assert_eq!(business_run_state(&["verified"],false),"not_verified");
+    }
+}
