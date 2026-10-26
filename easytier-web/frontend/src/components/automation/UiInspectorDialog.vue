@@ -25,6 +25,14 @@ const loading = ref(false);
 const error = ref('');
 const feedback = ref('');
 const videoSize = ref({ width: 0, height: 0 });
+type Point = { x: number; y: number };
+const dragPickMode = ref(false);
+const dragStart = ref<Point | null>(null);
+const dragEnd = ref<Point | null>(null);
+const dragReady = computed(() => !!snapshot.value && compatibleVideo.value && !!dragStart.value && !!dragEnd.value
+    && Math.hypot((dragEnd.value.x - dragStart.value.x) * snapshot.value.width,
+        (dragEnd.value.y - dragStart.value.y) * snapshot.value.height) >= 16);
+const dragStyle = (point: Point) => ({ left: point.x * 100 + '%', top: point.y * 100 + '%' });
 let requestGeneration = 0;
 
 const snapshot = computed(() => response.value?.snapshot);
@@ -166,7 +174,7 @@ const activeMode = computed(() => modeOptions.value.find(item => item.value === 
 const canAdd = computed(() => !!selected.value && !!activeMode.value?.unique && props.queuedCount < 100);
 const nodeHighlight = computed(() => {
     const node = selected.value, shot = snapshot.value;
-    if (!node || !shot || !compatibleVideo.value) return null;
+    if (!node || !shot || !compatibleVideo.value || dragPickMode.value) return null;
     const { left, top, right, bottom } = node.bounds;
     return { left: left / shot.width * 100 + '%', top: top / shot.height * 100 + '%',
         width: (right - left) / shot.width * 100 + '%', height: (bottom - top) / shot.height * 100 + '%' };
@@ -204,6 +212,7 @@ async function refresh() {
     if (!props.visible || loading.value) return;
     const generation = ++requestGeneration;
     response.value = null; selectedId.value = null; collapsedIds.value = [];
+    dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = ''; loading.value = true;
     try {
         const result = await api.hierarchy(props.ownerId, props.device.id);
@@ -219,11 +228,38 @@ async function refresh() {
         if (generation === requestGeneration) loading.value = false;
     }
 }
+function startDragPick() {
+    if (!snapshot.value || !compatibleVideo.value) return;
+    dragPickMode.value = true; dragStart.value = null; dragEnd.value = null;
+    selectedId.value = null; feedback.value = '请先点击画面选择拖拽起点，再点击画面选择终点（不会操作手机）。';
+}
+function cancelDragPick() {
+    dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
+    feedback.value = '';
+}
+function saveDrag() {
+    if (!dragReady.value || !snapshot.value || !dragStart.value || !dragEnd.value || props.queuedCount >= 100) return;
+    emit('add-step', {
+        id: uuid(), type: 'drag',
+        x: dragStart.value.x, y: dragStart.value.y, to_x: dragEnd.value.x, to_y: dragEnd.value.y,
+        width: snapshot.value.width, height: snapshot.value.height, duration_ms: 700,
+    });
+    cancelDragPick();
+    feedback.value = '已添加拖拽步骤到草稿；可在脚本库调整持续时间，执行前先单机试跑。';
+}
 function pick(event: MouseEvent) {
     if (!surface.value || !snapshot.value || !compatibleVideo.value) return;
     const rect = surface.value.getBoundingClientRect();
-    const x = (event.clientX - rect.left) / rect.width * snapshot.value.width;
-    const y = (event.clientY - rect.top) / rect.height * snapshot.value.height;
+    const normX = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const normY = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    if (dragPickMode.value) {
+        if (!dragStart.value || dragEnd.value) { dragStart.value = { x: normX, y: normY }; dragEnd.value = null; }
+        else dragEnd.value = { x: normX, y: normY };
+        feedback.value = dragEnd.value ? '已选定起终点；确认后添加拖拽，或再次点画面重新选择起点。' : '已选择起点，请点击终点。';
+        return;
+    }
+    const x = normX * snapshot.value.width;
+    const y = normY * snapshot.value.height;
     // Prefer a small clickable element; parent containers would otherwise cover everything.
     const candidates = snapshot.value.nodes.filter(node => {
         const b = node.bounds;
@@ -281,6 +317,7 @@ function add(type: 'tap' | 'long_press' | 'wait_for' | 'wait_gone' | 'assert' | 
 watch([() => props.visible, () => props.device.id, () => props.ownerId], async () => {
     ++requestGeneration;
     response.value = null; selectedId.value = null; collapsedIds.value = []; loading.value = false;
+    dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = ''; videoSize.value = { width: 0, height: 0 };
     await nextTick();
     setVideo();
@@ -311,12 +348,26 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                     <div class="video-well">
                         <div ref="surface" class="video-surface" :style="{ aspectRatio: snapshot ? snapshot.width + ' / ' + snapshot.height : '9 / 19', width: snapshot ? 'min(100%, ' + (snapshot.width / snapshot.height * 58) + 'vh)' : 'min(100%, 27.5vh)' }">
                             <video ref="video" autoplay muted playsinline @loadedmetadata="videoMetadata" @resize="videoMetadata" />
-                            <button v-if="snapshot && compatibleVideo" type="button" class="pick-layer" title="点击选取控件（不会操作手机）" aria-label="点击画面选择控件" @click="pick" />
+                            <button v-if="snapshot && compatibleVideo" type="button" class="pick-layer"
+                                :title="dragPickMode ? '点击选择拖拽起点或终点（不会操作手机）' : '点击选取控件（不会操作手机）'"
+                                :aria-label="dragPickMode ? '选择拖拽起点或终点' : '点击画面选择控件'" @click="pick" />
                             <div v-if="nodeHighlight" class="node-highlight" :style="nodeHighlight" />
+                            <svg v-if="dragPickMode && dragStart && dragEnd" class="drag-guide" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                                <line :x1="dragStart.x * 100" :y1="dragStart.y * 100" :x2="dragEnd.x * 100" :y2="dragEnd.y * 100" />
+                            </svg>
+                            <span v-if="dragPickMode && dragStart" class="drag-marker" :style="dragStyle(dragStart)">A</span>
+                            <span v-if="dragPickMode && dragEnd" class="drag-marker drag-end" :style="dragStyle(dragEnd)">B</span>
                         </div>
                     </div>
+                    <div class="drag-pick-controls">
+                        <Button :label="dragPickMode ? '重选起点 / 终点' : '在画面上拾取拖拽'" icon="pi pi-arrows-h"
+                            outlined size="small" :disabled="!snapshot || !compatibleVideo || queuedCount >= 100" @click="startDragPick" />
+                        <Button v-if="dragPickMode" label="添加拖拽步骤" size="small" :disabled="!dragReady || queuedCount >= 100" @click="saveDrag" />
+                        <Button v-if="dragPickMode" label="取消" text size="small" @click="cancelDragPick" />
+                    </div>
+                    <small v-if="dragPickMode" class="hint">A 为起点，B 为终点；至少相距 16 像素。仅添加草稿，不会立即拖动手机。</small>
                     <small v-if="snapshot && !compatibleVideo" class="hint">画面尺寸或方向与控件树不一致，请确认投屏已加载或旋转完毕，再刷新控件树。</small>
-                    <small v-else class="hint">在画面上点选控件，右侧自动读取属性；如果界面发生变化，请刷新。</small>
+                    <small v-else-if="!dragPickMode" class="hint">在画面上点选控件，右侧自动读取属性；如果界面发生变化，请刷新。</small>
                 </section>
                 <section class="tree-panel" aria-label="控件列表">
                     <div class="pane-heading"><strong>控件树</strong><small>{{ snapshot?.nodes.length ?? 0 }} 个节点</small></div>
@@ -406,6 +457,11 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
 .video-surface{width:100%;max-width:340px;max-height:58vh;position:relative;overflow:hidden;background:#05070b;border-radius:7px;box-shadow:0 3px 18px #0007}
 .video-surface video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
 .pick-layer{position:absolute;inset:0;z-index:2;background:transparent;border:0;cursor:crosshair}
+.drag-pick-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.drag-guide{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;overflow:visible}
+.drag-guide line{stroke:#f59e0b;stroke-width:1.1;stroke-dasharray:2.5 1}
+.drag-marker{position:absolute;z-index:4;transform:translate(-50%,-50%);height:20px;width:20px;display:grid;place-items:center;border:2px solid white;border-radius:50%;background:#2563eb;color:white;font-size:11px;font-weight:700;pointer-events:none;box-shadow:0 2px 8px #0008}
+.drag-marker.drag-end{background:#c2410c}
 .node-highlight{position:absolute;z-index:3;border:2px solid #31c48d;background:#31c48d26;pointer-events:none;box-shadow:0 0 0 1px #000a}
 .tree-panel :deep(input){width:100%}
 .node-list{max-height:480px;min-height:265px;overflow:auto;border-radius:8px;border:1px solid var(--console-border);background:var(--console-panel-raised)}
