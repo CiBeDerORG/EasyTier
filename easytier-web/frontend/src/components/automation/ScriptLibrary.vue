@@ -11,6 +11,7 @@ import { addFlowBranchStep, createFlowCondition, removeFlowBlock } from '../../m
 import { emptyAutomationDraft, type AutomationDraftWorkspace } from '../../modules/automation-draft';
 import { stepCanPickTarget } from '../../modules/automation-step-target';
 import { businessCheckStepId } from '../../modules/automation-business-verification';
+import { stepTrialSafety, isolateAutomationStep, makeSingleStepRun } from '../../modules/automation-single-step';
 import {
     planAutomationRepair, cloneRepairSteps,
     type AutomationRepairRequest, type AutomationRepairPlan,
@@ -63,7 +64,11 @@ const deleteTarget = ref<AutomationScript>();
 const runVisible = ref(false);
 const runSubmitting = ref(false);
 const runError = ref('');
-const runMode = ref<'saved' | 'draft'>('saved');
+const runMode = ref<'saved' | 'draft' | 'step'>('saved');
+const stepTrialSource = ref<{ id: string; index: number; type: AutomationStepType } | null>(null);
+const stepTrialConsent = ref(false);
+const trialRequiresConsent = computed(() => runMode.value === 'step' && runSteps.value.length === 1
+    && stepTrialSafety(runSteps.value[0]) === 'confirm_required');
 const runName = ref('');
 const runScriptId = ref<string>();
 const runRevision = ref<number>();
@@ -123,7 +128,7 @@ const parameterNames = computed(() => [...new Set(runSteps.value
     .filter(step => step.type === 'input_text' && step.parameter !== undefined)
     .map(step => step.parameter!.trim()))]);
 const runDeviceOptions = computed(() => runDevices.value.map(id => ({ value: id, label: props.deviceNames?.[id] || id })));
-const shownRunDevices = computed(() => runMode.value === 'draft'
+const shownRunDevices = computed(() => runMode.value !== 'saved'
     ? runDevices.value.filter(id => id === runTrialDevice.value) : runDevices.value);
 const eligibleRunDevices = computed(() => selectedReadyIds(preflightRows.value));
 const preflightFinished = computed(() => !preflightRunning.value && !preflightError.value
@@ -202,7 +207,7 @@ watch([runVisible, runTrialDevice], ([visible], [wasVisible]) => {
         preflightRows.value = []; preflightRunning.value = false; preflightError.value = '';
         return;
     }
-    if (!pendingRun.value && (runMode.value === 'draft' || !wasVisible))
+    if (!pendingRun.value && (runMode.value !== 'saved' || !wasVisible))
         void checkRunPreflight();
 });
 const stepTitles = computed<Record<AutomationStepType, string>>(() => ({
@@ -449,14 +454,17 @@ async function receiveRepairRequest(request: AutomationRepairRequest) {
         }
     }
 }
-function validationError(): string | null {
-    if (!name.value.trim()) return text('请填写脚本名称。', 'Enter a script name.');
-    if (new TextEncoder().encode(name.value.trim()).length > 128) return text('脚本名称不能超过 128 字节。', 'The script name must be at most 128 bytes.');
-    if (new TextEncoder().encode(description.value.trim()).length > 2000) return text('脚本说明不能超过 2000 字节。', 'The description must be at most 2000 bytes.');
-    if (!steps.value.length || steps.value.length > 100) return text('脚本需要 1–100 个步骤。', 'A script needs 1–100 steps.');
-    const normalized = normalizeSteps();
+function validationError(candidate?: AutomationStep[], singleStep = false): string | null {
+    if (!singleStep) {
+        if (!name.value.trim()) return text('请填写脚本名称。', 'Enter a script name.');
+        if (new TextEncoder().encode(name.value.trim()).length > 128) return text('脚本名称不能超过 128 字节。', 'The script name must be at most 128 bytes.');
+        if (new TextEncoder().encode(description.value.trim()).length > 2000) return text('脚本说明不能超过 2000 字节。', 'The description must be at most 2000 bytes.');
+    }
+    const normalized = candidate ?? normalizeSteps();
+    if (!normalized.length || normalized.length > 100) return text('脚本需要 1–100 个步骤。', 'A script needs 1–100 steps.');
     const marked = normalized.filter(step => step.business_verification !== undefined);
-    if (marked.length && (!businessCheckStepId(normalized) || flowLayout.value.entries[flowLayout.value.entries.length - 1]?.ancestors.length)) {
+    if (marked.length && (!businessCheckStepId(normalized)
+        || analyzeAutomationFlow(normalized).entries[normalized.length - 1]?.ancestors.length)) {
         return text('业务验证只能标记最后一个、不属于条件分支的控件断言或属性断言。',
             'Only a final, unconditional element or property assertion may verify business success.');
     }
@@ -588,6 +596,41 @@ async function deleteScript() {
         if (!disposed && scope === scopeRevision) deleting.value = false;
     }
 }
+function prepareSingleStep() {
+    if (busy.value || !selectedStep.value) return;
+    if (pendingRun.value && uncertainRun.value) { runVisible.value = true; return; }
+    const index = steps.value.findIndex(step => step.id === selectedStepId.value);
+    const step = index >= 0 ? isolateAutomationStep(normalizeSteps()[index]) : null;
+    if (!step) {
+        error.value = text('条件分支必须随脚本执行，不能脱离上下文单步试跑。',
+            'Conditional branches cannot be safely run without their complete script.');
+        return;
+    }
+    const invalid = validationError([step], true);
+    if (invalid) { error.value = invalid; return; }
+    const ids = [...new Set(props.pickerDevices.map(device => device.id))];
+    if (!ids.length) {
+        error.value = text('没有可用的手机。请先在设备工作台配置 ADB 服务。',
+            'No available phones. Configure ADB on the device workbench first.');
+        return;
+    }
+    runFingerprints.value = Object.fromEntries(ids.map(id => [
+        id, props.runDeviceSnapshots.find(device => device.id === id)?.target_fingerprint ?? null,
+    ]));
+    const preferred = defaultPickerDevice.value;
+    runMode.value = 'step';
+    runName.value = text('单步骤诊断', 'Single-step diagnostic');
+    runSteps.value = [step]; // fixed snapshot; later editor changes are isolated
+    stepTrialSource.value = { id: step.id, index, type: step.type };
+    stepTrialConsent.value = false;
+    runDevices.value = ids;
+    runTrialDevice.value = preferred && ids.includes(preferred) ? preferred : ids[0];
+    runScriptId.value = undefined; runRevision.value = undefined;
+    runConcurrency.value = 1;
+    runParameters.value = Object.create(null);
+    pendingRun.value = undefined; uncertainRun.value = false;
+    runError.value = ''; runVisible.value = true;
+}
 function prepareRun(mode: 'saved' | 'draft') {
     if (busy.value) return;
     if (pendingRun.value && uncertainRun.value) { runVisible.value = true; return; }
@@ -603,6 +646,7 @@ function prepareRun(mode: 'saved' | 'draft') {
         id, props.runDeviceSnapshots.find(device => device.id === id)?.target_fingerprint ?? null,
     ]));
     runMode.value = mode;
+    stepTrialSource.value = null; stepTrialConsent.value = false;
     runName.value = name.value.trim();
     runSteps.value = normalizeSteps();
     runDevices.value = ids;
@@ -622,6 +666,11 @@ async function submitRun() {
             return;
         }
         const ids = eligibleRunDevices.value;
+        if (runMode.value === 'step' && ids.length !== 1) {
+            runError.value = text('单步骤试跑必须且只能选择一台通过预检的手机。',
+                'Single-step trials require exactly one ready device.');
+            return;
+        }
         if (!ids.length) {
             runError.value = text('没有选中可执行的设备；请重新预检或先到工作台准备设备。',
                 'No ready device selected. Recheck or prepare devices on the workbench.');
@@ -630,13 +679,25 @@ async function submitRun() {
         if (parameterNames.value.some(key => typeof runParameters.value[key] !== 'string' || new TextEncoder().encode(runParameters.value[key]).length > 2000)) {
             runError.value = text('请填写全部运行参数，每项最多 2000 字节。', 'Fill every run parameter, at most 2000 bytes each.'); return;
         }
-        pendingRun.value = {
-            request_id: uuid(), device_ids: [...ids], parameters: { ...runParameters.value },
-            concurrency: Math.max(1, Math.min(ids.length, Math.floor(runConcurrency.value ?? 1))),
-            ...(runMode.value === 'saved'
-                ? { script_id: runScriptId.value, revision: runRevision.value }
-                : { name: runName.value, steps: cloneSteps(runSteps.value) }),
-        };
+        if (runMode.value === 'step') {
+            const one = runSteps.value[0];
+            const payload = one && makeSingleStepRun(one, ids[0], uuid(), runParameters.value,
+                stepTrialConsent.value);
+            if (!payload) {
+                runError.value = text('此步骤需要您明确确认可能产生的副作用。',
+                    'Explicit confirmation of this step’s possible side effects is required.');
+                return;
+            }
+            pendingRun.value = payload;
+        } else {
+            pendingRun.value = {
+                request_id: uuid(), device_ids: [...ids], parameters: { ...runParameters.value },
+                concurrency: Math.max(1, Math.min(ids.length, Math.floor(runConcurrency.value ?? 1))),
+                ...(runMode.value === 'saved'
+                    ? { script_id: runScriptId.value, revision: runRevision.value }
+                    : { name: runName.value, steps: cloneSteps(runSteps.value) }),
+            };
+        }
     }
     const scope = scopeRevision;
     const owner = props.ownerId;
@@ -668,6 +729,7 @@ watch(() => props.ownerId, () => {
     runVisible.value = false; deleteVisible.value = false; runSubmitting.value = false;
     runParameters.value = Object.create(null); pendingRun.value = undefined; uncertainRun.value = false;
     runSteps.value = []; runDevices.value = []; runName.value = ''; deleteTarget.value = undefined;
+    stepTrialSource.value = null; stepTrialConsent.value = false;
     preflightGeneration++; preflightRows.value = []; preflightRunning.value = false; preflightError.value = '';
     runFingerprints.value = {};
     if (props.draft.ownerId !== props.ownerId) {
