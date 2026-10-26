@@ -21,7 +21,7 @@ const weights: Record<Field, number> = {
     resource_id: 100, description: 80, text: 65, class_name: 25, package: 15,
 };
 const bytes = (value: string) => new TextEncoder().encode(value).length;
-const valid = (value: string) => !!value.trim() && bytes(value) <= 256;
+const valid = (value: unknown): value is string => typeof value === 'string' && !!value.trim() && bytes(value) <= 256;
 
 /**
  * AUT-10: purely local suggestions based on the CURRENT hierarchy. The list is
@@ -29,8 +29,9 @@ const valid = (value: string) => !!value.trim() && bytes(value) <= 256;
  * No index/instance, positional XPath, or sensitive password text is used.
  */
 export function rankLocatorCandidates(snapshot: Snapshot, selectedId: number): LocatorCandidate[] {
-    const selected = snapshot.nodes.find(node => node.id === selectedId);
-    if (!selected || snapshot.truncated || selected.password) return [];
+    const selectedNodes = snapshot.nodes.filter(node => node.id === selectedId);
+    if (selectedNodes.length !== 1 || snapshot.truncated || selectedNodes[0].password) return [];
+    const selected = selectedNodes[0];
     const available = fields.filter(key => valid(selected[key]));
     const candidates: LocatorCandidate[] = [];
     const add = (keys: Field[]) => {
@@ -61,11 +62,13 @@ export function rankLocatorCandidates(snapshot: Snapshot, selectedId: number): L
 }
 
 export function locatorIsUnique(snapshot: Snapshot, selectedId: number, selector: AutomationSelector): boolean {
-    if (snapshot.truncated || selector.xpath || !snapshot.nodes.some(node => node.id === selectedId)) return false;
+    if (snapshot.truncated || selector.xpath
+        || snapshot.nodes.filter(node => node.id === selectedId).length !== 1) return false;
     const entries = Object.entries(selector);
     if (!entries.length || entries.some(([key, value]) => !fields.includes(key as Field)
         || typeof value !== 'string' || !valid(value))) return false;
     const selected = snapshot.nodes.find(node => node.id === selectedId)!;
+    if (selected.password) return false;
     return entries.every(([key, value]) => selected[key as Field] === value)
         && snapshot.nodes.filter(node => entries.every(([key, value]) => node[key as Field] === value)).length === 1;
 }
