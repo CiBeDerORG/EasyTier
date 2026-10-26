@@ -79,9 +79,14 @@ def digest(value):
 
 
 def selector(value):
-    object_fields(value, {"resource_id", "description", "text"})
-    if not value:
-        raise invalid("控件条件不能为空")
+    object_fields(value, {"resource_id", "description", "text", "class_name", "package", "xpath"})
+    if not value or ("xpath" in value and len(value) != 1):
+        raise invalid("XPath 与普通控件条件不能混用")
+    if "xpath" in value:
+        expression = text(value["xpath"], 512)
+        if not expression.startswith(("/", "(")):
+            raise invalid("XPath 必须以 / 或 ( 开头")
+        return {"xpath": expression}
     return {key: text(item, 512) for key, item in value.items()}
 
 
@@ -123,6 +128,8 @@ def steps(value):
             integer(item.get("height"), 1, 16384)
             if kind == "swipe":
                 integer(item.get("duration_ms"), 100, 3000)
+        if kind == "input_text" and item.get("selector", {}).get("xpath") is not None:
+            raise invalid("文字输入暂不支持 XPath，请使用唯一控件条件")
         if kind == "input_text":
             if ("text" in item) == ("parameter" in item):
                 raise invalid("输入步骤须选择文字或运行参数")
