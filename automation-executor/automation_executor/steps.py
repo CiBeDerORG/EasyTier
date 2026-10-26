@@ -120,6 +120,16 @@ def execute(target, step, parameters, artifact_path=None):
                 return True  # More than one element still means it is present.
             raise
 
+    if kind == "if_gone":
+        # A one-arm conditional: execute following N steps when gone;
+        # if still present, the supervisor marks them skipped explicitly.
+        present = probe(step["selector"])
+        return {
+            "state": "condition_passed",
+            "message": "控件仍存在，跳过条件区域" if present else "控件已消失，进入条件区域",
+            "skip_steps": step["skip_count"] if present else 0,
+        }
+
     if kind == "wait_gone":
         deadline = time.monotonic() + step["timeout_ms"] / 1000
         while True:
@@ -180,7 +190,7 @@ def execute(target, step, parameters, artifact_path=None):
             swipes += 1
             time.sleep(min(.3, max(0, deadline - time.monotonic())))
 
-    if kind == "tap" and "selector" in step:
+    if kind in ("tap", "long_press") and "selector" in step:
         selected = find(step["selector"])
         if isinstance(selected, dict) and "xpath_bounds" in selected:
             bounds = selected["xpath_bounds"]
@@ -191,8 +201,14 @@ def execute(target, step, parameters, artifact_path=None):
             raise StepFailure("selector_geometry_invalid", "无法确定控件的有效点击区域")
         if bounds["right"] <= bounds["left"] or bounds["bottom"] <= bounds["top"]:
             raise StepFailure("selector_geometry_invalid", "控件没有有效点击区域")
-        rpc("click", (bounds["left"] + bounds["right"]) // 2, (bounds["top"] + bounds["bottom"]) // 2)
-    elif kind in ("tap", "swipe"):
+        center_x = (bounds["left"] + bounds["right"]) // 2
+        center_y = (bounds["top"] + bounds["bottom"]) // 2
+        if kind == "long_press":
+            # uiautomator2 JSON-RPC click(x, y, hold_ms).
+            rpc("click", center_x, center_y, step["duration_ms"])
+        else:
+            rpc("click", center_x, center_y)
+    elif kind in ("tap", "swipe", "long_press", "drag"):
         width, height = dev.window_size()
         if (width < 1 or height < 1 or abs(width / height - step["width"] / step["height"]) > .02
                 or (width > height) != (step["width"] > step["height"])):
@@ -200,9 +216,16 @@ def execute(target, step, parameters, artifact_path=None):
         x, y = min(width - 1, round(step["x"] * width)), min(height - 1, round(step["y"] * height))
         if kind == "tap":
             rpc("click", x, y)
+        elif kind == "long_press":
+            rpc("click", x, y, step["duration_ms"])
         else:
             tx, ty = min(width - 1, round(step["to_x"] * width)), min(height - 1, round(step["to_y"] * height))
-            rpc("swipe", x, y, tx, ty, max(1, step["duration_ms"] // 5))
+            if kind == "drag":
+                if x == tx and y == ty:
+                    raise StepFailure("drag_zero_distance", "拖拽起点与终点不能相同")
+                rpc("drag", x, y, tx, ty, max(2, step["duration_ms"] // 5))
+            else:
+                rpc("swipe", x, y, tx, ty, max(2, step["duration_ms"] // 5))
     elif kind == "input_text":
         value = step["text"] if "text" in step else parameters[step["parameter"]]
         selected = find(step["selector"]) if "selector" in step else Selector(focused=True)
