@@ -744,7 +744,8 @@ onBeforeUnmount(() => {
 
         <Dialog v-model:visible="runVisible" modal :header="runMode === 'draft' ? text('确认单机试跑', 'Confirm trial run') : text('确认批量运行', 'Confirm batch run')" :style="{ width: '620px', maxWidth: 'calc(100vw - 24px)' }" :closable="!runSubmitting" :close-on-escape="!runSubmitting">
             <div class="run-form">
-                <p><strong>{{ runName }}</strong> · {{ text(`${runSteps.length} 步`, `${runSteps.length} steps`) }} <Tag :value="runMode === 'draft' ? text('当前草稿快照', 'Current draft snapshot') : text(`修订 ${runRevision}`, `Revision ${runRevision}`)" severity="info" /></p>
+                <p><strong>{{ runName }}</strong> · {{ text(`${runSteps.length} 步`, `${runSteps.length} steps`) }} <Tag :value="runMode === 'draft' ? text('当前草稿快照', 'Current draft snapshot') : text(`修订 ${runRevision}`, `Revision ${runRevision}`)" severity="info" />
+                    <Tag :value="businessCheckStepId(runSteps) ? text('启用业务成功断言', 'Business check enabled') : text('业务未配置验证', 'No business check')" :severity="businessCheckStepId(runSteps) ? 'success' : 'secondary'" /></p>
                 <p class="muted">{{ text('本次目标和步骤已固定。后续修改草稿或工作台选择，不会改变本次运行。某台失败只停止该台，其余继续。', 'Targets and steps are fixed for this run. Later edits or selections do not change it. A device failure stops that device; the others continue.') }}</p>
                 <label v-if="runMode === 'draft'" class="field" for="automation-trial-device"><span>{{ text('试跑设备', 'Trial device') }}</span><Select input-id="automation-trial-device" v-model="runTrialDevice" :options="runDeviceOptions" option-label="label" option-value="value" :disabled="runSubmitting || !!pendingRun" /></label>
                 <div class="run-preflight" aria-live="polite">
