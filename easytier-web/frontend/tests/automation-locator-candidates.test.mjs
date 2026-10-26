@@ -45,3 +45,31 @@ test('AUT-10 never fabricates instance/index fallback', () => {
     assert.equal(rankLocatorCandidates(shot, 1).some(x => x.unique), false);
     assert.ok(rankLocatorCandidates(shot, 1).every(x => !('instance' in x.selector && !('index' in x.selector))));
 });
+
+test('AUT-10 fails closed on repeated hierarchy node IDs and password-node selectors', () => {
+    const duplicated = { truncated: false, nodes: [
+        node(1, { resource_id: 'demo:id/one' }),
+        node(1, { resource_id: 'demo:id/two' }),
+    ] };
+    assert.deepEqual(rankLocatorCandidates(duplicated, 1), []);
+    assert.equal(locatorIsUnique(duplicated, 1, { resource_id: 'demo:id/one' }), false);
+    const secret = { truncated: false, nodes: [
+        node(1, { password: true, resource_id: 'demo:id/pass', text: '1234' }),
+    ] };
+    assert.deepEqual(rankLocatorCandidates(secret, 1), []);
+    assert.equal(locatorIsUnique(secret, 1, { resource_id: 'demo:id/pass' }), false);
+});
+
+test('AUT-10 rejects forbidden fields, empty data and changed snapshots', () => {
+    const shot = { truncated: false, nodes: [
+        node(1, { resource_id: 'demo:id/save', text: '保存' }),
+        node(2, { resource_id: 'demo:id/cancel', text: '取消' }),
+    ] };
+    assert.equal(locatorIsUnique(shot, 1, { index: '0' }), false);
+    assert.equal(locatorIsUnique(shot, 1, { text: '' }), false);
+    assert.equal(locatorIsUnique(shot, 1, { resource_id: 'demo:id/cancel' }), false);
+    assert.equal(locatorIsUnique({ ...shot, nodes: [
+        node(1, { resource_id: 'demo:id/save' }),
+        node(2, { resource_id: 'demo:id/save' }),
+    ] }, 1, { resource_id: 'demo:id/save' }), false);
+});
