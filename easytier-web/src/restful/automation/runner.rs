@@ -73,6 +73,7 @@ impl Runner {
             .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE,"runner_not_configured","执行器地址配置无效。"))?;
         let seconds = if path.ends_with("/offer") || path == "prepare" { 75 }
             else if path == "automation/status" { 15 }
+            else if path == "automation/hierarchy" { 35 }
             else if path.ends_with("/commands") { 8 }
             else if path.ends_with("/renew") { 5 }
             else if path.ends_with("/close") { 15 }
