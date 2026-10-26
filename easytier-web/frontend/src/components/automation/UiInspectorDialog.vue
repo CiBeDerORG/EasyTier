@@ -5,6 +5,7 @@ import { v4 as uuid } from 'uuid';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
 import type { AutomationDevice, AutomationHierarchy, AutomationHierarchyNode, AutomationSelector, AutomationStep } from '../../types/automation';
 import type { StepTarget } from '../../modules/automation-step-target';
+import { locatorIsUnique, rankLocatorCandidates } from '../../modules/automation-locator-candidates';
 
 const props = defineProps<{
     visible: boolean; device: AutomationDevice; ownerId: number;
@@ -43,6 +44,13 @@ const nodeIndex = computed(() => new Map((snapshot.value?.nodes ?? []).map(node 
 const parentIds = computed(() => new Set((snapshot.value?.nodes ?? [])
     .map(node => node.parent_id).filter((value): value is number => value !== null)));
 const selected = computed(() => selectedId.value === null ? null : nodeIndex.value.get(selectedId.value) ?? null);
+const locatorCandidates = computed(() => snapshot.value && selectedId.value !== null ? rankLocatorCandidates(snapshot.value, selectedId.value) : []);
+const selectedCandidate = ref<string | null>(null);
+const confirmedLocator = computed(() => {
+    const candidate = locatorCandidates.value.find(item => item.id === selectedCandidate.value && item.unique);
+    return candidate && snapshot.value && selectedId.value !== null
+        && locatorIsUnique(snapshot.value, selectedId.value, candidate.selector) ? candidate.selector : null;
+});
 const lineage = computed(() => {
     const chain: AutomationHierarchyNode[] = [];
     const visited = new Set<number>();
@@ -174,10 +182,12 @@ const modeOptions = computed(() => {
     return choices;
 });
 const activeMode = computed(() => modeOptions.value.find(item => item.value === mode.value));
-const canAdd = computed(() => !props.replaceStep && !!selected.value && !!activeMode.value?.unique && props.queuedCount < 100);
+const canAdd = computed(() => !props.replaceStep && !!selected.value
+    && (mode.value === 'coordinates' ? !!activeMode.value?.unique : !!confirmedLocator.value) && props.queuedCount < 100);
 const canReplace = computed(() => {
     if (!props.replaceStep || !selected.value || !snapshot.value || snapshot.value.truncated
-        || !activeMode.value?.unique || response.value?.target_fingerprint !== props.device.target_fingerprint) return false;
+        || (mode.value === 'coordinates' ? !activeMode.value?.unique : !confirmedLocator.value)
+        || response.value?.target_fingerprint !== props.device.target_fingerprint) return false;
     const type = props.replaceStep.type;
     if (mode.value === 'coordinates') return (type === 'tap' || type === 'long_press') && compatibleVideo.value;
     if (mode.value === 'xpath' && (type === 'input_text' || type === 'assert_property')) return false;
@@ -194,7 +204,7 @@ function title(node: AutomationHierarchyNode) {
     return node.text || node.description || node.resource_id || node.class_name || '未命名控件';
 }
 function selectNode(id: number) {
-    selectedId.value = id; feedback.value = '';
+    selectedId.value = id; selectedCandidate.value = null; feedback.value = '';
     const expanded = new Set(collapsedIds.value);
     const visited = new Set<number>();
     let parent = nodeIndex.value.get(id)?.parent_id ?? null;
@@ -222,7 +232,7 @@ function videoMetadata() {
 async function refresh() {
     if (!props.visible || loading.value) return;
     const generation = ++requestGeneration;
-    response.value = null; selectedId.value = null; collapsedIds.value = [];
+    response.value = null; selectedId.value = null; selectedCandidate.value = null; collapsedIds.value = [];
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = ''; loading.value = true;
     try {
@@ -283,12 +293,21 @@ function pick(event: MouseEvent) {
     if (candidates.length) selectNode(candidates[0].id);
     else { selectedId.value = null; feedback.value = '点击位置未找到有效控件，请刷新控件树。'; }
 }
+watch(mode, () => { selectedCandidate.value = null; });
 watch(selected, node => {
     if (!node) return;
     mode.value = (['resource_id', 'text', 'description', 'composite', 'xpath'] as const)
         .find(key => modeOptions.value.some(option => option.value === key && option.unique)) ?? 'coordinates';
 });
+function chooseCandidate(id: string) {
+    const candidate = locatorCandidates.value.find(item => item.id === id && item.unique);
+    if (!candidate || !snapshot.value || selectedId.value === null
+        || !locatorIsUnique(snapshot.value, selectedId.value, candidate.selector)) return;
+    mode.value = 'composite';
+    selectedCandidate.value = id;
+}
 function locator(): AutomationSelector | null {
+    if (mode.value !== 'coordinates') return confirmedLocator.value;
     if (!selected.value || !activeMode.value?.unique) return null;
     if (mode.value === 'resource_id') return { resource_id: selected.value.resource_id };
     if (mode.value === 'text') return { text: selected.value.text };
@@ -448,6 +467,18 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
                         <div class="property"><span>文字</span><code>{{ selected.password ? '敏感输入框（已隐藏）' : selected.text || '—' }}</code></div>
                         <div class="property"><span>描述</span><code>{{ selected.description || '—' }}</code></div>
                         <div class="property"><span>范围</span><code>{{ selected.bounds.left }}, {{ selected.bounds.top }} → {{ selected.bounds.right }}, {{ selected.bounds.bottom }}</code></div>
+                        <div class="locator-recommendations" aria-label="候选控件定位">
+                            <strong>候选定位条件（需人工确认）</strong>
+                            <small v-if="snapshot?.truncated">控件树已截断，无法验证唯一性，请刷新。</small>
+                            <small v-else-if="!locatorCandidates.length">没有安全候选，可改选其他控件。</small>
+                            <button v-for="item in locatorCandidates.slice(0, 8)" :key="item.id" type="button"
+                                class="candidate-row" :class="{ chosen: selectedCandidate === item.id }"
+                                :disabled="!item.unique" @click="chooseCandidate(item.id)">
+                                <span>{{ item.label }} · {{ item.unique ? '唯一' : '匹配 ' + item.matches + ' 个' }}</span>
+                                <small>{{ selectedCandidate === item.id ? '已确认' : item.unique ? '选择' : '不可用' }}</small>
+                            </button>
+                            <small>仅验证当前快照；不使用 instance 序号。界面变化后请刷新。</small>
+                        </div>
                         <label class="locator-label" for="ui-inspector-locator">定位方式</label>
                         <select id="ui-inspector-locator" v-model="mode" class="locator-select">
                             <option v-for="option in modeOptions" :key="option.value" :value="option.value" :disabled="!option.unique">{{ option.label }}{{ option.unique ? '' : ' · 不可用或不唯一' }}</option>
@@ -530,6 +561,12 @@ watch(() => props.stream, async () => { await nextTick(); setVideo(); });
 .property span,.locator-label{font-size:11px;color:var(--console-muted)}
 .property code{font-family:ui-monospace,monospace;font-size:11px;overflow-wrap:anywhere;white-space:normal}
 .locator-select{width:100%;border:1px solid var(--console-border-strong);background:var(--console-panel-raised);color:var(--p-text-color);padding:9px;border-radius:8px}
+.locator-recommendations{display:grid;gap:6px;border:1px solid var(--console-border);border-radius:8px;padding:8px}
+.locator-recommendations strong{font-size:12px}
+.locator-recommendations small{font-size:11px;color:var(--console-muted)}
+.candidate-row{display:flex;justify-content:space-between;gap:8px;text-align:left;border:1px solid var(--console-border);border-radius:6px;padding:7px;background:var(--console-panel-raised);color:var(--p-text-color);cursor:pointer;font-size:11px}
+.candidate-row.chosen{border-color:var(--p-primary-color);background:var(--console-accent-soft)}
+.candidate-row:disabled{opacity:.45;cursor:not-allowed}
 .step-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:5px}
 .step-actions :deep(.p-button){justify-content:center}
 .inspector-footer{border-top:1px solid var(--console-border);padding-top:12px;font-size:12px;color:var(--console-muted);flex-wrap:wrap}
