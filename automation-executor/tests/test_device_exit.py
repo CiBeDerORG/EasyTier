@@ -186,6 +186,61 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(final['state'], 'completed')
         self.assertTrue(all(device['state'] == 'completed' for device in final['devices']))
 
+    async def test_aut08_two_phone_success_and_terminal_assert_failure(self):
+        """Full durable journal + scheduler; only the phone with a failed
+        final assertion fails, while the other phone completes independently.
+        No Android hardware required (worker RPC deliberately mocked).
+        """
+        good, bad = target("10.60.12.21"), target("10.60.12.22")
+        body = run_body(self.runtime.journal, [good, bad])
+        body["concurrency"] = 2
+        body["steps"] = [
+            {"id": str(uuid4()), "type": "launch_app", "package": "com.example.demo"},
+            {"id": str(uuid4()), "type": "if_else", "selector": {"text": "Confirm?"},
+             "then_count": 1, "else_count": 1},
+            {"id": str(uuid4()), "type": "tap", "selector": {"resource_id": "demo:id/yes"}},
+            {"id": str(uuid4()), "type": "tap", "selector": {"resource_id": "demo:id/no"}},
+            {"id": str(uuid4()), "type": "long_press", "x": 0.5, "y": 0.5,
+             "width": 1080, "height": 2400, "duration_ms": 900},
+            {"id": str(uuid4()), "type": "assert", "selector": {"text": "Completed"},
+             "timeout_ms": 10000},
+        ]
+        seen = []
+        async def execute(journal, holder, phone, step, *_args):
+            seen.append((phone["device_id"], step["id"]))
+            if step["type"] == "if_else":
+                return {"state": "condition_passed",
+                        "branch_taken": "then" if phone["device_id"] == good["device_id"] else "else"}
+            if step["type"] == "assert":
+                if phone["device_id"] == bad["device_id"]:
+                    raise ExecutorError("selector_not_found", "Success indicator absent")
+                return {"state": "assertion_passed"}
+            return {"state": "action_sent"}
+
+        with patch("automation_executor.runtime.execute_step", new=execute):
+            await self.runtime.create_run(body)
+            await asyncio.wait_for(self.runtime.tasks[body["id"]], 3)
+        stored = self.runtime.journal.run(body["id"])
+        results = {device["device_id"]: device for device in stored["devices"]}
+        self.assertEqual(results[good["device_id"]]["state"], "completed")
+        self.assertEqual(results[bad["device_id"]]["state"], "failed")
+        self.assertEqual([entry["state"] for entry in results[good["device_id"]]["steps"]],
+                         ["action_sent", "condition_passed", "action_sent", "skipped",
+                          "action_sent", "assertion_passed"])
+        self.assertEqual([entry["state"] for entry in results[bad["device_id"]]["steps"]],
+                         ["action_sent", "condition_passed", "skipped", "action_sent",
+                          "action_sent", "failed"])
+        self.assertNotIn((good["device_id"], body["steps"][3]["id"]), seen)
+        self.assertNotIn((bad["device_id"], body["steps"][2]["id"]), seen)
+        self.assertEqual(results[bad["device_id"]]["error"]["code"], "selector_not_found")
+        self.assertEqual(sum(did == good["device_id"] and sid == body["steps"][-1]["id"]
+                             for did, sid in seen), 1)
+        self.assertEqual(sum(did == bad["device_id"] and sid == body["steps"][-1]["id"]
+                             for did, sid in seen), 1)
+        # Running an assertion is not proof of business success by itself;
+        # that semantic conclusion is made by the Rust server from the
+        # immutable, explicitly marked snapshot and this persisted result.
+
     async def test_nested_if_else_never_evaluates_skipped_child_condition(self):
         first, second = target("10.60.9.21"), target("10.60.9.22")
         body = run_body(self.runtime.journal, [first, second])
