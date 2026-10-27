@@ -1,6 +1,6 @@
 # T37 · 执行器媒体观看权与动作写锁分离
 
-> 状态：**待开发**｜计划：P12｜复杂度：L｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**状态：业务代码已提交，待端到端联调验收**｜计划：P12｜复杂度：L｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一职责与依赖
 - Owner：**Executor Agent**。
@@ -22,4 +22,11 @@
 严禁复制第二套 scrcpy 会话来规避旧媒体约束；保留已有安全审计。
 
 ## 验证状态
-当前仅有计划文档；待开发、未测试、未构建。遵守仓库 AGENTS.md 调试模式，不主动运行本地检查或手动 CI。
+计划阶段描述已由下方实际交付记录补充；代码已提交、未测试、未构建。遵守仓库 AGENTS.md 调试模式，不主动运行本地检查或手动 CI。
+
+## 2026-10-28 · T37 实际代码交付
+- `automation-executor/automation_executor/journal.py`：同 holder 的重入要求 kind/fingerprint/endpoint/device 均匹配，否则拒绝；原子独占 Journal 不删除。
+- `runtime.py`、`app.py`：`sessions/{sid}/view-only` 显式单向降权并确认触摸释放与 worker 清理；`resume-manual` 要求执行器身份、当前媒体有效及无其它 holder；同一媒体会话与 WebRTC SDP 原样保持。只读拒绝 touch/key/text/stop/release/unlock；STOP/RELEASE 不能绕过其它 holder 的排他锁；未持有手控锁的释放操作是无副作用的确认。
+- 修复清理失败后的降权重试误报成功：只有 `view_only_confirmed` 真正完成旧写锁回收，才可幂等成功；其余维持拒写/待确认。变更包含 `6d6620d`、`bad8722`、`369e4c4`、`4098a00` 等提交。
+- **待验证**：手控输入执行中降权、已发送但回执未知、旧 worker cleanup_pending、脚本期间 STOP/解锁等硬拒绝、Executor 重启及旧镜像版本不支持时的 fail-closed 行为。
+- **未执行**单测、Python 检查、构建、CI、浏览器或 FnOS/Android 真机验收（调试模式）。
