@@ -22,6 +22,7 @@ import { automationMessages } from './automation/messages';
 import { analyzeAutomationFlow } from '../modules/automation-flow';
 import { appendAutomationDraftSteps, appendPickedAutomationStep, emptyAutomationDraft } from '../modules/automation-draft';
 import { createAutomationDraftSync } from '../modules/automation-draft-sync';
+import { releaseOwnedTrialPreviews } from '../modules/automation-run-handoff';
 import {
     beginPicker, readyPicker, stopPicker, setPickerIntent, invalidatePickerSnapshot,
     pickerMatches, pickerCanApply,
@@ -407,18 +408,16 @@ function reconcilePickerBindings() {
 // Preview sessions opened/adopted from the run dialog, never other users' sessions.
 const scriptPreviewIds = new Set<string>();
 async function releaseRunPreviews(ids: string[], progress: (message: string) => void): Promise<void> {
-    const targets = ids.length ? ids.filter(id => scriptPreviewIds.has(id)) : [...scriptPreviewIds];
-    for (const id of targets) {
-        const card = cards.get(id);
-        if (!card) throw new Error('手机预览卡片已丢失，不能确认控制权移交。');
-        if (card.getSessionId()) {
-            progress((deviceNames.value[id] ?? id) + '：正在关闭预览并确认资源清理');
-            await card.close();
-            if (card.getState().phase === 'cleanup_pending' || card.getSessionId())
-                throw new Error('手机预览尚未确认清理，不能安全执行脚本。');
-        }
-        scriptPreviewIds.delete(id);
-    }
+    const owner = ownerId.value;
+    await releaseOwnedTrialPreviews(api, {
+        ownerId: owner,
+        requestedDeviceIds: ids.length ? ids : [...scriptPreviewIds],
+        ownedPreviewIds: scriptPreviewIds,
+        findPreview: id => cards.get(id),
+        onProgress: progress,
+        stillCurrent: () => !disposed && ownerId.value === owner && tab.value === 'scripts',
+        deviceName: id => deviceNames.value[id] ?? id,
+    });
 }
 async function prepareRunDevice(
     id: string, needsHelper: boolean, preview: boolean,
