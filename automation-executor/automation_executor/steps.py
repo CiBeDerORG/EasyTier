@@ -220,9 +220,12 @@ def execute(target, step, parameters, artifact_path=None):
             rpc("click", center_x, center_y)
     elif kind in ("tap", "swipe", "long_press", "drag"):
         width, height = dev.window_size()
-        if (width < 1 or height < 1 or abs(width / height - step["width"] / step["height"]) > .02
-                or (width > height) != (step["width"] > step["height"])):
-            raise StepFailure("geometry_changed", "设备方向或画面比例与步骤不匹配，请重新校准坐标")
+        # Cross-device safety must be enforced in the executor as well as
+        # the web preflight: identical aspect ratios are NOT equivalent
+        # reference frames. Never silently rescale a recorded coordinate.
+        if (width != step["width"] or height != step["height"]):
+            raise StepFailure("geometry_changed",
+                              "设备实际屏幕宽高与步骤参考画面不一致，禁止缩放坐标；请重新拾取或录制")
         x, y = min(width - 1, round(step["x"] * width)), min(height - 1, round(step["y"] * height))
         if kind == "tap":
             rpc("click", x, y)
