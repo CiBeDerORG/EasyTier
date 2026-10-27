@@ -108,6 +108,9 @@ function onTrialProgress(value:InlineStepRunProgress){
 watch(()=>props.ownerId,()=>{trialProgress.value=null;});
 const trialStep = computed(() => props.draft.steps.find(item => item.id === trialStepId.value) ?? null);
 async function openCardTrial(stepId: string, acknowledgedUnknown = false) {
+    // A second ▶ must not silently replace the frozen in-flight trial,
+    // even if its previous dialog is already preparing the helper.
+    if(trialStepId.value !== null)return;
     if (props.repairContext?.stepId === stepId && props.repairContext.resultState === 'outcome_unknown' && !acknowledgedUnknown) return;
     if (!props.runnerAvailable || props.recording || !!props.syncRole || !!props.unlocking ||
         !!props.editingStepId || !props.device.target_fingerprint ||
@@ -791,7 +794,7 @@ onBeforeUnmount(() => {
                     @create="name => requestScriptAction({kind:'create',deviceId:device.id,name})"
                     @select="chooseScript" @clone="openScriptClone">
                     <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
-                        :trial-progress="trialProgress"
+                        :trial-progress="trialProgress" :trial-active="trialStepId !== null"
                         :undo-label="undoDeleteLabel"
                         @edit="emit('step-edit',device.id,$event)"
                         @trial="openCardTrial" @delete="requestStepDeletion"
