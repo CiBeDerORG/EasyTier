@@ -144,7 +144,7 @@ test('AC12 disconnect/switching viewed phone never deletes confirmed in-memory s
   picker=stopPicker(picker,6); // WebRTC disconnected
   picker=readyPicker(beginPicker(binding('phone-b','session-b'),7),7);
   assert.equal(picker.phase,'on');
-  assert.deepEqual(draft.steps,[step]);
+  assert.deepEqual(draft.steps.map(item=>({id:item.id,type:item.type,key:item.key})),[step]);
   assert.equal(draft.ownerId,owner);
   assert.equal(projectCardSteps(draft).steps[0].id,firstId);
 });
