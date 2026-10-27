@@ -268,3 +268,10 @@
 - `PhoneCard.vue` 在**原 phone-screen 内**挂载唯一浮窗壳，per card 独立 `automationPanelOpen` UI 状态、重置账号/设备时关闭；暴露 open/close/toggle 函数。仍保留原 footer CardStepTimeline，未迁移业务逻辑。
 - 已交接 T22：添加实际自动化 icon 作为用户可见入口；已交接 T23：进入退出 fullscreen 可视层级、尺寸与坐标联调。
 - **未执行**单测、TS、lint、构建、手动 CI、浏览器/Android 真机操作（调试模式）；实现效果待实际验证，不声称拖动/全屏验收通过。
+
+## 2026-10-27 · T22 自动化 icon / 唤醒按钮换位（调试模式）
+- `PhoneCard.vue`：侧边控制组第 3 槽原 `pi-power-off` 改为 `pi-bolt` 自动化按钮，绑定已有 `toggleAutomationPanel()`，并通过 `automationPanelOpen` 展示激活态，按钮开放不依赖 `manualAllowed`，运行期间仍可只读查看浮窗。
+- 旧唤醒按钮原样移到上方竖排操作组尾部；继续调用原 `localAction({type:'key',key:'WAKE'})` 并遵守原手控权限与禁用条件。
+- 上方操作组现在 4 个按钮，动态计算展开菜单的上下安全停靠范围；菜单关闭时仍维持原主 orb 停靠范围，加入窗口 resize 约束，兼容左右 dock。
+- `messages.ts` 新增中英文“自动化脚本”菜单标签。T21 的主面板与 `menuOpen`、视频/脚本数据/后端执行生命周期独立。
+- **实际代码修改**：`PhoneCard.vue`、`messages.ts`。**未执行测试、TypeScript、lint、构建、手动 CI 或真机操作**（持续调试模式）。待测：普通/全屏侧边第三槽与唤醒实际位置、自动化开闭、左/右 dock、极短横屏菜单裁切、原 WAKE 指令未误触。

@@ -92,7 +92,10 @@ function syncFullscreen() {
     isFullscreen.value = document.fullscreenElement === screen.value;
     closePickerMenu();
 }
-onMounted(() => document.addEventListener('fullscreenchange', syncFullscreen));
+onMounted(() => {
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    window.addEventListener('resize', constrainOrbAnchor);
+});
 const dock = ref<'left' | 'right'>('right');
 const anchorFraction = ref(0.5);
 const menuOpen = ref(false);
@@ -136,6 +139,23 @@ function dragStart(event: PointerEvent) {
         firstFraction: anchorFraction.value, moved: false };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
 }
+
+/** Keep the expanded upper/lower action stacks inside the current card surface. */
+function expandedOrbRange(): { min: number; max: number } {
+    const height = screen.value?.clientHeight ?? 0;
+    if (!height) return { min: 0.35, max: 0.65 };
+    const compact = window.matchMedia('(max-width:600px)').matches;
+    const size = compact ? 36 : 42;
+    // WAKE is the 4th upper action; navigation has 3 lower actions.
+    const top = (size * 4 + 4 * 3 + 6 + 10 + size / 2 + 8) / height;
+    const bottom = 1 - (size * 3 + 4 * 2 + 6 + 10 + size / 2 + 8) / height;
+    if (top > bottom) return { min: 0.5, max: 0.5 };
+    return { min: Math.max(0.07, top), max: Math.min(0.93, bottom) };
+}
+function constrainOrbAnchor() {
+    const { min, max } = menuOpen.value ? expandedOrbRange() : { min: 0.07, max: 0.93 };
+    anchorFraction.value = Math.max(min, Math.min(max, anchorFraction.value));
+}
 function dragMove(event: PointerEvent) {
     if (drag?.id !== event.pointerId || !screen.value) return;
     const bounds = screen.value.getBoundingClientRect();
@@ -143,7 +163,8 @@ function dragMove(event: PointerEvent) {
     if (!drag.moved && Math.hypot(x, y) < 7) return;
     event.preventDefault();
     drag.moved = true;
-    anchorFraction.value = Math.max(menuOpen.value ? 0.23 : 0.07, Math.min(menuOpen.value ? 0.69 : 0.93, drag.firstFraction + y / bounds.height));
+    const { min, max } = menuOpen.value ? expandedOrbRange() : { min: 0.07, max: 0.93 };
+    anchorFraction.value = Math.max(min, Math.min(max, drag.firstFraction + y / bounds.height));
     dock.value = event.clientX - bounds.left < bounds.width / 2 ? 'left' : 'right';
 }
 function dragEnd(event: PointerEvent) {
@@ -166,11 +187,14 @@ function markMenuInteraction() {
     clearMenuTimer();
     menuTimer = setTimeout(() => { menuOpen.value = false; }, menuIdleMs);
 }
-watch(menuOpen, open => { if (open) markMenuInteraction(); else clearMenuTimer(); });
+watch(menuOpen, open => {
+    if (open) { constrainOrbAnchor(); markMenuInteraction(); }
+    else clearMenuTimer();
+});
 function toggleOrb() {
     if (suppressOrbClick) { suppressOrbClick = false; return; }
     menuOpen.value = !menuOpen.value;
-    if (menuOpen.value) anchorFraction.value = Math.max(0.23, Math.min(0.69, anchorFraction.value));
+    if (menuOpen.value) constrainOrbAnchor();
 }
 function stopFrameChase() {
     if (frameCallback !== null && video.value?.cancelVideoFrameCallback) video.value.cancelVideoFrameCallback(frameCallback);
@@ -445,6 +469,7 @@ function getSessionId() { return session.getSessionId(); }
 defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock, getState, getStream, getSessionId, cancelPointer, resetPointer, openAutomationPanel, closeAutomationPanel, toggleAutomationPanel });
 onBeforeUnmount(() => {
     document.removeEventListener('fullscreenchange', syncFullscreen);
+    window.removeEventListener('resize', constrainOrbAnchor);
     if (document.fullscreenElement === screen.value) void document.exitFullscreen().catch(() => undefined);
     if (ambientVideo.value) ambientVideo.value.srcObject = null;
     disposed = true; trialStepId.value = null; watching = false; ++intentVersion; closePickerMenu(); clearMenuTimer(); stopFrameChase(); cancelPointer(); void session.close();
@@ -517,11 +542,14 @@ onBeforeUnmount(() => {
                         <Button icon="pi pi-pencil" rounded :aria-label="t('text')" :title="t('text')" :disabled="!manualAllowed" @click="emit('text', device.id)" />
                         <Button icon="pi pi-unlock" rounded severity="primary" :aria-label="t('unlockPhone')" :title="t('unlockPhone')" :loading="unlocking" :disabled="!manualAllowed || unlocking || recording" @click="emit('unlock', device.id)" />
                         <Button icon="pi pi-ban" rounded severity="secondary" :aria-label="t('releaseManual')" :title="t('releaseManual')" :disabled="!manualAllowed || unlocking" @click="localAction({ type: 'stop' })" />
+                        <Button icon="pi pi-power-off" rounded :aria-label="t('wake')" :title="t('wake')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'WAKE' })" />
                     </div>
                     <div class="side-actions">
                         <Button icon="pi pi-stop" rounded severity="danger" :aria-label="t('close')" :title="t('close')" @click="close().then(() => emit('refresh'))" />
                         <Button icon="pi pi-expand" rounded :aria-label="t('fullscreen')" :title="t('fullscreen')" :disabled="!ready" @click="fullscreen().catch(() => {})" />
-                        <Button icon="pi pi-power-off" rounded :aria-label="t('wake')" :title="t('wake')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'WAKE' })" />
+                        <Button icon="pi pi-bolt" rounded :severity="automationPanelOpen ? 'primary' : 'secondary'"
+                            :aria-label="t('automationScript')" :title="t('automationScript')"
+                            :aria-pressed="automationPanelOpen" @click="toggleAutomationPanel" />
                         <Button icon="pi pi-circle-fill" rounded :severity="recording ? 'danger' : 'secondary'" :aria-label="t(recording ? 'stopRecord' : 'record')" :title="t(recording ? 'stopRecord' : 'record')" :disabled="!manualAllowed" @click="emit('record', device.id)" />
                     </div>
                     <div class="nav-actions">
