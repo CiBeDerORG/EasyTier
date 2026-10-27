@@ -54,18 +54,28 @@
 - 自动准备、UiAutomator2 与实际试跑期间保留原手机实时画面并观察效果：拟拆分只读视频观看权与独占动作控制权（当前自研 Journal.claim 互斥包含手控/准备/脚本，需要前端+Rust+Executor协同）。
 - 产品/技术详情及 UX-01～UX-07 任务建议见 `../require/require-04-single-screen-observable-trial.md`；**未实现，未测试**。
 
-## 最终交互优化待开发任务（2026-10-27）
-完整产品定义与验收见 `../require/require-05-final-card-script-workflow.md`。这些任务均为**待开发**，不得与已提交的旧 T01～T18 混为“已实现”。
+## FINAL V2.0：冻结的交付范围与工作分配（2026-10-27）
+**主需求：** `../require/require-05-final-card-script-workflow.md`；优先遵守用户最后截图红框。**全部是待开发，不代表旧 T01～T18 状态变化。**
 
-| ID | 工作包 | 负责人 | 依赖 | 状态 |
-|---|---|---|---|---|
-| FINAL-01 | 统一脚本/步骤/运行状态与 UI 事件契约 | 集成负责人 | 无 | 待开发 |
-| FINAL-02 | 共享脚本选择器、第一行创建、打开和克隆；CAS 切换保护 | 集成负责人/脚本 Agent（共享接线唯一归集成） | FINAL-01 | 待开发 |
-| FINAL-03 | **所有步骤行**均支持删除（含条件及分支子步骤）、撤销、条件块范围确认与 CAS | 步骤 Agent | FINAL-01/02 | 待开发 |
-| FINAL-04 | Video Viewer Lease 与 Action Lease 分权及 Rust/Executor 原子移交 | 执行器/服务端 Agent | FINAL-01 | 待开发 |
-| FINAL-05 | 卡片 ▶ 单步自动准备并执行、行内运行状态、原视频不断 | 运行 Agent | FINAL-03/04 | 待开发 |
-| FINAL-06 | 共享脚本栏 ▶ 全局完整运行、勾选手机、并发与历史 | 集成负责人/运行 Agent | FINAL-02/04 | 待开发 |
-| FINAL-07 | UiInspector 停靠侧板，仅原卡片一个视频 | Inspector Agent | FINAL-01/02 | 待开发 |
-| FINAL-08 | 新旧验收 + FnOS/双 OEM/双浏览器/断网与控制权竞争 | QA | FINAL-02～07 | 待开发 |
+### 阶段 A · 仅红框内局部改造（先交付）
 
-**写入隔离：** 前端共享 `AutomationCenter.vue` / `ScriptLibrary.vue` 由集成负责人独占接线，步骤 Agent 独占 `CardStepTimeline.vue`，Inspector Agent 独占 `UiInspectorDialog.vue`，执行器 Agent 独占 `runtime.py/journal.py`，Rust Agent 独占资源授权与 run 接口，QA 维护测试报告。
+| 任务 | 目标与硬约束 | 文件唯一写入者 | 状态 |
+|---|---|---|---|
+| FINAL-01 | 冻结 ScriptSelector / 草稿切换 CAS / 脚本身份与名称布局规则，左侧下拉不得遮挡右侧步数 | 集成负责人（契约） | 待开发 |
+| FINAL-02 | 下拉首行即输入+新建；旧脚本行选中并加载；克隆须修改名称确认并**新建独立正式脚本记录**；未保存草稿保护 | 脚本组件 Agent 新组件；`AutomationCenter.vue`、`ScriptLibrary.vue` 由集成负责人唯一接线 | 待开发 |
+| FINAL-03 | **每行**（普通、条件和分支步骤）均显示删除入口；撤销、条件块范围确认、保留其余 step_id、CAS | 步骤 Agent 写 `CardStepTimeline.vue` 与纯函数，集成负责人接共享状态 | 待开发 |
+| FINAL-06（入口） | 在红框状态行紧凑放置全流程入口；仅调用已有安全运行流程，不能动旧锁/视频；右侧 x/100 不被遮挡 | 集成负责人/运行 Agent | 待开发 |
+| FINAL-08（A 验收） | FINAL V2 中 A-01～A-10，重点是下拉原位、无重复标题、计数、克隆新记录、每步删除和草稿防丢失 | QA | 待执行 |
+
+### 阶段 B · 独立执行与单画面专项（A 不顺带改）
+
+| 任务 | 目标 | 唯一写入负责人 | 状态 |
+|---|---|---|---|
+| FINAL-04 | Video viewer lease / Action lease 分权、Rust + Executor 原子控制权移交与 fail-closed | Executor Agent 管 `runtime.py/journal.py`；Rust Agent 管服务端会话接口 | 待开发 |
+| FINAL-05 | 卡片绿 ▶ 点击即在**本机**自动准备并执行，行内反馈，不弹普遍确认框，画面不断流 | 运行 Agent，集成负责人接线 | 待开发 |
+| FINAL-06（执行） | 全局完整脚本对勾选设备并行执行、设备内顺序、历史追溯、视频观察 | 运行 Agent + 集成负责人/服务端 Agent | 待开发 |
+| FINAL-07 | Inspector 停靠面板，唯一原画面，全屏/触屏/旋转高亮 | Inspector Agent 写 `UiInspectorDialog.vue`；集成负责人接线 | 待开发 |
+| FINAL-08（B 验收） | B-01～B-06，FnOS + 两个 OEM + 双浏览器/断网/锁竞争/未知动作等 | QA | 待执行 |
+
+**共同约束：** 跨 `AutomationCenter.vue` / `ScriptLibrary.vue` 的改动由集成负责人独占；其他 Agent 只交付新组件或独立模块。不要复制脚本数据源或媒体流；未经用户授权仍遵守调试模式，不做本地验证或手动 CI。
+
