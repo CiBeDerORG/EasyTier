@@ -1,7 +1,7 @@
 //! TLS 1.3 verifier pinned to the SPKI SHA-256 shown by the host's
 //! `easyhostagent -identity`. Pin validation happens IN THE TLS HANDSHAKE,
 //! including on every connection/reconnection before sending a bearer token.
-use std::{fmt, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     pki_types::{CertificateDer, ServerName, UnixTime},
@@ -82,6 +82,43 @@ fn spki_der(cert: &[u8]) -> Option<&[u8]> {
     tbs.get(at..spki_end)
 }
 
+// Enforce the embedded certificate's validity interval in addition to the
+// unique trusted SPKI. The Agent certificate uses standard UTCTime/GeneralizedTime.
+fn valid_at(cert: &[u8], now: UnixTime) -> bool {
+    fn check(cert: &[u8], now: UnixTime) -> Option<bool> {
+        let (_, begin, _) = tlv(cert, 0)?;
+        let (_, start, end) = tlv(cert, begin)?;
+        let tbs = cert.get(start..end)?;
+        let mut at = 0;
+        if tlv(tbs, at)?.0 == 0xa0 { at = tlv(tbs, at)?.2; }
+        for expected in [0x02, 0x30, 0x30] {
+            let (tag, _, end) = tlv(tbs, at)?;
+            if tag != expected { return None; }
+            at = end;
+        }
+        let (tag, inner, end) = tlv(tbs, at)?;
+        if tag != 0x30 { return None; }
+        fn timestamp(data: &[u8], at: usize) -> Option<(i64, usize)> {
+            let (tag, start, end) = tlv(data, at)?;
+            let value = std::str::from_utf8(data.get(start..end)?).ok()?;
+            let (count, format) = match tag {
+                0x17 => (13, "%y%m%d%H%M%SZ"),
+                0x18 => (15, "%Y%m%d%H%M%SZ"),
+                _ => return None,
+            };
+            if value.len() != count || !value.ends_with('Z') { return None; }
+            let time = chrono::NaiveDateTime::parse_from_str(value, format).ok()?;
+            Some((time.and_utc().timestamp(), end))
+        }
+        let (not_before, next) = timestamp(tbs, inner)?;
+        let (not_after, tail) = timestamp(tbs, next)?;
+        if tail != end || not_after <= not_before { return None; }
+        let now = i64::try_from(now.as_secs()).ok()?;
+        Some(now >= not_before && now < not_after)
+    }
+    check(cert, now).unwrap_or(false)
+}
+
 impl ServerCertVerifier for PinVerifier {
     fn verify_server_cert(
         &self,
@@ -89,17 +126,20 @@ impl ServerCertVerifier for PinVerifier {
         intermediates: &[CertificateDer<'_>],
         _server_name: &ServerName<'_>,
         _ocsp: &[u8],
-        _now: UnixTime,
+        now: UnixTime,
     ) -> Result<ServerCertVerified, TlsError> {
         // EasyHostAgent emits exactly one self-signed leaf; certificates cannot
         // be substituted using a public CA, a redirect, or a malicious gateway.
         if !intermediates.is_empty() {
             return Err(TlsError::General("unexpected Agent certificate chain".into()));
         }
+        if !valid_at(end_entity.as_ref(), now) {
+            return Err(TlsError::General("Agent certificate expired or not yet valid".into()));
+        }
         let spki = spki_der(end_entity.as_ref())
             .ok_or_else(|| TlsError::General("invalid Agent certificate SPKI".into()))?;
         let actual = Sha256::digest(spki);
-        if self.0.ct_eq(actual.as_slice()).unwrap_u8() != 1 {
+        if self.0.as_slice().ct_eq(actual.as_slice()).unwrap_u8() != 1 {
             return Err(TlsError::General("Agent TLS SPKI fingerprint mismatch".into()));
         }
         Ok(ServerCertVerified::assertion())
