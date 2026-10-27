@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /** T14: one selected step on this phone; reuse T12/T13 and the ordinary /runs API. */
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { Button, Checkbox, Dialog, InputText, Message, Tag } from 'primevue';
+import { Button, Checkbox, InputText, Message, Tag } from 'primevue';
+import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
 import { useCardTrialPreparation, type CardTrialPhase } from '../../modules/useCardTrialPreparation';
@@ -22,6 +23,8 @@ import {
 
 const props=defineProps<{
     visible: boolean;
+    portalTarget: HTMLElement | null;
+    fullscreen: boolean;
     ownerId: number;
     device: AutomationDevice;
     step: AutomationStep | null;
@@ -427,9 +430,9 @@ onBeforeUnmount(()=>{
 </script>
 
 <template>
-    <Dialog :visible="visible" modal append-to="body" header="卡片单步骤试跑"
-        :style="{width:'530px',maxWidth:'calc(100vw - 24px)'}"
-        @update:visible="open => {if(!open)hide();}">
+    <AutomationFloatingDialog :visible="visible" :portal-target="portalTarget"
+        :fullscreen="fullscreen" title="卡片单步骤试跑"
+        :closable="!busy || phase === 'preparing'" @close="hide">
         <div class="card-trial-content">
             <div class="trial-source">
                 <strong>{{ device.name }} · {{ label }}</strong>
@@ -505,7 +508,7 @@ onBeforeUnmount(()=>{
             </div>
             <small class="trial-note">准备成功不代表执行成功；单步骤成功不代表整套业务验证完成。未知动作结果不会自动重试。</small>
         </div>
-    </Dialog>
+    </AutomationFloatingDialog>
 </template>
 
 <style scoped>
