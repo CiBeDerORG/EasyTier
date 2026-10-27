@@ -20,6 +20,11 @@ import ExecutorSettings from './automation/ExecutorSettings.vue';
 import { automationMessages } from './automation/messages';
 import { analyzeAutomationFlow } from '../modules/automation-flow';
 import { appendAutomationDraftSteps, emptyAutomationDraft } from '../modules/automation-draft';
+import {
+    beginPicker, readyPicker, stopPicker, setPickerIntent, invalidatePickerSnapshot,
+    pickerMatches, pickerCanApply,
+    type PickerBinding, type PickerContext, type PickerIntent,
+} from '../modules/automation-picker-state';
 import type { AutomationRepairRequest } from '../modules/automation-run-repair';
 import { replaceAutomationStepTarget, type StepTarget } from '../modules/automation-step-target';
 import type { AutomationStepType } from '../types/automation';
@@ -130,6 +135,12 @@ const recordingId = ref<string | null>(null); const recordingPaused = ref(false)
 const draftWorkspace = reactive(emptyAutomationDraft(0));
 const repairRequest = ref<AutomationRepairRequest | null>(null);
 watch(ownerId, id => Object.assign(draftWorkspace, emptyAutomationDraft(id)), { immediate: true });
+// Loading/saving a different script revision invalidates picker intents but
+// never deletes any steps. The persistent draft is still out of scope (M3).
+watch(() => [draftWorkspace.ownerId, draftWorkspace.editingId, draftWorkspace.revision] as const, () => {
+    // This watcher executes after pickerContexts is initialized at runtime.
+    if (typeof stopAllPicking === 'function') stopAllPicking();
+});
 const inspectorDeviceId = ref<string | null>(null);
 const inspectorStream = shallowRef<MediaStream | null>(null);
 interface PickerEditScope {
@@ -152,6 +163,55 @@ const textDialogTarget = computed<HTMLElement | 'body'>(() =>
     fullscreenActive.value && document.fullscreenElement instanceof HTMLElement
         ? document.fullscreenElement : 'body');
 const cards = new Map<string, PhoneHandle>();
+// T01: picker modes belong to a live card/session; steps stay in ONE draftWorkspace.
+const pickerContexts = reactive<Record<string, PickerContext>>({});
+let pickerEpoch = 0;
+function pickerBinding(id: string): PickerBinding | null {
+    const device = devices.value.find(item => item.id === id);
+    const card = cards.get(id);
+    const sessionId = card?.getSessionId();
+    if (!device || !card?.getState().ready || !sessionId || !device.target_fingerprint
+        || device.owner_user_id !== ownerId.value || draftWorkspace.ownerId !== ownerId.value) return null;
+    return {
+        ownerId: ownerId.value, deviceId: id,
+        targetFingerprint: device.target_fingerprint, sessionId,
+        draftOwnerId: draftWorkspace.ownerId,
+        draftScriptId: draftWorkspace.editingId ?? null,
+        draftRevision: draftWorkspace.revision ?? null,
+    };
+}
+function stopCardPicking(id: string) {
+    const current = pickerContexts[id];
+    if (current && current.phase !== 'off')
+        pickerContexts[id] = stopPicker(current, ++pickerEpoch);
+}
+function stopAllPicking() {
+    for (const id of Object.keys(pickerContexts)) stopCardPicking(id);
+}
+function armCardPicking(id: string, intent: PickerIntent = {kind:'append'}): boolean {
+    const binding = pickerBinding(id);
+    if (!binding || !!sync.value || !!recordingId.value) return false;
+    const current = pickerContexts[id];
+    if (current?.phase === 'on' && pickerMatches(current, binding)) {
+        pickerContexts[id] = setPickerIntent(current, intent, ++pickerEpoch);
+    } else {
+        const started = beginPicker(binding, ++pickerEpoch, intent);
+        // Card/session readiness is confirmed here; UI hierarchy readiness is
+        // separately confirmed by the Inspector after a fresh hierarchy read.
+        pickerContexts[id] = readyPicker(started, started.generation);
+    }
+    return true;
+}
+function reconcilePickerBindings() {
+    for (const [id, current] of Object.entries(pickerContexts)) {
+        if (current.phase === 'off') continue;
+        const binding = pickerBinding(id);
+        if (!binding || !pickerMatches(current, binding)) stopCardPicking(id);
+    }
+}
+// T02/T03 consume pickerContexts[id].phase and arm/stop callbacks; T04/T06
+// must call pickerCanApply with BOTH generations before committing an async hit.
+
 // Preview sessions opened/adopted from the run dialog, never other users' sessions.
 const scriptPreviewIds = new Set<string>();
 async function releaseRunPreviews(ids: string[], progress: (message: string) => void): Promise<void> {
@@ -344,6 +404,7 @@ async function loadDevices() {
         // A cached component state belongs to one exact ADB target revision.
         const previousTargets = new Map(devices.value.map(item => [item.id, item.target_fingerprint]));
         devices.value = response.items; sourceIssues.value = response.issues ?? []; subscribeEndpoints();
+        reconcilePickerBindings();
         for (const id of Object.keys(componentStatuses.value)) {
             const device = response.items.find(item => item.id === id);
             if (!device || previousTargets.get(id) !== device.target_fingerprint) {
@@ -413,7 +474,7 @@ async function query() {
     await loadDevices();
     queryVisibleDeviceStatuses();
     if (sync.value?.deviceIds.some(id => !visibleIds.value.has(id))) await stopSync();
-    for (const [id, card] of cards) if (!visibleIds.value.has(id)) await card.close();
+    for (const [id, card] of cards) if (!visibleIds.value.has(id)) { stopCardPicking(id); await card.close(); }
 }
 async function changeOwner(id: number) {
     if (id === ownerId.value || busy.value || connecting.value || switchingTab.value) return;
@@ -424,6 +485,7 @@ async function changeOwner(id: number) {
     adbActionVersions.clear();
     await closeAll();
     closeInspector();
+    stopAllPicking();
     ownerId.value = id; devices.value = []; selectedIds.value = []; phases.value = {}; results.value = [];
     componentStatuses.value = {}; componentStatusResults.value = [];
     initialSelectionDone = false; initialConnectDone = false;
@@ -578,6 +640,7 @@ async function closeSelected() {
     await loadDevices();
 }
 async function closeAll() {
+    stopAllPicking();
     closeInspector();
     globalOpen.value = false; syncPreparation.value = false;
     await stopSync();
@@ -586,6 +649,7 @@ async function closeAll() {
     scriptPreviewIds.clear();
 }
 function onState(id: string, phase: string) {
+    if (phase !== 'live') stopCardPicking(id);
     if (phase !== 'live' && inspectorDeviceId.value === id) closeInspector();
     phases.value[id] = phase;
     if (phase === 'live') phoneConnections.value[id] = 'connected';
@@ -613,6 +677,8 @@ function beginSync() {
     const master = geometry[syncMaster.value];
     if (!master || Object.values(geometry).some(item => (item.width > item.height) !== (master.width > master.height))) { error.value = t('syncRotation'); return; }
     sync.value = { masterId: syncMaster.value, deviceIds: [...syncTargets.value], blocked: [], geometry };
+    for (const id of syncTargets.value) stopCardPicking(id);
+    if (inspectorDeviceId.value && syncTargets.value.includes(inspectorDeviceId.value)) closeInspector();
     syncPreparation.value = false; gesture = null;
 }
 async function stopSync() {
@@ -635,6 +701,8 @@ async function releaseManual(ids: string[]) {
     return success;
 }
 function onGeometry(id: string) {
+    if (pickerContexts[id]?.phase === 'on')
+        pickerContexts[id] = invalidatePickerSnapshot(pickerContexts[id]);
     if (sync.value?.deviceIds.includes(id)) { notice.value = t('syncRotation'); void stopSync(); }
     if (recordingId.value === id) { ++recordingGeneration; gesture = null; notice.value = t('recordIncomplete'); }
 }
@@ -800,6 +868,8 @@ function toggleRecord(id: string) {
         error.value = '当前脚本草稿已满或分支范围无效，请先在脚本编辑器处理。';
         return;
     }
+    stopCardPicking(id);
+    if (inspectorDeviceId.value === id) closeInspector();
     ++recordingGeneration; recordingId.value = id; recordingPaused.value = false; recordedSteps.value = []; gesture = null;
 }
 function pauseRecording() {
@@ -813,6 +883,9 @@ function openInspector(id: string) {
     const card = cards.get(id);
     const stream = card?.getStream();
     if (!card?.getState().ready || !stream) { error.value = '请先打开这台手机的实时画面，再拾取控件。'; return; }
+    if (!armCardPicking(id)) {
+        error.value = '无法开启拾取：设备会话、账号或草稿上下文已变化。'; return;
+    }
     inspectorEditScope.value = null;
     inspectorDeviceId.value = id;
     inspectorStream.value = stream;
@@ -870,6 +943,19 @@ function replaceInspectorTarget(stepId: string, target: StepTarget) {
 }
 function addInspectorStep(step: AutomationStep) {
     if (inspectorEditScope.value) return; // replacement mode can never append
+    // The old Inspector still supports adding steps; reject stale results
+    // after a card reconnect, account switch, script change or geometry reset.
+    if (inspectorStream.value && inspectorDeviceId.value) {
+        const current = pickerContexts[inspectorDeviceId.value];
+        const binding = pickerBinding(inspectorDeviceId.value);
+        if (!current || !binding || !pickerCanApply(
+            current, binding, current.generation, current.snapshotGeneration, {kind:'append'},
+        )) {
+            error.value = '拾取会话或脚本上下文已经变化，未追加步骤；请重新拾取。';
+            closeInspector();
+            return;
+        }
+    }
     if (!appendAutomationDraftSteps(draftWorkspace, ownerId.value, [step], uuid)) {
         error.value = '无法添加控件：草稿超过 100 步或分支结构无效，请先在脚本库处理。';
         return;
@@ -914,6 +1000,7 @@ async function changeTab(next: typeof tab.value) {
             if (!await releaseManual(live)) return;
         }
         tab.value = next;
+        stopAllPicking();
         if (next === 'settings') settingsVisited.value = true;
         if (next === 'workbench') await loadDevices();
     } finally { switchingTab.value = false; }
@@ -931,10 +1018,14 @@ async function onRepairStep(request: AutomationRepairRequest) {
     if (tab.value !== 'scripts') repairRequest.value = null;
 }
 function onRunCreated(run: AutomationRun) {
+    stopAllPicking();
+    closeInspector();
     for (const card of cards.values()) card.cancelRestoreIntent();
     focusRunId.value = run.id; ++historyKey.value; tab.value = 'history';
 }
 function savedConnection(device: AutomationDevice) {
+    stopCardPicking(device.id);
+    if (inspectorDeviceId.value === device.id) closeInspector();
     adbActionVersions.set(device.id, (adbActionVersions.get(device.id) ?? 0) + 1);
     delete phoneConnections.value[device.id];
     delete phoneConnectionErrors.value[device.id];
@@ -971,6 +1062,7 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => { stopEvents?.();
     disposed = true; ++workspaceGeneration; ++loadGeneration; ++catalogGeneration; ++statusQueryGeneration;
+    stopAllPicking();
     document.removeEventListener('visibilitychange', visibilityChanged);
     document.removeEventListener('fullscreenchange', fullScreenChanged);
     window.removeEventListener('blur', releaseOnBlur);
