@@ -62,7 +62,8 @@ const repairStepNumber = computed(() => repairStep.value
     ? props.draft.steps.findIndex(step => step.id === repairStep.value!.id)+1 : 0);
 const trialStepId = ref<string | null>(null);
 const trialStep = computed(() => props.draft.steps.find(item => item.id === trialStepId.value) ?? null);
-async function openCardTrial(stepId: string) {
+async function openCardTrial(stepId: string, acknowledgedUnknown = false) {
+    if (props.repairContext?.stepId === stepId && props.repairContext.resultState === 'outcome_unknown' && !acknowledgedUnknown) return;
     if (!props.runnerAvailable || props.recording || !!props.syncRole || !!props.unlocking ||
         !!props.editingStepId || !props.device.target_fingerprint ||
         !props.draft.steps.some(item => item.id === stepId)) return;
@@ -533,7 +534,7 @@ onBeforeUnmount(() => {
             :blocked="!!syncRole || recording || !!unlocking"
             @edit="emit('step-edit',device.id,$event)"
             @repick="emit('repair-repick',device.id,$event)"
-            @trial="openCardTrial"
+            @trial="stepId => openCardTrial(stepId,true)"
             @dismiss="emit('repair-dismiss',device.id)" />
         <CardTrialPanel :visible="trialStepId !== null" :owner-id="ownerId" :device="device"
             :step="trialStep" :preview-handle="getTrialPreviewHandle"
