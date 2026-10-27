@@ -4,7 +4,7 @@
  */
 import type { AutomationStep, AutomationStepType } from '../types/automation';
 import type { AutomationDraftWorkspace } from './automation-draft';
-import { analyzeAutomationFlow } from './automation-flow';
+import { analyzeAutomationFlow } from './automation-flow.ts';
 
 export type DraftSaveState = 'new' | 'modified' | 'saved';
 export interface CardStepRow {
