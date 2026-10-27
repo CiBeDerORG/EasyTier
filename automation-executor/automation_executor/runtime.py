@@ -465,10 +465,26 @@ class Runtime:
             holder = "session:" + sid
             try:
                 if kind in ("stop", "touch.release"):
+                    # A viewer is not an action holder. An unclaimed STOP or
+                    # RELEASE must NEVER send scrcpy control bytes while a
+                    # script/prepare/other session owns the physical device.
+                    control = self.journal.control(current.target)
+                    if control and (control["holder"] != holder or control["kind"] != "manual"
+                                    or control["state"] != "active"):
+                        raise ExecutorError(
+                            "cleanup_pending" if control["state"] == "cleanup_pending" else "device_busy",
+                            "设备由脚本/准备任务占用或仍待清理，已拒绝当前会话的手控释放", 409)
                     current.cancel.set()
-                    outcome = await self.media.command(sid, body)
-                    if kind == "stop":
-                        self.journal.release(holder, clean=self.journal.worker_record(holder) is None)
+                    if control is None:
+                        # No session action claim means this viewer owns no
+                        # touch to release. Ack the request as a no-op.
+                        outcome = {"state": "action_sent"}
+                    else:
+                        # Under the session command lock, release the actual
+                        # touch before relinquishing the journal write lease.
+                        outcome = await self.media.command(sid, body)
+                        if kind == "stop":
+                            self.journal.release(holder, clean=self.journal.worker_record(holder) is None)
                 else:
                     if kind == "input_text":
                         value = validation.text(body.get("text"), 2000, empty=True)
