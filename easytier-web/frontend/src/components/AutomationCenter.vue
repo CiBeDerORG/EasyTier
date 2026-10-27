@@ -35,6 +35,7 @@ import {
 } from '../modules/automation-run-repair';
 import { replaceAutomationStepTarget, stepCanPickTarget, type StepTarget } from '../modules/automation-step-target';
 import { updateCardDraftStep } from '../modules/automation-card-step-edit';
+import { planAutomationStepDeletion } from '../modules/automation-card-step-delete';
 import { canAccessAutomationCard } from '../modules/automation-floating-contract';
 import { locateReadOnlyStep, type LocatorDemoResult } from '../modules/automation-locator-demo';
 import type { AutomationStepType } from '../types/automation';
@@ -1317,27 +1318,111 @@ function selectCardStep(deviceId: string, stepId: string): boolean {
     return true;
 }
 function editCardStep(deviceId: string, stepId: string) {
+    const previous=cardStepEditor.value;
+    if (previous && (previous.deviceId !== deviceId || previous.stepId !== stepId) && cardEditorDirty.value) {
+        error.value = '当前步骤有未保存的参数，请先在浮动编辑窗保存，或明确选择放弃修改。';
+        return;
+    }
     if (!selectCardStep(deviceId, stepId)) {
         error.value = '步骤或手机归属已变化，请重新打开脚本草稿。';
         return;
     }
-    const previous=cardStepEditor.value;
-    if (previous && (previous.deviceId !== deviceId || previous.stepId !== stepId)) {
-        if (!closeCardStepEditor(previous.deviceId)) {
-            draftWorkspace.selectedStepId = previous.stepId;
-            return;
-        }
-    }
+    if (previous && (previous.deviceId !== deviceId || previous.stepId !== stepId))
+        closeCardStepEditor(previous.deviceId);
     cardStepEditor.value={deviceId,stepId};
     cardEditorDirty.value=false;
+}
+
+/** Only one shared draft mutation path, regardless of which phone requests it. */
+interface DeletedStepUndo {
+    owner: number;
+    scriptId: string | undefined;
+    revision: number | undefined;
+    beforeSteps: AutomationStep[];
+    beforeSelected: string | undefined;
+    afterFingerprint: string;
+    count: number;
+}
+const deletedStepUndo = ref<DeletedStepUndo | null>(null);
+let deletedStepUndoTimer: ReturnType<typeof setTimeout> | undefined;
+function clearDeletedStepUndo() {
+    if (deletedStepUndoTimer !== undefined) clearTimeout(deletedStepUndoTimer);
+    deletedStepUndoTimer = undefined;
+    deletedStepUndo.value = null;
+}
+watch(() => [draftWorkspace.ownerId,draftWorkspace.editingId,draftWorkspace.revision] as const,
+    clearDeletedStepUndo);
+onBeforeUnmount(clearDeletedStepUndo);
+const deletedStepUndoLabel = computed(() => {
+    const undo=deletedStepUndo.value;
+    return undo && undo.owner===ownerId.value &&
+        undo.scriptId===draftWorkspace.editingId &&
+        undo.revision===draftWorkspace.revision &&
+        undo.afterFingerprint===JSON.stringify(draftWorkspace.steps)
+            ? '已删除 '+undo.count+' 步，可撤销'
+            : '';
+});
+function deleteCardDraftStep(
+    deviceId:string,stepId:string,expectedFingerprint:string,confirmedTargetId:string,
+) {
+    const device=devices.value.find(item=>item.id===deviceId);
+    if(!canAccessAutomationCard(ownerId.value,deviceId,device,draftWorkspace) ||
+        !draftSyncState.initialized || draftSyncState.ownerId!==ownerId.value ||
+        draftSyncState.phase==='loading' || draftSyncState.phase==='conflict') {
+        error.value='当前手机或草稿修订状态不可用，未删除步骤。';return;
+    }
+    if(cardEditorDirty.value) {
+        error.value='有未保存的步骤参数，请先保存或放弃，再删除步骤。';return;
+    }
+    const preview=planAutomationStepDeletion(draftWorkspace.steps,stepId);
+    if(!preview || preview.fingerprint!==expectedFingerprint ||
+        preview.targetId!==confirmedTargetId) {
+        error.value='确认删除期间条件范围或步骤已变化，未修改草稿；请重新点击删除。';return;
+    }
+    const beforeSteps=JSON.parse(JSON.stringify(draftWorkspace.steps)) as AutomationStep[];
+    const beforeSelected=draftWorkspace.selectedStepId;
+    clearDeletedStepUndo();
+    if(cardStepEditor.value && preview.affectedIds.includes(cardStepEditor.value.stepId))
+        closeCardStepEditor(cardStepEditor.value.deviceId);
+    for(const id of Object.keys(locatorDemos)) {
+        if(preview.affectedIds.includes(locatorDemos[id]?.stepId??''))clearCardDemo(id);
+    }
+    draftWorkspace.steps=preview.nextSteps;
+    draftWorkspace.selectedStepId=preview.nextSteps.some(step=>step.id===beforeSelected)
+        ? beforeSelected
+        : preview.nextSteps[Math.min(beforeSteps.findIndex(step=>step.id===stepId),preview.nextSteps.length-1)]?.id;
+    deletedStepUndo.value={
+        owner:ownerId.value,scriptId:draftWorkspace.editingId,
+        revision:draftWorkspace.revision,beforeSteps,beforeSelected,
+        afterFingerprint:JSON.stringify(draftWorkspace.steps),count:preview.affectedIds.length,
+    };
+    deletedStepUndoTimer=setTimeout(clearDeletedStepUndo,10000);
+    notice.value='已从当前工作草稿删除 '+preview.affectedIds.length+' 个步骤；正在由同一 CAS 草稿同步器保存。';
+}
+function undoCardDraftStepDeletion(deviceId:string) {
+    const device=devices.value.find(item=>item.id===deviceId),undo=deletedStepUndo.value;
+    if(!undo || !canAccessAutomationCard(ownerId.value,deviceId,device,draftWorkspace) ||
+        !draftSyncState.initialized || draftSyncState.phase==='conflict' ||
+        undo.owner!==ownerId.value || undo.scriptId!==draftWorkspace.editingId ||
+        undo.revision!==draftWorkspace.revision ||
+        undo.afterFingerprint!==JSON.stringify(draftWorkspace.steps)) {
+        error.value='草稿已发生其它修改、授权变化或修订冲突，不能覆盖新内容来撤销。';
+        clearDeletedStepUndo();return;
+    }
+    draftWorkspace.steps=undo.beforeSteps;
+    draftWorkspace.selectedStepId=undo.beforeSelected;
+    clearDeletedStepUndo();
+    notice.value='已撤销上一次步骤删除，原步骤 ID 与条件范围已恢复；正在同步工作草稿。';
 }
 function markCardStepDirty(deviceId: string, dirty: boolean) {
     if (cardStepEditor.value?.deviceId === deviceId) cardEditorDirty.value=dirty;
 }
-function closeCardStepEditor(deviceId: string): boolean {
+function closeCardStepEditor(deviceId: string, discardConfirmed = false): boolean {
     if (cardStepEditor.value?.deviceId !== deviceId) return true;
-    if (cardEditorDirty.value &&
-        !window.confirm('这一步还有未保存的参数修改，确定放弃修改吗？')) return false;
+    if (cardEditorDirty.value && !discardConfirmed) {
+        error.value='当前参数尚未保存，请在浮动编辑窗选择继续编辑或明确放弃修改。';
+        return false;
+    }
     cardStepEditor.value=null;
     cardEditorDirty.value=false;
     clearCardDemo(deviceId);
@@ -1759,6 +1844,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         :scripts="scriptWorkspace.state.items" :scripts-busy="scriptWorkspace.state.busy"
                         :scripts-loading="scriptWorkspace.state.loading" :scripts-error="scriptWorkspace.state.error"
                         :script-guard="scriptWorkspace.guard.value"
+                        :undo-delete-label="deletedStepUndoLabel" :editing-dirty="cardEditorDirty"
                         :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
                         :repicking-step-id="repickingStepIds[device.id]"
                         :repair-context="cardRepairContext?.deviceId === device.id ? cardRepairContext : null"
@@ -1767,7 +1853,9 @@ onBeforeUnmount(() => { stopEvents?.();
                         @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
                         @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction"
                         @script-refresh="refreshScriptList" @script-action="handleFloatingScriptAction"
-                        @step-edit="editCardStep" @trial-history="onCardTrialHistory" @trial-repair="onCardTrialRepair" @repair-repick="repickCardRepairStep" @repair-dismiss="dismissCardRepair" @step-close="closeCardStepEditor"
+                        @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
+                        @step-undo="undoCardDraftStepDeletion"
+                        @trial-history="onCardTrialHistory" @trial-repair="onCardTrialRepair" @repair-repick="repickCardRepairStep" @repair-dismiss="dismissCardRepair" @step-close="closeCardStepEditor"
                         @step-save="saveCardStep" @step-repick="repickCardStep" @step-dirty="markCardStepDirty"
                         @step-demo="demoCardStep" @demo-clear="clearCardDemo" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
