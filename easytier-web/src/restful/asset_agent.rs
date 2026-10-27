@@ -28,9 +28,14 @@ fn failure(e: asset_agent::Error) -> (StatusCode, Json<Value>) {
         asset_agent::Error::Invalid(_) => (StatusCode::UNPROCESSABLE_ENTITY, "invalid_agent_input"),
         asset_agent::Error::Conflict(_) => (StatusCode::CONFLICT, "agent_already_bound"),
         asset_agent::Error::IdentityChanged => (StatusCode::CONFLICT, "agent_identity_mismatch"),
-        asset_agent::Error::PairRejected => (StatusCode::UNPROCESSABLE_ENTITY, "pairing_code_rejected"),
+        asset_agent::Error::PairRejected => {
+            (StatusCode::UNPROCESSABLE_ENTITY, "pairing_code_rejected")
+        }
         asset_agent::Error::Remote => (StatusCode::BAD_GATEWAY, "agent_tls_or_network_failure"),
-        asset_agent::Error::Storage => (StatusCode::SERVICE_UNAVAILABLE, "agent_binding_storage_failed"),
+        asset_agent::Error::Storage => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "agent_binding_storage_failed",
+        ),
     };
     (status, Json(json!({"code":code,"message":e.to_string()})))
 }
@@ -42,8 +47,14 @@ async fn checked(
     scope: &Scope,
 ) -> Outcome<Value> {
     server_agent_entry::load_authorized(
-        auth, config, central, scope.owner_user_id, &scope.machine_id, id,
-    ).await
+        auth,
+        config,
+        central,
+        scope.owner_user_id,
+        &scope.machine_id,
+        id,
+    )
+    .await
 }
 
 async fn status(
@@ -68,7 +79,11 @@ async fn probe(
     Json(input): Json<ProbeInput>,
 ) -> Outcome<Json<Value>> {
     let device = checked(&auth, &config, &central, &id, &scope).await?;
-    manager.probe(&device, input).await.map(Json).map_err(failure)
+    manager
+        .probe(&device, input)
+        .await
+        .map(Json)
+        .map_err(failure)
 }
 
 async fn pair(
@@ -81,7 +96,11 @@ async fn pair(
     Json(input): Json<PairInput>,
 ) -> Outcome<Json<Value>> {
     let device = checked(&auth, &config, &central, &id, &scope).await?;
-    manager.pair(&device, input).await.map(Json).map_err(failure)
+    manager
+        .pair(&device, input)
+        .await
+        .map(Json)
+        .map_err(failure)
 }
 
 pub fn router(manager: Arc<Manager>) -> Router<AppStateInner> {

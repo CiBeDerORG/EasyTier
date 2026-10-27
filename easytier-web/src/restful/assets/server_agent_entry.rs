@@ -2,7 +2,8 @@
 use super::*;
 
 fn eligible(device: &Value) -> bool {
-    device["semantic_kinds"].as_array()
+    device["semantic_kinds"]
+        .as_array()
         .is_some_and(|kinds| kinds.iter().any(|kind| kind.as_str() == Some("server")))
 }
 
@@ -18,7 +19,10 @@ pub(crate) async fn load_authorized(
     authorize(auth, config, service, owner).await?;
     let node = machine_id(node)?;
     let store = AssetsStore::new(service.db.clone());
-    let device = store.get_device(owner, &node, id).await.map_err(asset_error)?;
+    let device = store
+        .get_device(owner, &node, id)
+        .await
+        .map_err(asset_error)?;
     if !eligible(&device) {
         return Err(asset_error(AssetError::conflict(
             "agent_requires_server_semantic",
@@ -37,7 +41,10 @@ pub(super) async fn get(
 ) -> HttpResult<Json<Value>> {
     let (_, owner, node) = scoped_context(&auth, &config, &service, query).await?;
     let store = AssetsStore::new(service.db.clone());
-    let device = store.get_device(owner, &node, &id).await.map_err(asset_error)?;
+    let device = store
+        .get_device(owner, &node, &id)
+        .await
+        .map_err(asset_error)?;
     if !eligible(&device) {
         return Err(asset_error(AssetError::conflict(
             "agent_requires_server_semantic",
@@ -66,7 +73,9 @@ mod tests {
         assert!(eligible(&json!({"semantic_kinds": ["openwrt", "server"]})));
         assert!(eligible(&json!({"semantic_kinds": ["server"]})));
         assert!(!eligible(&json!({"semantic_kinds": ["phone"]})));
-        assert!(!eligible(&json!({"semantic_kind": "server", "semantic_kinds": []})));
+        assert!(!eligible(
+            &json!({"semantic_kind": "server", "semantic_kinds": []})
+        ));
         assert!(!eligible(&json!({"semantic_kinds": null})));
     }
 }

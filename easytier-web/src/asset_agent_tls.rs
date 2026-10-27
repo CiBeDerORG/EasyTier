@@ -1,13 +1,13 @@
 //! TLS 1.3 verifier pinned to the SPKI SHA-256 shown by the host's
 //! `easyhostagent -identity`. Pin validation happens IN THE TLS HANDSHAKE,
 //! including on every connection/reconnection before sending a bearer token.
-use std::{sync::Arc, time::Duration};
 use rustls::{
+    DigitallySignedStruct, Error as TlsError, SignatureScheme,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     pki_types::{CertificateDer, ServerName, UnixTime},
-    DigitallySignedStruct, Error as TlsError, SignatureScheme,
 };
 use sha2::{Digest, Sha256};
+use std::{sync::Arc, time::Duration};
 use subtle::ConstantTimeEq;
 
 #[derive(Clone)]
@@ -43,13 +43,21 @@ fn tlv(bytes: &[u8], at: usize) -> Option<(u8, usize, usize)> {
         (usize::from(first), at.checked_add(2)?)
     } else {
         let count = usize::from(first & 0x7f);
-        if count == 0 || count > 4 { return None; }
+        if count == 0 || count > 4 {
+            return None;
+        }
         let len_start = at.checked_add(2)?;
         let slice = bytes.get(len_start..len_start.checked_add(count)?)?;
-        if slice[0] == 0 { return None; }
+        if slice[0] == 0 {
+            return None;
+        }
         let mut size = 0usize;
-        for b in slice { size = size.checked_mul(256)?.checked_add(usize::from(*b))?; }
-        if size < 128 { return None; }
+        for b in slice {
+            size = size.checked_mul(256)?.checked_add(usize::from(*b))?;
+        }
+        if size < 128 {
+            return None;
+        }
         (size, len_start.checked_add(count)?)
     };
     let end = start.checked_add(length)?;
@@ -58,27 +66,43 @@ fn tlv(bytes: &[u8], at: usize) -> Option<(u8, usize, usize)> {
 }
 fn spki_der(cert: &[u8]) -> Option<&[u8]> {
     let (tag, begin, end) = tlv(cert, 0)?;
-    if tag != 0x30 || end != cert.len() { return None; }
+    if tag != 0x30 || end != cert.len() {
+        return None;
+    }
     let (tag, tbs_start, tbs_end) = tlv(cert, begin)?;
-    if tag != 0x30 { return None; }
+    if tag != 0x30 {
+        return None;
+    }
     let tbs = cert.get(tbs_start..tbs_end)?;
     let mut at = 0;
-    if tlv(tbs, at)?.0 == 0xa0 { at = tlv(tbs, at)?.2; }
+    if tlv(tbs, at)?.0 == 0xa0 {
+        at = tlv(tbs, at)?.2;
+    }
     // serialNumber, signature algorithm, issuer, validity, subject.
     for tag in [0x02, 0x30, 0x30, 0x30, 0x30] {
         let (found, _, end) = tlv(tbs, at)?;
-        if found != tag { return None; }
+        if found != tag {
+            return None;
+        }
         at = end;
     }
     let (tag, _, spki_end) = tlv(tbs, at)?;
-    if tag != 0x30 { return None; }
+    if tag != 0x30 {
+        return None;
+    }
     // Reject empty SPKI or missing algorithm/key fields.
     let (_, inner, _) = tlv(tbs, at)?;
-    if inner == spki_end { return None; }
+    if inner == spki_end {
+        return None;
+    }
     let (algorithm, _, algorithm_end) = tlv(tbs, inner)?;
-    if algorithm != 0x30 { return None; }
+    if algorithm != 0x30 {
+        return None;
+    }
     let (key_tag, _, key_end) = tlv(tbs, algorithm_end)?;
-    if key_tag != 0x03 || key_end != spki_end { return None; }
+    if key_tag != 0x03 || key_end != spki_end {
+        return None;
+    }
     tbs.get(at..spki_end)
 }
 
@@ -90,14 +114,20 @@ fn valid_at(cert: &[u8], now: UnixTime) -> bool {
         let (_, start, end) = tlv(cert, begin)?;
         let tbs = cert.get(start..end)?;
         let mut at = 0;
-        if tlv(tbs, at)?.0 == 0xa0 { at = tlv(tbs, at)?.2; }
+        if tlv(tbs, at)?.0 == 0xa0 {
+            at = tlv(tbs, at)?.2;
+        }
         for expected in [0x02, 0x30, 0x30] {
             let (tag, _, end) = tlv(tbs, at)?;
-            if tag != expected { return None; }
+            if tag != expected {
+                return None;
+            }
             at = end;
         }
         let (tag, inner, end) = tlv(tbs, at)?;
-        if tag != 0x30 { return None; }
+        if tag != 0x30 {
+            return None;
+        }
         fn timestamp(data: &[u8], at: usize) -> Option<(i64, usize)> {
             let (tag, start, end) = tlv(data, at)?;
             let value = std::str::from_utf8(data.get(start..end)?).ok()?;
@@ -106,13 +136,17 @@ fn valid_at(cert: &[u8], now: UnixTime) -> bool {
                 0x18 => (15, "%Y%m%d%H%M%SZ"),
                 _ => return None,
             };
-            if value.len() != count || !value.ends_with('Z') { return None; }
+            if value.len() != count || !value.ends_with('Z') {
+                return None;
+            }
             let time = chrono::NaiveDateTime::parse_from_str(value, format).ok()?;
             Some((time.and_utc().timestamp(), end))
         }
         let (not_before, next) = timestamp(tbs, inner)?;
         let (not_after, tail) = timestamp(tbs, next)?;
-        if tail != end || not_after <= not_before { return None; }
+        if tail != end || not_after <= not_before {
+            return None;
+        }
         let now = i64::try_from(now.as_secs()).ok()?;
         Some(now >= not_before && now < not_after)
     }
@@ -131,35 +165,50 @@ impl ServerCertVerifier for PinVerifier {
         // EasyHostAgent emits exactly one self-signed leaf; certificates cannot
         // be substituted using a public CA, a redirect, or a malicious gateway.
         if !intermediates.is_empty() {
-            return Err(TlsError::General("unexpected Agent certificate chain".into()));
+            return Err(TlsError::General(
+                "unexpected Agent certificate chain".into(),
+            ));
         }
         if !valid_at(end_entity.as_ref(), now) {
-            return Err(TlsError::General("Agent certificate expired or not yet valid".into()));
+            return Err(TlsError::General(
+                "Agent certificate expired or not yet valid".into(),
+            ));
         }
         let spki = spki_der(end_entity.as_ref())
             .ok_or_else(|| TlsError::General("invalid Agent certificate SPKI".into()))?;
         let actual = Sha256::digest(spki);
         if self.0.as_slice().ct_eq(actual.as_slice()).unwrap_u8() != 1 {
-            return Err(TlsError::General("Agent TLS SPKI fingerprint mismatch".into()));
+            return Err(TlsError::General(
+                "Agent TLS SPKI fingerprint mismatch".into(),
+            ));
         }
         Ok(ServerCertVerified::assertion())
     }
     fn verify_tls12_signature(
-        &self, _: &[u8], _: &CertificateDer<'_>, _: &DigitallySignedStruct,
+        &self,
+        _: &[u8],
+        _: &CertificateDer<'_>,
+        _: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, TlsError> {
         Err(TlsError::General("TLS 1.2 is disabled".into()))
     }
     fn verify_tls13_signature(
-        &self, message: &[u8], cert: &CertificateDer<'_>, sig: &DigitallySignedStruct,
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        sig: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, TlsError> {
         rustls::crypto::verify_tls13_signature(
-            message, cert, sig,
+            message,
+            cert,
+            sig,
             &rustls::crypto::ring::default_provider().signature_verification_algorithms,
         )
     }
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
         rustls::crypto::ring::default_provider()
-            .signature_verification_algorithms.supported_schemes()
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }
 pub(crate) fn pinned_client(pin: &Fingerprint) -> Result<reqwest::Client, String> {
@@ -186,15 +235,22 @@ pub(crate) fn pinned_client(pin: &Fingerprint) -> Result<reqwest::Client, String
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn pin_validation() {
+    #[test]
+    fn pin_validation() {
         assert!(Fingerprint::parse(&"a".repeat(64)).is_ok());
         assert!(Fingerprint::parse(&"A".repeat(64)).is_ok());
         for invalid in ["", "test", "a", "0x123", "g".repeat(64).as_str()] {
             assert!(Fingerprint::parse(invalid).is_err());
         }
     }
-    #[test] fn malformed_x509_rejected() {
-        for bad in [vec![], vec![0x30,0x80], vec![0x30,0x02,0xff,0xff], vec![0x30,0x00]] {
+    #[test]
+    fn malformed_x509_rejected() {
+        for bad in [
+            vec![],
+            vec![0x30, 0x80],
+            vec![0x30, 0x02, 0xff, 0xff],
+            vec![0x30, 0x00],
+        ] {
             assert!(spki_der(&bad).is_none());
         }
     }
