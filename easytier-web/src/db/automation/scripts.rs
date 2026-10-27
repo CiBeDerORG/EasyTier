@@ -22,7 +22,8 @@ impl AutomationStore {
         validation::keys(body,&["name","description","steps","revision"])?;
         let name=validation::text(body,"name",128,true)?;
         let description=validation::text(body,"description",2000,false)?;
-        let steps=validation::steps(&body["steps"])?;
+        // Empty scripts can be saved/edited; create_run still requires 1–100 steps.
+        let steps=validation::saved_steps(&body["steps"])?;
         let mut tx=self.pool.begin_with("BEGIN IMMEDIATE").await?;active_owner(&mut tx,owner).await?;
         let id=if let Some(id)=id {
             let revision=body["revision"].as_i64().filter(|v|*v>0).ok_or_else(||AutomationError::field("revision","The current draft revision is required."))?;

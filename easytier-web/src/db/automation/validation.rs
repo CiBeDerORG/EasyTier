@@ -54,6 +54,15 @@ fn parameter_name(value:&str)->bool {
         &&value.bytes().all(|c|c.is_ascii_alphanumeric()||c==b'_')
 }
 
+/// Persisted scripts may be empty until their first step is recorded.
+/// An executable run MUST still pass steps() (1–100 valid actions).
+pub(super) fn saved_steps(input:&Value)->AutomationResult<Value> {
+    if input.as_array().is_some_and(|items|items.is_empty()) {
+        return Ok(json!([]));
+    }
+    steps(input)
+}
+
 pub(super) fn steps(input:&Value)->AutomationResult<Value> {
     let items=input.as_array().filter(|v|!v.is_empty()&&v.len()<=100).ok_or_else(||AutomationError::field("steps","Use between 1 and 100 steps."))?;
     if input.to_string().len()>256*1024 {return Err(AutomationError::field("steps","The script is too large."));}
@@ -325,5 +334,29 @@ mod business_verification_contract_tests {
             "business_verification":true
         });
         assert!(steps(&json!([p])).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod empty_script_persistence_contract_tests {
+    use super::*;
+
+    #[test]
+    fn empty_scripts_can_be_saved_but_are_not_executable() {
+        let blank=json!([]);
+        assert_eq!(saved_steps(&blank).unwrap(),blank);
+        assert!(steps(&blank).is_err());
+    }
+
+    #[test]
+    fn nonempty_saved_scripts_keep_existing_validation() {
+        let valid=json!([{"id":Uuid::new_v4().to_string(),"type":"key","key":"WAKE"}]);
+        assert_eq!(saved_steps(&valid).unwrap(),steps(&valid).unwrap());
+        let bad=json!([{"id":Uuid::new_v4().to_string(),"type":"key","key":"INVALID"}]);
+        assert!(saved_steps(&bad).is_err());
+        assert!(saved_steps(&Value::Null).is_err());
+        assert!(saved_steps(&json!({})).is_err());
+        let many=(0..101).map(|_|json!({"id":Uuid::new_v4().to_string(),"type":"key","key":"HOME"})).collect::<Vec<_>>();
+        assert!(saved_steps(&json!(many)).is_err());
     }
 }
