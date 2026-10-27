@@ -35,7 +35,7 @@ pub(super) async fn create(
     let owner=owner(query)?;
     let actor=authorize(&auth,&config,&service,owner).await?;
     let payload=body(input)?;
-    exact_fields(&payload,&["request_id","name","description","steps"])?;
+    exact_fields(&payload,&["request_id","name","description","steps","script_id","script_revision"])?;
     Ok(Json(store(&service).save_draft(actor,owner,None,&payload).await.map_err(store_error)?))
 }
 
@@ -48,7 +48,7 @@ pub(super) async fn update(
     let actor=authorize(&auth,&config,&service,owner).await?;
     let id=id(&raw_id)?;
     let payload=body(input)?;
-    exact_fields(&payload,&["request_id","revision","name","description","steps"])?;
+    exact_fields(&payload,&["request_id","revision","name","description","steps","script_id","script_revision"])?;
     Ok(Json(store(&service).save_draft(actor,owner,Some(&id),&payload).await.map_err(store_error)?))
 }
 

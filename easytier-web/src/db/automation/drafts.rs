@@ -17,6 +17,8 @@ fn draft_json(row: &SqliteRow) -> AutomationResult<Value> {
         "name": row.try_get::<String,_>("name")?,
         "description": row.try_get::<String,_>("description")?,
         "steps": parse_json(&row.try_get::<String,_>("steps_json")?)?,
+        "script_id": row.try_get::<Option<String>,_>("script_id")?,
+        "script_revision": row.try_get::<Option<i64>,_>("script_revision")?,
         "revision": row.try_get::<i64,_>("revision")?,
         "created_at": row.try_get::<String,_>("created_at")?,
         "updated_at": row.try_get::<String,_>("updated_at")?
@@ -110,14 +112,26 @@ impl AutomationStore {
         &self, actor: i32, owner: i32, id: Option<&str>, body: &Value
     ) -> AutomationResult<Value> {
         validation::keys(body, if id.is_some() {
-            &["request_id", "revision", "name", "description", "steps"]
+            &["request_id", "revision", "name", "description", "steps", "script_id", "script_revision"]
         } else {
-            &["request_id", "name", "description", "steps"]
+            &["request_id", "name", "description", "steps", "script_id", "script_revision"]
         })?;
         let request = request_id(body)?;
         let name = validation::text(body, "name", 128, false)?;
         let description = validation::text(body, "description", 2000, false)?;
         let steps = safe_steps(body)?;
+        let script_id = match body.get("script_id") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(value)) if Uuid::parse_str(value).is_ok_and(|v|v.to_string()==*value) => Some(value.to_owned()),
+            _ => return Err(AutomationError::field("script_id", "A source script must have a canonical UUID.")),
+        };
+        let script_revision = match body.get("script_revision") {
+            None | Some(Value::Null) => None,
+            Some(value) => value.as_i64().filter(|n|*n>0),
+        };
+        if script_id.is_some()!=script_revision.is_some() {
+            return Err(AutomationError::field("script_revision", "Provide both source script and its positive revision, or neither."));
+        }
         let expected = if id.is_some() { Some(revision(body)?) } else { None };
         let operation = if id.is_some() {"update"} else {"create"};
         let hash = request_hash(operation,id,body);
@@ -126,10 +140,16 @@ impl AutomationStore {
         if let Some(previous) = replay(&mut tx,owner,actor,&request,&hash).await? {
             return Ok(previous);
         }
+        if let Some(script) = &script_id {
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM automation_scripts WHERE owner_user_id=? AND id=?)")
+                .bind(owner).bind(script).fetch_one(&mut *tx).await?;
+            if !exists {return Err(not_found());}
+        }
         let id = if let Some(id) = id {
-            let changed = sqlx::query("UPDATE automation_drafts SET name=?,description=?,steps_json=?,revision=revision+1,actor_user_id=?,updated_at=? WHERE owner_user_id=? AND id=? AND revision=?")
+            let changed = sqlx::query("UPDATE automation_drafts SET name=?,description=?,steps_json=?,script_id=?,script_revision=?,revision=revision+1,actor_user_id=?,updated_at=? WHERE owner_user_id=? AND id=? AND revision=?")
                 .bind(&name).bind(&description).bind(steps.to_string())
-                .bind(actor).bind(now()).bind(owner).bind(id).bind(expected).execute(&mut *tx).await?;
+                .bind(&script_id).bind(script_revision).bind(actor).bind(now()).bind(owner).bind(id).bind(expected).execute(&mut *tx).await?;
             if changed.rows_affected()==0 {
                 let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_drafts WHERE owner_user_id=? AND id=?)")
                     .bind(owner).bind(id).fetch_one(&mut *tx).await?;
@@ -140,9 +160,9 @@ impl AutomationStore {
         } else {
             let new_id=Uuid::new_v4().to_string();
             let timestamp=now();
-            sqlx::query("INSERT INTO automation_drafts(id,owner_user_id,actor_user_id,name,description,steps_json,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?)")
+            sqlx::query("INSERT INTO automation_drafts(id,owner_user_id,actor_user_id,name,description,steps_json,script_id,script_revision,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,1,?,?)")
                 .bind(&new_id).bind(owner).bind(actor).bind(&name).bind(&description)
-                .bind(steps.to_string()).bind(&timestamp).bind(&timestamp).execute(&mut *tx).await?;
+                .bind(steps.to_string()).bind(&script_id).bind(script_revision).bind(&timestamp).bind(&timestamp).execute(&mut *tx).await?;
             new_id
         };
         let row=sqlx::query("SELECT * FROM automation_drafts WHERE owner_user_id=? AND id=?")

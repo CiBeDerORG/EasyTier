@@ -8,11 +8,11 @@
 |---|---|---|---|
 | GET | `/api/v1/automation/drafts` | 仅 owner 查询 | `{items:Draft[]}` |
 | GET | `/api/v1/automation/drafts/{draft_id}` | 仅 owner 查询 | `Draft` |
-| POST | `/api/v1/automation/drafts` | `{request_id,name,description,steps}` | 首次：`Draft`（revision=1）；重放：精简回执 |
-| PUT | `/api/v1/automation/drafts/{draft_id}` | `{request_id,revision,name,description,steps}` | 首次：`Draft`（CAS 旧 revision+1）；重放：精简回执 |
+| POST | `/api/v1/automation/drafts` | `{request_id,name,description,steps,script_id,script_revision}` | 首次：`Draft`（revision=1）；重放：精简回执 |
+| PUT | `/api/v1/automation/drafts/{draft_id}` | `{request_id,revision,name,description,steps,script_id,script_revision}` | 首次：`Draft`（CAS 旧 revision+1）；重放：精简回执 |
 | DELETE | `/api/v1/automation/drafts/{draft_id}` | JSON body `{request_id,revision}` | 首次：`{id,deleted:true,revision}`；重放：精简回执 |
 
-`Draft` 含 `id,owner_user_id,name,description,steps,revision,created_at,updated_at`。可为空步骤 `steps:[]`，但存在步骤时必须是现有正式脚本验证支持的完整结构；步骤 ID 保持 canonical UUID，最多100步。
+`Draft` 含 `id,owner_user_id,name,description,steps,revision,created_at,updated_at,script_id,script_revision`。来源脚本两字段可同时为 null；非空时必须成对提供、来源正式脚本须归属当前账号，`script_revision` 为正整数。该关联仅供恢复编辑上下文，不会自动发布修改。可为空步骤 `steps:[]`，但存在步骤时必须是现有正式脚本验证支持的完整结构；步骤 ID 保持 canonical UUID，最多100步。
 
 **不接受运行时参数值**：`input_text` 只能保存如 `{"type":"input_text","id":"<uuid>","parameter":"account_name","selector":{"resource_id":"com.example:id/account"}}` 等已验证步骤结构，不能提供 `text` 字面值；用户输入的真实文字仅在试跑/运行时按现有 executor 协议提供，不写入草稿。不要把登录密码填进 `name` / `description` / 定位文字。
 

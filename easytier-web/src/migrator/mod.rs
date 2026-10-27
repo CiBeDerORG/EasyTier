@@ -26,6 +26,7 @@ mod m20261025_000022_public_node_ip;
 mod m20261025_000023_adb_unlock_secrets;
 mod m20261025_000024_device_type_semantic_kinds;
 mod m20261027_000025_automation_drafts;
+mod m20261027_000026_automation_draft_script_link;
 
 #[cfg(test)]
 mod merge_upgrade_tests;
@@ -61,6 +62,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261025_000023_adb_unlock_secrets::Migration),
             Box::new(m20261025_000024_device_type_semantic_kinds::Migration),
             Box::new(m20261027_000025_automation_drafts::Migration),
+            Box::new(m20261027_000026_automation_draft_script_link::Migration),
         ]
     }
 }

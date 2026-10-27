@@ -142,6 +142,8 @@ export interface AutomationDraftRecord {
     description: string;
     steps: AutomationStep[];
     revision: number;
+    script_id: string | null;
+    script_revision: number | null;
     created_at: string;
     updated_at: string;
 }
@@ -157,5 +159,7 @@ export interface AutomationDraftInput {
     name: string;
     description: string;
     steps: AutomationStep[];
+    script_id: string | null;
+    script_revision: number | null;
     revision?: number;
 }

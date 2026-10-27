@@ -24,6 +24,7 @@ export interface DraftSyncState {
 }
 export interface DraftSnapshot {
     name: string; description: string; steps: AutomationStep[];
+    script_id: string | null; script_revision: number | null;
 }
 interface RequestInFlight {
     owner: number; id: string | null; revision: number | null;
@@ -32,6 +33,7 @@ interface RequestInFlight {
 export function draftFingerprint(workspace: Pick<AutomationDraftWorkspace,'name'|'description'|'steps'>): string {
     return JSON.stringify({
         name: workspace.name, description: workspace.description, steps: workspace.steps,
+        script_id: workspace.editingId ?? null, script_revision: workspace.revision ?? null,
     });
 }
 function toSummary(record: AutomationDraftRecord): DraftSummary {
@@ -42,7 +44,7 @@ function snapshotOf(workspace: AutomationDraftWorkspace): DraftSnapshot {
     // Immutable wire body: retries must use the original request_id AND body.
     return JSON.parse(draftFingerprint(workspace)) as DraftSnapshot;
 }
-const initialFingerprint=JSON.stringify({name:'',description:'',steps:[]});
+const initialFingerprint=JSON.stringify({name:'',description:'',steps:[],script_id:null,script_revision:null});
 
 /** Mutations are serialized per live owner/workspace. A failed request retains
  * the exact payload and UUID for a safe manual or 'online' retry. */
@@ -78,9 +80,10 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
     }
     function replaceWorkspace(record:AutomationDraftRecord) {
         suspended=true;
-        // Formal scripts are never automatically published or overwritten:
-        // restored work is a new, non-formal working copy.
-        workspace.editingId=undefined;workspace.revision=undefined;
+        // Preserve source script identity for an existing saved script.
+        // The formal script is STILL only written by /scripts CAS on publish.
+        workspace.editingId=record.script_id??undefined;
+        workspace.revision=record.script_revision??undefined;
         workspace.name=record.name;workspace.description=record.description;
         workspace.steps=record.steps.map(step=>({...step,selector:step.selector?{...step.selector}:undefined,
             scroll_container:step.scroll_container?{...step.scroll_container}:undefined}));
