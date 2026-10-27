@@ -2934,6 +2934,7 @@ dependencies = [
  "ring",
  "rust-embed",
  "rust-i18n",
+ "rustls",
  "sea-orm",
  "sea-orm-migration",
  "serde",
