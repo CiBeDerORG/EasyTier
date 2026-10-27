@@ -244,3 +244,10 @@
 - 新增 `require/require-07-product-frontend-simplification.md`，以 FINAL V3 原实时画面为准，列出卡片 footer/ScriptLibrary 双 UI、Inspector 二次 video、脚本库 run preview、两个试跑弹窗、跨 Tab 编辑等冗余，按 R0～R5 明确替代后删除门槛。
 - **实际代码改动仅 R0**：`CardStepTimeline` 步骤正文/编辑图标不再双发 `select/edit`，只发 `edit`；移除 `PhoneCard` `step-select` emit/透传及 `AutomationCenter` 监听。由 `editCardStep()` 单独校验并选中步骤，不动媒体/执行器/脚本 API。
 - **未执行**本地 TypeScript、单元测试、lint、构建、手动 CI、FnOS/Android/浏览器交互（调试模式）。待验：编辑时取消放弃未保存步骤，行/编辑按钮触发一次，双手机之间切换编辑状态。其余 R1～R5 均待开发。
+
+## 2026-10-27 · FINAL V3 正式需求计划与任务计划拆分（纯规划）
+- 在 `plan/` 新增 **P07～P16 共 10 份独立小需求计划**，另新建 `plan/README.md`：唯一实时画面合同、全屏主子浮窗、空脚本新建/克隆/CAS、全部步骤删除、Inspector 单视频、viewer/action 租约、单步、全局运行、旧 UI 安全清理、QA。
+- 在 `task/` 新增 **T19～T51 共 33 份可执行小任务**，另新建 `final-v3-task-index.md`，明确每项 dependencies、文件写入 Owner、实施步骤、风险与验收。原 T01～T18 不改状态。
+- 真实代码已查证 Rust validation::steps 当前拒绝空 steps，前端 ScriptLibrary::validationError 同样只允许 1～100 步。已安排 T25 专门支持**创建/保存 0 步**，执行依旧拒绝 0 步，不取消权限/版本检查。
+- 已明确 PhoneCard/AutomationCenter/ScriptLibrary 等热点文件的 Agent 独占，跨前后端并行只在文件不冲突时进行；优化时遵守“替代已验证→删除旧层”。
+- **本轮没有修改业务代码、未执行单测、类型检查、lint、构建、手动 CI、FnOS/安卓真机操作（调试模式）**。全部新增任务待开发，验收未执行。
