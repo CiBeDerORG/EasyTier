@@ -47,7 +47,6 @@ type PanelPhase = 'idle' | 'releasing' | 'preparing' | 'ready' | 'submitting' | 
 const phase=ref<PanelPhase>('idle');
 const warning=ref('');
 const consent=ref(false);
-const compatibilityConsent=ref(false);
 const compatibilityReview=ref<DeviceCompatibilityReview | null>(null);
 const parameterValue=ref('');
 const frozen=ref<AutomationStep | null>(null);
@@ -94,7 +93,7 @@ function resetForOpen(){
     if(receiptFailure.value || unresolvedReceipt.value) {
         result.reset();
         pending.value=null;uncertain.value=true;consent.value=false;
-        compatibilityReview.value=null;compatibilityConsent.value=false;
+        compatibilityReview.value=null;
         clearSecrets();phase.value='unknown';
         frozen.value=lockedIntent.value?.step??null;
         targetFingerprint.value=props.device.target_fingerprint??'';
@@ -112,7 +111,7 @@ function resetForOpen(){
         return;
     }
     result.reset();pending.value=null;uncertain.value=false;consent.value=false;
-    compatibilityReview.value=null;compatibilityConsent.value=false;
+    compatibilityReview.value=null;
     clearSecrets();phase.value='idle';warning.value='';
     frozen.value=lockedIntent.value?.step??null;
     targetFingerprint.value=props.device.target_fingerprint ?? '';
@@ -150,7 +149,7 @@ async function prepare(){
     const source=JSON.stringify(props.step);
     const chosen=frozen.value!;
     warning.value='';consent.value=false;
-    compatibilityReview.value=null;compatibilityConsent.value=false;
+    compatibilityReview.value=null;
     try {
         phase.value='releasing';
         const handle=props.previewHandle();
@@ -225,7 +224,7 @@ async function submit(){
     if(!compatibilityReview.value || compatibilityReview.value.status==='blocked'){
         warning.value='当前手机兼容性核验尚未通过，不能执行此步骤。';return;
     }
-    if(compatibilityReview.value.status==='confirm' && !compatibilityConsent.value){
+    if(compatibilityReview.value.status==='confirm' && !consent.value){
         warning.value='请确认当前手机的坐标/定位风险后再执行。';return;
     }
     if(safety.value==='confirm_required' && !consent.value) {
@@ -265,13 +264,13 @@ async function submit(){
         if(!valid(mine,owner,id,original))return;
         if(rechecked.status==='blocked'){
             pending.value=null;compatibilityReview.value=rechecked;
-            compatibilityConsent.value=false;phase.value='failed';
+            phase.value='failed';
             warning.value='提交时手机画面尺寸不符，已中止本次执行。';return;
         }
         if(!compatibilityStillCurrent(compatibilityReview.value,owner,row,[frozen.value]) ||
             JSON.stringify(rechecked.issues)!==JSON.stringify(compatibilityReview.value?.issues)){
             pending.value=null;compatibilityReview.value=rechecked;
-            compatibilityConsent.value=false;phase.value='ready';
+            phase.value='ready';
             warning.value='手机页面/定位状态变化，请重新核对兼容性风险并确认。';return;
         }
         clearSecrets();
@@ -378,7 +377,7 @@ async function recheckPreparation(){
                 : statelessCompatibility(owner,latestDevice,[frozen.value]);
             if(!valid(mine,owner,id,original))return;
             compatibilityReview.value=checked;
-            compatibilityConsent.value=false;consent.value=false;
+            consent.value=false;
             if(checked.status==='blocked'){
                 phase.value='failed';
                 warning.value='设备准备已恢复，但屏幕坐标与当前手机不兼容；请重新拾取。';
@@ -441,7 +440,7 @@ watch(()=>[props.ownerId,props.device.id] as const,(_current, previous)=>{
     ++epoch;
     if(previous) void preparation.cancel(previous[0],previous[1]);
     result.reset();pending.value=null;uncertain.value=false;clearSecrets();
-    compatibilityReview.value=null;compatibilityConsent.value=false;
+    compatibilityReview.value=null;
     phase.value='idle';
 });
 onBeforeUnmount(()=>{
@@ -477,14 +476,10 @@ onBeforeUnmount(()=>{
                 <p v-for="item in compatibilityReview.issues" :key="item.stepId+item.message">
                     第 {{ item.stepNumber }} 步：{{ item.message }}
                 </p>
-                <label v-if="phase==='ready' && compatibilityReview.status==='confirm'" class="trial-check">
-                    <Checkbox v-model="compatibilityConsent" binary input-id="card-trial-compatibility"/>
-                    <span>我已核对当前手机的页面、定位和坐标风险，此确认仅用于本次试跑。</span>
-                </label>
             </div>
-            <div v-if="phase==='ready' && safety==='confirm_required'" class="trial-check">
+            <div v-if="phase==='ready' && (safety==='confirm_required' || compatibilityReview?.status==='confirm')" class="trial-check">
                 <Checkbox v-model="consent" input-id="card-trial-consent" binary />
-                <label for="card-trial-consent">我确认此步骤可能操作手机或持久保存截图证据，仅执行本次所选步骤。</label>
+                <label for="card-trial-consent">我已核对当前手机、页面和定位风险，确认仅在这台手机执行本步骤；操作可能修改手机状态或留存截图证据。</label>
             </div>
             <label v-if="phase==='ready' && parameter" class="param-input">
                 本次输入参数：{{ parameter }}
@@ -522,7 +517,7 @@ onBeforeUnmount(()=>{
                 <Button v-if="phase==='ready' && !started" label="确认执行此步骤"
                     icon="pi pi-play" size="small"
                     :disabled="!compatibilityReview || compatibilityReview.status==='blocked' ||
-                        (compatibilityReview.status==='confirm'&&!compatibilityConsent) ||
+                        (compatibilityReview.status==='confirm'&&!consent) ||
                         (safety==='confirm_required'&&!consent) || (!!parameter&&!parameterValue)"
                     @click="submit"/>
             </div>
