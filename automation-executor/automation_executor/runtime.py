@@ -458,6 +458,31 @@ class Runtime:
             return {"id": sid, "executor_id": self.journal.executor_id,
                     "device_id": current.target["device_id"], "state": "view_only"}
 
+    async def resume_manual(self, sid, body):
+        """Resume manual eligibility only after Rust fenced new script runs.
+
+        This does NOT seize a device action claim. The next actual command
+        must still compete for Journal.claim under current fingerprint.
+        """
+        validation.object_fields(body, {"expected_executor_id"}, {"expected_executor_id"})
+        self.require_identity(body["expected_executor_id"])
+        current = self.session(sid)
+        async with current.lock:
+            self.session(sid)
+            status = self.media.status(sid)
+            if status.get("state") in ("closed", "failed", "cleanup_pending") or status.get("cleanup_pending"):
+                raise ExecutorError("media_closed", "原实时画面已经中断或待清理，不能恢复手控", 409)
+            control = self.journal.control(current.target)
+            if control and (control["holder"] != "session:" + sid or control["kind"] != "manual"
+                            or control["state"] != "active"):
+                raise ExecutorError("cleanup_pending" if control["state"] == "cleanup_pending" else "device_busy",
+                                    "脚本或其它会话仍在控制手机，不能恢复手控", 409)
+            # A normal viewer has no write claim. If this is an idempotent
+            # repeat of a completed restore, its own manual claim is valid.
+            current.view_only = False
+            return {"id": sid, "executor_id": self.journal.executor_id,
+                    "device_id": current.target["device_id"], "state": "active"}
+
     async def renew(self, sid, body):
         validation.object_fields(body, {"target_fingerprint", "lease_seconds"}, {"target_fingerprint", "lease_seconds"})
         seconds = validation.integer(body["lease_seconds"], 1, 60)
