@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
 import { Button, Dialog, InputText, Message, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
-import { useRouter } from 'vue-router';
+import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import { v4 as uuid } from 'uuid';
 import { DiscoveryApi, type EndpointEvent } from '../modules/discovery-api';
 import ApiClient from '../modules/api';
@@ -156,9 +156,22 @@ const chosenDraftId=ref('');
 watch(()=>draftSyncState.entries.map(item=>item.id).join(','),()=>{
     chosenDraftId.value=draftSyncState.id??draftSyncState.entries[0]?.id??'';
 });
+function hasLocalDraftData():boolean {
+    return !!(draftWorkspace.steps.length || draftWorkspace.name.trim() ||
+        draftWorkspace.description.trim() || draftWorkspace.editingId);
+}
 function warnBeforeDraftReplacement():boolean {
-    if(!draftSyncState.initialized || draftSync.canLeave())return true;
-    return window.confirm('当前工作草稿有尚未确认落库的修改。继续可能丢失这些修改，确定放弃并切换吗？');
+    if(draftSync.canLeave() && !cardEditorDirty.value)return true;
+    if(!hasLocalDraftData() && !cardEditorDirty.value)return true;
+    const situation=!draftSyncState.initialized
+        ? '工作草稿仍在加载或同步状态尚未确认。'
+        : draftSyncState.phase==='conflict'
+            ? '多页面修订冲突，当前修改尚未安全合并到服务器。'
+            : draftSyncState.phase==='saving' || draftSyncState.phase==='unsynced'
+                ? '当前修改尚未确认保存到服务器。'
+                : '卡片内仍有未提交的参数修改。';
+    return window.confirm(situation+
+        '切换内容可能丢失本页的未落库修改；已确认保存在服务端的旧草稿不会被删除。是否放弃并继续？');
 }
 async function restoreSavedDraft(id=chosenDraftId.value) {
     if(!id||!warnBeforeDraftReplacement())return;
@@ -182,12 +195,29 @@ function forkCurrentDraft() {
     notice.value='已转为独立工作草稿，正在尝试保存；请确认同步状态。';
 }
 function beforeUnloadDraft(event:BeforeUnloadEvent) {
-    if(draftSyncState.initialized && !draftSync.canLeave() &&
-        (draftWorkspace.steps.length>0||draftWorkspace.name.trim()||draftWorkspace.description.trim())) {
+    // beforeunload is the only synchronous protection against a hard refresh.
+    // Do not skip it while the very first server draft load is still pending.
+    if((hasLocalDraftData() && !draftSync.canLeave()) || cardEditorDirty.value) {
         event.preventDefault();
         event.returnValue='';
     }
 }
+onBeforeRouteLeave(async()=>{
+    // Vue Router changes do not fire browser beforeunload.
+    if(cardEditorDirty.value &&
+        !window.confirm('当前卡片有未保存的参数修改。退出将放弃这些局部修改，确定继续？'))
+        return false;
+    if(hasLocalDraftData() && !draftSync.canLeave()){
+        // An explicit SPA exit can await one safe save; the sync module reuses
+        // the same request ID/body after any uncertain network outcome.
+        if(draftSyncState.initialized && draftSyncState.phase!=='conflict')
+            await draftSync.flush();
+        if(!draftSync.canLeave() &&
+            !window.confirm('工作草稿仍未确认保存，离开此页面可能丢失本地修改。已确认保存在服务端的草稿不受影响。仍要离开吗？'))
+            return false;
+    }
+    return true;
+});
 const repairRequest = ref<AutomationRepairRequest | null>(null);
 const cardRepairContext = ref<CardRepairContext | null>(null);
 let cardRepairEpoch=0;
@@ -1420,7 +1450,12 @@ async function changeTab(next: typeof tab.value) {
             const live = [...cards.entries()].filter(([, card]) => card.getState().ready).map(([id]) => id);
             if (!await releaseManual(live)) return;
         }
+        // Switching tabs in this page is safe for the single shared draft.
+        // Even an unconfirmed server write must remain visible and retryable;
+        // only the transient card editor can be explicitly discarded.
         tab.value = next;
+        if(hasLocalDraftData() && !draftSync.canLeave())
+            notice.value='工作草稿仍保留在本页，服务端保存尚未确认；切回工作台或脚本库可继续编辑/重试同步。';
         clearAllCardDemos();
         cardStepEditor.value = null;
         cardEditorDirty.value = false;
