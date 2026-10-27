@@ -15,6 +15,7 @@ const props=defineProps<{
     editing: boolean;
     runnerAvailable: boolean;
     blocked: boolean;
+    saved: boolean;
 }>();
 const emit=defineEmits<{
     edit: [stepId: string];
@@ -36,7 +37,7 @@ const copyHint=computed(()=>{
     return '来源是内联单步试跑，已从历史快照建立独立草稿。';
 });
 const allowTrial=computed(()=>props.runnerAvailable && !props.blocked &&
-    (!unknown.value || acknowledged.value));
+    props.saved && changed.value && (!unknown.value || acknowledged.value));
 </script>
 
 <template>
@@ -53,8 +54,9 @@ const allowTrial=computed(()=>props.runnerAvailable && !props.blocked &&
         <p>来源运行：<code>{{ repair.runId }}</code></p>
         <p>步骤：<code>{{ repair.stepId }}</code></p>
         <p>{{ copyHint }}</p>
-        <p>{{ changed ? '已检测到该步骤与失败时的快照不同，可以再次人工验证。' :
-            '此步骤尚与失败时相同；建议先调整参数或重新拾取控件，避免重复产生相同结果。' }}</p>
+        <p>{{ changed ? '已检测到该步骤与失败时的快照不同，准备保存后再次人工验证。' :
+            '此步骤仍与失败时的历史快照相同；请先编辑或重新拾取，避免直接重复旧动作。' }}</p>
+        <p v-if="changed && !saved" role="status">该修复尚未完成草稿保存或存在冲突；请保存并确认最新修订后才能再次执行。</p>
         <Message v-if="unknown" severity="warn" :closable="false">
             上次动作结果未知，修复不代表动作没有发生。请先核对手机当前实际状态，确认执行器清理完成后才能人工发起新的试跑。
         </Message>
