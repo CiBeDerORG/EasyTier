@@ -6,6 +6,7 @@ pub(crate) mod captcha;
 mod central_network;
 mod geocoding;
 mod deploy_agent;
+mod asset_agent;
 mod network;
 mod network_space;
 pub(crate) mod oidc;
@@ -343,6 +344,8 @@ impl RestfulServer {
             central_network::CentralNetworkApi::build_route().merge(network_space::router())
         };
         let discovery_runtime = Arc::new(crate::discovery::Runtime::new(self.db.clone()).await?);
+        let deploy_credentials = Arc::new(crate::deploy_agent::Service::new(self.db.clone()).await?);
+        let asset_agents = Arc::new(crate::asset_agent::Manager::new(self.db.clone(), deploy_credentials.clone()));
         let mut app = Router::new()
             .route("/api/v1/summary", get(Self::handle_get_summary))
             .route("/api/v1/console-info", get(Self::handle_get_console_info))
@@ -351,9 +354,8 @@ impl RestfulServer {
             .merge(NetworkApi::build_route())
             .merge(rpc::router())
             .merge(geocoding::router())
-            .merge(deploy_agent::router(Arc::new(
-                crate::deploy_agent::Service::new(self.db.clone()).await?,
-            )))
+            .merge(deploy_agent::router(deploy_credentials))
+            .merge(asset_agent::router(asset_agents))
             .route_layer(login_required!(Backend))
             // Asset handlers authenticate the session themselves so errors use
             // their JSON contract, including unauthenticated requests.
