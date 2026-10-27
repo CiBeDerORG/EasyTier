@@ -83,6 +83,14 @@ export default class AutomationApi {
     createSession(ownerId: number, body: { device_id: string; quality: 'wall' | 'focus'; media?: AutomationMediaSettings }) { return this.request<AutomationSession>('/sessions', ownerId, 'POST', body); }
     offer(ownerId: number, id: string, body: RTCSessionDescriptionInit) { return this.request<{ sdp: string; type: 'answer'; width: number; height: number; unlock_state?: string }>(`/sessions/${encodeURIComponent(id)}/offer`, ownerId, 'POST', body); }
     unlockSession(ownerId: number, id: string) { return this.request<{ unlock_state: string }>(`/sessions/${encodeURIComponent(id)}/unlock`, ownerId, 'POST', {}); }
+    viewOnlySession(ownerId: number, id: string) {
+        return this.request<{ id: string; state: 'view_only'; viewing: true; manual_allowed: false }>(
+            `/sessions/${encodeURIComponent(id)}/view-only`,ownerId,'POST',{});
+    }
+    resumeManualSession(ownerId: number, id: string) {
+        return this.request<{ id: string; state: 'active'; viewing: true; manual_allowed: true }>(
+            `/sessions/${encodeURIComponent(id)}/resume-manual`,ownerId,'POST',{});
+    }
     closeSession(ownerId: number, id: string) { return this.request<{ id: string; state: string; cleanup_pending?: boolean; code?: string; message?: string }>(`/sessions/${encodeURIComponent(id)}/close`, ownerId, 'POST', {}); }
     controlUrl(ownerId: number, id: string): string {
         const url = new URL(this.url(`/sessions/${encodeURIComponent(id)}/control`, ownerId));
