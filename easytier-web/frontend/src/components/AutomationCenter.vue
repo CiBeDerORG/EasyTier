@@ -1442,6 +1442,16 @@ function onRunCreated(run: AutomationRun) {
     for (const card of cards.values()) card.cancelRestoreIntent();
     focusRunId.value = run.id; ++historyKey.value; tab.value = 'history';
 }
+async function onCardTrialHistory(deviceId: string, runId: string) {
+    // The card can only navigate on behalf of a device in the current account.
+    if (!runId || !devices.value.some(device => device.id===deviceId &&
+        device.owner_user_id===ownerId.value)) return;
+    await changeTab('history');
+    if (tab.value==='history') {
+        focusRunId.value=runId;
+        ++historyKey.value;
+    }
+}
 function savedConnection(device: AutomationDevice) {
     clearCardDemo(device.id);
     stopCardPicking(device.id);
@@ -1569,7 +1579,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         :demo-result="locatorDemos[device.id]?.stepId === cardStepEditor?.stepId ? locatorDemos[device.id]?.result : null"
                         :demo-loading="locatorDemos[device.id]?.loading ?? false" :demo-error="locatorDemos[device.id]?.error"
                         @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
-                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @step-select="selectCardStep" @step-edit="editCardStep" @step-close="closeCardStepEditor"
+                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @step-select="selectCardStep" @step-edit="editCardStep" @trial-history="onCardTrialHistory" @step-close="closeCardStepEditor"
                         @step-save="saveCardStep" @step-repick="repickCardStep" @step-dirty="markCardStepDirty"
                         @step-demo="demoCardStep" @demo-clear="clearCardDemo" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
