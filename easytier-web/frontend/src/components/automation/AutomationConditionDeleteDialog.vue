@@ -2,7 +2,7 @@
 import type { AutomationStepDeletion } from '../../modules/automation-card-step-delete';
 import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
 
-const props=defineProps<{
+defineProps<{
     plan: AutomationStepDeletion | null;
     portalTarget: HTMLElement | null;
     fullscreen: boolean;

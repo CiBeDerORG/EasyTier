@@ -152,10 +152,15 @@ const automationPanelOpen = ref(false);
 const cloneSourceId = ref<string | null>(null);
 const pendingScriptAction = ref<AutomationScriptAction | null>(null);
 const pendingStepDeletion = ref<AutomationStepDeletion | null>(null);
+const stepDeleteError = ref('');
 const stepEditorDialog = ref<InstanceType<typeof AutomationFloatingDialog> | null>(null);
 function requestStepDeletion(stepId: string) {
+    stepDeleteError.value='';
     const plan = planAutomationStepDeletion(props.draft.steps, stepId);
-    if(!plan)return;
+    if(!plan){
+        stepDeleteError.value='当前条件结构不完整，不能安全删除；请先修复条件结构。';
+        return;
+    }
     if(plan.requiresConfirmation)pendingStepDeletion.value=plan;
     else emit('step-delete',props.device.id,plan.requestedId,plan.fingerprint,plan.targetId);
 }
@@ -214,6 +219,7 @@ watch(() => [props.ownerId, props.device.id], () => {
     cloneSourceId.value=null;
     pendingScriptAction.value=null;
     pendingStepDeletion.value=null;
+    stepDeleteError.value='';
 });
 const pickerMenu = ref<{ point: PickerVideoPoint; x: number; y: number } | null>(null);
 function closePickerMenu() { pickerMenu.value = null; }
@@ -695,6 +701,7 @@ onBeforeUnmount(() => {
                         @edit="emit('step-edit',device.id,$event)"
                         @trial="openCardTrial" @delete="requestStepDeletion"
                         @undo="emit('step-undo',device.id)" />
+                    <p v-if="stepDeleteError" class="step-delete-error" role="alert">{{ stepDeleteError }}</p>
                 </AutomationScriptSelector>
             </AutomationFloatingPanel>
             <AutomationScriptCloneDialog :source="cloneSource"
@@ -759,6 +766,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.step-delete-error{color:var(--p-red-500);font-size:11px;line-height:1.5;margin:4px 0}
 .endpoint-status{padding:8px 14px;display:flex;gap:6px;flex-wrap:wrap;color:var(--console-muted)}
 .phone-card{min-width:0;max-width:100%;flex:0 1 auto;border:1px solid var(--console-border);border-radius:14px;background:var(--console-panel);overflow:hidden;box-shadow:var(--console-shadow)}
 .phone-card.selected{border-color:var(--p-primary-color);box-shadow:0 0 0 1px color-mix(in srgb,var(--p-primary-color) 20%,transparent)}

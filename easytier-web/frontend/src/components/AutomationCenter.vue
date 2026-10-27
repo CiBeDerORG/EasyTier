@@ -1401,6 +1401,10 @@ function deleteCardDraftStep(
 }
 function undoCardDraftStepDeletion(deviceId:string) {
     const device=devices.value.find(item=>item.id===deviceId),undo=deletedStepUndo.value;
+    if(cardEditorDirty.value) {
+        error.value='当前编辑窗口还有未确认参数，不能撤销以免覆盖新内容；请先保存或放弃修改。';
+        return;
+    }
     if(!undo || !canAccessAutomationCard(ownerId.value,deviceId,device,draftWorkspace) ||
         !draftSyncState.initialized || draftSyncState.phase==='conflict' ||
         undo.owner!==ownerId.value || undo.scriptId!==draftWorkspace.editingId ||
