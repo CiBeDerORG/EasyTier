@@ -1,7 +1,7 @@
 //! Manual, tenant-scoped EasyHostAgent binding to an existing asset_device.
 //! No timers, retries, implicit IP discovery, public URLs or host duplication.
 use crate::{asset_agent_tls::{Fingerprint, pinned_client}, db::Db, deploy_agent::Service as CredentialStore};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::Row;
 use std::{net::IpAddr, sync::Arc};
@@ -66,7 +66,7 @@ impl Manager {
         if let IpAddr::V6(v6) = ip {
             if v6.is_unicast_link_local() {return Err(Error::Invalid("IPv6 link-local targets are prohibited"));}
         }
-        Ok(format!("https://{}:7014", std::net::SocketAddr::new(ip, 7014)))
+        Ok(format!("https://{}", std::net::SocketAddr::new(ip, 7014)))
     }
 
     async fn saved(&self, id: &str) -> Result<Option<(String, String, String)>, Error> {
