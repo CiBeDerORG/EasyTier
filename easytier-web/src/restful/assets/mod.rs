@@ -1,7 +1,7 @@
 //! Session-authenticated management of manually registered node assets.
 //! Existing machine registration and network instance routes remain separate.
 mod publication;
-mod server_agent_entry;
+pub(crate) mod server_agent_entry;
 pub(crate) mod publication_apply;
 pub(crate) mod runtime;
 
