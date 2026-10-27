@@ -401,9 +401,9 @@ const currentGeometry = ref({ width: 0, height: 0 });
 const cardWidth = computed(() => `${(currentGeometry.value.width > 0 ? currentGeometry.value.width : 360) + 26}px`);
 const ready = computed(() => session.state.phase === 'live' && session.state.controlReady);
 const manualAllowed = computed(() => ready.value && !session.state.viewerOnly
-    && !props.device.run_occupied && !props.syncRole);
+    && !props.device.run_occupied && trialStepId.value===null && !props.syncRole);
 const touchAllowed = computed(() => ready.value && !session.state.viewerOnly
-    && !props.device.run_occupied && props.syncRole !== 'follower');
+    && !props.device.run_occupied && trialStepId.value===null && props.syncRole !== 'follower');
 // A permission downgrade is not a stream close. Drop local pointer state
 // without sending a last touch.release from the now read-only browser.
 watch(() => session.state.viewerOnly, readOnly => { if (readOnly) resetPointer(); });
@@ -592,7 +592,8 @@ async function fullscreen() {
 function localAction(message: AutomationControl) { if (manualAllowed.value) emit('action', props.device.id, message); }
 const resumingManual=ref(false);
 async function resumeManualControl(){
-    if(!session.state.viewerOnly || session.state.phase!=='live' || resumingManual.value || props.device.run_occupied)return;
+    if(!session.state.viewerOnly || session.state.phase!=='live' || resumingManual.value
+        || props.device.run_occupied || trialStepId.value!==null)return;
     resumingManual.value=true;
     try {await session.resumeManual();emit('refresh');}
     catch(cause){session.state.error=cause instanceof Error?cause.message:'尚不能安全恢复手动操作';}
@@ -737,7 +738,7 @@ onBeforeUnmount(() => {
                         <Button v-if="session.state.phase === 'live' && session.state.viewerOnly"
                             icon="pi pi-lock-open" rounded severity="secondary" aria-label="恢复手机手动控制"
                             title="仅在脚本动作权彻底释放后可恢复；原视频不关闭"
-                            :loading="resumingManual" :disabled="!!device.run_occupied || resumingManual"
+                            :loading="resumingManual" :disabled="!!device.run_occupied || trialStepId !== null || resumingManual"
                             @click="resumeManualControl" />
                         <Button icon="pi pi-pencil" rounded :aria-label="t('text')" :title="t('text')" :disabled="!manualAllowed" @click="emit('text', device.id)" />
                         <Button icon="pi pi-unlock" rounded severity="primary" :aria-label="t('unlockPhone')" :title="t('unlockPhone')" :loading="unlocking" :disabled="!manualAllowed || unlocking || recording" @click="emit('unlock', device.id)" />
