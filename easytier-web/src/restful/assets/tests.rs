@@ -822,3 +822,54 @@ async fn public_node_ip_is_manual_scoped_and_cleared_when_role_is_disabled() {
     assert_eq!(removed["is_public_server"], false);
     assert!(removed["public_ip"].is_null());
 }
+
+#[tokio::test]
+async fn server_agent_entry_reuses_asset_and_enforces_scope_without_remote_probe() {
+    let fixture = Fixture::new().await;
+    let owner = fixture.account("agent-entry-owner").await;
+    let stranger = fixture.account("agent-entry-stranger").await;
+    let admin = fixture.account("agent-entry-admin").await;
+    fixture.make_admin(admin.id).await;
+    let node = Uuid::new_v4();
+    let device = Uuid::new_v4();
+    let type_id = Uuid::new_v4();
+    fixture.register_node(owner.id, node).await;
+    sqlx::query("INSERT INTO asset_device_types(id,owner_user_id,name,semantic_kind,semantic_kinds,created_at,updated_at) VALUES(?,?,?,'other','[\"phone\",\"server\"]','2026-10-27','2026-10-27')")
+        .bind(type_id.to_string()).bind(owner.id).bind("Linux server")
+        .execute(&fixture.db.inner()).await.unwrap();
+    sqlx::query("INSERT INTO asset_devices(id,owner_user_id,machine_id,device_type_id,name,overlay_ip,lan_ip,created_at,updated_at) VALUES(?,?,?,?,?,'10.80.0.8','192.168.0.8','2026-10-27','2026-10-27')")
+        .bind(device.to_string()).bind(owner.id).bind(node.to_string())
+        .bind(type_id.to_string()).bind("NAS")
+        .execute(&fixture.db.inner()).await.unwrap();
+    let url = format!(
+        "/api/v1/assets/devices/{device}/agent-entry?owner_user_id={}&machine_id={node}",
+        owner.id
+    );
+    let (status, value) = fixture.request(Some(owner.clone()), false, Method::GET, &url, None).await;
+    assert_eq!(status, StatusCode::OK, "{value}");
+    assert_eq!(value["owner_user_id"], owner.id);
+    assert_eq!(value["machine_id"], node.to_string());
+    assert_eq!(value["asset_device_id"], device.to_string());
+    assert_eq!(value["overlay_ip"], "10.80.0.8");
+    assert_eq!(value["agent_status"], "not_checked");
+    assert_eq!(value["pairing_available"], false);
+    assert_eq!(value["source"], "existing_asset_device");
+
+    let (status, _) = fixture.request(Some(stranger), false, Method::GET, &url, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = fixture.request(Some(admin), false, Method::GET, &url, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = fixture.request(None, false, Method::GET, &url, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = fixture.request(Some(owner.clone()), true, Method::GET, &url, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    sqlx::query("UPDATE asset_device_types SET semantic_kinds='[\"phone\"]' WHERE id=?")
+        .bind(type_id.to_string()).execute(&fixture.db.inner()).await.unwrap();
+    let (status, value) = fixture.request(Some(owner.clone()), false, Method::GET, &url, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{value}");
+    assert_eq!(value["code"], "agent_requires_server_semantic");
+    let unknown_url = url.replace(&device.to_string(), &Uuid::new_v4().to_string());
+    let (status, _) = fixture.request(Some(owner), false, Method::GET, &unknown_url, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
