@@ -16,6 +16,7 @@ import CardStepEditor from './CardStepEditor.vue';
 import CardTrialPanel from './CardTrialPanel.vue';
 import CardRepairEntry from './CardRepairEntry.vue';
 import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
+import type { InlineStepRunProgress } from '../../modules/useInlineStepRun';
 import type { CardRepairContext } from '../../modules/automation-run-repair';
 import CardLocatorDemo from './CardLocatorDemo.vue';
 import CardInspectorOverlay from './CardInspectorOverlay.vue';
@@ -99,6 +100,12 @@ const repairStep = computed(() => props.repairContext?.deviceId === props.device
 const repairStepNumber = computed(() => repairStep.value
     ? props.draft.steps.findIndex(step => step.id === repairStep.value!.id)+1 : 0);
 const trialStepId = ref<string | null>(null);
+const trialProgress = ref<InlineStepRunProgress | null>(null);
+function onTrialProgress(value:InlineStepRunProgress){
+    if(value.ownerId===props.ownerId && value.deviceId===props.device.id &&
+        value.stepId===trialStepId.value) trialProgress.value=value;
+}
+watch(()=>props.ownerId,()=>{trialProgress.value=null;});
 const trialStep = computed(() => props.draft.steps.find(item => item.id === trialStepId.value) ?? null);
 async function openCardTrial(stepId: string, acknowledgedUnknown = false) {
     if (props.repairContext?.stepId === stepId && props.repairContext.resultState === 'outcome_unknown' && !acknowledgedUnknown) return;
@@ -784,6 +791,7 @@ onBeforeUnmount(() => {
                     @create="name => requestScriptAction({kind:'create',deviceId:device.id,name})"
                     @select="chooseScript" @clone="openScriptClone">
                     <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
+                        :trial-progress="trialProgress"
                         :undo-label="undoDeleteLabel"
                         @edit="emit('step-edit',device.id,$event)"
                         @trial="openCardTrial" @delete="requestStepDeletion"
@@ -836,6 +844,7 @@ onBeforeUnmount(() => {
             :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
             :runner-available="runnerAvailable"
             :blocked="!!recording || !!syncRole || !!unlocking || !!editingStepId"
+            @progress="onTrialProgress"
             @close="trialStepId = null"
             @history="runId => { trialStepId = null; emit('trial-history',device.id,runId); }"
             @repair="(runId,stepId) => { trialStepId = null; emit('trial-repair',device.id,runId,stepId); }" />
