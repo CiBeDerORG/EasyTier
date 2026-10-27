@@ -60,6 +60,7 @@ export function reviewAutomationDeviceCompatibility(
     hierarchy: AutomationHierarchy,
     steps: AutomationStep[],
     nowMs=Date.now(),
+    options: { requireUniqueSelectors?: boolean } = {},
 ): DeviceCompatibilityReview {
     if(ownerId<=0 || !steps.length || device.owner_user_id!==ownerId ||
        !device.connection.enabled || device.availability_reason ||
@@ -93,10 +94,10 @@ export function reviewAutomationDeviceCompatibility(
         }
         if(step.selector) {
             if(step.selector.xpath) {
-                issues.push(issue(step,i,'confirm',
+                issues.push(issue(step,i,options.requireUniqueSelectors?'block':'confirm',
                     'XPath 需要执行器 XML 解析；现有只读树无法证明跨手机定位唯一，建议重新拾取。'));
             } else if(truncated) {
-                issues.push(issue(step,i,'confirm',
+                issues.push(issue(step,i,options.requireUniqueSelectors?'block':'confirm',
                     '控件树存在截断，无法证明当前手机定位唯一；请刷新控件树或重新拾取。'));
             } else {
                 const demo=locateReadOnlyStep(hierarchy,step,{
@@ -104,7 +105,7 @@ export function reviewAutomationDeviceCompatibility(
                     videoWidth:width,videoHeight:height,nowMs,
                 });
                 if(demo.status!=='one' && !(step.type==='wait_gone' && demo.status==='none')) {
-                    issues.push(issue(step,i,'confirm',
+                    issues.push(issue(step,i,options.requireUniqueSelectors?'block':'confirm',
                         '只读定位核验：'+demo.message+'；执行前应确认手机处于预期页面。'));
                 }
             }
