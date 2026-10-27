@@ -24,6 +24,10 @@ const emit=defineEmits<{ close: []; history: [runId: string] }>();
 const api=new AutomationApi();
 const preparation=useCardTrialPreparation(api);
 const result=useCardRunStatus(api);
+const currentRun=result.run;
+const runView=result.view;
+const runError=result.error;
+const runPolling=result.polling;
 type PanelPhase = 'idle' | 'releasing' | 'preparing' | 'ready' | 'submitting' | 'observing' | 'failed' | 'unknown';
 const phase=ref<PanelPhase>('idle');
 const warning=ref('');
@@ -209,6 +213,10 @@ async function recheckPreparation(){
         }
     }
 }
+function openHistory(){
+    const id=result.run.value?.id;
+    if(id)emit('history',id);
+}
 function hide(){
     ++epoch;
     if(phase.value==='preparing' || phase.value==='releasing')
@@ -270,22 +278,22 @@ onBeforeUnmount(()=>{
                 <InputText v-model="parameterValue" type="password" autocomplete="off"
                     placeholder="仅用于本次运行，不保存到脚本草稿"/>
             </label>
-            <div v-if="result.view.value" class="trial-progress" aria-live="polite">
+            <div v-if="runView" class="trial-progress" aria-live="polite">
                 <strong>执行状态</strong>
-                <Tag :value="result.view.value.label"
-                    :severity="result.view.value.phase==='succeeded'?'success':result.view.value.phase==='failed'?'danger':result.view.value.phase==='unknown'?'warn':'info'"/>
-                <p>执行记录：<code>{{ result.view.value.runId }}</code></p>
-                <p>步骤：<code>{{ result.view.value.stepId }}</code></p>
-                <p>设备状态：{{ result.view.value.deviceState }} · 步骤状态：{{ result.view.value.stepState }}</p>
-                <p v-if="result.view.value.detail">{{ result.view.value.detail }}</p>
-                <p v-if="result.error.value">{{ result.error.value }}</p>
+                <Tag :value="runView.label"
+                    :severity="runView.phase==='succeeded'?'success':runView.phase==='failed'?'danger':runView.phase==='unknown'?'warn':'info'"/>
+                <p>执行记录：<code>{{ runView.runId }}</code></p>
+                <p>步骤：<code>{{ runView.stepId }}</code></p>
+                <p>设备状态：{{ runView.deviceState }} · 步骤状态：{{ runView.stepState }}</p>
+                <p v-if="runView.detail">{{ runView.detail }}</p>
+                <p v-if="runError">{{ runError }}</p>
             </div>
             <div class="trial-actions">
                 <Button label="关闭" text size="small" @click="hide"/>
-                <Button v-if="result.run.value" label="刷新结果" outlined size="small"
-                    :loading="result.polling.value" @click="result.refresh()"/>
-                <Button v-if="result.run.value" label="在执行记录查看" icon="pi pi-history" size="small"
-                    @click="emit('history',result.run.value.id)"/>
+                <Button v-if="currentRun" label="刷新结果" outlined size="small"
+                    :loading="runPolling" @click="result.refresh()"/>
+                <Button v-if="currentRun" label="在执行记录查看" icon="pi pi-history" size="small"
+                    @click="openHistory"/>
                 <Button v-if="phase==='unknown' && !pending" label="只读复核准备状态" outlined size="small"
                     :disabled="busy" @click="recheckPreparation"/>
                 <Button v-if="uncertain && pending" label="按原请求编号人工重查" outlined size="small"
