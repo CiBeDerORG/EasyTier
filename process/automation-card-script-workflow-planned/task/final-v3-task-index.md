@@ -7,8 +7,8 @@
 
 | 任务 | 内容 | 计划 | 负责人 | 波次 | 主要依赖 | 状态 |
 |---|---|---|---|---|---|---|
-| [T19](task-19-baseline-audit.md) | 基线审计 | P07 | 架构 | W0 | 无 | 待开发 |
-| [T20](task-20-contract-and-events.md) | 状态事件契约 | P07 | 集成 | W0 | T19 | 待开发 |
+| [T19](task-19-baseline-audit.md) | 基线审计 | P07 | 架构 | W0 | 无 | 审计已完成（未测试） |
+| [T20](task-20-contract-and-events.md) | 状态事件契约 | P07 | 集成 | W0 | T19 | 契约已提交，待测试 |
 | [T21](task-21-floating-host.md) | 主浮窗 | P08 | 卡片 | W1 | T20 | 待开发 |
 | [T22](task-22-orb-layout.md) | icon 重排 | P08 | 卡片 | W1 | T21 | 待开发 |
 | [T23](task-23-fullscreen-portal.md) | 全屏宿主 | P08 | 卡片 | W1 | T21 | 待开发 |

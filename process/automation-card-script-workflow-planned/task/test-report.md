@@ -255,3 +255,9 @@
 ## 2026-10-27 · T19 基线审计（调试模式）
 - 对照分支 `91392fd` 的 PhoneCard、CardStepTimeline、CardStepEditor、UiInspectorDialog、ScriptLibrary、CardTrialPanel、PhoneAutomationPanel、RunHistory、AutomationCenter 与运行 handoff、脚本校验，整理 `require/require-08-t19-baseline-audit.md`。
 - T19 已完成代码级审计与旧入口替代门槛矩阵，**无业务代码修改，无 TypeScript/测试/构建/CI 手动触发/真机验证**；后续 T20 与 T21 不能把 T19 当作新功能验收通过。
+
+## 2026-10-27 · T20 统一状态/事件合同与低风险前端接线（调试模式）
+- 新增 `easytier-web/frontend/src/modules/automation-floating-contract.ts`，定义 `AutomationCardScope`、`AutomationScriptScope`、`AutomationFloatingScope`、`AutomationFloatingUiState`、`AutomationFloatingCommand` 和 `captureAutomationFloatingScope` / `automationFloatingScopeIsCurrent` 等纯函数；脚本/草稿修订分离、媒体 session 可为空的离线编辑与需要 video 的真实动作明确区分。
+- `AutomationCenter.vue::selectCardStep` 统一 owner/device/workspace 校验为 `canAccessAutomationCard`，原步骤是否存在的硬校验保留；本次不改任何媒体/Executor/Rust/UiAutomator2/运行逻辑。
+- 新增 `require/require-09-t20-workspace-events-contract.md`，逐事件标注来源、身份字段、跨账号/换脚本/全屏失效及唯一写入 owner，交接 T21～T51。
+- **未执行测试、类型检查、构建、lint、手动 CI、浏览器或真机操作（调试模式）**；合同与接线提交不等于浮窗已实现或实机验证通过。

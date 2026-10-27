@@ -1,6 +1,6 @@
 # T20 · 统一设备绑定、草稿、浮窗及运行事件契约
 
-> 状态：**待开发**；阶段：P07；难度：M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
+> 状态：**公共契约已交付（待验证）**；阶段：P07；难度：M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
 
 ## 唯一写入责任
 - 负责人：**集成负责人**。
@@ -13,12 +13,13 @@
 3. 冻结 editor dirty、CAS 冲突、切脚本保护、fullscreenchange 的 API/events；约定各 Agent 不直接修改集成文件。
 
 ## 完成判定
-- [ ] 交付逐事件字段、状态转移和跨手机/账号切换的拒绝规则。
-- [ ] 未引入第二套共享草稿数据/视频控制器。
-- [ ] 交接时提供修改文件、API/event 契约、已知风险、待联调场景；仅代码提交不等于真机验收。
+- [x] 交付逐事件字段、状态转移及跨手机/账号拒绝规则；见 `../require/require-09-t20-workspace-events-contract.md`。
+- [x] 公共类型/纯函数不持有视频、脚本或 run；只复用 `AutomationCenter` 的已有共享工作区。
+- [x] 交接公共 TS 契约与 scope 守卫，列出后续 T21/T25/T36 的联调边界；**代码尚未测试**。
 
 ## 禁止与风险
 禁止在多个组件中各建一套脚本同步状态；此任务由集成负责人独占接线。
 
 ## 交接/验证状态
-- 未开始、未实施、未测试；当前仓库调试模式未经后续授权不执行本地测试、构建或手动 CI。
+- 已创建 `automation-floating-contract.ts`（共享类型/快照/校验纯函数）；`AutomationCenter.vue::selectCardStep` 使用统一 owner/device/workspace 校验。
+- 浮窗渲染/视频运行/跨设备数据迁移均待后续任务；本次未测试/构建，调试模式。

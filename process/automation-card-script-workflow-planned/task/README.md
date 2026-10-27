@@ -64,6 +64,11 @@
 - 评审见 `../require/require-07-product-frontend-simplification.md`，分 **R0～R5**：R0 去重选中/编辑事件**已改代码待测试**；R1 浮窗壳；R2 脚本管理和每步删除；R3 Inspector 归并唯一画面；R4 真执行/写锁及删除重复 modal/video；R5 清理无引用代码并验收。
 - 删除门槛：旧入口在浮窗里有**已接线且安全等价**的替代实现，才清理旧逻辑；不删除认证、CAS、幂等或执行器操作独占。
 
+## T20 公共事件与作用域契约交付（2026-10-27）
+- **T20 契约已提交，待测试**：[浮窗/草稿/视频/事件 scope 合同](../require/require-09-t20-workspace-events-contract.md)。新增 `frontend/src/modules/automation-floating-contract.ts`，单独建模 per-card scope、正式脚本和草稿两套 revision、浮窗 UI 状态和用户命令。
+- `AutomationCenter.selectCardStep` 已复用统一 `canAccessAutomationCard` 原有等价归属校验；没有新建视频、草稿 store、run controller 或执行器权限。
+- **下一步 T21** 开发浮窗壳；T25 空脚本后端、T36 viewer/action lease 合同可依据本接口并行准备；本次代码尚未测试，未部署。
+
 ## T19 开发启动与审计结果（2026-10-27）
 - **T19 基线审计已交付（仅文档，未测试）**：[旧入口 → 新浮窗替代 → 安全删除门槛](../require/require-08-t19-baseline-audit.md)。
 - 结论：唯一原视频与单份草稿需保留；旧 CardTrialPanel 的回执安全、Inspector 的坐标/候选、PhoneAutomationPanel 的 UIA 准备及 run handoff 不能提前删除。

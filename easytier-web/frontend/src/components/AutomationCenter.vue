@@ -34,6 +34,7 @@ import {
 } from '../modules/automation-run-repair';
 import { replaceAutomationStepTarget, stepCanPickTarget, type StepTarget } from '../modules/automation-step-target';
 import { updateCardDraftStep } from '../modules/automation-card-step-edit';
+import { canAccessAutomationCard } from '../modules/automation-floating-contract';
 import { locateReadOnlyStep, type LocatorDemoResult } from '../modules/automation-locator-demo';
 import type { AutomationStepType } from '../types/automation';
 import {
@@ -1292,8 +1293,7 @@ function addInspectorStep(step: AutomationStep, token: number, acknowledge: (acc
 }
 function selectCardStep(deviceId: string, stepId: string): boolean {
     const cardDevice = devices.value.find(item => item.id === deviceId);
-    if (draftWorkspace.ownerId !== ownerId.value ||
-        !cardDevice || cardDevice.owner_user_id !== ownerId.value ||
+    if (!canAccessAutomationCard(ownerId.value, deviceId, cardDevice, draftWorkspace) ||
         !draftWorkspace.steps.some(step => step.id === stepId)) return false;
     if (locatorDemos[deviceId]?.stepId !== stepId) clearCardDemo(deviceId);
     draftWorkspace.selectedStepId = stepId;
