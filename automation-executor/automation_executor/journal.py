@@ -165,6 +165,12 @@ class Journal:
             row = db.execute("SELECT * FROM controls WHERE endpoint=? OR device_id=?", (endpoint(target), target["device_id"])).fetchone()
             if row:
                 if row["holder"] == holder and row["state"] == "active":
+                    # A reused holder ID is not proof of the same device,
+                    # binding or action kind. Never revive a stale claim.
+                    previous = json.loads(row["target"])
+                    if row["kind"] != kind or previous["target_fingerprint"] != target["target_fingerprint"] \
+                            or row["endpoint"] != endpoint(target) or row["device_id"] != target["device_id"]:
+                        raise ExecutorError("target_changed", "动作租约的设备绑定或持有类型已变化，禁止继续写入", 409)
                     return
                 raise ExecutorError("cleanup_pending" if row["state"] == "cleanup_pending" else "device_busy",
                                     "设备仍待清理" if row["state"] == "cleanup_pending" else "设备正由其他会话或任务控制")
