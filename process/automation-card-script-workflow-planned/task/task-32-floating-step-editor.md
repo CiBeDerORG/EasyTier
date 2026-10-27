@@ -1,6 +1,6 @@
 # T32 · 步骤编辑、重新拾取、只读演示浮窗化
 
-> 状态：**待开发**｜计划：P10｜复杂度：M｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**前端业务代码已提交，待验证**｜计划：P10｜复杂度：M｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一职责与依赖
 - Owner：**步骤 Agent**。
@@ -22,3 +22,9 @@
 
 ## 验证状态
 当前仅有计划文档；待开发、未测试、未构建。遵守仓库 AGENTS.md 调试模式，不主动运行本地检查或手动 CI。
+
+## 2026-10-27 · T32 开发记录
+- 旧 CardStepEditor 的同一 ScriptStepEditor 参数表单，已放入 AutomationFloatingDialog 且挂载到原 phone-screen 的子窗口层；全屏不另开视频。
+- 复用原 updateCardDraftStep 期望值比对、重新拾取、只读定位演示、取消和保存；浮动关闭与编辑切步对 dirty 使用显式保护。
+- 已删除卡片 footer 的重复编辑外壳，仅在主浮窗展示步骤列表；旧 CardTrialPanel 模态试跑与独立 Inspector 仍等待后续任务替换，不提前删除。
+- **未执行** TypeScript、lint、单测、构建、手动 CI、浏览器/Android/FnOS 实测。完成判定仍待验证，不能以提交代替真实验收。

@@ -1,6 +1,6 @@
 # T30 · 普通步骤删除、编号更新和撤销
 
-> 状态：**待开发**；阶段：P10；难度：S-M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
+> 状态：**前端业务代码已提交，待验证**；阶段：P10；难度：S-M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
 
 ## 唯一写入责任
 - 负责人：**步骤 Agent**。
@@ -22,3 +22,8 @@
 
 ## 交接/验证状态
 - 未开始、未实施、未测试；当前仓库调试模式未经后续授权不执行本地测试、构建或手动 CI。
+
+## 2026-10-27 · T30 开发记录
+- 每个步骤行新增独立 🗑，点击普通步骤经 planAutomationStepDeletion 和 removeFlowBlock 生成合法的新扁平步骤列表。
+- AutomationCenter 统一更改共享草稿，保留其它 stepId，更新选中步和步数；原草稿同步器自动 CAS；10 秒内提供一次撤销，遇后续修改/冲突不覆盖。
+- **未执行** TypeScript、lint、单测、构建、手动 CI、浏览器/Android/FnOS 实测。完成判定仍待验证，不能以提交代替真实验收。

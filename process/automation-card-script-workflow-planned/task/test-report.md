@@ -305,3 +305,11 @@
 - 对保存/切换/克隆实现 dirty 保护、owner/device/revision 异步作用域核验；POST 结果未知不自动重发。
 - T29 尚未实施，旧 footer 时间线仍保留；T36+ 执行器分权没有变动。
 - **未执行** TypeScript、Rust 编译、lint、测试、手动 CI、API 联调、FnOS/手机实测（调试模式）。
+
+## 2026-10-27 · T29～T32 步骤浮窗、所有步骤删除与结构安全（调试模式）
+- **T29**：`CardStepTimeline.vue` 改为仅投影唯一 `draftWorkspace` 的紧凑步骤列表；通过 `PhoneCard.vue` 装入自动化主浮窗的 `AutomationScriptSelector` 内容插槽。卡片 footer 的重复步骤列表及内嵌编辑器挂载已移除；主 WebRTC video/session、手机手控未修改。
+- **T30**：新增 `automation-card-step-delete.ts`：调用现有 `removeFlowBlock` / `analyzeAutomationFlow` 安全计算删除；`AutomationCenter.vue` 接收步骤快照/目标 ID 再验证，由唯一共享草稿完成原子替换并触发 CAS 自动同步，选中/序号/计数更新；10 秒内可撤销、其它修改/账号脚本修订不允许覆写。
+- **T31**：新增 `AutomationConditionDeleteDialog.vue`，条件根节点及分支末项需要用户在原画面内的可拖动子窗确认影响范围；若删末项使分支无效，明确提供删除整个所属条件块，禁止盲目数组 splice、禁止删除确认后旧快照落地。
+- **T32**：已有 `CardStepEditor.vue` 保留原参数表单、重拾、只读演示和期望值冲突校验，移入 `AutomationFloatingDialog.vue`；T24 提供标题拖动、同一全屏元素子窗宿主、未保存编辑二次确认，取消不再使用原编辑器固定卡片区的 modal/inline 容器。
+- **边界**：真实 ▶ 仍复用旧 `CardTrialPanel` 交接安全逻辑，T40 才实现不退出全屏的一键试跑；Inspector 的第二播放器/属性浮窗将在 T33～T35 替换，不在本轮冒险删除。正式脚本与不可变 run 历史未受删除影响。
+- **未执行** TS、lint、单元测试、构建、手动 CI、浏览器/Android/FnOS 实机验证（项目调试模式）。待验：4 步连录、普通/全屏子窗、条件删除范围、最后子项替代确认、删除/撤销与 CAS 409、另一卡片编辑 dirty、运行快照完整性。

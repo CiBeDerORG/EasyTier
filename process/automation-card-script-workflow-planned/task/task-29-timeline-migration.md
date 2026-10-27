@@ -1,6 +1,6 @@
 # T29 · 卡片脚本时间线迁入唯一主浮窗
 
-> 状态：**待开发**；阶段：P10；难度：M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
+> 状态：**前端业务代码已提交，待验证**；阶段：P10；难度：M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
 
 ## 唯一写入责任
 - 负责人：**步骤 Agent**。
@@ -22,3 +22,8 @@
 
 ## 交接/验证状态
 - 未开始、未实施、未测试；当前仓库调试模式未经后续授权不执行本地测试、构建或手动 CI。
+
+## 2026-10-27 · T29 开发记录
+- 共享的 CardStepTimeline 已嵌入 AutomationScriptSelector 的内容插槽，仍从同一 draftWorkspace 读取投影。
+- PhoneCard 原 footer 不再渲染第二份时间线，卡片宽高和手机主 video 不变；脚本名与 x/100 折叠入口由 selector 唯一负责。
+- **未执行** TypeScript、lint、单测、构建、手动 CI、浏览器/Android/FnOS 实测。完成判定仍待验证，不能以提交代替真实验收。

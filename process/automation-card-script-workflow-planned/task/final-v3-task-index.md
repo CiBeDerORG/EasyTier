@@ -17,10 +17,10 @@
 | [T26](task-26-script-selector.md) | 脚本窄下拉/新建 | P09 | 脚本/集成 | W2 | T21,T25 | 代码已提交，待验证 |
 | [T27](task-27-script-clone.md) | 克隆改名确认 | P09 | 脚本 | W2 | T24,T26 | 代码已提交，待验证 |
 | [T28](task-28-draft-switch-cas.md) | 草稿 CAS 防丢 | P09 | 集成 | W2 | T20,T26,T27 | 代码已提交，待验证 |
-| [T29](task-29-timeline-migration.md) | 步骤列表迁入浮窗 | P10 | 步骤/卡片 | W3 | T21,T26 | 待开发 |
-| [T30](task-30-ordinary-step-delete.md) | 普通步骤删除 | P10 | 步骤 | W3 | T28,T29 | 待开发 |
-| [T31](task-31-branch-delete-undo.md) | 条件分支删除/撤销 | P10 | 步骤 | W3 | T24,T29,T30 | 待开发 |
-| [T32](task-32-floating-step-editor.md) | 步骤编辑浮窗 | P10 | 步骤 | W3 | T20,T24,T29 | 待开发 |
+| [T29](task-29-timeline-migration.md) | 步骤列表迁入浮窗 | P10 | 步骤/卡片 | W3 | T21,T26 | 代码已提交，待验证 |
+| [T30](task-30-ordinary-step-delete.md) | 普通步骤删除 | P10 | 步骤 | W3 | T28,T29 | 代码已提交，待验证 |
+| [T31](task-31-branch-delete-undo.md) | 条件分支删除/撤销 | P10 | 步骤 | W3 | T24,T29,T30 | 代码已提交，待验证 |
+| [T32](task-32-floating-step-editor.md) | 步骤编辑浮窗 | P10 | 步骤 | W3 | T20,T24,T29 | 代码已提交，待验证 |
 | [T33](task-33-inspector-main-video.md) | 原视频属性树 | P11 | Inspector | W2 | T20,T23 | 待开发 |
 | [T34](task-34-inspector-gesture-fullscreen.md) | 控件树/拖拽全屏 | P11 | Inspector | W3 | T23,T33 | 待开发 |
 | [T35](task-35-inspector-legacy-exit.md) | 去 Inspector 重复视频 | P11 | Inspector/集成 | W4 | T32,T33,T34 | 待开发 |
