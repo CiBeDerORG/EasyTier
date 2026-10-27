@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
-import { Button, Dialog, Message, Tag } from 'primevue';
+import { computed, ref, watch } from 'vue';
+import { Button, Message, Tag } from 'primevue';
+import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
+import type { InspectorCardHighlight, InspectorCardDragGuide, InspectorCardScreenPoint } from '../../modules/automation-inspector-overlay';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
 import type { AutomationDevice, AutomationHierarchy, AutomationHierarchyNode, AutomationSelector, AutomationStep } from '../../types/automation';
@@ -13,7 +15,11 @@ import type { PickerVideoPoint } from '../../modules/automation-picker-state';
 
 const props = defineProps<{
     visible: boolean; device: AutomationDevice; ownerId: number;
-    stream: MediaStream | null; queuedCount: number;
+    queuedCount: number;
+    portalTarget: HTMLElement | null; fullscreen: boolean;
+    /** Original PhoneCard primary video native pixels; no secondary video is mounted. */
+    screenWidth: number; screenHeight: number;
+    screenPoint?: InspectorCardScreenPoint | null;
     replaceStep?: Pick<AutomationStep, 'id' | 'type'> | null;
     /** Original card's right-click position. Null keeps the legacy manual picker. */
     initialPoint?: PickerVideoPoint | null;
@@ -24,10 +30,11 @@ const props = defineProps<{
 const emit = defineEmits<{
     close: []; 'add-step': [step: AutomationStep, token: number, acknowledge: (accepted: boolean) => void]; edit: [];
     'replace-target': [stepId: string, target: StepTarget];
+    highlight: [rect: InspectorCardHighlight | null];
+    'drag-mode': [active: boolean];
+    'drag-guide': [guide: InspectorCardDragGuide | null];
 }>();
 const api = new AutomationApi();
-const video = ref<HTMLVideoElement | null>(null);
-const surface = ref<HTMLDivElement | null>(null);
 const response = ref<AutomationHierarchy | null>(null);
 const selectedId = ref<number | null>(null);
 const collapsedIds = ref<number[]>([]);
@@ -48,7 +55,7 @@ function submitStep(step: AutomationStep) {
 }
 const error = ref('');
 const feedback = ref('');
-const videoSize = ref({ width: 0, height: 0 });
+const videoSize = computed(() => ({ width: props.screenWidth, height: props.screenHeight }));
 type Point = { x: number; y: number };
 const dragPickMode = ref(false);
 const dragStart = ref<Point | null>(null);
@@ -56,7 +63,6 @@ const dragEnd = ref<Point | null>(null);
 const dragReady = computed(() => !!snapshot.value && compatibleVideo.value && !!dragStart.value && !!dragEnd.value
     && Math.hypot((dragEnd.value.x - dragStart.value.x) * snapshot.value.width,
         (dragEnd.value.y - dragStart.value.y) * snapshot.value.height) >= 16);
-const dragStyle = (point: Point) => ({ left: point.x * 100 + '%', top: point.y * 100 + '%' });
 let requestGeneration = 0;
 let initialPointUsed = false;
 
@@ -144,7 +150,8 @@ const coordinateBoundsValid = computed(() => {
         && b.right > b.left && b.bottom > b.top
         && b.right <= shot.width && b.bottom <= shot.height;
 });
-const coordinatesAllowed = computed(() => compatibleVideo.value && coordinateBoundsValid.value
+const coordinatesAllowed = computed(() => compatibleVideo.value && snapshot.value?.width===props.screenWidth &&
+    snapshot.value?.height===props.screenHeight && coordinateBoundsValid.value
     && response.value?.target_fingerprint === props.device.target_fingerprint);
 function confirmCoordinates() {
     if (mode.value !== 'coordinates' || !coordinatesAllowed.value) return;
@@ -240,13 +247,17 @@ const canReplace = computed(() => {
     if (mode.value === 'xpath' && (type === 'input_text' || type === 'assert_property')) return false;
     return true;
 });
-const nodeHighlight = computed(() => {
+const nodeHighlight = computed<InspectorCardHighlight | null>(() => {
     const node = selected.value, shot = snapshot.value;
-    if (!node || !shot || !compatibleVideo.value || dragPickMode.value) return null;
-    const { left, top, right, bottom } = node.bounds;
-    return { left: left / shot.width * 100 + '%', top: top / shot.height * 100 + '%',
-        width: (right - left) / shot.width * 100 + '%', height: (bottom - top) / shot.height * 100 + '%' };
+    if (!node || !shot || !compatibleVideo.value || dragPickMode.value || shot.truncated
+        || response.value?.target_fingerprint !== props.device.target_fingerprint) return null;
+    return { ...node.bounds, sourceWidth: shot.width, sourceHeight: shot.height };
 });
+const dragGuide = computed<InspectorCardDragGuide | null>(() => dragPickMode.value && compatibleVideo.value
+    ? { start: dragStart.value, end: dragEnd.value } : null);
+watch(nodeHighlight, value => emit('highlight', value), { immediate: true });
+watch(dragPickMode, value => emit('drag-mode', value), { immediate: true });
+watch(dragGuide, value => emit('drag-guide', value), { immediate: true });
 function selectNode(id: number) {
     selectedId.value = id; selectedCandidate.value = null; coordinateConfirmed.value = false; feedback.value = '';
     const expanded = new Set(collapsedIds.value);
@@ -264,14 +275,6 @@ function toggleBranch(id: number) {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     collapsedIds.value = [...next];
-}
-function setVideo() {
-    if (!video.value) return;
-    video.value.srcObject = props.visible ? props.stream : null;
-    if (props.visible && props.stream) void video.value.play().catch(() => undefined);
-}
-function videoMetadata() {
-    videoSize.value = { width: video.value?.videoWidth ?? 0, height: video.value?.videoHeight ?? 0 };
 }
 async function refresh() {
     if (!props.visible || loading.value) return;
@@ -308,7 +311,11 @@ async function refresh() {
     }
 }
 function startDragPick() {
-    if (!snapshot.value || !compatibleVideo.value) return;
+    if (!snapshot.value || !compatibleVideo.value || snapshot.value.width !== props.screenWidth ||
+        snapshot.value.height !== props.screenHeight) {
+        feedback.value='原手机画面与控件树尺寸不一致，请刷新后再进行只读拖拽拾取。';
+        return;
+    }
     dragPickMode.value = true; dragStart.value = null; dragEnd.value = null;
     selectedId.value = null; feedback.value = '请先点击画面选择拖拽起点，再点击画面选择终点（不会操作手机）。';
 }
@@ -317,7 +324,9 @@ function cancelDragPick() {
     feedback.value = '';
 }
 function saveDrag() {
-    if (committing.value || !dragReady.value || !snapshot.value || !dragStart.value || !dragEnd.value || props.queuedCount >= 100) return;
+    if (committing.value || !dragReady.value || !snapshot.value || !dragStart.value || !dragEnd.value ||
+        !compatibleVideo.value || snapshot.value.width!==props.screenWidth ||
+        snapshot.value.height!==props.screenHeight || props.queuedCount>=100) return;
     submitStep({
         id: uuid(), type: 'drag',
         x: dragStart.value.x, y: dragStart.value.y, to_x: dragEnd.value.x, to_y: dragEnd.value.y,
@@ -326,26 +335,33 @@ function saveDrag() {
     // The parent closes this dialog only after a confirmed append. If
     // rejected, keep both drag points for a retry instead of claiming success.
 }
-function pick(event: MouseEvent) {
-    if (!surface.value || !snapshot.value || !compatibleVideo.value) return;
-    const rect = surface.value.getBoundingClientRect();
-    const normX = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    const normY = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
-    if (dragPickMode.value) {
-        if (!dragStart.value || dragEnd.value) { dragStart.value = { x: normX, y: normY }; dragEnd.value = null; }
-        else dragEnd.value = { x: normX, y: normY };
-        feedback.value = dragEnd.value ? '已选定起终点；确认后添加拖拽，或再次点画面重新选择起点。' : '已选择起点，请点击终点。';
+/** Coordinates are sourced exclusively from the original PhoneCard primary video. */
+function pickFromOriginal(point: InspectorCardScreenPoint) {
+    const shot=snapshot.value;
+    if (!props.visible || !shot || !compatibleVideo.value || shot.truncated ||
+        point.width!==props.screenWidth || point.height!==props.screenHeight ||
+        point.width!==shot.width || point.height!==shot.height ||
+        response.value?.target_fingerprint!==props.device.target_fingerprint ||
+        point.x<0 || point.y<0 || point.x>=point.width || point.y>=point.height) {
+        feedback.value='手机原画面尺寸/方向或控件树快照已变化，请刷新控件树后重新选择。';
         return;
     }
-    const match = matchPickerPoint(response.value!, {
-        x: normX * snapshot.value.width, y: normY * snapshot.value.height,
-        width: snapshot.value.width, height: snapshot.value.height,
-    }, { targetFingerprint: props.device.target_fingerprint ?? '' });
-    if (match.status === 'matched' && match.nodeId !== null) {
-        selectNode(match.nodeId);
-        feedback.value = match.message;
-    } else { selectedId.value = null; feedback.value = match.message; }
+    const normX=point.x/shot.width, normY=point.y/shot.height;
+    if (dragPickMode.value) {
+        if (!dragStart.value || dragEnd.value) {dragStart.value={x:normX,y:normY};dragEnd.value=null;}
+        else dragEnd.value={x:normX,y:normY};
+        feedback.value=dragEnd.value ? '拖拽起终点已记录在原画面，确认后添加草稿步骤。'
+            : '拖拽起点已记录，请继续在原画面点击终点。';
+        return;
+    }
+    const match=matchPickerPoint(response.value!,{
+        x:point.x,y:point.y,width:point.width,height:point.height,
+    },{targetFingerprint:props.device.target_fingerprint??''});
+    if(match.status==='matched' && match.nodeId!==null) {
+        selectNode(match.nodeId); feedback.value=match.message;
+    } else {selectedId.value=null;feedback.value=match.message;}
 }
+watch(()=>props.screenPoint, point=>{if(point && props.visible)pickFromOriginal(point);});
 watch(selected, node => {
     if (!node) return;
     coordinateConfirmed.value = false;
@@ -423,15 +439,15 @@ watch([() => props.visible, () => props.device.id, () => props.device.target_fin
     response.value = null; selectedId.value = null; selectedCandidate.value = null;
     coordinateConfirmed.value = false; collapsedIds.value = []; loading.value = false;
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
-    error.value = ''; feedback.value = ''; videoSize.value = { width: 0, height: 0 };
-    await nextTick();
-    setVideo();
+    error.value = ''; feedback.value = '';
     if (props.visible) void refresh();
 }, { immediate: true });
-watch(() => props.stream, async () => {
-    coordinateConfirmed.value = false;
-    videoSize.value = { width: 0, height: 0 };
-    await nextTick(); setVideo();
+watch([() => props.screenWidth, () => props.screenHeight], () => {
+    coordinateConfirmed.value=false;
+    dragPickMode.value=false;dragStart.value=null;dragEnd.value=null;
+    selectedId.value=null;selectedCandidate.value=null;
+    response.value=null; ++requestGeneration; loading.value=false;
+    if (props.visible) { feedback.value='画面分辨率发生变化，请刷新当前控件树后重新拾取。'; }
 });
 watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
     selectedCandidate.value = null;
@@ -440,17 +456,15 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
 </script>
 
 <template>
-    <Dialog :visible="visible" modal append-to="body" :header="device.name + (replaceStep ? ' · 更新已有步骤控件' : ' · UiAutomator2 控件拾取')"
-        :style="{ width: '1160px', maxWidth: 'calc(100vw - 24px)' }" :content-style="{ padding: '0' }"
-        @show="setVideo"
-        @update:visible="value => { if (!value) emit('close'); }">
+    <AutomationFloatingDialog :visible="visible" :portal-target="portalTarget"
+        :fullscreen="fullscreen" :title="device.name + (replaceStep ? ' · 重新拾取控件' : ' · 控件树与属性')"
+        @close="emit('close')">
         <div class="ui-inspector">
             <div class="inspector-toolbar">
                 <div class="status">
                     <Tag :value="loading ? '正在读取' : snapshot ? '控件树已加载' : '未加载'" :severity="snapshot ? 'success' : 'secondary'" />
                     <span v-if="capturedAt">层级采集时间：{{ capturedAt }}</span>
-                    <span v-if="stream">视频是实时流，控件树是独立快照；切换页面后请重新读取。</span>
-                    <span v-else>当前使用独立控件树检查模式；不需要打开实时投屏。</span>
+                    <span>唯一实时画面在原手机卡片；当前窗口只显示 UiAutomator2 控件树快照。</span>
                 </div>
                 <Button label="刷新控件树" icon="pi pi-refresh" outlined size="small" :loading="loading" @click="refresh" />
             </div>
@@ -460,32 +474,21 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                 正在更新已存在的 {{ replaceStep.type }} 步骤：只替换控件定位，不修改动作类型、步骤编号、按住时长、输入参数或条件分支。
                 需选择当前控件树中唯一匹配的定位条件；执行时仍会再次检查唯一性。
             </Message>
-            <div class="inspector-columns" :class="{ 'tree-only': !stream }">
-                <section v-if="stream" class="preview-panel" aria-label="手机画面拾取">
-                    <div class="preview-heading"><strong>手机实时画面</strong><small>{{ snapshot ? snapshot.width + ' × ' + snapshot.height : '等待控件树' }}</small></div>
-                    <div class="video-well">
-                        <div ref="surface" class="video-surface" :style="{ aspectRatio: snapshot ? snapshot.width + ' / ' + snapshot.height : '9 / 19', width: snapshot ? 'min(100%, ' + (snapshot.width / snapshot.height * 58) + 'vh)' : 'min(100%, 27.5vh)' }">
-                            <video ref="video" autoplay muted playsinline @loadedmetadata="videoMetadata" @resize="videoMetadata" />
-                            <button v-if="snapshot && compatibleVideo" type="button" class="pick-layer"
-                                :title="dragPickMode ? '点击选择拖拽起点或终点（不会操作手机）' : '点击选取控件（不会操作手机）'"
-                                :aria-label="dragPickMode ? '选择拖拽起点或终点' : '点击画面选择控件'" @click="pick" />
-                            <div v-if="nodeHighlight" class="node-highlight" :style="nodeHighlight" />
-                            <svg v-if="dragPickMode && dragStart && dragEnd" class="drag-guide" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                                <line :x1="dragStart.x * 100" :y1="dragStart.y * 100" :x2="dragEnd.x * 100" :y2="dragEnd.y * 100" />
-                            </svg>
-                            <span v-if="dragPickMode && dragStart" class="drag-marker" :style="dragStyle(dragStart)">A</span>
-                            <span v-if="dragPickMode && dragEnd" class="drag-marker drag-end" :style="dragStyle(dragEnd)">B</span>
-                        </div>
-                    </div>
+            <div class="inspector-columns">
+                <div class="original-screen-tools">
+                    <p class="hint">右键点击原手机画面选控件；树节点高亮也直接显示在原画面上，不另开预览。</p>
                     <div class="drag-pick-controls">
-                        <Button :label="dragPickMode ? '重选起点 / 终点' : '在画面上拾取拖拽'" icon="pi pi-arrows-h"
-                            outlined size="small" :disabled="!snapshot || !compatibleVideo || queuedCount >= 100" @click="startDragPick" />
-                        <Button v-if="dragPickMode" label="添加拖拽步骤" size="small" :disabled="!dragReady || queuedCount >= 100" @click="saveDrag" />
-                        <Button v-if="dragPickMode" label="取消" text size="small" @click="cancelDragPick" />
+                        <Button :label="dragPickMode ? '重新选择 A / B' : '原画面拖拽拾取'"
+                            icon="pi pi-arrows-h" outlined size="small"
+                            :disabled="!snapshot || !compatibleVideo || queuedCount>=100"
+                            @click="startDragPick" />
+                        <Button v-if="dragPickMode" label="添加拖拽步骤" size="small"
+                            :disabled="!dragReady || queuedCount>=100" @click="saveDrag" />
+                        <Button v-if="dragPickMode" label="取消拖拽拾取" text size="small" @click="cancelDragPick" />
                     </div>
-                    <small v-if="dragPickMode" class="hint">A 为起点，B 为终点；至少相距 16 像素。仅添加草稿，不会立即拖动手机。</small>
-                    <small v-if="snapshot && !compatibleVideo" class="hint">画面尺寸或方向与控件树不一致，请确认投屏已加载或旋转完毕，再刷新控件树。</small>
-                </section>
+                    <small v-if="dragPickMode" class="hint">在原视频上点 A 起点和 B 终点，至少相距 16 像素；不会发真实手机动作。</small>
+                    <small v-if="snapshot && !compatibleVideo" class="hint">原视频尺寸/方向与控件树不匹配，请刷新或等待旋转完成。</small>
+                </div>
                 <InspectorPropertiesPanel
                     :selected="selected" :selected-id="selectedId" :visible-nodes="visibleNodes"
                     :node-count="snapshot?.nodes.length ?? 0" :snapshot-loaded="!!snapshot" :parent-ids="parentIds"
@@ -510,64 +513,22 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                     <strong v-if="!replaceStep">草稿 {{ queuedCount }}/100 步</strong>
                     <strong v-else>更新步骤 {{ replaceStep.id.slice(0, 8) }}</strong>
                     <Button label="关闭" text size="small" @click="emit('close')" />
-                    <Button v-if="!replaceStep" label="去编辑脚本" icon="pi pi-arrow-right" icon-pos="right" size="small" :disabled="queuedCount === 0" @click="emit('edit')" />
+                    <Button v-if="!replaceStep" label="查看脚本浮窗" icon="pi pi-list" size="small" @click="emit('edit')" />
                 </div>
             </div>
         </div>
-    </Dialog>
+    </AutomationFloatingDialog>
 </template>
 
 <style scoped>
-.ui-inspector{display:flex;flex-direction:column;gap:12px;padding:14px;color:var(--p-text-color)}
-.inspector-toolbar,.inspector-footer,.pane-heading,.preview-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.inspector-toolbar .status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--console-muted)}
-.inspector-columns{display:grid;grid-template-columns:minmax(210px, .9fr) minmax(220px,1fr) minmax(235px,1fr);gap:12px;min-width:0}
-.inspector-columns.tree-only{grid-template-columns:minmax(240px,1fr) minmax(260px,1fr)}
-.inspector-columns>section{min-width:0;border:1px solid var(--console-border);border-radius:10px;padding:12px;background:var(--console-panel);display:flex;flex-direction:column;gap:11px}
-.pane-heading,.preview-heading{min-height:26px;font-size:13px}
-.pane-heading small,.preview-heading small,.hint{font-size:11px;color:var(--console-muted);line-height:1.6}
-.video-well{display:flex;align-items:center;justify-content:center;min-height:365px;background:#0b1018;border-radius:9px;padding:8px}
-.video-surface{width:100%;max-width:340px;max-height:58vh;position:relative;overflow:hidden;background:#05070b;border-radius:7px;box-shadow:0 3px 18px #0007}
-.video-surface video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
-.pick-layer{position:absolute;inset:0;z-index:2;background:transparent;border:0;cursor:crosshair}
-.drag-pick-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.drag-guide{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;overflow:visible}
-.drag-guide line{stroke:#f59e0b;stroke-width:1.1;stroke-dasharray:2.5 1}
-.drag-marker{position:absolute;z-index:4;transform:translate(-50%,-50%);height:20px;width:20px;display:grid;place-items:center;border:2px solid white;border-radius:50%;background:#2563eb;color:white;font-size:11px;font-weight:700;pointer-events:none;box-shadow:0 2px 8px #0008}
-.drag-marker.drag-end{background:#c2410c}
-.node-highlight{position:absolute;z-index:3;border:2px solid #31c48d;background:#31c48d26;pointer-events:none;box-shadow:0 0 0 1px #000a}
-.tree-panel :deep(input){width:100%}
-.node-list{max-height:480px;min-height:265px;overflow:auto;border-radius:8px;border:1px solid var(--console-border);background:var(--console-panel-raised)}
-.tree-item{display:flex;align-items:center;border-bottom:1px solid var(--console-border);min-width:0}
-.branch-toggle,.branch-spacer{width:22px;min-width:22px;height:28px;display:grid;place-items:center;border:0;background:transparent;color:var(--console-muted)}
-.branch-toggle{cursor:pointer}.branch-toggle:hover:not(:disabled){color:var(--p-primary-color)}.branch-toggle:disabled{opacity:.5;cursor:default}
-.branch-toggle i{font-size:10px}
-.node-row{flex:1;min-width:0;display:flex;align-items:center;gap:9px;text-align:left;background:transparent;border:0;padding:8px;color:var(--p-text-color);cursor:pointer}
-.node-row:hover,.node-row.active{background:var(--console-accent-soft)}.node-row.active{box-shadow:inset 3px 0 var(--p-primary-color)}
-.node-row i{font-size:7px;color:var(--console-muted)}.node-row span{min-width:0;display:grid;gap:3px}
-.node-row strong{font-size:12px;font-weight:550;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
-.node-row small{font-size:10px;color:var(--console-muted)}
-.empty-tree,.empty-detail{padding:25px 10px;color:var(--console-muted);font-size:12px;line-height:1.7}
-.ancestry{display:grid;gap:7px}.ancestry>span{font-size:11px;color:var(--console-muted)}.ancestry-nodes{display:flex;gap:4px;flex-wrap:wrap}
-.ancestry-nodes button{max-width:100%;overflow-wrap:anywhere;border:1px solid var(--console-border);border-radius:6px;padding:4px 6px;font-size:10px;background:var(--console-panel-raised);color:var(--p-text-color);cursor:pointer}
-.ancestry-nodes button.current{border-color:var(--p-primary-color);background:var(--console-accent-soft)}
-.coordinate-confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.parent-recommendation{padding:9px;border:1px solid var(--console-border);border-radius:8px;background:var(--console-accent-soft);display:grid;gap:4px;font-size:11px;line-height:1.6}
-.parent-recommendation :deep(.p-button){justify-self:start}
-.property{display:grid;gap:4px;padding:5px 0;border-bottom:1px solid var(--console-border)}
-.property span,.locator-label{font-size:11px;color:var(--console-muted)}
-.property code{font-family:ui-monospace,monospace;font-size:11px;overflow-wrap:anywhere;white-space:normal}
-.locator-select{width:100%;border:1px solid var(--console-border-strong);background:var(--console-panel-raised);color:var(--p-text-color);padding:9px;border-radius:8px}
-.locator-recommendations{display:grid;gap:6px;border:1px solid var(--console-border);border-radius:8px;padding:8px}
-.locator-recommendations strong{font-size:12px}
-.locator-recommendations small{font-size:11px;color:var(--console-muted)}
-.candidate-row{display:flex;justify-content:space-between;gap:8px;text-align:left;border:1px solid var(--console-border);border-radius:6px;padding:7px;background:var(--console-panel-raised);color:var(--p-text-color);cursor:pointer;font-size:11px}
-.candidate-row.chosen{border-color:var(--p-primary-color);background:var(--console-accent-soft)}
-.candidate-row:disabled{opacity:.45;cursor:not-allowed}
-.step-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:5px}
-.step-actions :deep(.p-button){justify-content:center}
-.inspector-footer{border-top:1px solid var(--console-border);padding-top:12px;font-size:12px;color:var(--console-muted);flex-wrap:wrap}
-.footer-actions{display:flex;align-items:center;gap:9px}
-@media(max-width:950px){.inspector-columns{grid-template-columns:minmax(220px,1fr) minmax(250px,1fr)}.details-panel{grid-column:1/-1}}
-@media(max-width:580px){.inspector-columns{display:flex;flex-direction:column}.video-well{min-height:300px}.node-list{max-height:240px;min-height:130px}.inspector-footer,.footer-actions{align-items:flex-start;flex-wrap:wrap}}
+.ui-inspector{display:flex;flex-direction:column;gap:9px;color:var(--p-text-color);min-width:0}
+.inspector-toolbar,.inspector-footer{display:flex;align-items:center;justify-content:space-between;gap:7px;flex-wrap:wrap}
+.inspector-toolbar .status{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--console-muted)}
+.inspector-columns{display:flex;flex-direction:column;min-width:0;gap:9px}
+.inspector-columns :deep(.inspector-properties){min-width:0}
+.original-screen-tools{display:flex;flex-direction:column;gap:5px;padding:7px;border:1px solid var(--console-border);border-radius:7px}
+.drag-pick-controls{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
+.hint{color:var(--console-muted);font-size:11px;line-height:1.5;margin:0}
+.inspector-footer{border-top:1px solid var(--console-border);padding-top:8px;font-size:11px;color:var(--console-muted)}
+.footer-actions{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 </style>
