@@ -390,8 +390,16 @@ async function recheckPreparation(){
     const owner=props.ownerId,id=props.device.id,mine=++epoch,original=JSON.stringify(props.step);
     phase.value='preparing';warning.value='只读复核此前准备状态，不会发起新的连接或初始化请求。';
     try {
+        const sid=handedOffSessionId.value;
+        if(!sid || props.previewHandle().getSessionId()!==sid)
+            throw new Error('原手机只读会话已丢失，不能直接恢复准备状态。');
+        const current=(await api.devices(owner)).items.find(item=>item.id===id);
+        if(!valid(mine,owner,id,original))return;
+        if(current?.active_session?.id!==sid || current.active_session.state!=='view_only')
+            throw new Error('原手机只读移交尚未确认，禁止继续恢复试跑准备。');
         const state=await preparation.reconcile({
-            ownerId:owner,deviceId:id,targetFingerprint:targetFingerprint.value,steps:[frozen.value],
+            ownerId:owner,deviceId:id,targetFingerprint:targetFingerprint.value,
+            steps:[frozen.value],ownedSessionId:sid,
         });
         if(!valid(mine,owner,id,original))return;
         if(state?.phase==='ready') {
