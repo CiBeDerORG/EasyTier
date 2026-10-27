@@ -168,6 +168,11 @@ async def view_only(request: Request, sid: str, body: dict):
     return await request.app.state.runtime.view_only(identifier(sid), body)
 
 
+@app.post("/internal/v1/sessions/{sid}/resume-manual")
+async def resume_manual(request: Request, sid: str, body: dict):
+    return await request.app.state.runtime.resume_manual(identifier(sid), body)
+
+
 @app.post("/internal/v1/sessions/{sid}/renew")
 async def renew(request: Request, sid: str, body: dict):
     return await request.app.state.runtime.renew(identifier(sid), body)
