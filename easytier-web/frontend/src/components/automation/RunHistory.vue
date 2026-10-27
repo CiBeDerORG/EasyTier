@@ -10,7 +10,7 @@ import { getApiBase } from '../../modules/api-host';
 import type { AutomationRun, AutomationRunInput, AutomationRunDevice, AutomationStep, BusinessVerificationStatus } from '../../types/automation';
 
 const props = defineProps<{ ownerId: number; focusRunId?: string }>();
-const emit = defineEmits<{ 'repair-step': [request: AutomationRepairRequest] }>();
+const emit = defineEmits<{ 'repair-step': [request: AutomationRepairRequest]; 'repair-card': [request: AutomationRepairRequest] }>();
 const api = new AutomationApi();
 const { locale } = useI18n();
 const cn = computed(() => locale.value === 'cn' || locale.value.startsWith('zh'));
@@ -391,14 +391,15 @@ function branchLabel(value: 'then' | 'else' | 'skip'): string {
     };
     return labels[value];
 }
-function repairStep(device: AutomationRunDevice, step: AutomationRunDevice['steps'][number]) {
+function repairStep(device: AutomationRunDevice, step: AutomationRunDevice['steps'][number], destination: 'scripts'|'card' = 'scripts') {
     if (!selected.value || busy.value) return;
     const request=createAutomationRepairRequest(selected.value,device,step,props.ownerId,uuid());
     if (!request) {
         error.value=text('找不到原始失败步骤或其历史快照，无法安全定位编辑。', 'The historical failed step or snapshot is missing.');
         return;
     }
-    emit('repair-step',request);
+    if (destination === 'card') emit('repair-card',request);
+    else emit('repair-step',request);
 }
 function diagnosticTarget(device: AutomationRunDevice): string {
     const target=device.diagnostic_target;
@@ -572,6 +573,9 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
                                         <Button icon="pi pi-pencil" size="small" outlined
                                             :label="text('定位并修复此步骤', 'Locate and repair step')" :disabled="busy"
                                             @click="repairStep(device, step)" />
+                                        <Button icon="pi pi-mobile" size="small" outlined
+                                            :label="text('回手机卡片修复', 'Repair on phone card')" :disabled="busy"
+                                            @click="repairStep(device,step,'card')" />
                                     </div>
                                     <small>{{ text('历史记录只读；截图仅在该运行原本保存了证据时可查看。',
                                         'History remains read-only; screenshots are available only if originally captured.') }}</small>
