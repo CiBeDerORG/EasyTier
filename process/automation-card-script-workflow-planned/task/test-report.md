@@ -149,3 +149,11 @@
 - 不改 Python Executor：`Runtime._run_device` 仍在动作前采用 `journal.claim` 独占并 `_authorize`；Python 内部预览控制依旧共享 journal 控制表。
 - 风险/缺口：T14 尚需把新卡片试跑按钮/结果进度接入；并发事务与多标签页、断线、端口重绑定、会话清理及 FnOS/Android 真机均待联调。浏览器返回准备/关闭成功不等于服务端最终执行成功。
 - **未执行**：本地单元测试、Rust 编译、TypeScript 检查、lint、手动构建、实际手机验收（当前调试模式）；push 自动 CI 状态另行核对，不预先认定通过。
+
+## 2026-10-27 · T14 卡片步骤单机试跑与运行进度
+- 新增 `useCardRunStatus.ts`、`CardTrialPanel.vue`；扩展 `CardStepTimeline.vue` 增加非条件步骤试跑入口，`PhoneCard.vue` 显示准备/确认/状态面板，`AutomationCenter.vue` 提供历史跳转接线。
+- 与 T12/T13 复用：明确操作本页持有的会话，关闭后读取服务端活跃会话/运行占用；T12 再检查绑定与 ADB、根据脚本需要准备 UiAutomator2。实际动作只有在用户额外点击确认后走现有单步 `POST /runs`。
+- 步骤副作用确认、条件节点禁止单独执行、输入参数仅一次性使用；执行查询只读，不以“组件就绪/任务已登记”冒充执行或业务成功。
+- POST 结果未知时保留原 UUID/正文供人工重查；准备结果未知只能使用原状态的只读复核；页面切换后过期异步回复不能启动新动作。
+- GitHub 已按逐项中文提交规则 push；**未执行**本地单测、TypeScript 检查、lint、手动构建、FnOS/Android 真机验收（当前调试模式）。后续以实际对应 CI 结果为准，不将 push 代表部署成功。
+- 待解决：T15 失败步骤一键修复/回步；T16 跨机/离开页面保护；真实设备测试仍未进行。
