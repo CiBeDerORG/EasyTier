@@ -18,6 +18,11 @@ import CardRepairEntry from './CardRepairEntry.vue';
 import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import type { CardRepairContext } from '../../modules/automation-run-repair';
 import CardLocatorDemo from './CardLocatorDemo.vue';
+import CardInspectorOverlay from './CardInspectorOverlay.vue';
+import UiInspectorDialog from './UiInspectorDialog.vue';
+import type { InspectorAction } from '../../modules/automation-inspector-actions';
+import type { StepTarget } from '../../modules/automation-step-target';
+import type { InspectorCardHighlight, InspectorCardDragGuide, InspectorCardScreenPoint } from '../../modules/automation-inspector-overlay';
 import AutomationFloatingPanel from './AutomationFloatingPanel.vue';
 import AutomationScriptSelector from './AutomationScriptSelector.vue';
 import AutomationScriptCloneDialog from './AutomationScriptCloneDialog.vue';
@@ -48,6 +53,13 @@ const props = defineProps<{
     scriptGuard?: ScriptGuard;
     undoDeleteLabel?: string;
     editingDirty?: boolean;
+    /** The ONLY Inspector UI, hosted inside this PhoneCard's fullscreen element. */
+    inspectorVisible?: boolean;
+    inspectorCommitToken?: number;
+    inspectorQueuedCount?: number;
+    inspectorReplaceStep?: Pick<AutomationStep, 'id' | 'type'> | null;
+    inspectorInitialPoint?: PickerVideoPoint | null;
+    inspectorPreferredAction?: InspectorAction | null;
     editingStepId?: string;
     repickingStepId?: string;
     demoResult?: LocatorDemoResult | null;
@@ -61,6 +73,10 @@ const emit = defineEmits<{
     'toggle-picking': [id: string]; 'pick-action': [id: string, point: PickerVideoPoint, action: PickerMenuAction];
     'script-refresh': [deviceId: string];
     'script-action': [action: AutomationScriptAction];
+    'inspector-close': [];
+    'inspector-edit': [];
+    'inspector-add-step': [step: AutomationStep, token: number, acknowledge: (accepted: boolean) => void];
+    'inspector-replace-target': [stepId: string, target: StepTarget];
     'step-edit': [deviceId: string, stepId: string];
     'step-delete': [deviceId: string, requestedId: string, expectedFingerprint: string, confirmedTargetId: string,
         ownerId: number, scriptId: string | null, scriptRevision: number | null];
@@ -152,6 +168,27 @@ const menuOpen = ref(false);
 const automationPanelOpen = ref(false);
 const cloneSourceId = ref<string | null>(null);
 const pendingScriptAction = ref<AutomationScriptAction | null>(null);
+/** Visual-only inspector overlay; never an independent video session. */
+const inspectorHighlight=ref<InspectorCardHighlight|null>(null);
+const inspectorDragMode=ref(false);
+const inspectorDragGuide=ref<InspectorCardDragGuide|null>(null);
+const inspectorScreenPoint=ref<InspectorCardScreenPoint|null>(null);
+let inspectorPointSerial=0;
+function inspectorOriginalScreenPick(event:MouseEvent){
+    if(!props.inspectorVisible || !inspectorDragMode.value)return;
+    const at=point(event,false);
+    if(!at)return; // Letterbox/fullscreen background isn't selectable.
+    inspectorScreenPoint.value={...at,serial:++inspectorPointSerial};
+}
+function clearInspectorOverlay(){
+    inspectorHighlight.value=null;
+    inspectorDragMode.value=false;
+    inspectorDragGuide.value=null;
+    inspectorScreenPoint.value=null;
+}
+watch([() => props.inspectorVisible, () => props.inspectorCommitToken,
+    () => props.ownerId, () => props.device.id],clearInspectorOverlay);
+
 const pendingStepDeletion = ref<{ plan: AutomationStepDeletion; ownerId: number;
     scriptId: string | null; scriptRevision: number | null } | null>(null);
 const stepDeleteError = ref('');
@@ -663,6 +700,10 @@ onBeforeUnmount(() => {
                 <small v-if="!device.connection.enabled">{{ t('disabled') }}</small>
             </div>
             <CardLocatorDemo :demo="demoResult ?? null" :video-width="currentGeometry.width" :video-height="currentGeometry.height" />
+            <CardInspectorOverlay v-if="inspectorVisible"
+                :video-width="currentGeometry.width" :video-height="currentGeometry.height"
+                :highlight="inspectorHighlight" :drag-mode="inspectorDragMode"
+                :drag-guide="inspectorDragGuide" @pick="inspectorOriginalScreenPick" />
             <CardPickingOverlay :phase="pickingPhase" :error="pickerError" @exit="emit('toggle-picking', device.id)" />
             <button v-if="pickerMenu" type="button" class="pick-menu-dismiss" tabindex="-1" aria-label="关闭控件快捷菜单" @pointerdown.stop @click.stop="closePickerMenu()" />
             <CardContextMenu v-if="pickerMenu" :left="pickerMenu.x" :top="pickerMenu.y"
@@ -696,6 +737,21 @@ onBeforeUnmount(() => {
                 </div>
                 <Button class="main-orb" :icon="menuOpen ? 'pi pi-times' : 'pi pi-sliders-h'" rounded :aria-expanded="menuOpen" :aria-label="t('localControl')" :title="syncRole ? t('controlsLocked') : t('localControl')" @pointerdown.stop="dragStart" @pointermove.stop="dragMove" @pointerup.stop="dragEnd" @pointercancel.stop="dragEnd" @click.stop="toggleOrb" />
             </div>
+            <UiInspectorDialog v-if="inspectorVisible" :key="inspectorCommitToken"
+                :visible="!!inspectorVisible" :device="device" :owner-id="ownerId"
+                :queued-count="inspectorQueuedCount ?? draft.steps.length"
+                :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
+                :screen-width="currentGeometry.width" :screen-height="currentGeometry.height"
+                :screen-point="inspectorScreenPoint" :replace-step="inspectorReplaceStep"
+                :initial-point="inspectorInitialPoint"
+                :preferred-action="inspectorPreferredAction" :commit-token="inspectorCommitToken ?? 0"
+                @close="emit('inspector-close')"
+                @edit="emit('inspector-edit')"
+                @add-step="(step,token,ack) => emit('inspector-add-step',step,token,ack)"
+                @replace-target="(stepId,target) => emit('inspector-replace-target',stepId,target)"
+                @highlight="inspectorHighlight=$event"
+                @drag-mode="inspectorDragMode=$event"
+                @drag-guide="inspectorDragGuide=$event" />
             <AutomationFloatingPanel :visible="automationPanelOpen" :fullscreen="isFullscreen"
                 :device-name="device.name" @close="closeAutomationPanel">
                 <AutomationScriptSelector :scripts="scripts ?? []"
