@@ -104,12 +104,45 @@ impl Manager {
         Ok((url,identity,pin))
     }
 
+    async fn verify_saved_authorization(&self, device: &Value, endpoint: &str, pin: &Fingerprint, agent_id: &str) -> Result<(), Error> {
+        let id = device["id"].as_str().ok_or(Error::Storage)?;
+        let owner = device["owner_user_id"].as_i64().ok_or(Error::Storage)?;
+        let (stored_id, _, _) = self.saved(id).await?.ok_or(Error::IdentityChanged)?;
+        if stored_id != agent_id { return Err(Error::IdentityChanged); }
+        let cipher: String = sqlx::query_scalar(
+            "SELECT token_cipher FROM asset_agent_bindings WHERE asset_device_id=? AND owner_user_id=?"
+        ).bind(id).bind(owner).fetch_one(&self.db.inner()).await.map_err(|_| Error::Storage)?;
+        let plain = self.credentials.open(&format!("asset-agent:{owner}:{id}"), &cipher)
+            .map_err(|_| Error::Storage)?;
+        let token = String::from_utf8(plain).map_err(|_| Error::Storage)?;
+        let controller = self.controller_id().await?;
+        let client = pinned_client(pin).map_err(|_| Error::Remote)?;
+        let response = client.get(format!("{endpoint}/v1/pairings/current"))
+            .header("X-EHA-Controller-ID", &controller)
+            .header("X-EHA-Agent-ID", agent_id)
+            .bearer_auth(token).send().await.map_err(|_| Error::Remote)?;
+        if !response.status().is_success() { return Err(Error::PairRejected); }
+        let bytes = response.bytes().await.map_err(|_| Error::Remote)?;
+        if bytes.len()>4096 { return Err(Error::Remote); }
+        let body: Value = serde_json::from_slice(&bytes).map_err(|_| Error::Remote)?;
+        if body["authorized"] != true ||
+            body["agent_id"].as_str()!=Some(agent_id) ||
+            body["controller_id"].as_str()!=Some(controller.as_str()) {
+            return Err(Error::IdentityChanged);
+        }
+        Ok(())
+    }
+
     pub async fn probe(&self, device: &Value, input: ProbeInput) -> Result<Value, Error> {
         let (endpoint, identity, pin) = self.check(device, input.address, &input.trusted_spki_sha256).await?;
         let existing = self.saved(device["id"].as_str().unwrap_or_default()).await?;
         // When a paired device's IP changes, only this manual verified probe
         // may update the endpoint. A failed probe preserves the old endpoint.
         if existing.is_some() {
+            // A pinned identity is necessary but not sufficient: verify the stored
+            // bearer still belongs to this controller before accepting a new IP.
+            self.verify_saved_authorization(device, &endpoint, &pin,
+                identity["agent_id"].as_str().ok_or(Error::Remote)?).await?;
             sqlx::query("UPDATE asset_agent_bindings SET endpoint=?,verified_at=? WHERE asset_device_id=? AND agent_id=? AND spki_sha256=?")
                 .bind(&endpoint).bind(chrono::Utc::now().to_rfc3339())
                 .bind(device["id"].as_str().unwrap_or_default()).bind(identity["agent_id"].as_str().unwrap_or_default())
