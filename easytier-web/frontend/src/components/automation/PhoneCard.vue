@@ -19,6 +19,11 @@ import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import type { CardRepairContext } from '../../modules/automation-run-repair';
 import CardLocatorDemo from './CardLocatorDemo.vue';
 import AutomationFloatingPanel from './AutomationFloatingPanel.vue';
+import AutomationScriptSelector from './AutomationScriptSelector.vue';
+import AutomationScriptCloneDialog from './AutomationScriptCloneDialog.vue';
+import AutomationScriptSwitchDialog from './AutomationScriptSwitchDialog.vue';
+import type { AutomationScript } from '../../types/automation';
+import type { AutomationScriptAction, ScriptGuard, ScriptSwitchDecision } from '../../modules/automation-script-workspace';
 import type { LocatorDemoResult } from '../../modules/automation-locator-demo';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
 import type { PickerMenuAction, PickerPhase, PickerVideoPoint } from '../../modules/automation-picker-state';
@@ -32,6 +37,11 @@ const props = defineProps<{
     /** Single account-scoped draft. Card reads it, never stores a copy. */
     draft: AutomationDraftWorkspace;
     draftSyncLabel?: string;
+    scripts?: AutomationScript[];
+    scriptsBusy?: boolean;
+    scriptsLoading?: boolean;
+    scriptsError?: string;
+    scriptGuard?: ScriptGuard;
     editingStepId?: string;
     repickingStepId?: string;
     demoResult?: LocatorDemoResult | null;
@@ -43,6 +53,8 @@ const emit = defineEmits<{
     input: [id: string, message: AutomationControl]; action: [id: string, message: AutomationControl]; unlock: [id: string];
     text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string];
     'toggle-picking': [id: string]; 'pick-action': [id: string, point: PickerVideoPoint, action: PickerMenuAction];
+    'script-refresh': [deviceId: string];
+    'script-action': [action: AutomationScriptAction];
     'step-edit': [deviceId: string, stepId: string];
     'step-close': [deviceId: string]; 'step-save': [deviceId: string, stepId: string, expected: AutomationStep, updated: AutomationStep];
     'step-repick': [deviceId: string, stepId: string]; 'step-dirty': [deviceId: string, dirty: boolean];
@@ -129,10 +141,52 @@ const anchorFraction = ref(0.5);
 const menuOpen = ref(false);
 /** T21/T22: per-card UI only; independent of orb menu, stream and running scripts. */
 const automationPanelOpen = ref(false);
-function openAutomationPanel() { automationPanelOpen.value = true; }
+const cloneSourceId = ref<string | null>(null);
+const pendingScriptAction = ref<AutomationScriptAction | null>(null);
+const cloneSource = computed(() => props.scripts?.find(item => item.id === cloneSourceId.value) ?? null);
+const effectiveScriptGuard = computed<ScriptGuard>(() => props.scriptGuard ?? 'loading');
+function openAutomationPanel() {
+    automationPanelOpen.value = true;
+    emit('script-refresh', props.device.id);
+}
 function closeAutomationPanel() { automationPanelOpen.value = false; }
-function toggleAutomationPanel() { automationPanelOpen.value = !automationPanelOpen.value; }
-watch(() => [props.ownerId, props.device.id], () => { automationPanelOpen.value = false; });
+function toggleAutomationPanel() {
+    if(automationPanelOpen.value) closeAutomationPanel();
+    else openAutomationPanel();
+}
+function requestScriptAction(action:AutomationScriptAction) {
+    if(props.scriptsBusy)return;
+    if(effectiveScriptGuard.value !== 'clean') {
+        pendingScriptAction.value=action;
+        return;
+    }
+    emit('script-action',action);
+}
+function chooseScript(id:string) {
+    const item=props.scripts?.find(script => script.id === id);
+    if(!item || (props.draft.editingId === id && props.draft.revision === item.revision))return;
+    requestScriptAction({kind:'select',deviceId:props.device.id,scriptId:id,revision:item.revision});
+}
+function openScriptClone(id:string) {
+    if(props.scriptsBusy)return;
+    cloneSourceId.value=id;
+}
+function confirmScriptClone(id:string,revision:number,name:string) {
+    requestScriptAction({kind:'clone',deviceId:props.device.id,scriptId:id,revision,name});
+}
+function decideScriptSwitch(decision:ScriptSwitchDecision) {
+    const pending=pendingScriptAction.value;
+    pendingScriptAction.value=null;
+    if(pending)emit('script-action',{...pending,decision});
+}
+watch(() => props.draft.editingId, (next,previous) => {
+    if(next && next!==previous) cloneSourceId.value=null;
+});
+watch(() => [props.ownerId, props.device.id], () => {
+    automationPanelOpen.value = false;
+    cloneSourceId.value=null;
+    pendingScriptAction.value=null;
+});
 const pickerMenu = ref<{ point: PickerVideoPoint; x: number; y: number } | null>(null);
 function closePickerMenu() { pickerMenu.value = null; }
 function pickAction(action: PickerMenuAction) {
@@ -600,7 +654,22 @@ onBeforeUnmount(() => {
                 <Button class="main-orb" :icon="menuOpen ? 'pi pi-times' : 'pi pi-sliders-h'" rounded :aria-expanded="menuOpen" :aria-label="t('localControl')" :title="syncRole ? t('controlsLocked') : t('localControl')" @pointerdown.stop="dragStart" @pointermove.stop="dragMove" @pointerup.stop="dragEnd" @pointercancel.stop="dragEnd" @click.stop="toggleOrb" />
             </div>
             <AutomationFloatingPanel :visible="automationPanelOpen" :fullscreen="isFullscreen"
-                :device-name="device.name" @close="closeAutomationPanel" />
+                :device-name="device.name" @close="closeAutomationPanel">
+                <AutomationScriptSelector :scripts="scripts ?? []"
+                    :selected-id="draft.editingId ?? null" :selected-name="draft.name"
+                    :count="draft.steps.length" :busy="!!scriptsBusy" :loading="!!scriptsLoading"
+                    :error="scriptsError" :sync-label="draftSyncLabel"
+                    @refresh="emit('script-refresh',device.id)"
+                    @create="name => requestScriptAction({kind:'create',deviceId:device.id,name})"
+                    @select="chooseScript" @clone="openScriptClone" />
+            </AutomationFloatingPanel>
+            <AutomationScriptCloneDialog :source="cloneSource"
+                :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
+                :busy="!!scriptsBusy" @cancel="cloneSourceId=null" @confirm="confirmScriptClone" />
+            <AutomationScriptSwitchDialog :visible="!!pendingScriptAction"
+                :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
+                :guard="effectiveScriptGuard" :busy="!!scriptsBusy"
+                @cancel="pendingScriptAction=null" @decide="decideScriptSwitch" />
             <!-- T24: target for controlled Teleport of editable child windows.
                  It MUST stay inside phone-screen, not document.body. -->
             <div ref="automationSubwindowHost" class="automation-subwindow-host" />
