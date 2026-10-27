@@ -1,6 +1,7 @@
 //! Session-authenticated management of manually registered node assets.
 //! Existing machine registration and network instance routes remain separate.
 mod publication;
+mod server_agent_entry;
 pub(crate) mod publication_apply;
 pub(crate) mod runtime;
 
@@ -956,6 +957,7 @@ pub(crate) fn router() -> Router<AppStateInner> {
         .route("/api/v1/assets/device-types/{id}", put(update_type).delete(delete_type))
         .route("/api/v1/assets/devices", get(list_devices).post(create_device))
         .route("/api/v1/assets/devices/{id}", get(get_device).put(update_device).delete(delete_device))
+        .route("/api/v1/assets/devices/{id}/agent-entry", get(server_agent_entry::get))
         .route("/api/v1/assets/devices/{id}/binding", put(apply_device_binding))
         .route("/api/v1/assets/devices/{id}/address", put(apply_device_address))
         .route("/api/v1/assets/devices/{id}/services", get(list_services).post(create_service))
