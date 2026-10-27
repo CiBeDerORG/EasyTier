@@ -6,11 +6,15 @@ import AutomationApi, { automationErrorMessage } from '../../modules/automation-
 import type { AutomationDevice, AutomationHierarchy, AutomationHierarchyNode, AutomationSelector, AutomationStep } from '../../types/automation';
 import type { StepTarget } from '../../modules/automation-step-target';
 import { locatorIsUnique, rankLocatorCandidates } from '../../modules/automation-locator-candidates';
+import { matchPickerPoint } from '../../modules/automation-pick-engine';
+import type { PickerVideoPoint } from '../../modules/automation-picker-state';
 
 const props = defineProps<{
     visible: boolean; device: AutomationDevice; ownerId: number;
     stream: MediaStream | null; queuedCount: number;
     replaceStep?: Pick<AutomationStep, 'id' | 'type'> | null;
+    /** Original card's right-click position. Null keeps the legacy manual picker. */
+    initialPoint?: PickerVideoPoint | null;
 }>();
 const emit = defineEmits<{
     close: []; 'add-step': [step: AutomationStep]; edit: [];
@@ -38,6 +42,7 @@ const dragReady = computed(() => !!snapshot.value && compatibleVideo.value && !!
         (dragEnd.value.y - dragStart.value.y) * snapshot.value.height) >= 16);
 const dragStyle = (point: Point) => ({ left: point.x * 100 + '%', top: point.y * 100 + '%' });
 let requestGeneration = 0;
+let initialPointUsed = false;
 
 const snapshot = computed(() => response.value?.snapshot);
 const nodeIndex = computed(() => new Map((snapshot.value?.nodes ?? []).map(node => [node.id, node] as const)));
@@ -255,6 +260,8 @@ function videoMetadata() {
 async function refresh() {
     if (!props.visible || loading.value) return;
     const generation = ++requestGeneration;
+    const pointHint = !initialPointUsed ? props.initialPoint : null;
+    initialPointUsed = true;
     response.value = null; selectedId.value = null; selectedCandidate.value = null; coordinateConfirmed.value = false; collapsedIds.value = [];
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = ''; loading.value = true;
@@ -266,6 +273,18 @@ async function refresh() {
             return;
         }
         response.value = result;
+        if (pointHint) {
+            const match = matchPickerPoint(result, pointHint, {
+                targetFingerprint: props.device.target_fingerprint ?? '',
+            });
+            if (match.status === 'matched' && match.nodeId !== null) {
+                selectNode(match.nodeId);
+                feedback.value = match.message;
+            } else {
+                // No silent fallback to an unrelated node or screen coordinate.
+                feedback.value = match.message + ' 可在控件树中手动选择或再次在卡片右键拾取。';
+            }
+        }
     } catch (cause) {
         if (generation === requestGeneration && props.visible) error.value = automationErrorMessage(cause);
     } finally {
@@ -302,19 +321,14 @@ function pick(event: MouseEvent) {
         feedback.value = dragEnd.value ? '已选定起终点；确认后添加拖拽，或再次点画面重新选择起点。' : '已选择起点，请点击终点。';
         return;
     }
-    const x = normX * snapshot.value.width;
-    const y = normY * snapshot.value.height;
-    // Prefer a small clickable element; parent containers would otherwise cover everything.
-    const candidates = snapshot.value.nodes.filter(node => {
-        const b = node.bounds;
-        return x >= b.left && x < b.right && y >= b.top && y < b.bottom;
-    });
-    candidates.sort((a, b) => {
-        const area = (node: AutomationHierarchyNode) => (node.bounds.right - node.bounds.left) * (node.bounds.bottom - node.bounds.top);
-        return area(a) - area(b) || Number(b.clickable) - Number(a.clickable) || b.depth - a.depth;
-    });
-    if (candidates.length) selectNode(candidates[0].id);
-    else { selectedId.value = null; feedback.value = '点击位置未找到有效控件，请刷新控件树。'; }
+    const match = matchPickerPoint(response.value!, {
+        x: normX * snapshot.value.width, y: normY * snapshot.value.height,
+        width: snapshot.value.width, height: snapshot.value.height,
+    }, { targetFingerprint: props.device.target_fingerprint ?? '' });
+    if (match.status === 'matched' && match.nodeId !== null) {
+        selectNode(match.nodeId);
+        feedback.value = match.message;
+    } else { selectedId.value = null; feedback.value = match.message; }
 }
 watch(selected, node => {
     if (!node) return;
@@ -390,6 +404,7 @@ function add(type: 'tap' | 'long_press' | 'wait_for' | 'wait_gone' | 'assert' | 
 }
 watch([() => props.visible, () => props.device.id, () => props.device.target_fingerprint, () => props.ownerId], async () => {
     ++requestGeneration;
+    initialPointUsed = false;
     response.value = null; selectedId.value = null; selectedCandidate.value = null;
     coordinateConfirmed.value = false; collapsedIds.value = []; loading.value = false;
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;

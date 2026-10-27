@@ -395,6 +395,15 @@ const runnerAvailable = computed(() => context.value?.available === true && cont
 const managedAccount = computed(() => accounts.value.find(account => account.id === ownerId.value)?.username ?? String(ownerId.value));
 const deviceNames = computed(() => Object.fromEntries(devices.value.map(device => [device.id, device.name])));
 const inspectorDevice = computed(() => devices.value.find(device => device.id === inspectorDeviceId.value));
+const inspectorInitialPoint = computed<PickerVideoPoint | null>(() => {
+    const id = inspectorDeviceId.value;
+    // Script-library replacement stays independent of any active card cursor.
+    if (!id || inspectorEditScope.value || tab.value !== 'workbench') return null;
+    const saved = pickerPoints[id], context = pickerContexts[id], binding = pickerBinding(id);
+    return saved && context && binding && pickerCanApply(
+        context, binding, saved.generation, saved.snapshotGeneration, {kind:'append'},
+    ) ? saved.point : null;
+});
 const nodeOptions = computed(() => [...new Map([
     ...catalogNodes.value.map(node => [node.machine_id, node.alias || node.hostname || node.machine_id] as const),
     ...devices.value.map(device => [device.machine_id, device.node_name] as const),
@@ -1203,7 +1212,7 @@ onBeforeUnmount(() => { stopEvents?.();
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
-        <UiInspectorDialog v-if="inspectorDevice" :key="inspectorOpenGeneration" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" :replace-step="inspectorReplaceStep"
+        <UiInspectorDialog v-if="inspectorDevice" :key="inspectorOpenGeneration" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" :replace-step="inspectorReplaceStep" :initial-point="inspectorInitialPoint"
             @close="closeInspector" @add-step="addInspectorStep" @replace-target="replaceInspectorTarget" @edit="editInspectorDraft" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
         <Dialog :visible="!!gestureConfirmation" :appendTo="textDialogTarget" modal
