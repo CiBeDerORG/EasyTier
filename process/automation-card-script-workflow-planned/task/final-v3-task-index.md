@@ -24,10 +24,10 @@
 | [T33](task-33-inspector-main-video.md) | 原视频属性树 | P11 | Inspector | W2 | T20,T23 | 代码已提交，待验证 |
 | [T34](task-34-inspector-gesture-fullscreen.md) | 控件树/拖拽全屏 | P11 | Inspector | W3 | T23,T33 | 代码已提交，待验证 |
 | [T35](task-35-inspector-legacy-exit.md) | 去 Inspector 重复视频 | P11 | Inspector/集成 | W4 | T32,T33,T34 | 代码已提交，待验证 |
-| [T36](task-36-lease-contract.md) | Viewer/Action 合同 | P12 | 架构 | W1 | T20 | 待开发 |
-| [T37](task-37-executor-lease.md) | Executor 动作租约 | P12 | Executor | W2 | T36 | 待开发 |
-| [T38](task-38-rust-lease.md) | Rust 观看/动作权限 | P12 | Rust-运行 | W2 | T36,T37 接口 | 待开发 |
-| [T39](task-39-frontend-readonly-lease.md) | 前端只读运行态 | P12 | 卡片/集成 | W3 | T23,T37,T38 | 待开发 |
+| [T36](task-36-lease-contract.md) | Viewer/Action 合同 | P12 | 架构 | W1 | T20 | 合同已提交，待验收 |
+| [T37](task-37-executor-lease.md) | Executor 动作租约 | P12 | Executor | W2 | T36 | 代码已提交，待联调 |
+| [T38](task-38-rust-lease.md) | Rust 观看/动作权限 | P12 | Rust-运行 | W2 | T36,T37 接口 | 代码已提交，待联调 |
+| [T39](task-39-frontend-readonly-lease.md) | 前端只读运行态 | P12 | 卡片/集成 | W3 | T23,T37,T38 | 单步/卡片接线，批量待迁移 |
 | [T40](task-40-single-step-orchestrator.md) | 单步 ▶ 自动执行 | P13 | 运行 | W4 | T32,T34,T39 | 待开发 |
 | [T41](task-41-single-step-progress.md) | 单步行内进度 | P13 | 运行 | W4 | T40 | 待开发 |
 | [T42](task-42-single-step-repair.md) | 单步修复与旧模态退役 | P13 | 修复/集成 | W4 | T40,T41 | 待开发 |
@@ -69,3 +69,6 @@
 - **业务正确性**：主视频唯一且原流不停；卡片单步只操作本设备；完整流程只操作选中设备；脚本/草稿只有共享唯一状态；条件步骤安全删除；克隆必生成独立 ID。
 - **安全正确性**：owner/fingerprint、坐标/控件匹配、CAS、run request 幂等、action lease 独占、cleanup_unknown fail closed 都保留。
 - **交付正确性**：每一任务有清晰代码差异、接口/文档、回归风险和真实验证证据。调试模式不擅自跑本地测试/构建/手动 CI。
+
+
+> 2026-10-28：T36～T39 提交记录和未验收清单见各任务卡及 `test-report.md`。T40 全屏单步、T43 批量和 T45 多机原画面持续观察没有在本阶段标完成。
