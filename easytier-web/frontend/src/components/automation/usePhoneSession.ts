@@ -23,6 +23,9 @@ export function usePhoneSession(api: AutomationApi) {
     let sequence = 0;
     let queue: PendingControl[] = [];
     let inflight: { item: PendingControl; id: string; timer: ReturnType<typeof setTimeout> } | null = null;
+    // One discarded in-flight command can reply after a Viewer downgrade;
+    // its late ack/error must not tear down the still-authorized video.
+    let discardedCommandId: string | null = null;
     let closing = false;
     let closePromise: Promise<void> | null = null;
     let firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
@@ -30,7 +33,12 @@ export function usePhoneSession(api: AutomationApi) {
 
     function clearCommands(reason: string) {
         const error = new Error(reason);
-        if (inflight) { clearTimeout(inflight.timer); inflight.item.reject(error); inflight = null; }
+        if (inflight) {
+            discardedCommandId = inflight.id;
+            clearTimeout(inflight.timer);
+            inflight.item.reject(error);
+            inflight = null;
+        }
         for (const item of queue.splice(0)) item.reject(error);
     }
     function stopLocal(reason: string) {
@@ -121,7 +129,7 @@ export function usePhoneSession(api: AutomationApi) {
         if (typeof RTCPeerConnection === 'undefined') throw new Error('This browser does not support WebRTC');
         const mine = ++generation;
         sessionOwner = ownerId; state.phase = 'opening'; state.error = ''; state.unlockState = '';
-        state.viewerOnly = false; sequence = 0;
+        state.viewerOnly = false; sequence = 0; discardedCommandId = null;
         try {
             const created = await api.createSession(ownerId, { device_id: deviceId, quality, ...(media ? { media } : {}) });
             if (mine !== generation) { await api.closeSession(ownerId, created.id); return; }
@@ -137,6 +145,12 @@ export function usePhoneSession(api: AutomationApi) {
                     let reply: AutomationControlReply;
                     try { reply = JSON.parse(event.data); } catch { return; }
                     if (reply.type === 'ready') { ready = true; clearTimeout(timeout); pendingReady = null; state.controlReady = true; resolve(); return; }
+                    if (reply.command_id && reply.command_id === discardedCommandId) {
+                        // An old command's result may be unknown to the browser
+                        // even though the handoff was completed. Never retry it.
+                        discardedCommandId = null;
+                        return;
+                    }
                     if (reply.command_id && reply.command_id === inflight?.id) {
                         const pending = inflight; inflight = null; clearTimeout(pending.timer);
                         if (reply.type === 'error') pending.item.reject(new Error(reply.message ?? reply.code ?? 'Control failed'));
