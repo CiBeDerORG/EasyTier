@@ -6,6 +6,28 @@ fn eligible(device: &Value) -> bool {
         .is_some_and(|kinds| kinds.iter().any(|kind| kind.as_str() == Some("server")))
 }
 
+// Shared scope check for GET entry and explicit T01-06 mutating routes.
+pub(crate) async fn load_authorized(
+    auth: &AuthSession,
+    config: &ConsoleInfoConfig,
+    service: &CentralNetworkService,
+    owner: i32,
+    node: &str,
+    id: &str,
+) -> HttpResult<Value> {
+    authorize(auth, config, service, owner).await?;
+    let node = machine_id(node)?;
+    let store = AssetsStore::new(service.db.clone());
+    let device = store.get_device(owner, &node, id).await.map_err(asset_error)?;
+    if !eligible(&device) {
+        return Err(asset_error(AssetError::conflict(
+            "agent_requires_server_semantic",
+            "Only existing asset devices with server semantics may bind an Agent.",
+        )));
+    }
+    Ok(device)
+}
+
 pub(super) async fn get(
     auth: AuthSession,
     Extension(service): Service,
