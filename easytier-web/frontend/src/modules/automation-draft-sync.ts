@@ -5,7 +5,7 @@
  */
 import { reactive, watch, type WatchStopHandle } from 'vue';
 import { v4 as uuid } from 'uuid';
-import type { AutomationStep, AutomationDraftRecord } from '../types/automation';
+import type { AutomationStep, AutomationDraftRecord, AutomationScript } from '../types/automation';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from './automation-api';
 import { emptyAutomationDraft, type AutomationDraftWorkspace } from './automation-draft';
 
@@ -266,6 +266,43 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
             return false;
         }
     }
+    /**
+     * Atomic workspace change after a confirmed /scripts response.
+     * The previous server draft is retained. The new formal Script revision
+     * gets a NEW draft identity (its own CAS revision) and is auto-synced.
+     *
+     * A UI confirmation may explicitly discard unconfirmed local fields,
+     * but never steals an in-flight server write or deletes the old draft.
+     */
+    function adoptSavedScript(script:AutomationScript,discardLocal=false):boolean {
+        if(!active || !state.initialized || workspace.ownerId!==state.ownerId ||
+            state.ownerId<=0 || busy || state.phase==='saving')return false;
+        if(!discardLocal && !canLeave())return false;
+        clearTimer();
+        suspended=true;
+        pending=null;
+        state.id=null;state.revision=null;
+        workspace.editingId=script.id;
+        workspace.revision=script.revision;
+        workspace.name=script.name;
+        workspace.description=script.description;
+        workspace.steps=script.steps.map(step=>({...step,
+            selector:step.selector?{...step.selector}:undefined,
+            scroll_container:step.scroll_container?{...step.scroll_container}:undefined}));
+        workspace.selectedStepId=workspace.steps[0]?.id;
+        workspace.baseline=JSON.stringify({
+            name:workspace.name,description:workspace.description,steps:workspace.steps,
+        });
+        lastIdentity=String(script.id)+':'+String(script.revision);
+        suspended=false;
+        confirmed=initialFingerprint;
+        state.phase='unsynced';state.message='';
+        // The published Script exists already, but the editor's draft is
+        // independently persisted so restoring a browser retains the selection.
+        schedule(30);
+        return true;
+    }
+
     function fork():void {
         if(!active || busy)return;
         clearTimer();pending=null;state.id=null;state.revision=null;
@@ -302,5 +339,5 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
         window.removeEventListener('online',online);
         stopWatch();stopIdentity();
     }
-    return {state,flush,retry,refreshList,restore,fork,discard,canLeave,dispose};
+    return {state,flush,retry,refreshList,restore,fork,discard,canLeave,adoptSavedScript,dispose};
 }
