@@ -47,3 +47,9 @@
 - 分支：`feat/automation-center`；按仓库规则中文提交。
 - 每次代码修改按 `AGENTS.md` 调试规则更新`test-report.md`；本次仅规划，不执行测试。
 - AC追踪总表在`require/require-01-acceptance.md`；每一项在T18之后才可以标真实验收通过。
+
+## 追加需求（2026-10-27 · 仅记录）
+- 统一原手机卡片 WebRTC 视频与 UiAutomator2 控件拾取工作区：不再重复展示第二个小画面，改为原卡片+可停靠控件树/属性侧板；不影响连续四步和独立脚本库只读检查。
+- 单步骤试跑移除“手机匹配／需要确认定位风险”大卡和额外复选框，保留执行前硬校验与真实动作必要确认；真正不兼容直接阻断。
+- 自动准备、UiAutomator2 与实际试跑期间保留原手机实时画面并观察效果：拟拆分只读视频观看权与独占动作控制权（当前自研 Journal.claim 互斥包含手控/准备/脚本，需要前端+Rust+Executor协同）。
+- 产品/技术详情及 UX-01～UX-07 任务建议见 `../require/require-04-single-screen-observable-trial.md`；**未实现，未测试**。
