@@ -344,3 +344,12 @@
 - 关键修正提交：`4098a005`（降权失败重试不能误报成功）、`909962cf`（旧手控回执不误关视频）、`2300bc43`（批量悬浮动作遇 viewer 禁用）；各文件详见 T36～T39 任务卡。
 - **状态**：真实运行中原画面不断流、停止和恢复手控、全屏单步试跑、UiAutomator2、双浏览器竞争、失败清理/重启/重绑定仍**没有真实验收**。T40 全屏窗口与 T43～T45 批量入口仍待开发，不把 P12 代码提交等同整个 FINAL V3 完成。
 - **未执行** lint、TypeScript、Rust/Python 检查、单测、构建、手工 GitHub Actions、浏览器、FnOS 或 Android 真机操作（遵守现行调试模式）。
+
+## 2026-10-28 · P13 / T40～T41 单步骤原画面一键准备与步骤行结果（调试模式）
+- `PhoneCard.vue` 打开单步 ▶ 时不再因 body modal 强制退出全屏；`CardTrialPanel.vue` 改为 Teleport 到原 `PhoneCard.automationSubwindowHost` 的 `AutomationFloatingDialog`，继续承载原 `useCardTrialPreparation / useCardRunStatus / trial-receipt` 安全路径。窗口拖拽、全屏与原 `sessionId` 不产生副视频。
+- 新增 `useInlineStepRun.ts`：单次 ▶ 冻结账号、设备、目标指纹、stepId、steps JSON 与 request UUID；不再在确认 POST 前生成另一个 UUID。步骤改动/设备改绑严格拒绝，未知回执仅保留原请求编号供只读查询。
+- 自动开始 ADB/UiAutomator2 预检与必要初始化，按 T39 原视频 Viewer 会话降权/指纹/服务端状态确认，`read_only + compatible + 无参数` 时自动提交；涉及改动手机、截图留存、坐标风险/动态参数时，同一个浮窗只显示一次明确确认。条件分支不支持孤立执行，多次 ▶ 不能在同一手机浮窗里重入另一单步。
+- 修复准备结果未知后只读复核缺失原 viewer 身份：需再次核验 `active_session.id` 与 `state=view_only`，并向 `preparation.reconcile` 透传 `ownedSessionId`，不能从其它会话借权恢复。
+- 新增 `InlineStepRunStatus.vue`，`CardTrialPanel.progress` 只读投影至卡片内**唯一** `CardStepTimeline`：准备/待确认/提交/运行/已发送/完成/失败/未知、请求 UUID、runId 和已收到的真实步骤开始结束耗时；不执行任何动作重试。组件沿用 `useCardRunStatus` 的 GET 查询结果和 run 的持久历史。
+- 主要提交：`79980e0a`、`5d09cbc0`（全屏原视频浮窗），`916367b7`、`3705fdce`、`4cf361b8`（固定请求和一键准备、单确认），`df3c2dc5`、`d350d452`（异常恢复及防重入），`3b5264bc`、`fae3b276`、`367e5682`、`dd58815b`（步骤行结果和耗时）。
+- **未完成/未验收**：常规写动作仍保留明确确认（避免放松已建立的手机动作安全语义）；selector 唯一性强阻断、旧运行库/批量原画面迁移、T42 失败回步全闭环、真实前端样式/手机旋转/断线、两浏览器/同机交接/Runner 恢复。未执行 TS 类型检查、lint、Python/Rust 单测编译、GitHub Actions 手动构建、浏览器或 FnOS/Android 真机验证；任何验收框仍不勾选。
