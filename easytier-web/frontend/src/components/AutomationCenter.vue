@@ -1060,9 +1060,14 @@ function openInspector(id: string) {
         && !armCardPicking(id)) {
         error.value = '无法开启拾取：设备会话、账号或草稿上下文已变化。'; return;
     }
-    if (current?.intent.kind === 'replace') {
-        const item = draftWorkspace.steps.find(step => step.id === current.intent.stepId);
-        if (!item || item.type !== current.intent.stepType || !stepCanPickTarget(item) || !binding) {
+    const pickedIntent = current?.intent;
+    if (pickedIntent?.kind === 'replace') {
+        // Capture narrowed scalar fields before entering Array.find's callback.
+        // The reactive union itself is not narrowed inside that closure.
+        const replaceStepId = pickedIntent.stepId;
+        const replaceStepType = pickedIntent.stepType;
+        const item = draftWorkspace.steps.find(step => step.id === replaceStepId);
+        if (!item || item.type !== replaceStepType || !stepCanPickTarget(item) || !binding) {
             error.value = '重新拾取的原步骤已变化，请重新选择步骤。';
             return;
         }

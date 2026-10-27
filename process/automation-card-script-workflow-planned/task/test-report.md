@@ -100,3 +100,9 @@
 - API：`GET/POST /api/v1/automation/drafts` 与 `GET/PUT/DELETE /api/v1/automation/drafts/{id}`，全程已有 session 登录、origin/actor/owner-scoped 认证；字段/状态/重试语义写入 `task/t10-draft-api-contract.md`。
 - 限制：此轮**只有服务端**，尚无前端定时同步、断线恢复或版本冲突提示；这些是 T11/T16。已经确认并写入服务端的步骤不会因视频断线丢失，但尚未接入前端的步骤仍仅在内存。
 - **未执行**：本地 Rust 测试、构建、类型检查、迁移演练、FnOS/SQLite 实际部署或接口调用（继续调试模式）；提交触发的原有自动 CI 状态另行核实，不能据此宣称代码已验证。
+
+## 2026-10-27 · T10 推送后发现的既有 T08 编译阻断
+
+- 复核历史 GitHub Actions `40461898967`：`AutomationCenter.vue(1064,83)` `TS2339 PickerIntent.stepId`，T09 上次修复只覆盖右键菜单提交分支，**未覆盖 `openInspector()` 的 `Array.find()` 闭包**。
+- 修复：对 `pickedIntent.kind === 'replace'` 先冻结 `replaceStepId/replaceStepType` 两个字符串，再进入步骤列表 `find`；不更改草稿和替换步骤操作规则。
+- **未执行**：本地测试、类型检查、构建或手动触发CI（遵循调试模式）；新提交自动触发的 CI 需单独确认。
