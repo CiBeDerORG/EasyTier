@@ -20,7 +20,7 @@ const props=defineProps<{
     runnerAvailable: boolean;
     blocked?: boolean;
 }>();
-const emit=defineEmits<{ close: []; history: [runId: string] }>();
+const emit=defineEmits<{ close: []; history: [runId: string]; repair: [runId: string, stepId: string] }>();
 const api=new AutomationApi();
 const preparation=useCardTrialPreparation(api);
 const result=useCardRunStatus(api);
@@ -28,6 +28,8 @@ const currentRun=result.run;
 const runView=result.view;
 const runError=result.error;
 const runPolling=result.polling;
+const repairableRun=computed(()=>!!currentRun.value && !!runView.value &&
+    ['failed','interrupted','outcome_unknown'].includes(runView.value.stepState));
 type PanelPhase = 'idle' | 'releasing' | 'preparing' | 'ready' | 'submitting' | 'observing' | 'failed' | 'unknown';
 const phase=ref<PanelPhase>('idle');
 const warning=ref('');
@@ -217,6 +219,11 @@ function openHistory(){
     const id=result.run.value?.id;
     if(id)emit('history',id);
 }
+function openRepair(){
+    const view=runView.value;
+    if(repairableRun.value && view?.runId && view.stepId)
+        emit('repair',view.runId,view.stepId);
+}
 function hide(){
     ++epoch;
     if(phase.value==='preparing' || phase.value==='releasing')
@@ -292,6 +299,8 @@ onBeforeUnmount(()=>{
                 <Button label="关闭" text size="small" @click="hide"/>
                 <Button v-if="currentRun" label="刷新结果" outlined size="small"
                     :loading="runPolling" @click="result.refresh()"/>
+                <Button v-if="repairableRun" label="定位修复本步骤" icon="pi pi-wrench" outlined size="small"
+                    @click="openRepair"/>
                 <Button v-if="currentRun" label="在执行记录查看" icon="pi pi-history" size="small"
                     @click="openHistory"/>
                 <Button v-if="phase==='unknown' && !pending" label="只读复核准备状态" outlined size="small"
