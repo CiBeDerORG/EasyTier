@@ -116,7 +116,7 @@ export function createAutomationScriptWorkspace(
                     return;
                 }
             }
-            let snapshot = draftFingerprint(workspace);
+            const snapshot = draftFingerprint(workspace);
             if (!stillCurrent(owner, input.deviceId, generation, snapshot)) return;
             if (!await refresh() || !stillCurrent(owner, input.deviceId, generation, snapshot)) return;
             let selected: AutomationScript | null = null;

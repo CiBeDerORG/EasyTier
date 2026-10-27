@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
 import type { ScriptGuard, ScriptSwitchDecision } from '../../modules/automation-script-workspace';
-const props=defineProps<{
+defineProps<{
     visible: boolean;
     portalTarget: HTMLElement | null;
     fullscreen: boolean;
