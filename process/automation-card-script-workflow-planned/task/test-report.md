@@ -197,3 +197,9 @@
 - 新增 `automation-trial-receipt-regression.test.mjs` 与 `automation-run-result-regression.test.mjs`，纳入现有 `test:unit`。生产环境的跨手机高风险操作仍须独立确认。
 - 已有 GitHub Actions `40498979066` 在 `5b39f1dc` 版本成功构建 executor，但**晚于该提交的其他代码**和新增测试不由此结果覆盖。**当前最新整合提交的 CI 结果待核实。**
 - **未运行**本地单元测试、TypeScript检查、lint、手动 GitHub workflow、FnOS/Android 真机验收（当前调试模式）。不可把“已提交代码”记为已关闭问题或通过 12 项 AC。
+
+## 2026-10-27 · 单画面与可视化试跑需求记录（仅文档）
+- 本轮核查 `PhoneCard.vue`、`AutomationCenter.vue`、`UiInspectorDialog.vue`：控件弹窗复用同一 `MediaStream`，但使用第二个 video 元素；未来改为卡片唯一原视频和右侧属性停靠面板。
+- 核查 `CardTrialPanel.vue::prepare()`、`automation-run-handoff.ts`、`automation-executor/automation_executor/runtime.py` 与 `journal.py`：前端在准备前主动关闭本页预览；独占来自 EasyTier 自研 `Journal.claim()`，不是第三方框架。视频 session 创建自身不直接 claim，手动触控/解锁才 claim manual，准备和脚本又分别 claim prepare/script。保留视频必须实现只读观看与写动作分权，并处理 Rust server 占用状态。
+- 记录试跑去掉冗余定位风险大卡/额外复选框，但执行器与服务端严格匹配及执行确认不取消；全部新需求见 `require/require-04-single-screen-observable-trial.md`。
+- **本次未执行任何代码修改、测试、构建、CI 或设备操作。** 新需求仅状态为“待开发/待真机验证”，不改变原 AC01–AC12 当前验收状态。
