@@ -4,6 +4,7 @@ import { Button, Dialog, Message, Skeleton, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import type ApiClient from '../../modules/api';
 import { serverAgentMessages } from '../../modules/server-agent-messages';
+import { matchesServerAgentEntry } from '../../modules/server-agent-entry';
 import type { AssetDevice, AssetScope, ServerAgentEntry } from '../../types/node-assets';
 
 const props = defineProps<{ api: ApiClient; scope: AssetScope; device: AssetDevice }>();
@@ -25,11 +26,7 @@ async function load() {
     try {
         const result = await props.api.assetsServerAgentEntry(props.scope, props.device.id);
         if (!alive || current !== requestVersion) return;
-        if (result.owner_user_id !== props.scope.owner_user_id
-            || result.machine_id !== props.scope.machine_id
-            || result.asset_device_id !== props.device.id
-            || result.source !== 'existing_asset_device'
-            || result.agent_status !== 'not_checked') {
+        if (!matchesServerAgentEntry(props.scope, props.device.id, result)) {
             error.value = t('changed');
             return;
         }

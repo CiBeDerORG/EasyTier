@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { Button, Column, DataTable, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { useAssetBindingLabels } from '../../composables/useAssetBindingLabels';
+import { isServerAgentAsset } from '../../modules/server-agent-entry';
 import type { AssetDevice, DeviceType, GatewayGroup } from '../../types/node-assets';
 
 const props = defineProps<{
@@ -154,7 +155,7 @@ const createdAt = (value: string) => {
                             :title="t('assets.deviceDelete')" @click="emit('delete', data)" />
                     </div>
                     <div class="device-binding-actions">
-                        <Button v-if="data.semantic_kinds?.includes('server')" label="Agent" icon="pi pi-server"
+                        <Button v-if="isServerAgentAsset(data)" label="Agent" icon="pi pi-server"
                             text size="small" :title="`EasyHostAgent · ${data.name}`"
                             :aria-label="`EasyHostAgent · ${data.name}`" @click="emit('agent', data)" />
                         <Button :label="t(bindingAction(data))" icon="pi pi-link" text size="small"
