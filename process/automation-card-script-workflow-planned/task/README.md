@@ -53,3 +53,19 @@
 - 单步骤试跑移除“手机匹配／需要确认定位风险”大卡和额外复选框，保留执行前硬校验与真实动作必要确认；真正不兼容直接阻断。
 - 自动准备、UiAutomator2 与实际试跑期间保留原手机实时画面并观察效果：拟拆分只读视频观看权与独占动作控制权（当前自研 Journal.claim 互斥包含手控/准备/脚本，需要前端+Rust+Executor协同）。
 - 产品/技术详情及 UX-01～UX-07 任务建议见 `../require/require-04-single-screen-observable-trial.md`；**未实现，未测试**。
+
+## 最终交互优化待开发任务（2026-10-27）
+完整产品定义与验收见 `../require/require-05-final-card-script-workflow.md`。这些任务均为**待开发**，不得与已提交的旧 T01～T18 混为“已实现”。
+
+| ID | 工作包 | 负责人 | 依赖 | 状态 |
+|---|---|---|---|---|
+| FINAL-01 | 统一脚本/步骤/运行状态与 UI 事件契约 | 集成负责人 | 无 | 待开发 |
+| FINAL-02 | 共享脚本选择器、第一行创建、打开和克隆；CAS 切换保护 | 集成负责人/脚本 Agent（共享接线唯一归集成） | FINAL-01 | 待开发 |
+| FINAL-03 | 卡片步骤行删除、撤销、条件块保护 | 步骤 Agent | FINAL-01/02 | 待开发 |
+| FINAL-04 | Video Viewer Lease 与 Action Lease 分权及 Rust/Executor 原子移交 | 执行器/服务端 Agent | FINAL-01 | 待开发 |
+| FINAL-05 | 卡片 ▶ 单步自动准备并执行、行内运行状态、原视频不断 | 运行 Agent | FINAL-03/04 | 待开发 |
+| FINAL-06 | 共享脚本栏 ▶ 全局完整运行、勾选手机、并发与历史 | 集成负责人/运行 Agent | FINAL-02/04 | 待开发 |
+| FINAL-07 | UiInspector 停靠侧板，仅原卡片一个视频 | Inspector Agent | FINAL-01/02 | 待开发 |
+| FINAL-08 | 新旧验收 + FnOS/双 OEM/双浏览器/断网与控制权竞争 | QA | FINAL-02～07 | 待开发 |
+
+**写入隔离：** 前端共享 `AutomationCenter.vue` / `ScriptLibrary.vue` 由集成负责人独占接线，步骤 Agent 独占 `CardStepTimeline.vue`，Inspector Agent 独占 `UiInspectorDialog.vue`，执行器 Agent 独占 `runtime.py/journal.py`，Rust Agent 独占资源授权与 run 接口，QA 维护测试报告。
