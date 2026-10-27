@@ -226,7 +226,7 @@ async function prepare(){
             if(!latestDevice)throw new Error('无法确认当前手机授权及绑定。');
             const checked=requiresReuseHierarchy([chosen])
                 ? reviewAutomationDeviceCompatibility(owner,latestDevice,
-                    await api.hierarchy(owner,id),[chosen])
+                    await api.hierarchy(owner,id),[chosen],Date.now(),{requireUniqueSelectors:true})
                 : statelessCompatibility(owner,latestDevice,[chosen]);
             if(!valid(mine,owner,id,source))return;
             compatibilityReview.value=checked;
@@ -297,7 +297,7 @@ async function submit(){
             throw new Error('原视频只读移交或设备绑定已变化，未提交试跑。');
         const rechecked=requiresReuseHierarchy([frozen.value])
             ? reviewAutomationDeviceCompatibility(owner,row,
-                await api.hierarchy(owner,id),[frozen.value])
+                await api.hierarchy(owner,id),[frozen.value],Date.now(),{requireUniqueSelectors:true})
             : statelessCompatibility(owner,row,[frozen.value]);
         if(!valid(mine,owner,id,original))return;
         if(rechecked.status==='blocked'){
@@ -419,7 +419,7 @@ async function recheckPreparation(){
             if(!latestDevice)throw new Error('原授权设备已消失，不能继续试跑。');
             const checked=requiresReuseHierarchy([frozen.value])
                 ? reviewAutomationDeviceCompatibility(owner,latestDevice,
-                    await api.hierarchy(owner,id),[frozen.value])
+                    await api.hierarchy(owner,id),[frozen.value],Date.now(),{requireUniqueSelectors:true})
                 : statelessCompatibility(owner,latestDevice,[frozen.value]);
             if(!valid(mine,owner,id,original))return;
             compatibilityReview.value=checked;
