@@ -156,7 +156,10 @@ const coordinateBoundsValid = computed(() => {
 const coordinatesAllowed = computed(() => compatibleVideo.value && coordinateBoundsValid.value
     && response.value?.target_fingerprint === props.device.target_fingerprint);
 function confirmCoordinates() {
-    if (mode.value !== 'coordinates' || !coordinatesAllowed.value) return;
+    if (mode.value !== 'coordinates' || !coordinatesAllowed.value || !snapshotFresh()) {
+        feedback.value='原控件树已过期，请刷新后重新确认坐标定位。';
+        return;
+    }
     coordinateConfirmed.value = true;
     feedback.value = '已手动确认使用坐标定位；画面旋转、控件变更或刷新控件树后需要重新确认。';
 }
@@ -405,6 +408,10 @@ function locator(): AutomationSelector | null {
     return mode.value === 'coordinates' ? null : confirmedLocator.value;
 }
 function replaceTarget() {
+    if (!snapshotFresh()) {
+        feedback.value='原控件树已过期，请刷新并重新选择唯一定位条件。';
+        return;
+    }
     if (!canReplace.value || !selected.value || !snapshot.value || !props.replaceStep) return;
     const selector = locator();
     let target: StepTarget;
@@ -426,6 +433,10 @@ function replaceTarget() {
     emit('replace-target', props.replaceStep.id, target);
 }
 function add(type: InspectorAction) {
+    if (!snapshotFresh()) {
+        feedback.value='原控件树已过期，请刷新快照后确认录入。';
+        return;
+    }
     if (!selected.value || !snapshot.value || !canAdd.value) return;
     const selector = locator();
     if (!selector && type !== 'tap' && type !== 'long_press') return;
