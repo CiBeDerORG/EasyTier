@@ -22,6 +22,7 @@ import { automationMessages } from './automation/messages';
 import { analyzeAutomationFlow } from '../modules/automation-flow';
 import { appendAutomationDraftSteps, appendPickedAutomationStep, emptyAutomationDraft } from '../modules/automation-draft';
 import { createAutomationDraftSync } from '../modules/automation-draft-sync';
+import { createAutomationScriptWorkspace, type AutomationScriptAction } from '../modules/automation-script-workspace';
 import { releaseOwnedTrialPreviews } from '../modules/automation-run-handoff';
 import {
     beginPicker, readyPicker, stopPicker, setPickerIntent, invalidatePickerSnapshot,
@@ -242,6 +243,22 @@ interface PickerEditScope {
 const inspectorEditScope = ref<PickerEditScope | null>(null);
 const cardStepEditor = ref<{ deviceId: string; stepId: string } | null>(null);
 const cardEditorDirty = ref(false);
+/** One owner-level Script API projection for all phone-card floating windows.
+ * The authoritative mutable steps remain ONLY in draftWorkspace/draftSync. */
+const scriptWorkspace = createAutomationScriptWorkspace(
+    api, ownerId, devices, draftWorkspace, draftSync, cardEditorDirty, () => {
+        stopAllPicking(); closeInspector();
+        cardStepEditor.value=null; cardEditorDirty.value=false;
+        notice.value='已切换到已保存脚本，并正在建立独立工作草稿。';
+    },
+);
+function refreshScriptList(deviceId:string) {
+    if(!devices.value.some(device=>device.id===deviceId && device.owner_user_id===ownerId.value))return;
+    void scriptWorkspace.refresh();
+}
+function handleFloatingScriptAction(action:AutomationScriptAction) {
+    void scriptWorkspace.perform(action);
+}
 // No second draft or mutation: this is only ephemeral per-card presentation.
 interface CardDemoState {
     token: number; stepId: string; loading: boolean;
@@ -1738,13 +1755,19 @@ onBeforeUnmount(() => { stopEvents?.();
                 <div v-if="!devices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-mobile" aria-hidden="true" /><h2>{{ t('noAssets') }}</h2><p>{{ t('noAssetsDetail') }}</p><Button :label="t('toAssets')" outlined @click="router.push({ name: 'nodeAssets' })" /></div>
                 <div v-else-if="!visibleDevices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-search" aria-hidden="true" /><h2>{{ t('noResults') }}</h2><Button :label="t('reset')" text @click="filters = { node: '', group: '', type: '', keyword: '' }; query()" /></div>
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
-                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" :draft="draftWorkspace" :draft-sync-label="draftSyncLabel" :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
+                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" :draft="draftWorkspace" :draft-sync-label="draftSyncLabel"
+                        :scripts="scriptWorkspace.state.items" :scripts-busy="scriptWorkspace.state.busy"
+                        :scripts-loading="scriptWorkspace.state.loading" :scripts-error="scriptWorkspace.state.error"
+                        :script-guard="scriptWorkspace.guard.value"
+                        :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
                         :repicking-step-id="repickingStepIds[device.id]"
                         :repair-context="cardRepairContext?.deviceId === device.id ? cardRepairContext : null"
                         :demo-result="locatorDemos[device.id]?.stepId === cardStepEditor?.stepId ? locatorDemos[device.id]?.result : null"
                         :demo-loading="locatorDemos[device.id]?.loading ?? false" :demo-error="locatorDemos[device.id]?.error"
                         @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
-                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @step-edit="editCardStep" @trial-history="onCardTrialHistory" @trial-repair="onCardTrialRepair" @repair-repick="repickCardRepairStep" @repair-dismiss="dismissCardRepair" @step-close="closeCardStepEditor"
+                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction"
+                        @script-refresh="refreshScriptList" @script-action="handleFloatingScriptAction"
+                        @step-edit="editCardStep" @trial-history="onCardTrialHistory" @trial-repair="onCardTrialRepair" @repair-repick="repickCardRepairStep" @repair-dismiss="dismissCardRepair" @step-close="closeCardStepEditor"
                         @step-save="saveCardStep" @step-repick="repickCardStep" @step-dirty="markCardStepDirty"
                         @step-demo="demoCardStep" @demo-clear="clearCardDemo" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
