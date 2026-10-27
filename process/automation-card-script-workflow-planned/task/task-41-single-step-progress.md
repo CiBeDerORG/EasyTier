@@ -28,5 +28,7 @@
 - 新增 `components/automation/InlineStepRunStatus.vue`，在唯一 `CardStepTimeline.vue` 的对应 stepId 行显示“准备/待确认/提交/执行/动作已发送/完成/失败/取消/未知”等状态、运行 ID 前 8 位及当前请求 ID 悬浮提示。
 - `CardTrialPanel.vue` 只读投影原 `useCardRunStatus` 的运行回执，携带 ownerId/deviceId/stepId/requestId/runId，使用 `progress` 事件交给同一 PhoneCard；拖动子浮窗或进入全屏不切换原运行记录，也不会额外 POST。
 - `PhoneCard.vue` 仅在本卡片当前试跑 stepId 与 owner/device 对齐时接收投影；授权 owner 变化清理上次本地进度。已有历史/修复入口仍在浮窗保留。
-- 待补：本次试跑耗时与服务端 started_at/finished_at 映射、回显更多步骤/设备信息、结果未知后专门的就地只读重查 UX、真实断线/关闭窗口回归；T42 失败修复与历史模态退役尚未完成。
+- 待补：回显更多步骤/设备信息、结果未知后专门的就地只读重查 UX、真实断线/关闭窗口回归；T42 失败修复与历史模态退役尚未完成。
 - **无测试、构建、手动 CI、浏览器或 FnOS/Android 真机验收**；验收框仍未勾选。
+
+- 追加修复：行内耗时只取 `run.devices[].steps[].started_at / finished_at`，服务端未报告开始时间时不伪造时间；对应 `367e5682`、`dd58815b`。尚无浏览器或真机验证。
