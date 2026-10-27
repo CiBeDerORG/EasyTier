@@ -2,11 +2,14 @@
 import { computed } from 'vue';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
 import { projectCardSteps } from '../../modules/card-step-projection';
+import type { InlineStepRunProgress } from '../../modules/useInlineStepRun';
+import InlineStepRunStatus from './InlineStepRunStatus.vue';
 
 const props=defineProps<{
     draft: AutomationDraftWorkspace;
     undoLabel?: string;
     pickerActive?: boolean;
+    trialProgress?: InlineStepRunProgress | null;
 }>();
 const emit=defineEmits<{
     edit: [stepId: string];
@@ -41,6 +44,8 @@ const projected=computed(()=>projectCardSteps(props.draft));
                         <strong>{{ step.label }}</strong>
                         <small v-if="step.branch" class="branch">{{ step.branch }}</small>
                         <small>{{ step.context }}{{ step.incomplete ? ' · 待完善' : '' }}</small>
+                        <InlineStepRunStatus v-if="trialProgress?.stepId === step.id"
+                            :progress="trialProgress" />
                     </span>
                 </button>
                 <button type="button" class="step-trial" :aria-label="'试跑第 '+step.number+' 步"
