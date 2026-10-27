@@ -590,6 +590,14 @@ async function fullscreen() {
     else await screen.value?.requestFullscreen();
 }
 function localAction(message: AutomationControl) { if (manualAllowed.value) emit('action', props.device.id, message); }
+const resumingManual=ref(false);
+async function resumeManualControl(){
+    if(!session.state.viewerOnly || session.state.phase!=='live' || resumingManual.value || props.device.run_occupied)return;
+    resumingManual.value=true;
+    try {await session.resumeManual();emit('refresh');}
+    catch(cause){session.state.error=cause instanceof Error?cause.message:'尚不能安全恢复手动操作';}
+    finally{resumingManual.value=false;}
+}
 let watching = false, disposed = false, intentVersion = 0, latestEndpoint = -1, restoredEndpoint = -1;
 let watchQuality: 'wall' | 'focus' = 'wall';
 let watchMedia: AutomationMediaSettings = { max_size: 640, video_bit_rate: 1000000, max_fps: 15, low_latency: true, screen_off: false };
@@ -726,6 +734,11 @@ onBeforeUnmount(() => {
                 :style="[floatingStyle, actionBoundsStyle]" @pointerdown.capture="markMenuInteraction" @click.capture="markMenuInteraction" @pointerdown.stop @click.stop>
                 <div v-if="menuOpen" class="floating-actions" role="group" :aria-label="t('localControl')">
                     <div class="input-actions">
+                        <Button v-if="session.state.phase === 'live' && session.state.viewerOnly"
+                            icon="pi pi-lock-open" rounded severity="secondary" aria-label="恢复手机手动控制"
+                            title="仅在脚本动作权彻底释放后可恢复；原视频不关闭"
+                            :loading="resumingManual" :disabled="!!device.run_occupied || resumingManual"
+                            @click="resumeManualControl" />
                         <Button icon="pi pi-pencil" rounded :aria-label="t('text')" :title="t('text')" :disabled="!manualAllowed" @click="emit('text', device.id)" />
                         <Button icon="pi pi-unlock" rounded severity="primary" :aria-label="t('unlockPhone')" :title="t('unlockPhone')" :loading="unlocking" :disabled="!manualAllowed || unlocking || recording" @click="emit('unlock', device.id)" />
                         <Button icon="pi pi-ban" rounded severity="secondary" :aria-label="t('releaseManual')" :title="t('releaseManual')" :disabled="!manualAllowed || unlocking" @click="localAction({ type: 'stop' })" />
@@ -810,7 +823,7 @@ onBeforeUnmount(() => {
                  It MUST stay inside phone-screen, not document.body. -->
             <div ref="automationSubwindowHost" class="automation-subwindow-host" />
         </div>
-        <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}<template v-if="session.state.phase === 'live' && session.state.viewerOnly"> · 只读观看，手控已锁定</template></span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
+        <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}<template v-if="session.state.phase === 'live' && session.state.viewerOnly"> · 只读观看，手控已锁定</template></span><Button v-if="session.state.phase === 'live' && session.state.viewerOnly" label="恢复手控" size="small" text :loading="resumingManual" :disabled="!!device.run_occupied || resumingManual" @click="resumeManualControl" /><span class="mono-value">{{ device.overlay_ip }}</span></footer>
         <CardRepairEntry v-if="repairContext && repairStep" :repair="repairContext"
             :step="repairStep" :step-number="repairStepNumber"
             :editing="!!editingStepId" :runner-available="runnerAvailable"
