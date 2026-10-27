@@ -464,7 +464,7 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
         :fullscreen="fullscreen" :title="device.name + (replaceStep ? ' · 重新拾取控件' : ' · 控件树与属性')"
         @close="emit('close')">
         <div class="ui-inspector">
-            <div class="inspector-toolbar">
+            <div v-if="!dragPickMode" class="inspector-toolbar">
                 <div class="status">
                     <Tag :value="loading ? '正在读取' : snapshot ? '控件树已加载' : '未加载'" :severity="snapshot ? 'success' : 'secondary'" />
                     <span v-if="capturedAt">层级采集时间：{{ capturedAt }}</span>
@@ -473,14 +473,14 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                 <Button label="刷新控件树" icon="pi pi-refresh" outlined size="small" :loading="loading" @click="refresh" />
             </div>
             <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-            <Message v-if="snapshot?.truncated" severity="warn" :closable="false">当前页面控件过多，已截断。为防止错误定位，精确控件步骤暂不可添加。</Message>
-            <Message v-if="replaceStep" severity="info" :closable="false">
+            <Message v-if="!dragPickMode && snapshot?.truncated" severity="warn" :closable="false">当前页面控件过多，已截断。为防止错误定位，精确控件步骤暂不可添加。</Message>
+            <Message v-if="!dragPickMode && replaceStep" severity="info" :closable="false">
                 正在更新已存在的 {{ replaceStep.type }} 步骤：只替换控件定位，不修改动作类型、步骤编号、按住时长、输入参数或条件分支。
                 需选择当前控件树中唯一匹配的定位条件；执行时仍会再次检查唯一性。
             </Message>
             <div class="inspector-columns">
                 <div class="original-screen-tools">
-                    <p class="hint">右键点击原手机画面选控件；树节点高亮也直接显示在原画面上，不另开预览。</p>
+                    <p class="hint">{{ dragPickMode ? '拖拽只读拾取已开启。浮窗已缩小以露出原画面；如挡住目标，可拖动标题栏。' : '右键点击原手机画面选控件；树节点高亮也直接显示在原画面上，不另开预览。' }}</p>
                     <div class="drag-pick-controls">
                         <Button :label="dragPickMode ? '重新选择 A / B' : '原画面拖拽拾取'"
                             icon="pi pi-arrows-h" outlined size="small"
@@ -493,7 +493,7 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                     <small v-if="dragPickMode" class="hint">在原视频上点 A 起点和 B 终点，至少相距 16 像素；不会发真实手机动作。</small>
                     <small v-if="snapshot && !compatibleVideo" class="hint">原视频尺寸/方向与控件树不匹配，请刷新或等待旋转完成。</small>
                 </div>
-                <InspectorPropertiesPanel
+                <InspectorPropertiesPanel v-if="!dragPickMode"
                     :selected="selected" :selected-id="selectedId" :visible-nodes="visibleNodes"
                     :node-count="snapshot?.nodes.length ?? 0" :snapshot-loaded="!!snapshot" :parent-ids="parentIds"
                     :collapsed-ids="collapsedIds" :search="search" :loading="loading"
