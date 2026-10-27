@@ -352,4 +352,8 @@
 - 修复准备结果未知后只读复核缺失原 viewer 身份：需再次核验 `active_session.id` 与 `state=view_only`，并向 `preparation.reconcile` 透传 `ownedSessionId`，不能从其它会话借权恢复。
 - 新增 `InlineStepRunStatus.vue`，`CardTrialPanel.progress` 只读投影至卡片内**唯一** `CardStepTimeline`：准备/待确认/提交/运行/已发送/完成/失败/未知、请求 UUID、runId 和已收到的真实步骤开始结束耗时；不执行任何动作重试。组件沿用 `useCardRunStatus` 的 GET 查询结果和 run 的持久历史。
 - 主要提交：`79980e0a`、`5d09cbc0`（全屏原视频浮窗），`916367b7`、`3705fdce`、`4cf361b8`（固定请求和一键准备、单确认），`df3c2dc5`、`d350d452`（异常恢复及防重入），`3b5264bc`、`fae3b276`、`367e5682`、`dd58815b`（步骤行结果和耗时）。
-- **未完成/未验收**：常规写动作仍保留明确确认（避免放松已建立的手机动作安全语义）；selector 唯一性强阻断、旧运行库/批量原画面迁移、T42 失败回步全闭环、真实前端样式/手机旋转/断线、两浏览器/同机交接/Runner 恢复。未执行 TS 类型检查、lint、Python/Rust 单测编译、GitHub Actions 手动构建、浏览器或 FnOS/Android 真机验证；任何验收框仍不勾选。
+- **未完成/未验收**：常规写动作仍保留明确确认（避免放松已建立的手机动作安全语义）；selector 唯一性强阻断虽已按源码实现但未实测；旧运行库/批量原画面迁移、T42 失败回步全闭环、真实前端样式/手机旋转/断线、两浏览器/同机交接/Runner 恢复。未执行 TS 类型检查、lint、Python/Rust 单测编译、GitHub Actions 手动构建、浏览器或 FnOS/Android 真机验证；任何验收框仍不勾选。
+
+### 2026-10-28 · T40 严格控件定位补丁（仍未测试）
+- `automation-device-compatibility.ts` 为单步试跑提供可选严格模式，`CardTrialPanel` 的准备/提交/异常复核统一启用。候选不唯一、控件树截断、XPath 不能证明定位唯一均直接阻断，不能凭一项风险勾选绕过；`wait_gone` 本应无匹配的情况仍遵循原有安全例外。其它跨设备普通兼容性页面的历史建议/确认行为保持默认不变。
+- 提交 `8a10b2f7`、`b099bfc0`、`18030ab6`；无编译、单测、真实控件树或设备执行证据。
