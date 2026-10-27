@@ -28,6 +28,8 @@ class Session:
     # Read-only mode is monotonic for the lifetime of this viewer. A separate
     # server-authorized resume protocol is required before enabling writes.
     view_only: bool = False
+    # Only confirmed post-release viewers may return an idempotent success.
+    view_only_confirmed: bool = False
 
 
 class Runtime:
@@ -434,7 +436,10 @@ class Runtime:
         current.cancel.set()
         async with current.lock:
             self.session(sid)
-            if current.view_only:
+            if current.view_only_confirmed:
+                # Only a previously confirmed manual-claim release can be
+                # acknowledged idempotently; a failed first cleanup must
+                # never be upgraded to successful viewer admission.
                 return {"id": sid, "executor_id": self.journal.executor_id,
                         "device_id": current.target["device_id"], "state": "view_only"}
             # Fence all further commands, even when cleanup fails/gets an
@@ -456,6 +461,7 @@ class Runtime:
                 self.journal.release(holder, clean=cleaned)
                 if not cleaned:
                     raise ExecutorError("cleanup_pending", "手动文字输入工作进程清理未确认，禁止接管动作权", 409)
+            current.view_only_confirmed = True
             return {"id": sid, "executor_id": self.journal.executor_id,
                     "device_id": current.target["device_id"], "state": "view_only"}
 
@@ -481,6 +487,7 @@ class Runtime:
             # A normal viewer has no write claim. If this is an idempotent
             # repeat of a completed restore, its own manual claim is valid.
             current.view_only = False
+            current.view_only_confirmed = False
             return {"id": sid, "executor_id": self.journal.executor_id,
                     "device_id": current.target["device_id"], "state": "active"}
 
