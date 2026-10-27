@@ -100,10 +100,19 @@ const inlineStatus=computed<InlineStepRunProgress|null>(() => {
     else if(phase.value==='ready'){status='ready';text='待确认后执行本步骤';}
     else if(phase.value==='releasing'){text='释放手控写锁，原画面保持';}
     else if(phase.value==='preparing'){text=prepProgress.value?.message||'正在准备控件及ADB';}
+    const runDevice=result.run.value?.devices.find(item=>item.device_id===intent.deviceId);
+    const actualStep=runDevice?.steps.find(item=>item.step_id===intent.stepId);
+    const started=Date.parse(actualStep?.started_at??'');
+    const finished=Date.parse(actualStep?.finished_at??'');
+    // Prefer durable Executor timestamps. During a running step, expose
+    // elapsed wall time only after the server reports actual started_at.
+    const elapsedMs=Number.isFinite(started)
+        ? Math.max(0,(Number.isFinite(finished)?finished:Date.now())-started)
+        : undefined;
     return {
         ownerId:intent.ownerId,deviceId:intent.deviceId,stepId:intent.stepId,
         requestId:pending.value?.request_id??intent.requestId,
-        runId:run?.runId??null,phase:status,label:text,
+        runId:run?.runId??null,phase:status,label:text,elapsedMs,
         message:run?.detail || warning.value || undefined,
     };
 });
