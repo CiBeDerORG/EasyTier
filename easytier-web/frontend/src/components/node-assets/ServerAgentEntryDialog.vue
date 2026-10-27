@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import type ApiClient from '../../modules/api';
 import { serverAgentMessages } from '../../modules/server-agent-messages';
 import { matchesServerAgentEntry } from '../../modules/server-agent-entry';
+import ServerAgentPairingPanel from './ServerAgentPairingPanel.vue';
 import type { AssetDevice, AssetScope, ServerAgentEntry } from '../../types/node-assets';
 
 const props = defineProps<{ api: ApiClient; scope: AssetScope; device: AssetDevice }>();
@@ -60,6 +61,7 @@ onBeforeUnmount(() => { alive = false; ++requestVersion; });
                     <div><dt>{{ t('lan') }}</dt><dd><code>{{ entry.lan_ip || '—' }}</code></dd></div>
                 </dl>
                 <Message severity="info" :closable="false">{{ t('uncheckedHint') }}</Message>
+                <ServerAgentPairingPanel :api="api" :scope="scope" :entry="entry" />
                 <h3>{{ t('prepare') }}</h3>
                 <p>{{ t('stepOne') }}</p>
                 <p><a href="https://github.com/CiBeDerORG/EasyHostAgent/actions/workflows/go-build.yml" target="_blank" rel="noopener noreferrer">{{ t('download') }}</a></p>
