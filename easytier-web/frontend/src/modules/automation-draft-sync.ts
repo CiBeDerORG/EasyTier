@@ -152,6 +152,12 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
         return (state.phase==='idle' || state.phase==='synced') &&
             currentSnapshot()===confirmed && !busy && !pending;
     }
+    function scheduleFollowup(owner:number,e:number) {
+        // This function re-reads the reactive phase after async completion,
+        // avoiding TS control-flow retaining the earlier 'saving' assignment.
+        if(ownerMatches(owner,e)&&!pending&&state.phase==='unsynced'&&!state.message)
+            schedule(150);
+    }
     async function flush():Promise<void> {
         clearTimer();
         if(!active || !state.initialized || state.ownerId<=0 ||
@@ -217,8 +223,7 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
         busy=task;
         await task;
         if(busy===task)busy=null;
-        if(ownerMatches(owner,e)&&!pending&&state.phase==='unsynced'&&!state.message)
-            schedule(150);
+        scheduleFollowup(owner,e);
     }
     async function retry():Promise<void>{
         if(!active)return;
