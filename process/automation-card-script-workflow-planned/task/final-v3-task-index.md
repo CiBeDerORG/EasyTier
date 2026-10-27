@@ -28,8 +28,8 @@
 | [T37](task-37-executor-lease.md) | Executor 动作租约 | P12 | Executor | W2 | T36 | 代码已提交，待联调 |
 | [T38](task-38-rust-lease.md) | Rust 观看/动作权限 | P12 | Rust-运行 | W2 | T36,T37 接口 | 代码已提交，待联调 |
 | [T39](task-39-frontend-readonly-lease.md) | 前端只读运行态 | P12 | 卡片/集成 | W3 | T23,T37,T38 | 单步/卡片接线，批量待迁移 |
-| [T40](task-40-single-step-orchestrator.md) | 单步 ▶ 自动执行 | P13 | 运行 | W4 | T32,T34,T39 | 待开发 |
-| [T41](task-41-single-step-progress.md) | 单步行内进度 | P13 | 运行 | W4 | T40 | 待开发 |
+| [T40](task-40-single-step-orchestrator.md) | 单步 ▶ 自动执行 | P13 | 运行 | W4 | T32,T34,T39 | 代码已提交，待浏览器与真机验证 |
+| [T41](task-41-single-step-progress.md) | 单步行内进度 | P13 | 运行 | W4 | T40 | 行内进度接线，待完整验收 |
 | [T42](task-42-single-step-repair.md) | 单步修复与旧模态退役 | P13 | 修复/集成 | W4 | T40,T41 | 待开发 |
 | [T43](task-43-batch-submission.md) | 全流程启动 | P14 | 运行/集成 | W4 | T28,T39 | 待开发 |
 | [T44](task-44-batch-progress.md) | 并行进度/停止 | P14 | 运行/历史 | W4 | T41,T43 | 待开发 |
@@ -72,3 +72,5 @@
 
 
 > 2026-10-28：T36～T39 提交记录和未验收清单见各任务卡及 `test-report.md`。T40 全屏单步、T43 批量和 T45 多机原画面持续观察没有在本阶段标完成。
+
+> 2026-10-28 T40～T41：本机原视频内单步浮窗、一次请求UUID、自动安全检查/准备、单步状态与真实耗时已提交；未经 CI/浏览器/手机验收。T42 及批量任务仍未完成。
