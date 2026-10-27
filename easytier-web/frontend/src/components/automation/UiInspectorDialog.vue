@@ -312,8 +312,18 @@ async function refresh() {
         if (generation === requestGeneration) loading.value = false;
     }
 }
+/** UIA snapshots expire; never record an unverified gesture from stale pixels. */
+function snapshotFresh():boolean {
+    if(!response.value?.captured_at || !snapshot.value || snapshot.value.truncated ||
+        response.value.target_fingerprint!==props.device.target_fingerprint)return false;
+    const captured=Date.parse(response.value.captured_at), age=Date.now()-captured;
+    return Number.isFinite(captured) && age>=-5000 && age<=20000;
+}
 function startDragPick() {
-    if (props.replaceStep) return;
+    if (props.replaceStep || !snapshotFresh()) {
+        feedback.value='控件树已过期或设备绑定变化，请先刷新控件树。';
+        return;
+    }
     if (!snapshot.value || !compatibleVideo.value) {
         feedback.value='原手机画面与控件树方向/宽高比不一致，请刷新后再进行只读拖拽拾取。';
         return;
@@ -327,7 +337,10 @@ function cancelDragPick() {
 }
 function saveDrag() {
     if (props.replaceStep || committing.value || !dragReady.value || !snapshot.value || !dragStart.value || !dragEnd.value ||
-        !compatibleVideo.value || props.queuedCount>=100) return;
+        !compatibleVideo.value || props.queuedCount>=100 || !snapshotFresh()) {
+        feedback.value='原控件树已过期或屏幕方向变化，请重新刷新控件树和拖拽起终点。';
+        return;
+    }
     submitStep({
         id: uuid(), type: 'drag',
         x: dragStart.value.x, y: dragStart.value.y, to_x: dragEnd.value.x, to_y: dragEnd.value.y,
@@ -346,12 +359,14 @@ function pickFromOriginal(point: InspectorCardScreenPoint) {
         feedback.value='原画面的方向/宽高比或控件树快照已变化，请刷新控件树后重新选择。';
         return;
     }
-    // The original video is possibly downscaled; all stored step coordinates
-    // must use the trusted UIA hierarchy's native dimensions.
+    // Keep original encoded dimensions for matchPickerPoint: it already
+    // performs safe aspect-ratio scaling into native UIA pixel coordinates.
     const normX=point.x/point.width, normY=point.y/point.height;
-    const nativeX=Math.min(shot.width-1,Math.floor(normX*shot.width));
-    const nativeY=Math.min(shot.height-1,Math.floor(normY*shot.height));
     if (dragPickMode.value) {
+        if(!snapshotFresh()){
+            feedback.value='控件树已过期，拖拽拾取无效，请刷新后重新选择。';
+            dragStart.value=null;dragEnd.value=null;return;
+        }
         if (!dragStart.value || dragEnd.value) {dragStart.value={x:normX,y:normY};dragEnd.value=null;}
         else dragEnd.value={x:normX,y:normY};
         feedback.value=dragEnd.value ? '拖拽起终点已记录在原画面，确认后添加草稿步骤。'
@@ -359,7 +374,7 @@ function pickFromOriginal(point: InspectorCardScreenPoint) {
         return;
     }
     const match=matchPickerPoint(response.value!,{
-        x:nativeX,y:nativeY,width:shot.width,height:shot.height,
+        x:point.x,y:point.y,width:point.width,height:point.height,
     },{targetFingerprint:props.device.target_fingerprint??''});
     if(match.status==='matched' && match.nodeId!==null) {
         selectNode(match.nodeId); feedback.value=match.message;
