@@ -21,6 +21,7 @@ const emit = defineEmits<{
     edit: [device: AssetDevice];
     delete: [device: AssetDevice];
     'add-service': [device: AssetDevice];
+    agent: [device: AssetDevice];
     binding: [device: AssetDevice];
     address: [device: AssetDevice];
     discovery: [device: AssetDevice, action: 'devices' | 'adb'];
@@ -153,6 +154,9 @@ const createdAt = (value: string) => {
                             :title="t('assets.deviceDelete')" @click="emit('delete', data)" />
                     </div>
                     <div class="device-binding-actions">
+                        <Button v-if="data.semantic_kinds?.includes('server')" label="Agent" icon="pi pi-server"
+                            text size="small" :title="`EasyHostAgent · ${data.name}`"
+                            :aria-label="`EasyHostAgent · ${data.name}`" @click="emit('agent', data)" />
                         <Button :label="t(bindingAction(data))" icon="pi pi-link" text size="small"
                             :aria-label="t('assets.binding_page.review_named', { name: data.name })" @click="emit('binding', data)" />
                         <Button v-if="!data.gateway_group_id && data.address_mode !== 'legacy_manual' && data.binding.can_edit_address"
