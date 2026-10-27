@@ -23,7 +23,7 @@ import { appendAutomationDraftSteps, emptyAutomationDraft } from '../modules/aut
 import {
     beginPicker, readyPicker, stopPicker, setPickerIntent, invalidatePickerSnapshot,
     pickerMatches, pickerCanApply,
-    type PickerBinding, type PickerContext, type PickerIntent,
+    type PickerBinding, type PickerContext, type PickerIntent, type PickerVideoPoint,
 } from '../modules/automation-picker-state';
 import type { AutomationRepairRequest } from '../modules/automation-run-repair';
 import { replaceAutomationStepTarget, type StepTarget } from '../modules/automation-step-target';
@@ -165,6 +165,11 @@ const textDialogTarget = computed<HTMLElement | 'body'>(() =>
 const cards = new Map<string, PhoneHandle>();
 // T01: picker modes belong to a live card/session; steps stay in ONE draftWorkspace.
 const pickerContexts = reactive<Record<string, PickerContext>>({});
+// Last right-click is scoped to one session/generation. T03/T04 will use it
+// for menu placement and selecting the candidate in a fresh hierarchy.
+const pickerPoints = reactive<Record<string, {
+    point: PickerVideoPoint; generation: number; snapshotGeneration: number;
+}>>({});
 let pickerEpoch = 0;
 function pickerBinding(id: string): PickerBinding | null {
     const device = devices.value.find(item => item.id === id);
@@ -181,6 +186,7 @@ function pickerBinding(id: string): PickerBinding | null {
     };
 }
 function stopCardPicking(id: string) {
+    delete pickerPoints[id];
     const current = pickerContexts[id];
     if (current && current.phase !== 'off')
         pickerContexts[id] = stopPicker(current, ++pickerEpoch);
@@ -201,6 +207,49 @@ function armCardPicking(id: string, intent: PickerIntent = {kind:'append'}): boo
         pickerContexts[id] = readyPicker(started, started.generation);
     }
     return true;
+}
+function toggleCardPicking(id: string) {
+    const current = pickerContexts[id];
+    if (current && current.phase !== 'off') {
+        stopCardPicking(id);
+        if (inspectorDeviceId.value === id && !inspectorEditScope.value) closeInspector();
+        notice.value = '已退出该手机的拾取模式；当前脚本步骤不会丢失。';
+        return;
+    }
+    if (!armCardPicking(id)) {
+        error.value = '无法开启拾取：请先打开手机实时画面，并结束群控同步或录制。';
+        return;
+    }
+    notice.value = '拾取已开启：可正常左键操作手机，在画面上右键查看控件。';
+}
+async function onCardPickPoint(id: string, point: PickerVideoPoint) {
+    const current = pickerContexts[id], binding = pickerBinding(id);
+    if (!current || !binding || !pickerCanApply(current, binding,
+        current.generation, current.snapshotGeneration, current.intent)) {
+        error.value = '拾取会话已经失效，请重新开启拾取模式。';
+        return;
+    }
+    // T02 compatibility: open the existing tree, but do NOT pretend we have
+    // already resolved the right-clicked node. T03 adds the context menu and
+    // T04 uses this captured cursor to select a real UIA node.
+    pickerPoints[id] = {
+        point, generation: current.generation, snapshotGeneration: current.snapshotGeneration,
+    };
+    if (document.fullscreenElement) {
+        // The existing Inspector is mounted to document.body; leaving the
+        // browser top layer prevents it from being hidden behind fullscreen.
+        try { await document.exitFullscreen(); }
+        catch { error.value = '退出全屏失败，控件树无法显示；请先退出全屏。'; return; }
+    }
+    const latest = pickerContexts[id], latestBinding = pickerBinding(id);
+    if (!latest || !latestBinding || !pickerCanApply(latest, latestBinding,
+        current.generation, current.snapshotGeneration, current.intent)) return;
+    const card = cards.get(id), stream = card?.getStream();
+    if (!stream) return;
+    inspectorEditScope.value = null;
+    inspectorDeviceId.value = id;
+    inspectorStream.value = stream;
+    notice.value = '已记录右键位置，请在控件树中确认目标；快捷菜单与自动命中控件将在后续任务接入。';
 }
 function reconcilePickerBindings() {
     for (const [id, current] of Object.entries(pickerContexts)) {
@@ -701,8 +750,10 @@ async function releaseManual(ids: string[]) {
     return success;
 }
 function onGeometry(id: string) {
-    if (pickerContexts[id]?.phase === 'on')
+    if (pickerContexts[id]?.phase === 'on') {
         pickerContexts[id] = invalidatePickerSnapshot(pickerContexts[id]);
+        delete pickerPoints[id];
+    }
     if (sync.value?.deviceIds.includes(id)) { notice.value = t('syncRotation'); void stopSync(); }
     if (recordingId.value === id) { ++recordingGeneration; gesture = null; notice.value = t('recordIncomplete'); }
 }
@@ -1110,7 +1161,8 @@ onBeforeUnmount(() => { stopEvents?.();
                 <div v-if="!devices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-mobile" aria-hidden="true" /><h2>{{ t('noAssets') }}</h2><p>{{ t('noAssetsDetail') }}</p><Button :label="t('toAssets')" outlined @click="router.push({ name: 'nodeAssets' })" /></div>
                 <div v-else-if="!visibleDevices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-search" aria-hidden="true" /><h2>{{ t('noResults') }}</h2><Button :label="t('reset')" text @click="filters = { node: '', group: '', type: '', keyword: '' }; query()" /></div>
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
-                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" @inspect="openInspector" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
+                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
+                        @toggle-picking="toggleCardPicking" @pick-point="onCardPickPoint" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
                 <button v-if="globalOpen && !fullscreenActive" class="global-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="globalOpen = false" />
                 <div v-if="devices.length && !fullscreenActive" class="global-controls" @pointerdown.stop @click.stop @keydown.esc="globalOpen = false">

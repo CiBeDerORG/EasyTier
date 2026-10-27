@@ -8,6 +8,8 @@
 import type { AutomationStepType } from '../types/automation';
 
 export type PickerPhase = 'off' | 'preparing' | 'on' | 'error';
+/** Physical video pixel coordinates, not CSS pixels or fullscreen margins. */
+export interface PickerVideoPoint { x: number; y: number; width: number; height: number }
 export type PickerIntent =
     | { kind: 'append' }
     | { kind: 'replace'; stepId: string; stepType: AutomationStepType };

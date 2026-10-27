@@ -9,17 +9,21 @@ import { automationMessages } from './messages';
 import type { EndpointEvent } from '../../modules/discovery-api';
 import { usePhoneSession } from './usePhoneSession';
 import PhoneAutomationPanel from './PhoneAutomationPanel.vue';
+import CardPickingOverlay from './CardPickingOverlay.vue';
+import type { PickerPhase, PickerVideoPoint } from '../../modules/automation-picker-state';
 
 const props = defineProps<{
     device: AutomationDevice; ownerId: number; selected: boolean; runnerAvailable: boolean;
     phoneConnection?: AutomationPhoneConnectionState; phoneConnectionError?: string;
     componentStatus?: AutomationComponentStatus;
     syncRole?: 'master' | 'follower'; syncActive: boolean; recording: boolean; unlocking?: boolean;
+    pickerPhase?: PickerPhase; pickerError?: string;
 }>();
 const emit = defineEmits<{
     selection: [id: string, selected: boolean]; configure: [device: AutomationDevice];
     input: [id: string, message: AutomationControl]; action: [id: string, message: AutomationControl]; unlock: [id: string];
-    text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string]; inspect: [id: string];
+    text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string];
+    'toggle-picking': [id: string]; 'pick-point': [id: string, point: PickerVideoPoint];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -136,11 +140,17 @@ const adbConnectionHint = computed(() => {
     return hints[props.phoneConnection || ''] || t('phoneNotConnected');
 });
 const canOpen = computed(() => props.runnerAvailable && props.device.connection.enabled && !props.device.availability_reason && !props.device.active_session && !pending.value && session.state.phase !== 'live' && session.state.phase !== 'cleanup_pending');
+const pickingPhase = computed<PickerPhase>(() => props.pickerPhase ?? 'off');
+const pickAvailable = computed(() => ready.value && props.runnerAvailable && !props.syncRole && !props.recording && !props.unlocking);
+const pickerToggleAllowed = computed(() => pickingPhase.value !== 'off' || pickAvailable.value);
 const inspectorHint = computed(() => {
+    if (pickingPhase.value === 'on') return '退出控件拾取 · 已开启，左键操作手机、右键查看控件';
+    if (pickingPhase.value === 'preparing') return '取消控件拾取 · 正在准备';
+    if (pickingPhase.value === 'error') return props.pickerError || '控件拾取遇到错误，点击退出';
     if (!props.runnerAvailable) return '控件拾取 · 执行器不可用';
     if (props.syncRole) return '控件拾取 · 请先结束群控同步';
     if (props.recording) return '控件拾取 · 请先结束脚本录制';
-    return ready.value ? '控件拾取 · 点击查看实时画面中的 UiAutomator2 控件' : '控件拾取 · 请先打开手机实时画面并等待控制就绪';
+    return ready.value ? '开启控件拾取 · 在当前手机画面右键选择控件' : '控件拾取 · 请先打开手机实时画面并等待控制就绪';
 });
 const screenActionHint = computed(() => {
     const port = props.device.connection.adb_port || '未设置';
@@ -181,7 +191,7 @@ function onGeometry() {
     }
     currentGeometry.value = next;
 }
-function point(event: PointerEvent, clamp: boolean) {
+function point(event: Pick<MouseEvent, 'clientX' | 'clientY'>, clamp: boolean): PickerVideoPoint | null {
     if (!video.value) return null;
     const { width, height } = geometry();
     if (!width || !height) return null;
@@ -195,6 +205,17 @@ function point(event: PointerEvent, clamp: boolean) {
     const y = (event.clientY - top) / scale;
     if (!clamp && (x < 0 || y < 0 || x >= width || y >= height)) return null;
     return { x: Math.max(0, Math.min(width - 1, Math.round(x))), y: Math.max(0, Math.min(height - 1, Math.round(y))), width, height };
+}
+// Right-click is strictly read-only and is never sent as a scrcpy touch.
+function contextPick(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (pickingPhase.value !== 'on' || !pickAvailable.value) return;
+    const position = point(event, false); // never select ambient video or letterboxing
+    if (!position) return;
+    cancelPointer();
+    menuOpen.value = false;
+    emit('pick-point', props.device.id, position);
 }
 function down(event: PointerEvent) {
     if (!touchAllowed.value || event.button !== 0 || pointer.value || menuOpen.value) return;
@@ -313,10 +334,12 @@ onBeforeUnmount(() => {
                 <PhoneAutomationPanel :device="device" :owner-id="ownerId" :runner-available="runnerAvailable" :observed-status="componentStatus" />
                 <span class="card-action-tip" :title="inspectorHint">
                     <button type="button" class="card-icon inspector-icon"
-                        :class="{ active: ready && !syncRole && !recording, pending, blocked: !!syncRole || recording }"
-                        :aria-label="inspectorHint" :disabled="!ready || !!syncRole || recording"
-                        @click="emit('inspect', device.id)">
-                        <i class="pi pi-search" aria-hidden="true" />
+                        :class="{ active: pickingPhase === 'on', pending: pickingPhase === 'preparing',
+                            blocked: pickingPhase === 'off' && (!!syncRole || recording), failed: pickingPhase === 'error' }"
+                        :aria-pressed="pickingPhase === 'on'" :aria-label="inspectorHint"
+                        :disabled="!pickerToggleAllowed"
+                        @click="emit('toggle-picking', device.id)">
+                        <i :class="pickingPhase === 'preparing' ? 'pi pi-spin pi-spinner' : 'pi pi-search'" aria-hidden="true" />
                     </button>
                 </span>
                 <span class="card-action-tip" :title="screenActionHint">
@@ -337,7 +360,7 @@ onBeforeUnmount(() => {
         </div>
         <div ref="screen" class="phone-screen" :style="currentGeometry.width && currentGeometry.height ? { aspectRatio: `${currentGeometry.width} / ${currentGeometry.height}` } : undefined" @keydown.esc="menuOpen = false">
             <video v-if="isFullscreen && session.state.phase === 'live'" ref="ambientVideo" class="ambient-video" autoplay muted playsinline aria-hidden="true" tabindex="-1" />
-            <video ref="video" class="primary-video" autoplay muted playsinline :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent />
+            <video ref="video" class="primary-video" autoplay muted playsinline :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent.stop="contextPick" />
             <div v-if="session.state.phase !== 'live'" class="screen-placeholder">
                 <i :class="pending ? 'pi pi-spin pi-spinner' : 'pi pi-mobile'" aria-hidden="true" />
                 <span>{{ t(session.state.phase) }}</span>
@@ -346,6 +369,7 @@ onBeforeUnmount(() => {
                 <Button v-if="device.active_session && !pending && session.state.phase !== 'cleanup_pending'" :label="t('cleanupSaved')" icon="pi pi-stop" size="small" severity="warn" :loading="cleaningSaved" @click="cleanupSaved" />
                 <small v-if="!device.connection.enabled">{{ t('disabled') }}</small>
             </div>
+            <CardPickingOverlay :phase="pickingPhase" :error="pickerError" @exit="emit('toggle-picking', device.id)" />
             <Tag v-if="syncRole" class="role-badge" :value="t(syncRole)" :severity="syncRole === 'master' ? 'info' : 'secondary'" />
             <span v-if="recording" class="record-badge"><span /> REC</span>
             <Button v-if="syncActive" class="fullscreen-stop" severity="danger" :label="t('stopSync')" size="small" @click="emit('stopSync')" />
@@ -404,6 +428,8 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .card-icon:focus-visible{outline:2px solid var(--p-primary-color);outline-offset:2px}
 .card-icon:disabled{cursor:default;opacity:.7}
 .inspector-icon.active,.adb-port.live{color:var(--p-green-500)}
+.inspector-icon.active{background:color-mix(in srgb,var(--p-green-500) 16%,transparent);box-shadow:inset 0 0 0 1px var(--p-green-500)}
+.inspector-icon.failed{color:var(--p-red-500)}
 .inspector-icon.pending,.adb-port.opening,.adb-port.connecting{color:var(--p-primary-color)}
 .inspector-icon.blocked,.adb-port{color:var(--p-orange-500)}
 .inspector-icon.blocked{color:var(--p-orange-500)}
