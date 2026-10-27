@@ -278,8 +278,12 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         if(!valid(mine,owner,id,original))return;
         // Only explicit server validation/admission errors prove no run was
         // created. A generic network error, 408, 429 or 5xx never does.
+        // 401/403 after an earlier accepted attempt, or 409 on an
+        // idempotency conflict, does NOT prove the original run never existed.
+        // Clear only explicit input validation failures; every other error
+        // keeps the persisted guard for manual read-only reconciliation.
         const definitive=dispatched && cause instanceof AutomationApiError &&
-            [400,401,403,404,409,422].includes(cause.status);
+            [400,422].includes(cause.status);
         if(definitive){
             try{clearTrialReceipt(window.sessionStorage,proof);unresolvedReceipt.value=null;}
             catch{receiptFailure.value='请求虽被拒绝，但未能清理本地保护凭据。';}
