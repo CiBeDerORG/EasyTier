@@ -245,9 +245,20 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
     async function restore(id:string):Promise<boolean>{
         if(!active || !id || state.phase==='saving' || !!busy)return false;
         const owner=state.ownerId,e=epoch;
+        // Freeze the local workspace AND server draft identity before GET.
+        // A user can append/edit/replace steps while a slow GET is in flight.
+        // Never overwrite those edits with a stale response.
+        const initial=currentSnapshot(),oldId=state.id,oldRevision=state.revision;
+        const oldPending=pending,oldPhase=state.phase;
         try{
             const record=await api.getDraft(owner,id);
             if(!ownerMatches(owner,e))return false;
+            if(currentSnapshot()!==initial || state.id!==oldId ||
+                state.revision!==oldRevision || pending!==oldPending ||
+                state.phase!==oldPhase || !!busy){
+                state.message='读取草稿期间，本页步骤或服务器修订状态已变化；已保留当前修改，请重新选择恢复。';
+                return false;
+            }
             clearTimer();pending=null;replaceWorkspace(record);
             return true;
         }catch(error){
