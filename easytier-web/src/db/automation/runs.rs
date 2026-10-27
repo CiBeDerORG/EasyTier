@@ -100,7 +100,7 @@ async fn read_run(conn:&mut SqliteConnection,owner:i32,id:&str)->AutomationResul
             "updated_at":d.try_get::<String,_>("updated_at")?}));
     }
     let business_state=business_run_state(&business_states,check.is_some());
-    Ok(json!({"id":id,"name":row.try_get::<String,_>("name")?,"state":row.try_get::<String,_>("state")?,
+    Ok(json!({"id":id,"request_id":row.try_get::<String,_>("request_id")?,"name":row.try_get::<String,_>("name")?,"state":row.try_get::<String,_>("state")?,
         "executor_id":row.try_get::<Option<String>,_>("runner_identity")?,
         "executor_revision":row.try_get::<i64,_>("result_revision")?,
         "created_at":row.try_get::<String,_>("created_at")?,"updated_at":row.try_get::<String,_>("updated_at")?,
