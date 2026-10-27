@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
 import { Button, Dialog, InputText, Message, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
@@ -28,7 +28,10 @@ import {
     pickerMatches, pickerCanApply,
     type PickerBinding, type PickerContext, type PickerIntent, type PickerVideoPoint, type PickerMenuAction,
 } from '../modules/automation-picker-state';
-import type { AutomationRepairRequest } from '../modules/automation-run-repair';
+import {
+    createAutomationRepairRequest, createCardRepairContext, cardRepairWorkspace,
+    planAutomationRepair, type CardRepairContext, type AutomationRepairRequest,
+} from '../modules/automation-run-repair';
 import { replaceAutomationStepTarget, stepCanPickTarget, type StepTarget } from '../modules/automation-step-target';
 import { updateCardDraftStep } from '../modules/automation-card-step-edit';
 import { locateReadOnlyStep, type LocatorDemoResult } from '../modules/automation-locator-demo';
@@ -186,6 +189,8 @@ function beforeUnloadDraft(event:BeforeUnloadEvent) {
     }
 }
 const repairRequest = ref<AutomationRepairRequest | null>(null);
+const cardRepairContext = ref<CardRepairContext | null>(null);
+let cardRepairEpoch=0;
 watch(ownerId, id => Object.assign(draftWorkspace, emptyAutomationDraft(id)), { immediate: true });
 // Loading/saving a different script revision invalidates picker intents but
 // never deletes any steps. The persistent draft is still out of scope (M3).
@@ -690,6 +695,7 @@ async function changeOwner(id: number) {
     if (id === ownerId.value || busy.value || connecting.value || switchingTab.value) return;
     if(!warnBeforeDraftReplacement())return;
     repairRequest.value = null;
+    cardRepairContext.value = null; ++cardRepairEpoch;
     if (gestureConfirmation.value) { notice.value = '请先确认滑动或拖拽，才能切换管理账号。'; return; }
     stopEvents?.(); stopEvents = undefined;
     ++workspaceGeneration; ++loadGeneration; ++statusQueryGeneration;
@@ -1435,6 +1441,119 @@ async function onRepairStep(request: AutomationRepairRequest) {
     await changeTab('scripts');
     if (tab.value !== 'scripts') repairRequest.value = null;
 }
+
+/**
+ * T15: resolve an immutable historical failure to one authorized phone card.
+ * Never reuse a newer formal script revision, and never overwrite a current
+ * draft just because a saved script happened to share the same name.
+ */
+async function onRepairCard(request: AutomationRepairRequest) {
+    if (switchingTab.value || request.ownerId !== ownerId.value) return;
+    const owner=ownerId.value, mine=++cardRepairEpoch;
+    const current=()=>!disposed && ownerId.value===owner && mine===cardRepairEpoch;
+    error.value='';
+    try {
+        // Source-of-truth records, not the old history UI's cached steps.
+        const [run, scripts, inventory]=await Promise.all([
+            api.getRun(owner,request.runId),api.listScripts(owner),api.devices(owner),
+        ]);
+        if(!current())return;
+        const device=run.devices.find(item=>item.device_id===request.deviceId);
+        const outcome=device?.steps.find(item=>item.step_id===request.stepId);
+        if(!device || !outcome) throw new Error('历史记录中已无法定位原失败步骤。');
+        const verified=createAutomationRepairRequest(run,device,outcome,owner,request.requestId);
+        if(!verified || verified.resultState!==request.resultState ||
+            JSON.stringify(verified.snapshotSteps)!==JSON.stringify(request.snapshotSteps))
+            throw new Error('历史运行结果或步骤快照已更新；请先刷新执行记录再定位修复。');
+        const target=inventory.items.find(item=>item.id===request.deviceId && item.owner_user_id===owner);
+        if(!target)throw new Error('原手机不在当前账号的授权设备列表中；请先恢复授权。');
+        const plan=planAutomationRepair(verified,scripts.items);
+        const context=plan && createCardRepairContext(verified,plan);
+        if(!plan || !context)throw new Error('历史脚本快照无法生成可信的修复草稿。');
+
+        // A one-step inline run normally originates from this exact shared
+        // card draft; retain its other steps and unpublished edits.
+        const source=verified.snapshotSteps[0];
+        const sameCardDraft=!verified.scriptId && verified.snapshotSteps.length===1 &&
+            source?.id===request.stepId &&
+            draftWorkspace.ownerId===owner &&
+            draftWorkspace.steps.some(item=>item.id===source.id && JSON.stringify(item)===JSON.stringify(source));
+        if(sameCardDraft) context.sourceKind='current';
+        if(!sameCardDraft) {
+            if(!draftSyncState.initialized || draftSyncState.phase==='saving')
+                throw new Error('当前工作草稿仍在同步，请等待保存状态确定后再切换修复草稿。');
+            if(cardEditorDirty.value &&
+                !window.confirm('卡片步骤编辑有未保存的修改，确定放弃这些局部修改吗？'))return;
+            if(!warnBeforeDraftReplacement())return;
+            if(!window.confirm('将从历史执行快照创建新的修复工作草稿，替换当前编辑区内容。已确认保存的旧工作草稿保留在服务器。是否继续？'))return;
+        }
+        if(!current())return;
+        if(tab.value!=='workbench') await changeTab('workbench');
+        if(!current() || tab.value!=='workbench')return;
+        // The tab's loadDevices() has completed; do not point a historical
+        // snapshot at a device that is no longer authorized.
+        if(!devices.value.some(item=>item.id===context.deviceId &&
+            item.owner_user_id===owner))
+            throw new Error('原手机的授权/设备绑定已变化，不能打开卡片回修。');
+        stopAllPicking();
+        closeInspector();
+        clearAllCardDemos();
+        cardStepEditor.value=null;cardEditorDirty.value=false;
+        if(!sameCardDraft) {
+            // Reset the SERVER draft identity first, otherwise T11 would
+            // update the previous work draft in place.
+            if(draftSyncState.phase==='saving')
+                throw new Error('工作草稿开始同步，请等待确认后重试回修。');
+            draftSync.fork();
+            Object.assign(draftWorkspace,cardRepairWorkspace(owner,plan));
+        }
+        draftWorkspace.selectedStepId=context.stepId;
+        cardRepairContext.value=context;
+        // Show the target even if a previous workbench filter hid it.
+        if(!visibleIds.value.has(context.deviceId)) {
+            filters.value={node:'',group:'',type:'',keyword:''};
+            applied.value={...filters.value};
+        }
+        await nextTick();
+        if(!current() || tab.value!=='workbench')return;
+        editCardStep(context.deviceId,context.stepId);
+        notice.value=context.sourceKind==='current'
+            ? '已回到原手机卡片和失败步骤；当前草稿其他步骤没有修改。请修复后手动再次验证。'
+            : '已打开历史失败步骤的独立修复工作草稿；原运行与正式脚本未修改。修复后需要手动再次试跑。';
+    }catch(cause){
+        if(current())error.value='返回卡片修复失败：'+automationErrorMessage(cause);
+    }
+}
+async function onCardTrialRepair(deviceId:string,runId:string,stepId:string) {
+    if(!runId || !stepId || !devices.value.some(d=>d.id===deviceId &&
+        d.owner_user_id===ownerId.value))return;
+    const owner=ownerId.value, mine=++cardRepairEpoch;
+    try {
+        const run=await api.getRun(owner,runId);
+        if(disposed || owner!==ownerId.value || mine!==cardRepairEpoch)return;
+        const device=run.devices.find(d=>d.device_id===deviceId);
+        const step=device?.steps.find(s=>s.step_id===stepId);
+        const request=device && step
+            ? createAutomationRepairRequest(run,device,step,owner,uuid()) : null;
+        if(!request)throw new Error('本次试跑未返回可回修的失败步骤，先查看执行历史。');
+        await onRepairCard(request);
+    }catch(cause){
+        if(!disposed && owner===ownerId.value && mine===cardRepairEpoch)
+            error.value='无法打开失败步骤：'+automationErrorMessage(cause);
+    }
+}
+function repickCardRepairStep(deviceId:string,stepId:string) {
+    const context=cardRepairContext.value;
+    if(!context || context.deviceId!==deviceId || context.stepId!==stepId ||
+        context.ownerId!==ownerId.value || tab.value!=='workbench')return;
+    editCardStep(deviceId,stepId);
+    if(cardStepEditor.value?.deviceId===deviceId && cardStepEditor.value.stepId===stepId)
+        repickCardStep(deviceId,stepId);
+}
+function dismissCardRepair(deviceId:string) {
+    if(cardRepairContext.value?.deviceId===deviceId)
+        cardRepairContext.value=null;
+}
 function onRunCreated(run: AutomationRun) {
     clearAllCardDemos();
     stopAllPicking();
@@ -1576,10 +1695,11 @@ onBeforeUnmount(() => { stopEvents?.();
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
                 <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" :draft="draftWorkspace" :draft-sync-label="draftSyncLabel" :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
                         :repicking-step-id="repickingStepIds[device.id]"
+                        :repair-context="cardRepairContext?.deviceId === device.id ? cardRepairContext : null"
                         :demo-result="locatorDemos[device.id]?.stepId === cardStepEditor?.stepId ? locatorDemos[device.id]?.result : null"
                         :demo-loading="locatorDemos[device.id]?.loading ?? false" :demo-error="locatorDemos[device.id]?.error"
                         @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
-                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @step-select="selectCardStep" @step-edit="editCardStep" @trial-history="onCardTrialHistory" @step-close="closeCardStepEditor"
+                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @step-select="selectCardStep" @step-edit="editCardStep" @trial-history="onCardTrialHistory" @trial-repair="onCardTrialRepair" @repair-repick="repickCardRepairStep" @repair-dismiss="dismissCardRepair" @step-close="closeCardStepEditor"
                         @step-save="saveCardStep" @step-repick="repickCardStep" @step-dirty="markCardStepDirty"
                         @step-demo="demoCardStep" @demo-clear="clearCardDemo" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
@@ -1596,7 +1716,7 @@ onBeforeUnmount(() => { stopEvents?.();
                 :picker-devices="devices.filter(device => device.connection.enabled && !!device.target_fingerprint).map(device => ({ id: device.id, name: device.name }))"
                 @pick-step-target="openScriptInspector" @run-created="onRunCreated"
                 @repair-consumed="id => { if (repairRequest?.requestId === id) repairRequest = null; }" />
-            <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" @repair-step="onRepairStep" />
+            <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" @repair-step="onRepairStep" @repair-card="onRepairCard" />
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
