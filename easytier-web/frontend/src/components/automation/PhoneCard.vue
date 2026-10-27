@@ -116,6 +116,8 @@ function getTrialPreviewHandle(): TrialPreviewHandle {
         getSessionId: () => session.getSessionId(),
         getState: () => ({ phase: session.state.phase }),
         close: () => close(),
+        enterViewOnly: () => session.enterViewOnly(),
+        resumeManual: () => session.resumeManual(),
     };
 }
 const api = new AutomationApi();
@@ -398,8 +400,13 @@ const currentGeometry = ref({ width: 0, height: 0 });
 // column. Keep the phone's natural width unless the viewport is narrower.
 const cardWidth = computed(() => `${(currentGeometry.value.width > 0 ? currentGeometry.value.width : 360) + 26}px`);
 const ready = computed(() => session.state.phase === 'live' && session.state.controlReady);
-const manualAllowed = computed(() => ready.value && !props.syncRole);
-const touchAllowed = computed(() => ready.value && props.syncRole !== 'follower');
+const manualAllowed = computed(() => ready.value && !session.state.viewerOnly
+    && !props.device.run_occupied && !props.syncRole);
+const touchAllowed = computed(() => ready.value && !session.state.viewerOnly
+    && !props.device.run_occupied && props.syncRole !== 'follower');
+// A permission downgrade is not a stream close. Drop local pointer state
+// without sending a last touch.release from the now read-only browser.
+watch(() => session.state.viewerOnly, readOnly => { if (readOnly) resetPointer(); });
 const pending = computed(() => ['opening', 'connecting'].includes(session.state.phase));
 const adbConnectionHint = computed(() => {
     if (props.phoneConnectionError) return props.phoneConnectionError;
@@ -632,10 +639,13 @@ async function retryEndpoint(stage: 'cleanup'|'connection'|'publication') {
     catch(cause) { session.state.error = cause instanceof Error ? cause.message : '重试未完成'; }
     finally { cleaningSaved.value = false; }
 }
-function getState() { return { phase: session.state.phase, ready: ready.value, ...geometry() }; }
+function getState() { return { phase: session.state.phase, ready: ready.value, viewerOnly: session.state.viewerOnly, ...geometry() }; }
 function getStream() { return session.stream.value; }
 function getSessionId() { return session.getSessionId(); }
-defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock, getState, getStream, getSessionId, cancelPointer, resetPointer, openAutomationPanel, closeAutomationPanel, toggleAutomationPanel, getAutomationSubwindowHost });
+defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock,
+    enterViewOnly: session.enterViewOnly, resumeManual: session.resumeManual,
+    getState, getStream, getSessionId, cancelPointer, resetPointer, openAutomationPanel, closeAutomationPanel,
+    toggleAutomationPanel, getAutomationSubwindowHost });
 onBeforeUnmount(() => {
     document.removeEventListener('fullscreenchange', syncFullscreen);
     window.removeEventListener('resize', measureScreen);
@@ -800,7 +810,7 @@ onBeforeUnmount(() => {
                  It MUST stay inside phone-screen, not document.body. -->
             <div ref="automationSubwindowHost" class="automation-subwindow-host" />
         </div>
-        <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
+        <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}<template v-if="session.state.phase === 'live' && session.state.viewerOnly"> · 只读观看，手控已锁定</template></span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
         <CardRepairEntry v-if="repairContext && repairStep" :repair="repairContext"
             :step="repairStep" :step-number="repairStepNumber"
             :editing="!!editingStepId" :runner-available="runnerAvailable"
