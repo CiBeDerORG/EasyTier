@@ -7,7 +7,7 @@ import type { AutomationRun, AutomationRunDevice, AutomationStepResult } from '.
 import AutomationApi, { automationErrorMessage } from './automation-api';
 
 export type CardRunPhase = 'idle' | 'checking' | 'queued' | 'running' |
-    'succeeded' | 'failed' | 'cancelled' | 'unknown';
+    'succeeded' | 'action_sent' | 'failed' | 'cancelled' | 'unknown';
 export interface CardRunView {
     phase: CardRunPhase;
     label: string;
@@ -39,13 +39,15 @@ export function summarizeCardRun(
         : FAIL.has(stepState) || FAIL.has(deviceState) ? 'failed'
         : ['cancelled', 'interrupted'].includes(stepState) ||
             ['cancelled', 'interrupted'].includes(deviceState) ? 'cancelled'
+        : stepState === 'action_sent' && OK.has(deviceState) ? 'action_sent'
         : OK.has(stepState) && OK.has(deviceState) ? 'succeeded'
         : TERMINAL.has(deviceState) && !OK.has(stepState) ? 'failed'
         : ['running', 'starting'].includes(stepState) || ['running', 'starting'].includes(deviceState)
             ? 'running' : 'queued';
     const label: Record<CardRunPhase, string> = {
         idle:'尚未执行',checking:'正在查询',queued:'任务排队中',running:'设备执行中',
-        succeeded:'本步骤执行成功（不等于业务成功）',
+        succeeded:'本步骤条件检查已通过（不等于整个业务成功）',
+        action_sent:'动作已发送至设备；尚未验证应用业务结果',
         failed:'本步骤执行失败',cancelled:'已取消或中断',
         unknown:'执行结果或清理未确认，禁止自动重放',
     };
@@ -93,7 +95,7 @@ export function useCardRunStatus(api: RunReader = new AutomationApi()) {
                 // inspect, not a reason to resubmit an action.
                 const phase=view.value?.phase;
                 if (observing.value && phase!=='unknown' &&
-                    phase!=='succeeded' && phase!=='failed' && phase!=='cancelled')
+                    phase!=='succeeded' && phase!=='action_sent' && phase!=='failed' && phase!=='cancelled')
                     timer=setTimeout(()=>void refresh(),2000);
             }
         }
@@ -105,7 +107,7 @@ export function useCardRunStatus(api: RunReader = new AutomationApi()) {
             error.value='返回的任务不包含选定的手机。';stop();return;
         }
         const phase=view.value?.phase;
-        if (!['succeeded','failed','cancelled','unknown'].includes(phase??'')) {
+        if (!['succeeded','action_sent','failed','cancelled','unknown'].includes(phase??'')) {
             timer=setTimeout(()=>void refresh(),1500);
         }
     }
