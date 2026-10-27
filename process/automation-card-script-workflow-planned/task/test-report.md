@@ -22,3 +22,10 @@
 - **未执行**：本地单测、TS 检查、构建、手机/浏览器验收；当前继续调试模式。push 后自动 CI 状态另行核实。
 
 - T02 接线补充：确认前端 tsconfig 开启 `noUnusedLocals`，保留旧 Inspector 入口但由右键实际调用；已经开启拾取时不重复推进 generation，防止已捕获的坐标立刻过期。未执行本地检查。
+
+## 2026-10-27 · T03 原画面右键快捷菜单及触屏长按
+- 修改 `PhoneCard.vue`：右键不直接弹 Inspector，而在当前视频卡片内开菜单；用原有真实像素映射，排除 letterbox 黑边；引入 touch 约550ms hold 缓冲，把拾取长按与 Android 真实手势区分，触屏短按/滑动照常执行。
+- 新增 `CardContextMenu.vue`：菜单含控件树/刷新/配置点击长按输入等待断言/退出，Esc、方向键、Home/End 与全屏内部覆盖；点击画面其他位置关闭。
+- `AutomationCenter.vue` 接线，菜单选项保留 `PickerMenuAction` 和右键坐标与 generation；刷新只读 hierarchy API。非刷新项进入现有 Inspector 并提示选择对应动作，不会假装自动识别或自动生成步骤。
+- **待联调**：T04控件树坐标命中、T05预选动作/定位候选、T06确认录入后自动收窗保持拾取，以及浏览器全屏菜单与移动端长按的实际交互。
+- **未执行**：单测、TypeScript检查、构建、lint、FnOS/Android和浏览器真机验收（继续调试模式）；未手动触发 CI，push 后自动构建状态需单独核实。

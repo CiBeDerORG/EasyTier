@@ -23,7 +23,7 @@ import { appendAutomationDraftSteps, emptyAutomationDraft } from '../modules/aut
 import {
     beginPicker, readyPicker, stopPicker, setPickerIntent, invalidatePickerSnapshot,
     pickerMatches, pickerCanApply,
-    type PickerBinding, type PickerContext, type PickerIntent, type PickerVideoPoint,
+    type PickerBinding, type PickerContext, type PickerIntent, type PickerVideoPoint, type PickerMenuAction,
 } from '../modules/automation-picker-state';
 import type { AutomationRepairRequest } from '../modules/automation-run-repair';
 import { replaceAutomationStepTarget, type StepTarget } from '../modules/automation-step-target';
@@ -142,6 +142,7 @@ watch(() => [draftWorkspace.ownerId, draftWorkspace.editingId, draftWorkspace.re
     if (typeof stopAllPicking === 'function') stopAllPicking();
 });
 const inspectorDeviceId = ref<string | null>(null);
+const inspectorOpenGeneration = ref(0);
 const inspectorStream = shallowRef<MediaStream | null>(null);
 interface PickerEditScope {
     ownerId: number; stepId: string; stepType: AutomationStepType; targetFingerprint: string;
@@ -169,6 +170,7 @@ const pickerContexts = reactive<Record<string, PickerContext>>({});
 // for menu placement and selecting the candidate in a fresh hierarchy.
 const pickerPoints = reactive<Record<string, {
     point: PickerVideoPoint; generation: number; snapshotGeneration: number;
+    action: PickerMenuAction;
 }>>({});
 let pickerEpoch = 0;
 function pickerBinding(id: string): PickerBinding | null {
@@ -222,31 +224,51 @@ function toggleCardPicking(id: string) {
     }
     notice.value = '拾取已开启：可正常左键操作手机，在画面上右键查看控件。';
 }
-async function onCardPickPoint(id: string, point: PickerVideoPoint) {
+async function onCardPickAction(id: string, point: PickerVideoPoint, action: PickerMenuAction) {
+    if (action === 'exit') { stopCardPicking(id); return; }
     const current = pickerContexts[id], binding = pickerBinding(id);
     if (!current || !binding || !pickerCanApply(current, binding,
         current.generation, current.snapshotGeneration, current.intent)) {
-        error.value = '拾取会话已经失效，请重新开启拾取模式。';
+        error.value = '拾取会话已失效，请重新开启拾取模式。';
         return;
     }
-    // T02 compatibility: open the existing tree, but do NOT pretend we have
-    // already resolved the right-clicked node. T03 adds the context menu and
-    // T04 uses this captured cursor to select a real UIA node.
-    pickerPoints[id] = {
-        point, generation: current.generation, snapshotGeneration: current.snapshotGeneration,
+    // Keep the original menu cursor separate from the live video. T04 will
+    // resolve it against a newly captured hierarchy before confirming a step.
+    pickerPoints[id] = { point, generation: current.generation,
+        snapshotGeneration: current.snapshotGeneration, action };
+    const valid = () => {
+        const latest = pickerContexts[id], latestBinding = pickerBinding(id);
+        return !!latest && !!latestBinding && pickerCanApply(latest, latestBinding,
+            current.generation, current.snapshotGeneration, current.intent);
     };
-    if (document.fullscreenElement) {
-        // The existing Inspector is mounted to document.body; leaving the
-        // browser top layer prevents it from being hidden behind fullscreen.
-        try { await document.exitFullscreen(); }
-        catch { error.value = '退出全屏失败，控件树无法显示；请先退出全屏。'; return; }
+    if (action === 'refresh') {
+        notice.value = '正在重新读取控件树（只读，不操作手机）…';
+        try {
+            const hierarchy = await api.hierarchy(ownerId.value, id);
+            if (!valid()) return;
+            if (hierarchy.device_id !== id || hierarchy.target_fingerprint !== binding.targetFingerprint)
+                throw new Error('设备绑定在刷新控件树期间发生变化。');
+            notice.value = '控件树读取完成：' + hierarchy.snapshot.nodes.length + ' 个节点；再次右键可配置步骤。';
+        } catch (cause) { if (valid()) error.value = automationErrorMessage(cause); }
+        return;
     }
-    const latest = pickerContexts[id], latestBinding = pickerBinding(id);
-    if (!latest || !latestBinding || !pickerCanApply(latest, latestBinding,
-        current.generation, current.snapshotGeneration, current.intent)) return;
+    if (document.fullscreenElement) {
+        // The existing Inspector is still attached to document.body; only
+        // the action selected from the full-screen menu exits full screen.
+        try { await document.exitFullscreen(); }
+        catch { error.value = '无法退出全屏显示控件属性窗口，请手动退出全屏。'; return; }
+    }
+    if (!valid()) return;
+    inspectorOpenGeneration.value += 1;
     openInspector(id);
-    if (inspectorDeviceId.value === id)
-        notice.value = '已记录右键位置，请在控件树中确认目标；快捷菜单与自动命中控件将在后续任务接入。';
+    if (inspectorDeviceId.value !== id) return;
+    const labels: Partial<Record<PickerMenuAction,string>> = {
+        tap:'点击', long_press:'长按', input_text:'输入文字', wait_for:'等待出现',
+        wait_gone:'等待消失', assert:'检查控件', assert_property:'属性断言',
+    };
+    notice.value = action === 'inspect'
+        ? '已打开控件树；右键位置尚未自动匹配控件，请手动确认目标。'
+        : '正在配置' + (labels[action] ?? '控件') + '步骤：请在控件树中选择目标并确认对应动作；此时尚未录入脚本。';
 }
 function reconcilePickerBindings() {
     for (const [id, current] of Object.entries(pickerContexts)) {
@@ -1163,7 +1185,7 @@ onBeforeUnmount(() => { stopEvents?.();
                 <div v-else-if="!visibleDevices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-search" aria-hidden="true" /><h2>{{ t('noResults') }}</h2><Button :label="t('reset')" text @click="filters = { node: '', group: '', type: '', keyword: '' }; query()" /></div>
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
                 <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
-                        @toggle-picking="toggleCardPicking" @pick-point="onCardPickPoint" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
+                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
                 <button v-if="globalOpen && !fullscreenActive" class="global-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="globalOpen = false" />
                 <div v-if="devices.length && !fullscreenActive" class="global-controls" @pointerdown.stop @click.stop @keydown.esc="globalOpen = false">
@@ -1181,7 +1203,7 @@ onBeforeUnmount(() => { stopEvents?.();
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
-        <UiInspectorDialog v-if="inspectorDevice" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" :replace-step="inspectorReplaceStep"
+        <UiInspectorDialog v-if="inspectorDevice" :key="inspectorOpenGeneration" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" :replace-step="inspectorReplaceStep"
             @close="closeInspector" @add-step="addInspectorStep" @replace-target="replaceInspectorTarget" @edit="editInspectorDraft" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
         <Dialog :visible="!!gestureConfirmation" :appendTo="textDialogTarget" modal

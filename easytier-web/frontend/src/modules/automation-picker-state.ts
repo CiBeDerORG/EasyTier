@@ -10,6 +10,8 @@ import type { AutomationStepType } from '../types/automation';
 export type PickerPhase = 'off' | 'preparing' | 'on' | 'error';
 /** Physical video pixel coordinates, not CSS pixels or fullscreen margins. */
 export interface PickerVideoPoint { x: number; y: number; width: number; height: number }
+export type PickerMenuAction = 'inspect' | 'tap' | 'long_press' | 'input_text'
+    | 'wait_for' | 'wait_gone' | 'assert' | 'assert_property' | 'refresh' | 'exit';
 export type PickerIntent =
     | { kind: 'append' }
     | { kind: 'replace'; stepId: string; stepType: AutomationStepType };

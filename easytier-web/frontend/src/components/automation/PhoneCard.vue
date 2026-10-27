@@ -10,7 +10,8 @@ import type { EndpointEvent } from '../../modules/discovery-api';
 import { usePhoneSession } from './usePhoneSession';
 import PhoneAutomationPanel from './PhoneAutomationPanel.vue';
 import CardPickingOverlay from './CardPickingOverlay.vue';
-import type { PickerPhase, PickerVideoPoint } from '../../modules/automation-picker-state';
+import CardContextMenu from './CardContextMenu.vue';
+import type { PickerMenuAction, PickerPhase, PickerVideoPoint } from '../../modules/automation-picker-state';
 
 const props = defineProps<{
     device: AutomationDevice; ownerId: number; selected: boolean; runnerAvailable: boolean;
@@ -23,7 +24,7 @@ const emit = defineEmits<{
     selection: [id: string, selected: boolean]; configure: [device: AutomationDevice];
     input: [id: string, message: AutomationControl]; action: [id: string, message: AutomationControl]; unlock: [id: string];
     text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string];
-    'toggle-picking': [id: string]; 'pick-point': [id: string, point: PickerVideoPoint];
+    'toggle-picking': [id: string]; 'pick-action': [id: string, point: PickerVideoPoint, action: PickerMenuAction];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -36,11 +37,31 @@ const screen = ref<HTMLElement | null>(null);
 const isFullscreen = ref(false);
 function syncFullscreen() {
     isFullscreen.value = document.fullscreenElement === screen.value;
+    closePickerMenu();
 }
 onMounted(() => document.addEventListener('fullscreenchange', syncFullscreen));
 const dock = ref<'left' | 'right'>('right');
 const anchorFraction = ref(0.5);
 const menuOpen = ref(false);
+const pickerMenu = ref<{ point: PickerVideoPoint; x: number; y: number } | null>(null);
+function closePickerMenu() { pickerMenu.value = null; }
+function pickAction(action: PickerMenuAction) {
+    const current = pickerMenu.value;
+    if (!current) return;
+    closePickerMenu();
+    if (action === 'exit') emit('toggle-picking', props.device.id);
+    else emit('pick-action', props.device.id, current.point, action);
+}
+function showPickerMenu(clientX: number, clientY: number) {
+    if (pickingPhase.value !== 'on' || !pickAvailable.value || !screen.value) return;
+    const pos = point({clientX,clientY}, false);
+    if (!pos) return;
+    cancelPointer(); menuOpen.value = false;
+    const bounds = screen.value.getBoundingClientRect();
+    pickerMenu.value = { point: pos,
+        x: Math.max(8, Math.min(clientX - bounds.left, Math.max(8, bounds.width - 230))),
+        y: Math.max(8, Math.min(clientY - bounds.top, Math.max(8, bounds.height - 320))) };
+}
 const floatingStyle = computed(() => ({
     left: dock.value === 'right'
         ? menuOpen.value ? 'calc(100% - 48px)' : 'calc(100% - 20px)'
@@ -164,11 +185,15 @@ const screenActionHint = computed(() => {
     return prefix + ' · 点击打开画面';
 });
 watch(() => session.state.phase, phase => {
+    if (phase !== 'live') { closePickerMenu(); clearTouchHold(); }
     emit('state', props.device.id, phase);
     // The browser must not remain fullscreen once this card loses its stream.
     if (phase !== 'live' && document.fullscreenElement === screen.value) {
         void document.exitFullscreen().catch(() => undefined);
     }
+});
+watch([pickingPhase, () => props.recording, () => props.syncRole, () => props.unlocking], () => {
+    if (pickingPhase.value !== 'on' || !pickAvailable.value) { closePickerMenu(); clearTouchHold(); }
 });
 watch(session.stream, value => {
     if (video.value) video.value.srcObject = value;
@@ -185,6 +210,7 @@ watch([isFullscreen, session.stream], ([active, stream]) => {
 
 function geometry() { return { width: video.value?.videoWidth ?? 0, height: video.value?.videoHeight ?? 0 }; }
 function onGeometry() {
+    closePickerMenu();
     const next = geometry();
     if (currentGeometry.value.width && (next.width !== currentGeometry.value.width || next.height !== currentGeometry.value.height)) {
         cancelPointer(); emit('geometry', props.device.id);
@@ -207,31 +233,74 @@ function point(event: Pick<MouseEvent, 'clientX' | 'clientY'>, clamp: boolean): 
     return { x: Math.max(0, Math.min(width - 1, Math.round(x))), y: Math.max(0, Math.min(height - 1, Math.round(y))), width, height };
 }
 // Right-click is strictly read-only and is never sent as a scrcpy touch.
+let touchHold: { id: number; start: PickerVideoPoint; clientX: number; clientY: number;
+    timer: ReturnType<typeof setTimeout> } | null = null;
+let syntheticContextUntil = 0;
+function clearTouchHold(release = true) {
+    const hold = touchHold; if (!hold) return;
+    clearTimeout(hold.timer); touchHold = null;
+    if (release && video.value?.hasPointerCapture(hold.id)) video.value.releasePointerCapture(hold.id);
+}
 function contextPick(event: MouseEvent) {
+    event.preventDefault(); event.stopPropagation();
+    if (Date.now() < syntheticContextUntil) return;
+    showPickerMenu(event.clientX, event.clientY);
+}
+function keyboardContextPick(event: KeyboardEvent) {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+    if (pickingPhase.value !== 'on') return;
     event.preventDefault();
-    event.stopPropagation();
-    if (pickingPhase.value !== 'on' || !pickAvailable.value) return;
-    const position = point(event, false); // never select ambient video or letterboxing
-    if (!position) return;
-    cancelPointer();
-    menuOpen.value = false;
-    emit('pick-point', props.device.id, position);
+    const bounds = video.value?.getBoundingClientRect();
+    if (bounds) showPickerMenu(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
 }
 function down(event: PointerEvent) {
-    if (!touchAllowed.value || event.button !== 0 || pointer.value || menuOpen.value) return;
+    if (!touchAllowed.value || event.button !== 0 || pointer.value || touchHold ||
+        menuOpen.value || pickerMenu.value) return;
     const position = point(event, false); if (!position) return;
-    event.preventDefault();
+    event.preventDefault(); video.value?.setPointerCapture(event.pointerId);
+    if (event.pointerType === 'touch' && pickingPhase.value === 'on' && pickAvailable.value) {
+        // Do not send an Android touch until the browser gesture is classified.
+        touchHold = { id: event.pointerId, start: position, clientX: event.clientX, clientY: event.clientY,
+            timer: setTimeout(() => {
+                const hold = touchHold;
+                if (!hold || hold.id !== event.pointerId) return;
+                clearTouchHold(); syntheticContextUntil = Date.now() + 800;
+                showPickerMenu(hold.clientX, hold.clientY);
+            }, 550) };
+        return;
+    }
     pointer.value = { id: event.pointerId, width: position.width, height: position.height };
-    video.value?.setPointerCapture(event.pointerId);
     emit('input', props.device.id, { type: 'touch', action: 'down', ...position });
 }
 function move(event: PointerEvent) {
+    if (touchHold?.id === event.pointerId) {
+        const hold = touchHold, at = point(event, false);
+        if (!at || at.width !== hold.start.width || at.height !== hold.start.height) {
+            clearTouchHold(); emit('geometry', props.device.id); return;
+        }
+        if (Math.hypot(event.clientX - hold.clientX, event.clientY - hold.clientY) < 10) return;
+        clearTouchHold(false);
+        pointer.value = { id: event.pointerId, width: at.width, height: at.height };
+        event.preventDefault();
+        emit('input', props.device.id, { type: 'touch', action: 'down', ...hold.start });
+        emit('input', props.device.id, { type: 'touch', action: 'move', ...at });
+        return;
+    }
     if (pointer.value?.id !== event.pointerId) return;
     const position = point(event, true); if (!position) return;
     if (position.width !== pointer.value.width || position.height !== pointer.value.height) { cancelPointer(); emit('geometry', props.device.id); return; }
     event.preventDefault(); emit('input', props.device.id, { type: 'touch', action: 'move', ...position });
 }
 function up(event: PointerEvent) {
+    if (touchHold?.id === event.pointerId) {
+        const hold = touchHold, at = point(event, false);
+        clearTouchHold(); event.preventDefault();
+        if (at && at.width === hold.start.width && at.height === hold.start.height) {
+            emit('input', props.device.id, { type: 'touch', action: 'down', ...hold.start });
+            emit('input', props.device.id, { type: 'touch', action: 'up', ...at });
+        }
+        return;
+    }
     if (pointer.value?.id !== event.pointerId) return;
     const position = point(event, true); const previous = pointer.value; pointer.value = null;
     if (video.value?.hasPointerCapture(event.pointerId)) video.value.releasePointerCapture(event.pointerId);
@@ -239,18 +308,20 @@ function up(event: PointerEvent) {
     else emit('input', props.device.id, { type: 'touch.release' });
 }
 function cancelPointer() {
+    clearTouchHold();
     if (!pointer.value) return;
     const id = pointer.value.id; pointer.value = null;
     if (video.value?.hasPointerCapture(id)) video.value.releasePointerCapture(id);
     emit('input', props.device.id, { type: 'touch.release' });
 }
 function resetPointer() {
+    clearTouchHold();
     if (!pointer.value) return;
     const id = pointer.value.id; pointer.value = null;
     if (video.value?.hasPointerCapture(id)) video.value.releasePointerCapture(id);
 }
 async function fullscreen() {
-    menuOpen.value = false;
+    closePickerMenu(); menuOpen.value = false;
     // Fullscreen only the video surface, not its card/header/footer.
     // The screen owns the floating controls and the input dialog portal.
     if (document.fullscreenElement === screen.value) await document.exitFullscreen();
@@ -266,7 +337,7 @@ async function open(quality: 'wall' | 'focus', options: AutomationMediaSettings 
 }
 function cancelRestoreIntent() { watching = false; ++intentVersion; }
 async function close() {
-    cancelRestoreIntent(); cancelPointer(); menuOpen.value = false; clearMenuTimer(); stopFrameChase();
+    closePickerMenu(); cancelRestoreIntent(); cancelPointer(); menuOpen.value = false; clearMenuTimer(); stopFrameChase();
     // Close the fullscreen container *before* tearing down its video.
     if (document.fullscreenElement === screen.value) {
         try { await document.exitFullscreen(); } catch { /* session cleanup still takes priority */ }
@@ -314,7 +385,7 @@ onBeforeUnmount(() => {
     document.removeEventListener('fullscreenchange', syncFullscreen);
     if (document.fullscreenElement === screen.value) void document.exitFullscreen().catch(() => undefined);
     if (ambientVideo.value) ambientVideo.value.srcObject = null;
-    disposed = true; watching = false; ++intentVersion; clearMenuTimer(); stopFrameChase(); cancelPointer(); void session.close();
+    disposed = true; watching = false; ++intentVersion; closePickerMenu(); clearMenuTimer(); stopFrameChase(); cancelPointer(); void session.close();
 });
 </script>
 
@@ -358,9 +429,9 @@ onBeforeUnmount(() => {
         <div class="device-meta">
             <span class="node-name" :title="device.gateway_name || t('ungrouped')">{{ device.gateway_name || t('ungrouped') }}</span>
         </div>
-        <div ref="screen" class="phone-screen" :style="currentGeometry.width && currentGeometry.height ? { aspectRatio: `${currentGeometry.width} / ${currentGeometry.height}` } : undefined" @keydown.esc="menuOpen = false">
+        <div ref="screen" class="phone-screen" :style="currentGeometry.width && currentGeometry.height ? { aspectRatio: `${currentGeometry.width} / ${currentGeometry.height}` } : undefined" @keydown.esc="menuOpen = false; closePickerMenu()">
             <video v-if="isFullscreen && session.state.phase === 'live'" ref="ambientVideo" class="ambient-video" autoplay muted playsinline aria-hidden="true" tabindex="-1" />
-            <video ref="video" class="primary-video" autoplay muted playsinline :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent.stop="contextPick" />
+            <video ref="video" class="primary-video" autoplay muted playsinline tabindex="0" :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent.stop="contextPick" @keydown="keyboardContextPick" />
             <div v-if="session.state.phase !== 'live'" class="screen-placeholder">
                 <i :class="pending ? 'pi pi-spin pi-spinner' : 'pi pi-mobile'" aria-hidden="true" />
                 <span>{{ t(session.state.phase) }}</span>
@@ -370,6 +441,9 @@ onBeforeUnmount(() => {
                 <small v-if="!device.connection.enabled">{{ t('disabled') }}</small>
             </div>
             <CardPickingOverlay :phase="pickingPhase" :error="pickerError" @exit="emit('toggle-picking', device.id)" />
+            <button v-if="pickerMenu" type="button" class="pick-menu-dismiss" tabindex="-1" aria-label="关闭控件快捷菜单" @pointerdown.stop @click.stop="closePickerMenu()" />
+            <CardContextMenu v-if="pickerMenu" :left="pickerMenu.x" :top="pickerMenu.y"
+                @close="closePickerMenu()" @select="pickAction" />
             <Tag v-if="syncRole" class="role-badge" :value="t(syncRole)" :severity="syncRole === 'master' ? 'info' : 'secondary'" />
             <span v-if="recording" class="record-badge"><span /> REC</span>
             <Button v-if="syncActive" class="fullscreen-stop" severity="danger" :label="t('stopSync')" size="small" @click="emit('stopSync')" />
@@ -445,6 +519,8 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .adb-status.failed .adb-status-dot,.adb-status.query_failed .adb-status-dot,.adb-status.disconnected .adb-status-dot,.adb-status.offline .adb-status-dot{background:var(--p-red-500)}.adb-status.unauthorized .adb-status-dot,.adb-status.unavailable .adb-status-dot{background:var(--p-orange-500)}.adb-status.connecting .adb-status-dot,.adb-status.checking .adb-status-dot{background:var(--p-blue-500);animation:adb-pulse 1s ease-in-out infinite}
 @keyframes adb-pulse{50%{opacity:.35}}
 .phone-screen{width:100%;height:auto;aspect-ratio:9/16;position:relative;background:#07111d;overflow:hidden}.phone-screen video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;touch-action:none;user-select:none}.phone-screen video.interactive{cursor:crosshair}
+.primary-video:focus-visible{outline:2px solid var(--p-primary-color);outline-offset:-3px}
+.pick-menu-dismiss{position:absolute;inset:0;z-index:8;border:0;background:transparent;width:100%;height:100%;cursor:default}
 .screen-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#91a6bd;background:radial-gradient(ellipse at center,#11273a,#07111d 75%);padding:18px;text-align:center}.screen-placeholder>.pi{font-size:34px;color:#54738f}.screen-placeholder small{font-size:11px}
 .role-badge{position:absolute;top:10px;left:10px;pointer-events:none}.record-badge{position:absolute;top:12px;right:12px;color:#fda4af;font-size:11px;display:flex;align-items:center;gap:5px}.record-badge>span{width:7px;height:7px;border-radius:50%;background:#fb7185}
 .phone-controls{position:absolute;z-index:6;transform:translateY(-50%);display:flex;align-items:center;gap:6px;transition:left .16s ease;touch-action:none}
