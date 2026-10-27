@@ -273,14 +273,85 @@ impl AutomationStore {
         let session=self.session(owner,id).await?;
         let actor=session["actor_user_id"].as_i64().ok_or_else(not_found)? as i32;
         self.authorize(actor,owner).await?;
-        if !matches!(session["state"].as_str(),Some("opening"|"active")) {return Err(conflict("session_revoked","The viewing session has ended or its authority was revoked."));}
+        if !matches!(session["state"].as_str(),Some("opening"|"active"|"suspending"|"view_only"|"resuming")) {return Err(conflict("session_revoked","The viewing session has ended or its authority was revoked."));}
         let current=self.target(owner,session["device_id"].as_str().ok_or_else(not_found)?).await?;
         if current["target_fingerprint"]!=session["target"]["target_fingerprint"] {return Err(conflict("target_changed","The session's device target has changed."));}
         Ok(session)
     }
 
+    /// T38: atomically fence manual writes before an Executor downgrade.
+    /// The two-phase transition deliberately remains fail-closed if the
+    /// remote acknowledgement or its network path becomes unknown.
+    pub(crate) async fn begin_session_permission(&self,owner:i32,id:&str,direction:&str)->AutomationResult<()> {
+        if !matches!(direction,"view_only"|"active") {
+            return Err(AutomationError::field("state","Unsupported permission transition."));
+        }
+        let mut tx=self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let row=sqlx::query("SELECT actor_user_id,device_id,target_key,target_fingerprint,state FROM automation_sessions WHERE id=? AND owner_user_id=?")
+            .bind(id).bind(owner).fetch_optional(&mut *tx).await?.ok_or_else(not_found)?;
+        authorized(&mut tx,row.try_get::<i32,_>("actor_user_id")?,owner).await?;
+        let device:String=row.try_get("device_id")?;
+        let key:String=row.try_get("target_key")?;
+        let expected:String=row.try_get("target_fingerprint")?;
+        if fingerprint(&mut tx,owner,&device,&self.runtime_observations).await?!=expected {
+            return Err(conflict("target_changed","Viewing device target changed. Do not transfer its action lease."));
+        }
+        let previous:String=row.try_get("state")?;
+        let (stable,in_progress,next)=if direction=="view_only" {
+            ("view_only","suspending","suspending")
+        } else {
+            ("active","resuming","resuming")
+        };
+        if previous==stable || previous==in_progress {
+            tx.commit().await?;
+            return Ok(());
+        }
+        if (direction=="view_only" && previous!="active")
+            || (direction=="active" && previous!="view_only") {
+            return Err(conflict("session_revoked","The media session is not in a transferable state."));
+        }
+        if direction=="active" {
+            let busy:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_run_devices WHERE (device_id=? OR target_key=?) AND cleanup_confirmed=0 AND state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending'))")
+                .bind(&device).bind(&key).fetch_one(&mut *tx).await?;
+            if busy {return Err(conflict("device_busy","Script action lease or cleanup still occupies this device."));}
+        }
+        sqlx::query("UPDATE automation_sessions SET state=?,updated_at=? WHERE id=? AND owner_user_id=?")
+            .bind(next).bind(now()).bind(id).bind(owner).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub(crate) async fn confirm_session_permission(&self,owner:i32,id:&str,direction:&str)->AutomationResult<()> {
+        let (expected,next)=match direction {
+            "view_only"=>("suspending","view_only"),
+            "active"=>("resuming","active"),
+            _=>return Err(AutomationError::field("state","Unsupported permission transition.")),
+        };
+        let mut tx=self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let row=sqlx::query("SELECT state,device_id,target_key,target_fingerprint FROM automation_sessions WHERE id=? AND owner_user_id=?")
+            .bind(id).bind(owner).fetch_optional(&mut *tx).await?.ok_or_else(not_found)?;
+        let actual:String=row.try_get("state")?;
+        if actual==next {tx.commit().await?;return Ok(());}
+        if actual!=expected {return Err(conflict("session_revoked","Session permission transition is no longer pending."));}
+        let device:String=row.try_get("device_id")?;
+        let key:String=row.try_get("target_key")?;
+        let finger:String=row.try_get("target_fingerprint")?;
+        if fingerprint(&mut tx,owner,&device,&self.runtime_observations).await?!=finger {
+            return Err(conflict("target_changed","Device binding changed while transferring the session."));
+        }
+        if direction=="active" {
+            let busy:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_run_devices WHERE (device_id=? OR target_key=?) AND cleanup_confirmed=0 AND state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending'))")
+                .bind(&device).bind(&key).fetch_one(&mut *tx).await?;
+            if busy {return Err(conflict("device_busy","Script cleanup has not confirmed release of the device."));}
+        }
+        sqlx::query("UPDATE automation_sessions SET state=?,updated_at=? WHERE id=? AND owner_user_id=? AND state=?")
+            .bind(next).bind(now()).bind(id).bind(owner).bind(expected).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub(crate) async fn update_session(&self,id:&str,state:&str)->AutomationResult<()> {
-        if !matches!(state,"active"|"closed"|"closing"|"failed"|"cleanup_pending"|"outcome_unknown"|"revoked") {return Err(AutomationError::field("state","Invalid session state."));}
+        if !matches!(state,"active"|"suspending"|"view_only"|"resuming"|"closed"|"closing"|"failed"|"cleanup_pending"|"outcome_unknown"|"revoked") {return Err(AutomationError::field("state","Invalid session state."));}
         let predicate=if state=="active" {"state IN ('opening','active')"} else {"state NOT IN ('closed','failed')"};
         let changed=sqlx::query(&format!("UPDATE automation_sessions SET state=?,updated_at=? WHERE id=? AND {predicate}"))
             .bind(state).bind(now()).bind(id).execute(&self.pool).await?;
@@ -289,7 +360,7 @@ impl AutomationStore {
     }
 
     pub(crate) async fn renew_session(&self,id:&str)->AutomationResult<()> {
-        let changed=sqlx::query("UPDATE automation_sessions SET expires_at=?,updated_at=? WHERE id=? AND state IN ('opening','active')")
+        let changed=sqlx::query("UPDATE automation_sessions SET expires_at=?,updated_at=? WHERE id=? AND state IN ('opening','active','suspending','view_only','resuming')")
             .bind(deadline()).bind(now()).bind(id).execute(&self.pool).await?;
         if changed.rows_affected()==0 {return Err(conflict("session_revoked","The session cannot be renewed."));}
         Ok(())
