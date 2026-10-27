@@ -46,6 +46,8 @@ const allowTrial=computed(()=>props.runnerAvailable && !props.blocked &&
             <Tag :value="unknown?'结果未确认':repair.resultState==='interrupted'?'执行中断':'执行失败'"
                  :severity="unknown?'warn':'danger'"/>
             <Button icon="pi pi-times" text rounded size="small" aria-label="关闭回修提示"
+                :disabled="unknown && !acknowledged"
+                :title="unknown && !acknowledged ? '请先核对手机实际状态，再关闭未知结果提醒' : '关闭回修提示'"
                 @click="emit('dismiss')"/>
         </header>
         <p>来源运行：<code>{{ repair.runId }}</code></p>
