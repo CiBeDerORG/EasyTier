@@ -296,21 +296,6 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         if(!unknown)pending.value=null;
     }
 }
-async function retryUncertain(){
-    loadReceipt();
-    if(receiptFailure.value || !unresolvedReceipt.value || !pending.value ||
-        unresolvedReceipt.value.requestId!==pending.value.request_id)return;
-    if(!uncertain.value || !pending.value || busy.value ||
-        pending.value.steps?.[0]?.id!==props.step?.id ||
-        pending.value.device_ids.length!==1 ||
-        pending.value.device_ids[0]!==props.device.id)return;
-    const mine=++epoch,owner=props.ownerId,id=props.device.id,original=JSON.stringify(props.step);
-    if(!valid(mine,owner,id,original)){warning.value='设备或步骤已变化，不允许重新提交。';return;}
-    phase.value='submitting';
-    // Same immutable POST, same request_id: retries can only recover the
-    // original run receipt, never invent a second run.
-    await sendFrozen(mine,owner,id,original,pending.value);
-}
 async function recheckTrialReceipt(){
     if(checkingReceipt.value)return;
     loadReceipt();
@@ -487,13 +472,12 @@ onBeforeUnmount(()=>{
                     @click="openRepair"/>
                 <Button v-if="currentRun" label="在执行记录查看" icon="pi pi-history" size="small"
                     @click="openHistory"/>
-                <Button v-if="phase==='unknown' && !pending" label="只读复核准备状态" outlined size="small"
+                <Button v-if="phase==='unknown' && !pending && !unresolvedReceipt && !receiptFailure"
+                    label="只读复核准备状态" outlined size="small"
                     :disabled="busy" @click="recheckPreparation"/>
                 <Button v-if="unresolvedReceipt || receiptFailure" label="只读查询旧请求"
                     outlined size="small" :loading="checkingReceipt"
                     :disabled="!!receiptFailure || checkingReceipt" @click="recheckTrialReceipt"/>
-                <Button v-if="uncertain && pending && !unresolvedReceipt" label="按原请求编号人工重查" outlined size="small"
-                    :disabled="true" />
                 <Button v-if="!started && phase!=='ready'" label="自动准备试跑设备"
                     icon="pi pi-link" size="small" :loading="busy"
                     :disabled="!runnerAvailable || !!blocked || !usable || busy || phase==='unknown'"
