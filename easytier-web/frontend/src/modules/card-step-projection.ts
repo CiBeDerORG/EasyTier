@@ -62,9 +62,12 @@ export function projectCardSteps(draft: AutomationDraftWorkspace): CardStepProje
         editingId: draft.editingId ?? null,
         revision: draft.revision ?? null,
         saveState,
-        saveLabel: saveState === 'new' ? '草稿 · 尚未保存'
-            : saveState === 'modified' ? '有未保存修改'
-                : '已保存 · 修订 ' + (draft.revision ?? '—'),
+        // This indicator is ONLY the formal script publication state.
+        // The adjacent syncLabel independently reports the server work-draft
+        // CAS status (saving / unsynced / synced).
+        saveLabel: saveState === 'new' ? '尚未发布为正式脚本'
+            : saveState === 'modified' ? '正式脚本有未发布修改'
+                : '正式脚本 · 修订 ' + (draft.revision ?? '—'),
         steps: draft.steps.map((step,index) => {
             const ancestry = layout.entries[index]?.ancestors ?? [];
             return {
