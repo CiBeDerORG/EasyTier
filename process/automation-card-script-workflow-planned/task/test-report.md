@@ -357,3 +357,9 @@
 ### 2026-10-28 · T40 严格控件定位补丁（仍未测试）
 - `automation-device-compatibility.ts` 为单步试跑提供可选严格模式，`CardTrialPanel` 的准备/提交/异常复核统一启用。候选不唯一、控件树截断、XPath 不能证明定位唯一均直接阻断，不能凭一项风险勾选绕过；`wait_gone` 本应无匹配的情况仍遵循原有安全例外。其它跨设备普通兼容性页面的历史建议/确认行为保持默认不变。
 - 提交 `8a10b2f7`、`b099bfc0`、`18030ab6`；无编译、单测、真实控件树或设备执行证据。
+
+## 2026-10-28 · T42 同视频失败回修与人工再验证（调试模式）
+- `PhoneCard.vue` 已撤销位于视频下方的独立 `CardRepairEntry` 展示，改用同一 `automationSubwindowHost` 里的 `AutomationFloatingDialog` + 现有回修内容。历史 runId、失败 stepId、当前草稿/旧快照对照由原运行记录请求支持；浏览/编辑不生成新的执行动作。
+- `outcome_unknown` 回修不得直接通过浮窗标题关闭跳过人工确认，仍要求检查手机状态；`CardRepairEntry` 再次试跑还要求 step 与历史快照不同且草稿同步 guard 为 `clean`，防止未保存/有冲突的临时参数被误认成新修订；再次点击 ▶ 产生新的 UUID，旧 run 不变。
+- 主要代码提交：`7b42a61d`（原画面浮窗）、`6b61d839`（修改/保存后人工重试 guard）、`677263b5`（PhoneCard 草稿同步状态接线）。
+- **未实测**失败修复从旧 run 快照到下一修订的全流程、旧 history 跳转/双浏览器/移动端/窗口拖拽层级；旧 RunHistory 独立页面仍保留，先替代后删。调试模式不执行 lint、TS/Rust/Python 编译或单测、构建、手动 Actions、浏览器、FnOS/Android 真机操作。
