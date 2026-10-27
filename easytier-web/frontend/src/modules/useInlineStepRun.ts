@@ -53,3 +53,16 @@ export function inlineStepMayAutoSubmit(
 ): boolean {
     return safety === 'read_only' && review?.status === 'compatible' && !parameter;
 }
+
+/** T41 display-only projection; never causes a second POST or retries. */
+export interface InlineStepRunProgress {
+    ownerId: number;
+    deviceId: string;
+    stepId: string;
+    requestId: string;
+    runId: string | null;
+    phase: 'preparing' | 'ready' | 'submitting' | 'running' |
+        'action_sent' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
+    label: string;
+    message?: string;
+}
