@@ -319,7 +319,11 @@ async function onCardPickAction(id: string, point: PickerVideoPoint, action: Pic
         error.value = '拾取目标已变化，请在手机画面上重新右键选择。';
         return;
     }
-    if (current.intent.kind === 'append') {
+    // Store the discriminated intent in a stable local before the async
+    // Inspector/renderer branch. Vue reactive property access is not narrowed
+    // reliably across these operations by vue-tsc.
+    const capturedIntent: PickerIntent = current.intent;
+    if (capturedIntent.kind === 'append') {
         inspectorAppendScope.value = {
             token, deviceId: id, binding: { ...binding }, generation: current.generation,
             snapshotGeneration: current.snapshotGeneration, submitted: false,
@@ -328,7 +332,7 @@ async function onCardPickAction(id: string, point: PickerVideoPoint, action: Pic
         // In replace mode the dialog may ONLY replace the captured step. It
         // cannot emit an append event, and the old ID survives the operation.
         if (inspectorEditScope.value?.origin !== 'card' ||
-            inspectorEditScope.value.stepId !== current.intent.stepId) {
+            inspectorEditScope.value.stepId !== capturedIntent.stepId) {
             closeInspector();
             error.value = '当前旧步骤已变化，重新拾取已取消。';
             return;

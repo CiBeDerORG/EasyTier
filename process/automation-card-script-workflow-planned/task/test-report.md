@@ -85,3 +85,9 @@
 - 高亮清理：手工操作、切换步骤、保存、重拾、视频失效、旋转、换设备、页切换、运行创建时清除，12秒自动失效；迟到响应不重新显示。
 - **未执行**：本地单测、TypeScript检查、lint、构建或 FnOS/Android 真机验证（遵循当前调试模式）；push 后原有自动 CI 状态应单独核验，未宣称验收成功。
 - 后续：T10 服务端草稿持久化、T11 前端同步；M4 正式单步骤执行与失败回修。
+
+## 2026-10-27 · T09 提交后的 TypeScript 编译问题针对性修复
+
+- 核查 T08 CI `40460773164` 与 T09 CI `40461701630` 的 Web 构建日志：`AutomationCenter.vue` 分别报 TS2339 `PickerIntent` 的 `stepId` 属性不存在；此前 T08 引入的 `current.intent` 在异步 Inspector 分支内未能被 vue-tsc 保持 discriminated union 缩窄。
+- 修复：局部冻结 `capturedIntent: PickerIntent`，先判断 `kind`，仅在 `replace` 分支读取 `stepId`。不取消设备与草稿的 generation 二次校验，不改步骤新增/替换逻辑。
+- **未执行**本地测试、类型检查、构建或额外手工 Actions（调试模式）；本次修复随正常代码 push 触发已有 CI，真实成功状态需另行核验。
