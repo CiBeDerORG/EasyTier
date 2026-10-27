@@ -11,6 +11,7 @@ const props=defineProps<{
 const emit=defineEmits<{
     select: [stepId: string];
     edit: [stepId: string];
+    trial: [stepId: string];
 }>();
 
 const projected=computed(() => projectCardSteps(props.draft));
@@ -73,6 +74,12 @@ function openEditor(id: string) {
                             <small>{{ step.context }}{{ step.incomplete ? ' · 待完善' : '' }}</small>
                         </span>
                     </button>
+                    <button type="button" class="step-trial" :aria-label="'试跑步骤 '+step.number"
+                        title="在此手机单独试跑步骤（执行前检查并确认）"
+                        :disabled="step.incomplete || step.type === 'if_gone' || step.type === 'if_else'"
+                        @click="emit('trial',step.id)">
+                        <i class="pi pi-play" aria-hidden="true" />
+                    </button>
                     <button type="button" class="step-edit" :aria-label="'编辑步骤 '+step.number"
                         title="在当前手机卡片编辑步骤"
                         @click="openEditor(step.id)">
@@ -80,7 +87,7 @@ function openEditor(id: string) {
                     </button>
                 </li>
             </ol>
-            <small class="draft-hint">步骤与脚本库实时共享；点击步骤直接在卡片内编辑参数、重新拾取控件。定位演示将在下一阶段支持。</small>
+            <small class="draft-hint">步骤与脚本库实时共享；点击步骤可编辑与重新拾取；绿色播放入口为真实单步试跑，定位演示只读不操作手机。</small>
         </template>
     </section>
 </template>
@@ -94,7 +101,7 @@ function openEditor(id: string) {
 .draft-badge.new,.draft-badge.modified{color:var(--p-orange-500)}
 .draft-badge.saved{color:var(--p-green-500)}
 .fold-button{display:flex;align-items:center;gap:6px;flex:0 0 auto;border:1px solid var(--console-border);background:var(--console-panel-raised);border-radius:7px;color:var(--p-text-color);padding:6px;font-size:11px;cursor:pointer}
-.fold-button:focus-visible,.step-select:focus-visible,.step-edit:focus-visible{outline:2px solid var(--p-primary-color);outline-offset:2px}
+ .fold-button:focus-visible,.step-select:focus-visible,.step-edit:focus-visible,.step-trial:focus-visible{outline:2px solid var(--p-primary-color);outline-offset:2px}
 .timeline{list-style:none;margin:9px 0 0;padding:0;display:flex;flex-direction:column;gap:3px;max-height:220px;overflow:auto;overscroll-behavior:contain}
 .timeline-item{display:flex;align-items:stretch;min-width:0;border:1px solid transparent;border-radius:7px}
 .timeline-item.active{background:var(--console-accent-soft);border-color:var(--p-primary-color)}
@@ -105,6 +112,9 @@ function openEditor(id: string) {
 .step-info strong{font-size:12px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .step-info small{font-size:10px;color:var(--console-muted);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
 .step-info .branch{color:var(--p-primary-color)}
+.step-trial{flex:0 0 auto;background:transparent;color:var(--p-green-500);border:0;border-radius:7px;min-width:30px;cursor:pointer}
+.step-trial:hover:not(:disabled){background:var(--console-accent-soft)}
+.step-trial:disabled{opacity:.35;cursor:not-allowed}
 .step-edit{flex:0 0 auto;background:transparent;color:var(--console-muted);border:0;border-radius:7px;min-width:30px;cursor:pointer}
 .step-edit:hover{color:var(--p-primary-color);background:var(--console-accent-soft)}
 .no-steps,.flow-warning{margin:9px 0 0;font-size:11px;line-height:1.6;color:var(--console-muted)}
