@@ -244,12 +244,9 @@ async function onCardPickPoint(id: string, point: PickerVideoPoint) {
     const latest = pickerContexts[id], latestBinding = pickerBinding(id);
     if (!latest || !latestBinding || !pickerCanApply(latest, latestBinding,
         current.generation, current.snapshotGeneration, current.intent)) return;
-    const card = cards.get(id), stream = card?.getStream();
-    if (!stream) return;
-    inspectorEditScope.value = null;
-    inspectorDeviceId.value = id;
-    inspectorStream.value = stream;
-    notice.value = '已记录右键位置，请在控件树中确认目标；快捷菜单与自动命中控件将在后续任务接入。';
+    openInspector(id);
+    if (inspectorDeviceId.value === id)
+        notice.value = '已记录右键位置，请在控件树中确认目标；快捷菜单与自动命中控件将在后续任务接入。';
 }
 function reconcilePickerBindings() {
     for (const [id, current] of Object.entries(pickerContexts)) {
@@ -934,7 +931,11 @@ function openInspector(id: string) {
     const card = cards.get(id);
     const stream = card?.getStream();
     if (!card?.getState().ready || !stream) { error.value = '请先打开这台手机的实时画面，再拾取控件。'; return; }
-    if (!armCardPicking(id)) {
+    // A right-click may already have armed this exact session. Do not bump
+    // its generation again or invalidate the cursor captured by T02.
+    const current = pickerContexts[id], binding = pickerBinding(id);
+    if ((!current || current.phase !== 'on' || !binding || !pickerMatches(current, binding))
+        && !armCardPicking(id)) {
         error.value = '无法开启拾取：设备会话、账号或草稿上下文已变化。'; return;
     }
     inspectorEditScope.value = null;
