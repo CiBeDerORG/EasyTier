@@ -156,6 +156,9 @@ pub(super) async fn unlock(auth: AuthSession, State(manager): State<AppStateInne
     let session_id=id(&raw_id)?;
     let (_,session)=observed_session(&manager,&service,owner,&session_id).await?;
     creator(&session,actor)?;
+    if session["state"]!="active" {
+        return Err(error(StatusCode::CONFLICT,"viewer_only","当前原视频处于只读或权限移交中，禁止解锁手机。"));
+    }
     let device_id=id(session["device_id"].as_str().unwrap_or_default())?;
     let service_id=id(session["target"]["adb_service_id"].as_str().unwrap_or_default())?;
     // A session belongs to the executor which created it; never send a secret
@@ -187,6 +190,59 @@ pub(super) async fn unlock(auth: AuthSession, State(manager): State<AppStateInne
     // Do not report a result for a device which was re-bound or revoked mid-flight.
     observed_session(&manager,&service,owner,&session_id).await?;
     Ok(Json(json!({"unlock_state":state})))
+}
+
+/// T38: Keep the original WebRTC viewer but revoke all manual device actions.
+/// On any uncertain remote result the persisted state remains suspending
+/// (fail-closed); this route never silently reacquires a write permission.
+pub(super) async fn view_only(auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service, Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput, Path(raw_id): Path<String>, headers: HeaderMap) -> HttpResult<Json<Value>> {
+    require_origin(&headers,false)?;
+    let owner=owner(query)?;
+    let actor=authorize(&auth,&config,&service,owner).await?;
+    let session_id=id(&raw_id)?;
+    let (observed,session)=observed_session(&manager,&service,owner,&session_id).await?;
+    creator(&session,actor)?;
+    let expected:Option<String>=sqlx::query_scalar("SELECT executor_identity FROM automation_sessions WHERE id=? AND owner_user_id=?")
+        .bind(&session_id).bind(owner).fetch_one(&service.db.inner()).await.map_err(|e|store_error(e.into()))?;
+    let expected=expected.ok_or_else(||error(StatusCode::CONFLICT,"executor_identity_missing","投屏执行器身份丢失，禁止权限移交。"))?;
+    let runner=runner(&runtime)?;
+    if runner.identity().await?!=expected {
+        return Err(error(StatusCode::CONFLICT,"executor_identity_changed","执行器身份已变，无法安全移交原视频。"));
+    }
+    observed.begin_session_permission(owner,&session_id,"view_only").await.map_err(store_error)?;
+    let result=runner.post(&format!("sessions/{session_id}/view-only"),&json!({"expected_executor_id":expected})).await?;
+    if result["id"]!=session_id || result["executor_id"]!=expected || result["state"]!="view_only"
+        || result["device_id"]!=session["device_id"] {
+        return Err(invalid_response());
+    }
+    observed.confirm_session_permission(owner,&session_id,"view_only").await.map_err(store_error)?;
+    Ok(Json(json!({"id":session_id,"state":"view_only","viewing":true,"manual_allowed":false})))
+}
+
+/// T38: restore manual eligibility only after script cleanup is confirmed.
+/// The store's BEGIN IMMEDIATE fence blocks all competing run admissions.
+pub(super) async fn resume_manual(auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service, Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput, Path(raw_id): Path<String>, headers: HeaderMap) -> HttpResult<Json<Value>> {
+    require_origin(&headers,false)?;
+    let owner=owner(query)?;
+    let actor=authorize(&auth,&config,&service,owner).await?;
+    let session_id=id(&raw_id)?;
+    let (observed,session)=observed_session(&manager,&service,owner,&session_id).await?;
+    creator(&session,actor)?;
+    let expected:Option<String>=sqlx::query_scalar("SELECT executor_identity FROM automation_sessions WHERE id=? AND owner_user_id=?")
+        .bind(&session_id).bind(owner).fetch_one(&service.db.inner()).await.map_err(|e|store_error(e.into()))?;
+    let expected=expected.ok_or_else(||error(StatusCode::CONFLICT,"executor_identity_missing","投屏执行器身份丢失，不能恢复手控。"))?;
+    let runner=runner(&runtime)?;
+    if runner.identity().await?!=expected {
+        return Err(error(StatusCode::CONFLICT,"executor_identity_changed","执行器身份已变，不能恢复手控。"));
+    }
+    observed.begin_session_permission(owner,&session_id,"active").await.map_err(store_error)?;
+    let result=runner.post(&format!("sessions/{session_id}/resume-manual"),&json!({"expected_executor_id":expected})).await?;
+    if result["id"]!=session_id || result["executor_id"]!=expected || result["state"]!="active"
+        || result["device_id"]!=session["device_id"] {
+        return Err(invalid_response());
+    }
+    observed.confirm_session_permission(owner,&session_id,"active").await.map_err(store_error)?;
+    Ok(Json(json!({"id":session_id,"state":"active","viewing":true,"manual_allowed":true})))
 }
 
 pub(super) async fn close(auth: AuthSession, Extension(service): Service, Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput, Path(raw_id): Path<String>, headers: HeaderMap) -> HttpResult<Json<Value>> {
@@ -346,8 +402,17 @@ async fn control_loop(mut socket: WebSocket, manager:AppStateInner, service: Arc
                         seq = next;
                         // Reuse this session's most recent bounded observation;
                         // every input still checks current DB permissions/routes.
-                        if let Err(cause) = observed.validate_session(owner,&session_id).await {
-                            let (_,Json(mut failure))=store_error(cause); failure["type"]=json!("error"); failure["command_id"]=value["command_id"].clone(); let _=send(&mut socket,&failure).await; break;
+                        match observed.validate_session(owner,&session_id).await {
+                            Ok(current) if current["state"]=="active" => {},
+                            Ok(_) => {
+                                // Keep the current WebRTC and websocket alive,
+                                // but never relay a viewer's manual action.
+                                keep_running=send(&mut socket,&json!({"type":"error","command_id":value["command_id"],"code":"viewer_only","message":"手机当前仅允许实时观看，不能发送手控指令。"})).await;
+                                continue;
+                            },
+                            Err(cause) => {
+                                let (_,Json(mut failure))=store_error(cause); failure["type"]=json!("error"); failure["command_id"]=value["command_id"].clone(); let _=send(&mut socket,&failure).await; break;
+                            }
                         }
                         let Some(runner) = runtime.runner.as_ref() else { break; };
                         match runner.post(&format!("sessions/{session_id}/commands"),&value).await {
