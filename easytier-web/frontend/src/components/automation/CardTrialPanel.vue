@@ -5,7 +5,7 @@ import { Button, Checkbox, Dialog, InputText, Message, Tag } from 'primevue';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
 import { useCardTrialPreparation, type CardTrialPhase } from '../../modules/useCardTrialPreparation';
-import { releaseOwnedTrialPreviews, type TrialPreviewHandle } from '../../modules/automation-run-handoff';
+import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import { useCardRunStatus } from '../../modules/useCardRunStatus';
 import { makeSingleStepRun, stepTrialSafety } from '../../modules/automation-single-step';
 import { cardStepLabels } from '../../modules/card-step-projection';
@@ -48,6 +48,7 @@ const compatibilityReview=ref<DeviceCompatibilityReview | null>(null);
 const parameterValue=ref('');
 const frozen=ref<AutomationStep | null>(null);
 const targetFingerprint=ref('');
+const handedOffSessionId=ref<string | null>(null);
 const pending=ref<AutomationRunInput | null>(null);
 const uncertain=ref(false);
 const unresolvedReceipt=ref<TrialSubmissionReceipt|null>(null);
@@ -84,6 +85,7 @@ function snapshot(step:AutomationStep):AutomationStep {
 }
 function clearSecrets(){parameterValue.value='';}
 function resetForOpen(){
+    handedOffSessionId.value=null;
     loadReceipt();
     if(receiptFailure.value || unresolvedReceipt.value) {
         result.reset();
@@ -123,6 +125,9 @@ function checkReadyToPrepare(): string | null {
     if(!targetFingerprint.value || !props.device.connection.enabled || props.device.availability_reason)
         return '目标设备绑定无效，请检查 ADB 服务。';
     if(!usable.value)return '此步骤尚未配置完整、是条件分支节点或包含不安全的字面输入。';
+    const handle=props.previewHandle();
+    if(!handle.getSessionId() || handle.getState().phase!=='live' || !handle.enterViewOnly)
+        return '请先打开本机卡片原实时画面；只有当前卡片自己的会话可执行只读移交。';
     return null;
 }
 async function prepare(){
@@ -142,26 +147,32 @@ async function prepare(){
     compatibilityReview.value=null;compatibilityConsent.value=false;
     try {
         phase.value='releasing';
-        const owned=new Set([id]); // This card's own handle ONLY, never a foreign session.
-        await releaseOwnedTrialPreviews(api,{
-            ownerId:owner,requestedDeviceIds:[id],ownedPreviewIds:owned,
-            findPreview:()=>props.previewHandle(),
-            onProgress:msg=>{if(valid(mine,owner,id,source))warning.value=msg;},
-            stillCurrent:()=>valid(mine,owner,id,source),
-            deviceName:()=>props.device.name,
-        });
+        const handle=props.previewHandle();
+        const sid=handle.getSessionId();
+        if(!sid || !handle.enterViewOnly || handle.getState().phase!=='live')
+            throw new Error('原手机实时视频会话不存在，不能准备脚本。');
+        // Never commandeer another browser's manual session. First read the
+        // authoritative session identity, then downgrade ONLY our own card.
+        const before=(await api.devices(owner)).items.find(item=>item.id===id);
         if(!valid(mine,owner,id,source))return;
-        // Always re-read the device after handoff. T12 will run a second
-        // authorization/binding check before any helper side effects.
+        if(!before || before.owner_user_id!==owner || before.target_fingerprint!==targetFingerprint.value ||
+            before.run_occupied || before.active_session?.id!==sid)
+            throw new Error('原投屏会话已变更或被其它设备操作占用，不能移交。');
+        warning.value='正在释放手控写锁；同一个实时画面保持播放。';
+        await handle.enterViewOnly();
+        if(!valid(mine,owner,id,source))return;
         const fresh=await api.devices(owner);
         if(!valid(mine,owner,id,source))return;
         const row=fresh.items.find(item=>item.id===id);
         if(!row || row.owner_user_id!==owner || row.target_fingerprint!==targetFingerprint.value ||
-            row.active_session || row.run_occupied)
-            throw new Error('设备会话、目标绑定或占用状态已变化，不能自动准备。');
+            row.run_occupied || row.active_session?.id!==sid || row.active_session.state!=='view_only' ||
+            handle.getSessionId()!==sid)
+            throw new Error('只读移交尚未被服务端确认，禁止自动准备脚本。');
+        handedOffSessionId.value=sid;
         phase.value='preparing';warning.value='';
         const prepared=await preparation.run({
-            ownerId:owner,deviceId:id,targetFingerprint:targetFingerprint.value,steps:[chosen],
+            ownerId:owner,deviceId:id,targetFingerprint:targetFingerprint.value,
+            steps:[chosen],ownedSessionId:sid,
         });
         if(!valid(mine,owner,id,source))return;
         if(prepared?.phase==='ready'){
@@ -222,10 +233,13 @@ async function submit(){
         const latest=await api.devices(owner);
         if(!valid(mine,owner,id,original))return;
         const row=latest.items.find(item=>item.id===id);
+        const handle=props.previewHandle();
         if(!row || row.owner_user_id!==owner || !row.connection.enabled ||
             row.availability_reason || row.target_fingerprint!==targetFingerprint.value ||
-            row.active_session || row.run_occupied)
-            throw new Error('设备不再空闲或绑定变更，未提交试跑。');
+            !handedOffSessionId.value || handle.getSessionId()!==handedOffSessionId.value ||
+            row.active_session?.id!==handedOffSessionId.value ||
+            row.active_session.state!=='view_only' || row.run_occupied)
+            throw new Error('原视频只读移交或设备绑定已变化，未提交试跑。');
         const rechecked=requiresReuseHierarchy([frozen.value])
             ? reviewAutomationDeviceCompatibility(owner,row,
                 await api.hierarchy(owner,id),[frozen.value])
