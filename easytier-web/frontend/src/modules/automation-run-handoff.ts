@@ -11,6 +11,9 @@ export interface TrialPreviewHandle {
     getSessionId(): string | null;
     getState(): { phase: string };
     close(): Promise<void>;
+    /** A PhoneCard may downgrade *its own* media session without closing video. */
+    enterViewOnly?(): Promise<void>;
+    resumeManual?(): Promise<void>;
 }
 export interface TrialHandoffDeviceApi {
     devices(ownerId: number): Promise<{ items: AutomationDevice[] }>;
