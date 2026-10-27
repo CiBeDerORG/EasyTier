@@ -251,3 +251,7 @@
 - 真实代码已查证 Rust validation::steps 当前拒绝空 steps，前端 ScriptLibrary::validationError 同样只允许 1～100 步。已安排 T25 专门支持**创建/保存 0 步**，执行依旧拒绝 0 步，不取消权限/版本检查。
 - 已明确 PhoneCard/AutomationCenter/ScriptLibrary 等热点文件的 Agent 独占，跨前后端并行只在文件不冲突时进行；优化时遵守“替代已验证→删除旧层”。
 - **本轮没有修改业务代码、未执行单测、类型检查、lint、构建、手动 CI、FnOS/安卓真机操作（调试模式）**。全部新增任务待开发，验收未执行。
+
+## 2026-10-27 · T19 基线审计（调试模式）
+- 对照分支 `91392fd` 的 PhoneCard、CardStepTimeline、CardStepEditor、UiInspectorDialog、ScriptLibrary、CardTrialPanel、PhoneAutomationPanel、RunHistory、AutomationCenter 与运行 handoff、脚本校验，整理 `require/require-08-t19-baseline-audit.md`。
+- T19 已完成代码级审计与旧入口替代门槛矩阵，**无业务代码修改，无 TypeScript/测试/构建/CI 手动触发/真机验证**；后续 T20 与 T21 不能把 T19 当作新功能验收通过。
