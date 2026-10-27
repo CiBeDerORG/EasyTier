@@ -294,7 +294,10 @@ function clearTouchHold(release = true) {
     if (release && video.value?.hasPointerCapture(hold.id)) video.value.releasePointerCapture(hold.id);
 }
 function contextPick(event: MouseEvent) {
-    event.preventDefault(); event.stopPropagation();
+    // The browser's existing right-click behavior is left intact outside
+    // picker mode. Only an actively authorized picker may capture the event.
+    if(pickingPhase.value!=='on' || !pickAvailable.value)return;
+    event.preventDefault();event.stopPropagation();
     if (Date.now() < syntheticContextUntil) return;
     showPickerMenu(event.clientX, event.clientY);
 }
@@ -483,7 +486,7 @@ onBeforeUnmount(() => {
         </div>
         <div ref="screen" class="phone-screen" :style="currentGeometry.width && currentGeometry.height ? { aspectRatio: `${currentGeometry.width} / ${currentGeometry.height}` } : undefined" @keydown.esc="menuOpen = false; closePickerMenu()">
             <video v-if="isFullscreen && session.state.phase === 'live'" ref="ambientVideo" class="ambient-video" autoplay muted playsinline aria-hidden="true" tabindex="-1" />
-            <video ref="video" class="primary-video" autoplay muted playsinline tabindex="0" :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu.prevent.stop="contextPick" @keydown="keyboardContextPick" />
+            <video ref="video" class="primary-video" autoplay muted playsinline tabindex="0" :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu="contextPick" @keydown="keyboardContextPick" />
             <div v-if="session.state.phase !== 'live'" class="screen-placeholder">
                 <i :class="pending ? 'pi pi-spin pi-spinner' : 'pi pi-mobile'" aria-hidden="true" />
                 <span>{{ t(session.state.phase) }}</span>
