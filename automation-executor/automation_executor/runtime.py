@@ -435,7 +435,8 @@ class Runtime:
         async with current.lock:
             self.session(sid)
             if current.view_only:
-                return {"id": sid, "executor_id": self.journal.executor_id, "state": "view_only"}
+                return {"id": sid, "executor_id": self.journal.executor_id,
+                        "device_id": current.target["device_id"], "state": "view_only"}
             # Fence all further commands, even when cleanup fails/gets an
             # unknown response. Retry does not grant a new write privilege.
             current.view_only = True
