@@ -189,3 +189,11 @@
 - 本轮根据已存在的 GitHub Actions 工作流日志确认：`40495705617` / `152eeea688cc2b6e4034deb0708fd5a5f387c91b`，`Build Web and config generator` Job **success**，`test:unit` **125 tests、125 pass、0 fail**。此结果只能用于该提交的前端代码与 Node 单测；完整 GHCR 发布/Python/Rust测试/真机无证据，不能标通过。
 - **实际未执行：** 远程 FnOS 登录、自动化中心浏览器点击、ADB操作、UiAutomator2初始化、手机触控、模拟网络中断、修改草稿、执行单步试跑及真机两个浏览器竞争。原因：当前调试模式没有授权主动测试/部署真实环境，且没有本轮已确认的现场测试权限。
 - **当前验收判定：** 12/12 项状态为`未执行`，没有真实机型/镜像Digest/运行编号与截屏证据，T18 只达到“准备就绪/待实测”，不是“已验收”。
+
+## 2026-10-27 · 审核 P0～P2 代码修复（调试模式）
+- 基线 `765fe64`；修复依据 `task/review-fixes-2026-10-27.md`。审核提出的七项问题均已有增量补丁：卡片 POST 身份保留（P0-01）、正常动作结果展示（P1-01）、只读准备恢复时重新校验（P1-02）、异步草稿恢复不覆盖后续本地修改（P1-03）、执行器坐标宽高一致（P1-04）、拾取外右键不拦截（P2-01）、卡片正式发布与服务器草稿同步分离（P2-02）。
+- P0 扩展到脚本库的单机与多机运行：同一 UUID 按目标手机保存请求身份，保存在当前浏览器标签会话的 sessionStorage，内容**只有** ownerId/deviceId/stepId/requestId/createdAt；没有脚本正文、敏感输入、令牌或密码。旧请求未确认时阻止新请求；只读查找执行历史且匹配 UUID+设备后才解除保护。旧回执未被近期 100 条历史包含时仍保持禁止自动重新执行的状态。
+- Rust `runs.rs` 只读 run JSON 新增 `request_id`，支持无 POST 的断线恢复；保留数据库事务锁与 idempotency hash，不改执行器排他逻辑。
+- 新增 `automation-trial-receipt-regression.test.mjs` 与 `automation-run-result-regression.test.mjs`，纳入现有 `test:unit`。生产环境的跨手机高风险操作仍须独立确认。
+- 已有 GitHub Actions `40498979066` 在 `5b39f1dc` 版本成功构建 executor，但**晚于该提交的其他代码**和新增测试不由此结果覆盖。**当前最新整合提交的 CI 结果待核实。**
+- **未运行**本地单元测试、TypeScript检查、lint、手动 GitHub workflow、FnOS/Android 真机验收（当前调试模式）。不可把“已提交代码”记为已关闭问题或通过 12 项 AC。
