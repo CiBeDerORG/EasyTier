@@ -7,7 +7,7 @@
  * Never infer that a restored draft "belongs" to whichever phone is open.
  */
 import type { AutomationDevice, AutomationHierarchy, AutomationStep } from '../types/automation';
-import { locateReadOnlyStep } from './automation-locator-demo';
+import { locateReadOnlyStep } from './automation-locator-demo.ts';
 
 export type CompatibilitySeverity = 'block' | 'confirm' | 'info';
 export interface CompatibilityIssue {
