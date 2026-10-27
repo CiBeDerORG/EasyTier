@@ -295,6 +295,17 @@ export interface AssetDevice extends AssetScope, AssetDeviceInput {
     warnings: AssetWarning[];
 }
 
+/** Read-only, server-authorized onboarding context. Never represents a live Agent probe. */
+export interface ServerAgentEntry extends AssetScope {
+    asset_device_id: string;
+    device_name: string;
+    overlay_ip: string | null;
+    lan_ip: string | null;
+    agent_status: 'not_checked';
+    pairing_available: false;
+    source: 'existing_asset_device';
+}
+
 /** UI save events distinguish gateway catalog updates from device-list updates. */
 export type AssetSavedResource =
     | { resource_kind: 'gateway'; record: GatewayGroup }
