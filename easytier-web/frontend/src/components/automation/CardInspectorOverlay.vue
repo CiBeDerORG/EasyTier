@@ -42,8 +42,10 @@ const b=computed(()=>marker(props.dragGuide?.end));
         <button v-if="dragMode" type="button" class="drag-pick-surface"
             title="在原手机画面选择拖拽起点或终点（只读）"
             aria-label="原画面拖拽点位拾取，点击 A 起点再点击 B 终点"
-            @pointerdown.stop.prevent @pointermove.stop @pointerup.stop
-            @contextmenu.stop.prevent @click.stop="emit('pick',$event)" />
+            @pointerdown.stop.prevent @pointermove.stop
+            @pointerup.stop.prevent="emit('pick',$event)"
+            @contextmenu.stop.prevent
+            @click.stop.prevent="event => { if (event.detail === 0) emit('pick',event); }" />
     </div>
 </template>
 

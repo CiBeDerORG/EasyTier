@@ -311,6 +311,7 @@ async function refresh() {
     }
 }
 function startDragPick() {
+    if (props.replaceStep) return;
     if (!snapshot.value || !compatibleVideo.value || snapshot.value.width !== props.screenWidth ||
         snapshot.value.height !== props.screenHeight) {
         feedback.value='原手机画面与控件树尺寸不一致，请刷新后再进行只读拖拽拾取。';
@@ -324,7 +325,7 @@ function cancelDragPick() {
     feedback.value = '';
 }
 function saveDrag() {
-    if (committing.value || !dragReady.value || !snapshot.value || !dragStart.value || !dragEnd.value ||
+    if (props.replaceStep || committing.value || !dragReady.value || !snapshot.value || !dragStart.value || !dragEnd.value ||
         !compatibleVideo.value || snapshot.value.width!==props.screenWidth ||
         snapshot.value.height!==props.screenHeight || props.queuedCount>=100) return;
     submitStep({
@@ -447,7 +448,10 @@ watch([() => props.screenWidth, () => props.screenHeight], () => {
     dragPickMode.value=false;dragStart.value=null;dragEnd.value=null;
     selectedId.value=null;selectedCandidate.value=null;
     response.value=null; ++requestGeneration; loading.value=false;
-    if (props.visible) { feedback.value='画面分辨率发生变化，请刷新当前控件树后重新拾取。'; }
+    if (props.visible) {
+        feedback.value='原画面分辨率已变化，旧树快照作废，正在重新读取控件树。';
+        if(props.screenWidth>0 && props.screenHeight>0)void refresh();
+    }
 });
 watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
     selectedCandidate.value = null;
@@ -480,7 +484,7 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                     <div class="drag-pick-controls">
                         <Button :label="dragPickMode ? '重新选择 A / B' : '原画面拖拽拾取'"
                             icon="pi pi-arrows-h" outlined size="small"
-                            :disabled="!snapshot || !compatibleVideo || queuedCount>=100"
+                            :disabled="!!replaceStep || !snapshot || !compatibleVideo || queuedCount>=100"
                             @click="startDragPick" />
                         <Button v-if="dragPickMode" label="添加拖拽步骤" size="small"
                             :disabled="!dragReady || queuedCount>=100" @click="saveDrag" />
