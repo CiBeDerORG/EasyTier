@@ -4,7 +4,7 @@
  */
 import type { AutomationHierarchy, AutomationHierarchyNode } from '../types/automation';
 import type { PickerVideoPoint } from './automation-picker-state';
-import { rankLocatorCandidates, type LocatorCandidate } from './automation-locator-candidates';
+import { rankLocatorCandidates, type LocatorCandidate } from './automation-locator-candidates.ts';
 
 export type PickResultStatus = 'matched' | 'outside' | 'stale' | 'invalid'
     | 'truncated' | 'not_found';
