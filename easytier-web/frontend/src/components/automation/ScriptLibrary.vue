@@ -845,6 +845,8 @@ async function submitRun() {
     if (!payload) return;
     runSubmitting.value = true; runError.value = '';
     let dispatched = false;
+    const reservedReceipts:TrialSubmissionReceipt[]=[];
+    const newlyReserved:TrialSubmissionReceipt[]=[];
     try {
         // The browser preview is not allowed to execute a script. Close and
         // verify its cleanup BEFORE the normal exclusive run admission.
@@ -869,9 +871,25 @@ async function submitRun() {
         }
         previewId.value=null; previewStream.value=null;
         runError.value='';
+        // The same POST UUID is reserved for EACH selected device before
+        // the first network request. Do not persist the script or parameters.
+        for(const id of payload.device_ids){
+            const previous=readTrialReceipt(window.sessionStorage,owner,id);
+            const proof:TrialSubmissionReceipt=previous??{
+                ownerId:owner,deviceId:id,stepId:runSteps.value[0]?.id??'',
+                requestId:payload.request_id,createdAt:new Date().toISOString(),
+            };
+            reserveTrialReceipt(window.sessionStorage,proof);
+            reservedReceipts.push(proof);
+            if(!previous)newlyReserved.push(proof);
+        }
         dispatched = true;
         const run = await api.createRun(owner, payload);
         if (disposed || scope !== scopeRevision) return;
+        if(!run.id || !payload.device_ids.every(id=>run.devices.some(d=>d.device_id===id)))
+            throw new Error('服务器运行回执没有全部目标设备，不能证明此次请求未发生。');
+        for(const proof of reservedReceipts)clearTrialReceipt(window.sessionStorage,proof);
+        blockedRunReceipts.value=[];
         runVisible.value = false; pendingRun.value = undefined; uncertainRun.value = false;
         runParameters.value = Object.create(null);
         notice.value = text('任务已登记，请在执行记录查看逐台结果。', 'Run registered. See individual results in execution history.');
@@ -879,9 +897,18 @@ async function submitRun() {
     } catch (cause) {
         if (disposed || scope !== scopeRevision) return;
         runError.value = automationErrorMessage(cause);
-        uncertainRun.value = dispatched && (!(cause instanceof AutomationApiError) || cause.status >= 500);
-        if (!uncertainRun.value) pendingRun.value = undefined;
-        else runError.value += text(' 接收结果未确认；再次提交会使用相同请求编号，不另建任务。', ' Acceptance is unconfirmed. Retrying uses the same request ID.');
+        // A 401/403/409 may follow an earlier accepted request. Keep its UUID
+        // unless the server proves a deterministic input validation failure.
+        const definitive=dispatched && cause instanceof AutomationApiError &&
+            [400,422].includes(cause.status);
+        if(!dispatched || definitive){
+            for(const proof of definitive?reservedReceipts:newlyReserved)
+                try{clearTrialReceipt(window.sessionStorage,proof);}catch{/* preserve on failure */}
+        }
+        uncertainRun.value=dispatched && !definitive;
+        if(!uncertainRun.value)pendingRun.value=undefined;
+        else runError.value+=text(' 原请求身份已保留；请先核对执行历史，不得用新的请求编号重放动作。',
+            ' Original request ID retained; inspect history before creating any new request.');
     } finally {
         if (!disposed && scope === scopeRevision) runSubmitting.value = false;
     }
