@@ -168,3 +168,9 @@
 - 针对 T15 回修横幅的 `outcome_unknown`，新增关闭提醒前的人为核对门禁；普通时间线试跑入口在回修上下文存在时不能绕过“再次验证”确认。该前端提醒并不代替 Rust 服务端独占/清理门禁。
 - GitHub Actions `40491745190` 对应代码提交 `27aba9be`：查询到 **Build Web and config generator = success**、**Prepare native programs (amd64) = success**。当时 Package 和 Native regressions 仍在执行，不能据此断言完整 CI 或 FnOS/Android 实测成功。
 - 新的提醒保护提交 `f862eba` 晚于上述 CI，尚未得到该提交对应的构建验证；**未执行**本地单元测试、vue-tsc、构建、lint、真机验证（当前调试模式）。
+
+## 2026-10-27 · T16 跨手机复用与页面/账号切换保护
+- 新增 `automation-device-compatibility.ts`；修改 `CardTrialPanel.vue`（卡片试跑、提交前只读双重核验），`ScriptLibrary.vue`（单机/批量逐设备只读校验和风险确认），`AutomationCenter.vue`（当前拾取设备显示、浏览器和 Vue Router 离开保护）。
+- 坐标步骤严格比较参考宽高与目标设备的只读控件快照，尺寸/方向不一致 **阻断执行**、不做自动缩放。选择器/XPath/滚动容器的跨手机正确性只能提示人工确认，不能将只读匹配冒充真实执行结果。纯 native ADB 步骤无需读取 UiAutomator2。
+- 已确认保存的草稿不会因为关掉 WebRTC、切内部 Tab/打开其他授权手机而清空；未同步的修改在本页保留，浏览器刷新/离开 SPA 页面必须明确确认。草稿由 T11 通过服务端 CAS 管理，网络未知使用相同 request_id。
+- **未执行**本地单测、TypeScript 编译、lint、手动构建、FnOS/Android/多浏览器实测（调试模式），自动 CI 结果仍需按对应 commit 核对，不能宣称 AC-11/AC-12 已验证。
