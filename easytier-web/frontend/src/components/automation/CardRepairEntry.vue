@@ -29,6 +29,7 @@ watch(()=>[props.repair.runId,props.repair.stepId,props.repair.deviceId] as cons
 });
 const changed=computed(()=>JSON.stringify(props.step)!==props.repair.sourceStepFingerprint);
 const copyHint=computed(()=>{
+    if(props.repair.sourceKind==='current') return '已定位当前工作草稿里对应的原步骤，保留其他步骤与未发布的修改，不覆盖历史记录。';
     if(props.repair.sourceKind==='saved') return '已确认正式脚本修订与历史快照一致；本次修复将在共享工作草稿中修改，旧运行记录不变。';
     if(props.repair.sourceReason==='updated') return '原正式脚本已有新修订，已从旧快照建立独立草稿，不会覆盖新版脚本。';
     if(props.repair.sourceReason==='deleted') return '原正式脚本已删除，已从历史快照建立独立草稿。';
