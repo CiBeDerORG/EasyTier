@@ -1,0 +1,161 @@
+//! TLS 1.3 verifier pinned to the SPKI SHA-256 shown by the host's
+//! `easyhostagent -identity`. Pin validation happens IN THE TLS HANDSHAKE,
+//! including on every connection/reconnection before sending a bearer token.
+use std::{fmt, sync::Arc, time::Duration};
+use rustls::{
+    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    pki_types::{CertificateDer, ServerName, UnixTime},
+    DigitallySignedStruct, Error as TlsError, SignatureScheme,
+};
+use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
+
+#[derive(Clone)]
+pub(crate) struct Fingerprint([u8; 32]);
+impl Fingerprint {
+    pub(crate) fn parse(raw: &str) -> Result<Self, &'static str> {
+        let raw = raw.trim();
+        if raw.len() != 64 || !raw.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("TLS SPKI SHA-256 must have exactly 64 hexadecimal digits");
+        }
+        let mut pin = [0u8; 32];
+        for (i, pair) in raw.as_bytes().chunks_exact(2).enumerate() {
+            let s = std::str::from_utf8(pair).map_err(|_| "invalid fingerprint")?;
+            pin[i] = u8::from_str_radix(s, 16).map_err(|_| "invalid fingerprint")?;
+        }
+        Ok(Self(pin))
+    }
+    pub(crate) fn hex(&self) -> String {
+        self.0.iter().map(|b| format!("{b:02x}")).collect()
+    }
+}
+
+#[derive(Debug)]
+struct PinVerifier([u8; 32]);
+
+// Minimal, strict DER TLV reader: only walks the outer X.509 certificate
+// sequence and tbsCertificate fields to obtain the *complete* encoded SPKI.
+// No untrusted lengths are used for allocation.
+fn tlv(bytes: &[u8], at: usize) -> Option<(u8, usize, usize)> {
+    let tag = *bytes.get(at)?;
+    let first = *bytes.get(at.checked_add(1)?)?;
+    let (length, start) = if first & 0x80 == 0 {
+        (usize::from(first), at.checked_add(2)?)
+    } else {
+        let count = usize::from(first & 0x7f);
+        if count == 0 || count > 4 { return None; }
+        let len_start = at.checked_add(2)?;
+        let slice = bytes.get(len_start..len_start.checked_add(count)?)?;
+        if slice[0] == 0 { return None; }
+        let mut size = 0usize;
+        for b in slice { size = size.checked_mul(256)?.checked_add(usize::from(*b))?; }
+        if size < 128 { return None; }
+        (size, len_start.checked_add(count)?)
+    };
+    let end = start.checked_add(length)?;
+    bytes.get(start..end)?;
+    Some((tag, start, end))
+}
+fn spki_der(cert: &[u8]) -> Option<&[u8]> {
+    let (tag, begin, end) = tlv(cert, 0)?;
+    if tag != 0x30 || end != cert.len() { return None; }
+    let (tag, tbs_start, tbs_end) = tlv(cert, begin)?;
+    if tag != 0x30 { return None; }
+    let tbs = cert.get(tbs_start..tbs_end)?;
+    let mut at = 0;
+    if tlv(tbs, at)?.0 == 0xa0 { at = tlv(tbs, at)?.2; }
+    // serialNumber, signature algorithm, issuer, validity, subject.
+    for tag in [0x02, 0x30, 0x30, 0x30, 0x30] {
+        let (found, _, end) = tlv(tbs, at)?;
+        if found != tag { return None; }
+        at = end;
+    }
+    let (tag, _, spki_end) = tlv(tbs, at)?;
+    if tag != 0x30 { return None; }
+    // Reject empty SPKI or missing algorithm/key fields.
+    let (_, inner, _) = tlv(tbs, at)?;
+    if inner == spki_end { return None; }
+    let (algorithm, _, algorithm_end) = tlv(tbs, inner)?;
+    if algorithm != 0x30 { return None; }
+    let (key_tag, _, key_end) = tlv(tbs, algorithm_end)?;
+    if key_tag != 0x03 || key_end != spki_end { return None; }
+    tbs.get(at..spki_end)
+}
+
+impl ServerCertVerifier for PinVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, TlsError> {
+        // EasyHostAgent emits exactly one self-signed leaf; certificates cannot
+        // be substituted using a public CA, a redirect, or a malicious gateway.
+        if !intermediates.is_empty() {
+            return Err(TlsError::General("unexpected Agent certificate chain".into()));
+        }
+        let spki = spki_der(end_entity.as_ref())
+            .ok_or_else(|| TlsError::General("invalid Agent certificate SPKI".into()))?;
+        let actual = Sha256::digest(spki);
+        if self.0.ct_eq(actual.as_slice()).unwrap_u8() != 1 {
+            return Err(TlsError::General("Agent TLS SPKI fingerprint mismatch".into()));
+        }
+        Ok(ServerCertVerified::assertion())
+    }
+    fn verify_tls12_signature(
+        &self, _: &[u8], _: &CertificateDer<'_>, _: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        Err(TlsError::General("TLS 1.2 is disabled".into()))
+    }
+    fn verify_tls13_signature(
+        &self, message: &[u8], cert: &CertificateDer<'_>, sig: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        rustls::crypto::verify_tls13_signature(
+            message, cert, sig,
+            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+        )
+    }
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms.supported_schemes()
+    }
+}
+pub(crate) fn pinned_client(pin: &Fingerprint) -> Result<reqwest::Client, String> {
+    let crypto = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(crypto)
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(|_| "cannot configure TLS 1.3")?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(PinVerifier(pin.0)))
+        .with_no_client_auth();
+    reqwest::Client::builder()
+        .tls_backend_preconfigured(config)
+        .no_proxy()
+        .https_only(true)
+        .http1_only()
+        .timeout(Duration::from_secs(8))
+        .connect_timeout(Duration::from_secs(4))
+        .redirect(reqwest::redirect::Policy::none())
+        .pool_max_idle_per_host(0)
+        .retry(reqwest::retry::never())
+        .build()
+        .map_err(|_| "cannot initialize pinned TLS client".into())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn pin_validation() {
+        assert!(Fingerprint::parse(&"a".repeat(64)).is_ok());
+        assert!(Fingerprint::parse(&"A".repeat(64)).is_ok());
+        for invalid in ["", "test", "a", "0x123", "g".repeat(64).as_str()] {
+            assert!(Fingerprint::parse(invalid).is_err());
+        }
+    }
+    #[test] fn malformed_x509_rejected() {
+        for bad in [vec![], vec![0x30,0x80], vec![0x30,0x02,0xff,0xff], vec![0x30,0x00]] {
+            assert!(spki_der(&bad).is_none());
+        }
+    }
+}
