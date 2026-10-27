@@ -199,3 +199,62 @@ impl AutomationStore {
         Ok(result)
     }
 }
+
+
+#[cfg(test)]
+mod t17_draft_regressions {
+    use super::*;
+    use sqlx::Connection;
+
+    #[test]
+    fn canonical_uuid_and_positive_revision_are_required() {
+        let id=Uuid::new_v4().to_string();
+        assert_eq!(request_id(&json!({"request_id":id})).unwrap(),id);
+        assert!(request_id(&json!({"request_id":"reused-id"})).is_err());
+        assert!(request_id(&json!({"request_id":id.to_uppercase()})).is_err());
+        assert_eq!(revision(&json!({"revision":3})).unwrap(),3);
+        for value in [json!(0),json!(-1),json!("3"),Value::Null] {
+            assert!(revision(&json!({"revision":value})).is_err());
+        }
+    }
+
+    #[test]
+    fn working_draft_never_accepts_inline_secrets_and_may_be_empty() {
+        assert_eq!(safe_steps(&json!({"steps":[]})).unwrap(),json!([]));
+        let plain=json!({"steps":[{
+            "id":Uuid::new_v4().to_string(),"type":"input_text",
+            "selector":{"resource_id":"demo:id/login"},"text":"do-not-persist"
+        }]});
+        assert!(safe_steps(&plain).is_err());
+        assert!(safe_steps(&json!({})).is_err());
+    }
+
+    #[test]
+    fn idempotent_receipt_digest_binds_operation_document_and_immutable_body() {
+        let body=json!({"steps":[],"name":"draft","revision":2});
+        let original=request_hash("save",Some("draft-a"),&body);
+        assert_eq!(original,request_hash("save",Some("draft-a"),&body));
+        assert_ne!(original,request_hash("delete",Some("draft-a"),&body));
+        assert_ne!(original,request_hash("save",Some("draft-b"),&body));
+        assert_ne!(original,request_hash("save",Some("draft-a"),
+            &json!({"steps":[],"name":"modified","revision":2})));
+    }
+
+    #[tokio::test]
+    async fn replay_is_scoped_to_owner_actor_uuid_and_identical_payload() {
+        let mut conn=SqliteConnection::connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE automation_draft_mutations (owner_user_id INTEGER,actor_user_id INTEGER,request_id TEXT,request_hash TEXT,response_json TEXT)")
+            .execute(&mut conn).await.unwrap();
+        let hash=request_hash("save",Some("draft-a"),&json!({"revision":1}));
+        let request=Uuid::new_v4().to_string();
+        let receipt=json!({"id":"draft-a","revision":2,"deleted":false,"request_replayed":true});
+        sqlx::query("INSERT INTO automation_draft_mutations (owner_user_id,actor_user_id,request_id,request_hash,response_json) VALUES (?,?,?,?,?)")
+            .bind(11i32).bind(12i32).bind(&request).bind(&hash).bind(receipt.to_string())
+            .execute(&mut conn).await.unwrap();
+        assert_eq!(replay(&mut conn,11,12,&request,&hash).await.unwrap(),Some(receipt));
+        assert!(replay(&mut conn,11,12,&request,"changed-body").await.is_err());
+        assert!(replay(&mut conn,11,13,&request,&hash).await.unwrap().is_none());
+        assert!(replay(&mut conn,13,12,&request,&hash).await.unwrap().is_none());
+        assert!(replay(&mut conn,11,12,&Uuid::new_v4().to_string(),&hash).await.unwrap().is_none());
+    }
+}
