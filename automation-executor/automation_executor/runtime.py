@@ -25,6 +25,9 @@ class Session:
     last_seq: int = 0
     cancel: asyncio.Event = field(default_factory=asyncio.Event)
     closing: bool = False
+    # Read-only mode is monotonic for the lifetime of this viewer. A separate
+    # server-authorized resume protocol is required before enabling writes.
+    view_only: bool = False
 
 
 class Runtime:
@@ -410,10 +413,50 @@ class Runtime:
         current = self.session(sid)
         async with current.lock:
             self.session(sid)
+            if current.view_only:
+                raise ExecutorError("viewer_only", "当前会话已移交为只读观看，禁止解锁手机", 409)
             # Same ownership/ADB endpoint arbitration as other manual commands.
             self.journal.claim(current.target, "session:" + sid, "manual")
             result = await self.media.unlock(sid, secret)
             return {**result, "executor_id": self.journal.executor_id}
+
+    async def view_only(self, sid, body):
+        """Downgrade a single known media session without closing its WebRTC.
+
+        The main service must fence new commands in its database *before*
+        calling this method. This request alone never admits a script run.
+        """
+        validation.object_fields(body, {"expected_executor_id"}, {"expected_executor_id"})
+        self.require_identity(body["expected_executor_id"])
+        current = self.session(sid)
+        # Signal a possibly running text worker before waiting on the
+        # session's command lock; never overlap a new device action.
+        current.cancel.set()
+        async with current.lock:
+            self.session(sid)
+            if current.view_only:
+                return {"id": sid, "executor_id": self.journal.executor_id, "state": "view_only"}
+            # Fence all further commands, even when cleanup fails/gets an
+            # unknown response. Retry does not grant a new write privilege.
+            current.view_only = True
+            holder = "session:" + sid
+            control = self.journal.control(current.target)
+            if control and (control["holder"] != holder or control["kind"] != "manual"
+                            or control["state"] != "active"):
+                raise ExecutorError(
+                    "cleanup_pending" if control["state"] == "cleanup_pending" else "device_busy",
+                    "设备动作权当前由其它任务占用或仍待清理，拒绝迁移", 409)
+            if control:
+                # The last owned finger must be released before releasing the
+                # journal's write lease. Media/source itself remains alive.
+                await self.media.command(sid, {"type": "touch.release"})
+                record = self.journal.worker_record(holder)
+                cleaned = await asyncio.to_thread(cleanup_record, record) if record else True
+                self.journal.release(holder, clean=cleaned)
+                if not cleaned:
+                    raise ExecutorError("cleanup_pending", "手动文字输入工作进程清理未确认，禁止接管动作权", 409)
+            return {"id": sid, "executor_id": self.journal.executor_id,
+                    "device_id": current.target["device_id"], "state": "view_only"}
 
     async def renew(self, sid, body):
         validation.object_fields(body, {"target_fingerprint", "lease_seconds"}, {"target_fingerprint", "lease_seconds"})
@@ -448,6 +491,8 @@ class Runtime:
         request_digest = validation.digest(body)
         async with current.lock:
             self.session(sid)
+            if current.view_only:
+                raise ExecutorError("viewer_only", "当前投屏已降为只读，不能执行任何手动动作", 409)
             old = current.commands.get(command_id)
             if old:
                 if old[0] != request_digest:
