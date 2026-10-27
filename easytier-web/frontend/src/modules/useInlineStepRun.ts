@@ -65,4 +65,6 @@ export interface InlineStepRunProgress {
         'action_sent' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
     label: string;
     message?: string;
+    /** From the server's immutable step timestamps, not a guessed local timer. */
+    elapsedMs?: number;
 }
