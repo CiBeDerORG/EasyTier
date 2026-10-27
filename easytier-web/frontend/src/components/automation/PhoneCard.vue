@@ -105,10 +105,8 @@ async function openCardTrial(stepId: string, acknowledgedUnknown = false) {
     if (!props.runnerAvailable || props.recording || !!props.syncRole || !!props.unlocking ||
         !!props.editingStepId || !props.device.target_fingerprint ||
         !props.draft.steps.some(item => item.id === stepId)) return;
-    // The fullscreen element could cover a modal appended to body.
-    if (document.fullscreenElement === screen.value) {
-        try { await document.exitFullscreen(); } catch { return; }
-    }
+    // T40: the trial window is teleported into the original phone-screen.
+    // Never exit fullscreen or replace its WebRTC stream to start one step.
     trialStepId.value = stepId;
 }
 function getTrialPreviewHandle(): TrialPreviewHandle {
@@ -835,6 +833,7 @@ onBeforeUnmount(() => {
             @dismiss="emit('repair-dismiss',device.id)" />
         <CardTrialPanel :visible="trialStepId !== null" :owner-id="ownerId" :device="device"
             :step="trialStep" :preview-handle="getTrialPreviewHandle"
+            :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
             :runner-available="runnerAvailable"
             :blocked="!!recording || !!syncRole || !!unlocking || !!editingStepId"
             @close="trialStepId = null"
