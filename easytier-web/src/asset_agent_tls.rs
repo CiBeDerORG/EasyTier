@@ -244,6 +244,30 @@ mod tests {
         }
     }
     #[test]
+    fn pinned_x509_spki_and_certificate_dates_match_external_fixture() {
+        use base64::Engine as _;
+        // ECDSA P-256 X.509 generated independently using cryptography.
+        let encoded = "MIIBgDCCASWgAwIBAgIEALxhTjAKBggqhkjOPQQDAjA9MTswOQYDVQQDDDJFYXN5SG9zdEFnZW50IDExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMTAeFw0yNTAxMDEwMDAwMDBaFw0zMTAxMDEwMDAwMDBaMD0xOzA5BgNVBAMMMkVhc3lIb3N0QWdlbnQgMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+7vu1ZvVcQ7tEeDxLAKD8iggRr3qg16WJInpbFtef6gNLG96zWHXPIKukgdkgAt13APnR8vpLv98yKjDe5jQMqMTMBEwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNJADBGAiEA0zLUygpFHbNzsU3mbaHa3QDBVw9DBE1x5aaTd+loMQYCIQD+QTlu/EMej6Lidkl0SHhvfALdIvX23lsXTYK4r0tFlw==";
+        let cert = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .expect("fixture DER");
+        let spki = spki_der(&cert).expect("certificate SPKI must be parsable");
+        let actual = Sha256::digest(spki);
+        assert_eq!(
+            actual.as_slice(),
+            Fingerprint::parse("9344ddfa06099f5822cc347d660519bb0ab8dc371f19ae85f35281030c22999e")
+                .unwrap().0.as_slice()
+        );
+        let in_date = UnixTime::since_unix_epoch(Duration::from_secs(1_800_000_000));
+        let expired = UnixTime::since_unix_epoch(Duration::from_secs(2_100_000_000));
+        assert!(valid_at(&cert, in_date));
+        assert!(!valid_at(&cert, expired));
+        assert!(PinVerifier(Fingerprint::parse("9344ddfa06099f5822cc347d660519bb0ab8dc371f19ae85f35281030c22999e").unwrap().0)
+            .verify_server_cert(&CertificateDer::from(cert.clone()), &[], &ServerName::try_from("host").unwrap(), &[], in_date).is_ok());
+        assert!(PinVerifier([0u8;32])
+            .verify_server_cert(&CertificateDer::from(cert), &[], &ServerName::try_from("host").unwrap(), &[], in_date).is_err());
+    }
+    #[test]
     fn malformed_x509_rejected() {
         for bad in [
             vec![],
