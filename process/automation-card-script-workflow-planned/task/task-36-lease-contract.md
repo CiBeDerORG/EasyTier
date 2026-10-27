@@ -1,6 +1,6 @@
 # T36 · Viewer 与 Action Lease 状态机及接口合同
 
-> 状态：**待开发**｜计划：P12｜复杂度：M｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**状态：设计合同已提交；运行验收待完成**｜计划：P12｜复杂度：M｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一职责与依赖
 - Owner：**Rust/Executor 架构负责人**。
@@ -21,4 +21,9 @@
 技术前置合同，不能简单删 Journal.claim 或 active_session/run_occupied 硬阻断。
 
 ## 验证状态
-当前仅有计划文档；待开发、未测试、未构建。遵守仓库 AGENTS.md 调试模式，不主动运行本地检查或手动 CI。
+计划阶段描述已由下方实际交付记录补充；代码已提交、未测试、未构建。遵守仓库 AGENTS.md 调试模式，不主动运行本地检查或手动 CI。
+
+## 2026-10-28 · T36 交付说明
+- 已提交 [viewer/action lease 跨层协议合同](../require/require-10-t36-viewer-action-lease-contract.md)（提交 `553e188`），定义 `active → suspending → view_only → resuming → active`、单设备/ADB endpoint 唯一写 holder、同 sessionId 原视频、两阶段防竞态迁移及未知态 fail-closed。
+- 已在后续 T37～T39 按合同接线实际代码，但合同本身不是执行安全或真机验收证据。
+- **未执行**测试、TypeScript、Rust/Python 检查、构建、CI、浏览器或 FnOS/Android 真机验收（调试模式）。
