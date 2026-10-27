@@ -29,6 +29,7 @@ import {
 import type { AutomationRepairRequest } from '../modules/automation-run-repair';
 import { replaceAutomationStepTarget, stepCanPickTarget, type StepTarget } from '../modules/automation-step-target';
 import { updateCardDraftStep } from '../modules/automation-card-step-edit';
+import { locateReadOnlyStep, type LocatorDemoResult } from '../modules/automation-locator-demo';
 import type { AutomationStepType } from '../types/automation';
 import {
     beginCapturedGesture, observeCapturedGesture, finishCapturedGesture,
@@ -156,9 +157,30 @@ interface PickerEditScope {
 const inspectorEditScope = ref<PickerEditScope | null>(null);
 const cardStepEditor = ref<{ deviceId: string; stepId: string } | null>(null);
 const cardEditorDirty = ref(false);
+// No second draft or mutation: this is only ephemeral per-card presentation.
+interface CardDemoState {
+    token: number; stepId: string; loading: boolean;
+    result: LocatorDemoResult | null; error: string;
+}
+const locatorDemos = reactive<Record<string,CardDemoState>>({});
+const locatorDemoTimers = new Map<string,ReturnType<typeof setTimeout>>();
+let locatorDemoEpoch = 0;
+function clearCardDemo(deviceId:string) {
+    const timer=locatorDemoTimers.get(deviceId);
+    if(timer) clearTimeout(timer);
+    locatorDemoTimers.delete(deviceId);
+    delete locatorDemos[deviceId];
+    ++locatorDemoEpoch;
+}
+function clearAllCardDemos() {
+    for(const id of Object.keys(locatorDemos)) clearCardDemo(id);
+    for(const timer of locatorDemoTimers.values()) clearTimeout(timer);
+    locatorDemoTimers.clear();
+}
 watch(() => [draftWorkspace.ownerId, draftWorkspace.editingId, draftWorkspace.revision], () => {
     cardStepEditor.value = null;
     cardEditorDirty.value = false;
+    clearAllCardDemos();
 });
 const inspectorReplaceStep = computed(() => inspectorEditScope.value
     ? { id: inspectorEditScope.value.stepId, type: inspectorEditScope.value.stepType }
@@ -249,6 +271,7 @@ function toggleCardPicking(id: string) {
 }
 async function onCardPickAction(id: string, point: PickerVideoPoint, action: PickerMenuAction) {
     if (action === 'exit') { stopCardPicking(id); return; }
+    clearCardDemo(id);
     const current = pickerContexts[id], binding = pickerBinding(id);
     if (!current || !binding || !pickerCanApply(current, binding,
         current.generation, current.snapshotGeneration, current.intent)) {
@@ -776,6 +799,7 @@ async function closeSelected() {
     await loadDevices();
 }
 async function closeAll() {
+    clearAllCardDemos();
     stopAllPicking();
     closeInspector();
     globalOpen.value = false; syncPreparation.value = false;
@@ -785,6 +809,7 @@ async function closeAll() {
     scriptPreviewIds.clear();
 }
 function onState(id: string, phase: string) {
+    if (phase !== 'live') clearCardDemo(id);
     if (phase !== 'live') stopCardPicking(id);
     if (phase !== 'live' && inspectorDeviceId.value === id) closeInspector();
     phases.value[id] = phase;
@@ -837,6 +862,7 @@ async function releaseManual(ids: string[]) {
     return success;
 }
 function onGeometry(id: string) {
+    clearCardDemo(id);
     if (pickerContexts[id]?.phase === 'on') {
         pickerContexts[id] = invalidatePickerSnapshot(pickerContexts[id]);
         delete pickerPoints[id];
@@ -853,6 +879,7 @@ async function routeInput(id: string, message: AutomationControl) {
     const activeSync = sync.value;
     if (activeSync && id !== activeSync.masterId) return;
     const targets = activeSync ? activeSync.deviceIds.filter(target => !activeSync.blocked.includes(target)) : [id];
+    for(const target of targets) clearCardDemo(target);
     // While a motion is waiting for a swipe/drag decision, do not send
     // another pointer stream and accidentally record an out-of-order action.
     if (gestureConfirmation.value && message.type === 'touch') {
@@ -920,6 +947,7 @@ function confirmRecordedMotion(choice: 'swipe' | 'drag' | 'discard') {
 }
 async function sendAction(ids: string[], message: AutomationControl) {
     const targets = [...ids]; error.value = '';
+    for(const target of targets) clearCardDemo(target);
     const mine = workspaceGeneration;
     if (!requireTargets(targets)) return;
     if (targets.some(id => unlockingIds.value.includes(id))) { error.value = t('unlockBusy'); return; }
@@ -1171,6 +1199,7 @@ function selectCardStep(deviceId: string, stepId: string): boolean {
     if (draftWorkspace.ownerId !== ownerId.value ||
         !cardDevice || cardDevice.owner_user_id !== ownerId.value ||
         !draftWorkspace.steps.some(step => step.id === stepId)) return false;
+    if (locatorDemos[deviceId]?.stepId !== stepId) clearCardDemo(deviceId);
     draftWorkspace.selectedStepId = stepId;
     return true;
 }
@@ -1198,6 +1227,7 @@ function closeCardStepEditor(deviceId: string): boolean {
         !window.confirm('这一步还有未保存的参数修改，确定放弃修改吗？')) return false;
     cardStepEditor.value=null;
     cardEditorDirty.value=false;
+    clearCardDemo(deviceId);
     if (inspectorDeviceId.value === deviceId && inspectorEditScope.value?.origin === 'card') {
         closeInspector();
     }
@@ -1215,11 +1245,13 @@ function saveCardStep(deviceId:string,stepId:string,expected:AutomationStep,upda
         error.value='无法保存：该步骤已改变、存在编辑冲突或条件分支不合法，请重新打开步骤。';
         return;
     }
+    clearCardDemo(deviceId);
     cardEditorDirty.value=false;
     closeCardStepEditor(deviceId);
     notice.value='步骤参数已更新至当前脚本草稿；正式保存及试跑前仍需完成脚本检查。';
 }
 function repickCardStep(deviceId:string,stepId:string) {
+    clearCardDemo(deviceId);
     const item=draftWorkspace.steps.find(step=>step.id===stepId);
     const device=devices.value.find(d=>d.id===deviceId);
     if (!item || !stepCanPickTarget(item) || !device || device.owner_user_id!==ownerId.value ||
@@ -1233,6 +1265,58 @@ function repickCardStep(deviceId:string,stepId:string) {
     }
     notice.value='已进入第 '+(draftWorkspace.steps.findIndex(step=>step.id===stepId)+1)+
         ' 步的重新拾取模式：下一次在原手机画面右键选控件并确认，仅替换原定位，不新增步骤。';
+}
+/** UI-only preview: calls only the authenticated hierarchy GET endpoint. */
+async function demoCardStep(deviceId:string,stepId:string) {
+    const device=devices.value.find(item=>item.id===deviceId);
+    const card=cards.get(deviceId);
+    const step=draftWorkspace.steps.find(item=>item.id===stepId);
+    const owner=ownerId.value;
+    const video=card?.getState(), sessionId=card?.getSessionId();
+    if (tab.value!=='workbench' || !device || device.owner_user_id!==owner ||
+        !device.target_fingerprint || !device.connection.enabled ||
+        draftWorkspace.ownerId!==owner || !step || !video?.ready ||
+        !video.width || !video.height || !sessionId ||
+        cardStepEditor.value?.deviceId!==deviceId ||
+        cardStepEditor.value.stepId!==stepId || cardEditorDirty.value) {
+        error.value='只读定位演示不可用：请保持当前手机画面与步骤编辑，并先保存参数修改。';
+        return;
+    }
+    clearCardDemo(deviceId);
+    const token=++locatorDemoEpoch, binding=device.target_fingerprint;
+    const originalStep=JSON.stringify(step);
+    locatorDemos[deviceId]={token,stepId,loading:true,result:null,error:''};
+    const stillCurrent=()=>{
+        const state=locatorDemos[deviceId];
+        const live=cards.get(deviceId),current=live?.getState();
+        const active=devices.value.find(item=>item.id===deviceId);
+        return !disposed && state?.token===token && ownerId.value===owner &&
+            tab.value==='workbench' && draftWorkspace.ownerId===owner &&
+            cardStepEditor.value?.deviceId===deviceId &&
+            cardStepEditor.value?.stepId===stepId && !cardEditorDirty.value &&
+            active?.owner_user_id===owner && active.target_fingerprint===binding &&
+            live?.getSessionId()===sessionId && !!current?.ready &&
+            current.width===video.width && current.height===video.height &&
+            JSON.stringify(draftWorkspace.steps.find(item=>item.id===stepId))===originalStep;
+    };
+    try {
+        const hierarchy=await api.hierarchy(owner,deviceId);
+        if(!stillCurrent()) return;
+        const result=locateReadOnlyStep(hierarchy,step,{
+            deviceId,targetFingerprint:binding,
+            videoWidth:video.width,videoHeight:video.height,
+        });
+        locatorDemos[deviceId]={token,stepId,loading:false,result,error:''};
+        if(result.status==='one') {
+            locatorDemoTimers.set(deviceId,setTimeout(()=>{
+                if(locatorDemos[deviceId]?.token===token) clearCardDemo(deviceId);
+            },12000));
+        }
+    } catch(cause) {
+        if(!stillCurrent()) return;
+        locatorDemos[deviceId]={token,stepId,loading:false,result:null,
+            error:'读取控件树失败：'+automationErrorMessage(cause)};
+    }
 }
 function editInspectorDraft() {
     closeInspector();
@@ -1274,6 +1358,7 @@ async function changeTab(next: typeof tab.value) {
             if (!await releaseManual(live)) return;
         }
         tab.value = next;
+        clearAllCardDemos();
         cardStepEditor.value = null;
         cardEditorDirty.value = false;
         stopAllPicking();
@@ -1294,12 +1379,14 @@ async function onRepairStep(request: AutomationRepairRequest) {
     if (tab.value !== 'scripts') repairRequest.value = null;
 }
 function onRunCreated(run: AutomationRun) {
+    clearAllCardDemos();
     stopAllPicking();
     closeInspector();
     for (const card of cards.values()) card.cancelRestoreIntent();
     focusRunId.value = run.id; ++historyKey.value; tab.value = 'history';
 }
 function savedConnection(device: AutomationDevice) {
+    clearCardDemo(device.id);
     stopCardPicking(device.id);
     if (inspectorDeviceId.value === device.id) closeInspector();
     adbActionVersions.set(device.id, (adbActionVersions.get(device.id) ?? 0) + 1);
@@ -1338,6 +1425,7 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => { stopEvents?.();
     disposed = true; ++workspaceGeneration; ++loadGeneration; ++catalogGeneration; ++statusQueryGeneration;
+    clearAllCardDemos();
     stopAllPicking();
     document.removeEventListener('visibilitychange', visibilityChanged);
     document.removeEventListener('fullscreenchange', fullScreenChanged);
@@ -1388,9 +1476,12 @@ onBeforeUnmount(() => { stopEvents?.();
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
                 <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" :draft="draftWorkspace" :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
                         :repicking-step-id="repickingStepIds[device.id]"
+                        :demo-result="locatorDemos[device.id]?.stepId === cardStepEditor?.stepId ? locatorDemos[device.id]?.result : null"
+                        :demo-loading="locatorDemos[device.id]?.loading ?? false" :demo-error="locatorDemos[device.id]?.error"
                         @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
                         @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @step-select="selectCardStep" @step-edit="editCardStep" @step-close="closeCardStepEditor"
-                        @step-save="saveCardStep" @step-repick="repickCardStep" @step-dirty="markCardStepDirty" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
+                        @step-save="saveCardStep" @step-repick="repickCardStep" @step-dirty="markCardStepDirty"
+                        @step-demo="demoCardStep" @demo-clear="clearCardDemo" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
                 <button v-if="globalOpen && !fullscreenActive" class="global-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="globalOpen = false" />
                 <div v-if="devices.length && !fullscreenActive" class="global-controls" @pointerdown.stop @click.stop @keydown.esc="globalOpen = false">

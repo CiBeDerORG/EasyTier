@@ -2,8 +2,18 @@
 
 - 里程碑：M2；负责人（唯一写入）：Inspector Agent；相对工作量：M
 - 依赖：T04 T07；映射验收：AC-08
-- 当前状态：**待开发**；未执行测试/构建。
+- 当前状态：**代码已提交，待联调**；未执行本地测试、构建或真机验收。
 - 写入范围：新增 CardLocatorDemo.vue；新增 automation-locator-demo.ts
+
+## 2026-10-27 实际交付
+
+- `automation-locator-demo.ts`：新增只读纯函数定位引擎，严格按非空 Resource ID / text / description / class / package 等组合条件进行精确匹配。0 / 1 / N 个匹配分别给出失败、唯一高亮、歧义状态。控件树截断、重复ID、错误设备指纹、时间过期、视频与截图比例不符均拒绝高亮；密码控件不使用 text/description 匹配。
+- 坐标操作、导航动作等不包含控件选择器时明确显示“该操作不属于控件匹配”。XPath 后端使用原始 UIAutomator XML 执行 XPath 1.0，而现有只读快照 API 无原始 XML，所以这里**明确标为暂不支持**，不会伪造匹配结果。
+- `CardLocatorDemo.vue`：原视频上层加入 `pointer-events:none` 的 SVG 矩形高亮。按手机视频实际宽高设置 `viewBox`，与视频 `object-fit:contain` 保持一致，支持全屏、黑边与横竖屏匹配；只在单控件匹配时展示。
+- `CardStepEditor.vue`：卡片原位编辑区添加「定位演示（只读）」按钮，展示加载、0/1/N 及不支持/失效的反馈，另提供清除高亮；存在未保存参数、重新拾取中或投屏未就绪时禁止演示。
+- `PhoneCard.vue`、`AutomationCenter.vue`：由中心统一发起授权只读 `api.hierarchy` 请求，关联 owner ID / device ID / step ID / step JSON / 实时会话 ID / 设备指纹 / 视频尺寸，异步完成前后验证；失效时丢弃迟到结果，避免将其他屏幕命中结果覆盖当前画面。
+- 生命周期：手动触控、手动动作、窗口切换、选中其他步骤、步骤参数保存、重新拾取、ADB/视频断线、屏幕旋转或改绑设备时，立即清除当前高亮；成功结果 12 秒后自动过期。
+- 注意：**只是定位快照演示**。不能证明 UIA 执行时目标未变化，也不发送 Android tap/input/swipe；正式试跑属于 M4。
 
 ## 交付范围
 读取新鲜hierarchy，以 selector 在快照中匹配；0/1/N分情况提示；依据视频坐标投射矩形；禁止执行动作。

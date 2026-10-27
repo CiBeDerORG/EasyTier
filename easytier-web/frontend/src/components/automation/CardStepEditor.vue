@@ -3,12 +3,19 @@ import { computed, ref, watch } from 'vue';
 import { Button, Message } from 'primevue';
 import type { AutomationStep } from '../../types/automation';
 import { stepCanPickTarget } from '../../modules/automation-step-target';
+import type { LocatorDemoResult } from '../../modules/automation-locator-demo';
 import ScriptStepEditor from './ScriptStepEditor.vue';
 
-const props = defineProps<{ step: AutomationStep; stepNumber: number; repicking?: boolean }>();
+const props = defineProps<{
+    step: AutomationStep; stepNumber: number; repicking?: boolean;
+    demoLoading?: boolean; demoResult?: LocatorDemoResult | null; demoError?: string;
+    demoAvailable?: boolean;
+}>();
 const emit = defineEmits<{
     save: [stepId: string, previous: AutomationStep, next: AutomationStep];
     repick: [stepId: string];
+    demo: [stepId: string];
+    'clear-demo': [];
     close: [];
     'dirty-change': [dirty: boolean];
 }>();
@@ -61,8 +68,18 @@ function repick() {
         <div class="edit-fields">
             <ScriptStepEditor :model-value="edited" lock-action-type @update:model-value="updateDraft"/>
         </div>
+        <Message v-if="demoError" severity="warn" :closable="false">{{ demoError }}</Message>
+        <Message v-if="demoResult" :severity="demoResult.status === 'one' ? 'success' : demoResult.status === 'none' || demoResult.status === 'many' ? 'warn' : 'info'" :closable="false">
+            <strong>只读定位结果 · {{ demoResult.count }} 个匹配</strong>
+            <span class="demo-message">{{ demoResult.message }}</span>
+        </Message>
         <div class="actions">
             <Button label="取消" text size="small" @click="emit('close')"/>
+            <Button label="定位演示（只读）" icon="pi pi-eye" outlined size="small"
+                :loading="demoLoading" :disabled="!demoAvailable || dirty || conflict || repicking || demoLoading"
+                @click="emit('demo', step.id)"/>
+            <Button v-if="demoResult || demoError" label="清除高亮" icon="pi pi-times" text size="small"
+                @click="emit('clear-demo')"/>
             <Button v-if="stepCanPickTarget(step)" :label="repicking?'等待右键拾取…':'重新拾取控件'"
                 icon="pi pi-search" outlined size="small" :disabled="dirty || conflict || repicking" @click="repick"/>
             <Button label="保存到草稿" icon="pi pi-check" size="small" :disabled="!dirty || conflict" @click="save"/>
@@ -86,4 +103,5 @@ header small,.tip{color:var(--console-muted);font-size:11px;line-height:1.5}
 .actions{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap}
 .actions :deep(.p-button){font-size:11px;padding:7px}
 .tip{margin:0}
+.demo-message{display:block;margin-top:4px;font-size:11px;line-height:1.5}
 </style>

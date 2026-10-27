@@ -76,3 +76,12 @@
 - 安全：读取右键后的新控件树；替换前校验当前设备会话、target fingerprint、draft revision、拾取/快照世代、打开窗口时的步骤 JSON 未被异步修改；老 Inspector 脚本库路径保持独立；失败/取消不写草稿。
 - 仍待联调的场景：手机横竖屏、旧 UIA 快照、正在编辑时投屏掉线、全屏右键退出顶层、不同浏览器同时编辑；T09 的只读定位演示未开发，T10/T11 服务端草稿持久化未开发。
 - **未执行**：本地单元测试、TypeScript 类型检查、lint、构建与 FnOS/Android 真机操作（遵循当前调试模式）。仅按分支 push 触发既有自动 CI，最终状态另行确认。
+
+## 2026-10-27 · T09 卡片只读定位演示与单控件高亮
+
+- 新增 `automation-locator-demo.ts`：针对新鲜UiAutomator快照计算 Resource ID / text / description / class / package 的组合条件精确匹配数，安全分辨 0/1/N；对过期/截断/机型方向/设备绑定错误返回不可预览，不假装唯一匹配；XPath 因无执行器原 XML 不提供伪造的前端 XPath 结果。
+- 新增 `CardLocatorDemo.vue`：原手机画面内只读 SVG 轮廓，按视频实际尺寸 + preserveAspectRatio meet 计算，避开 object-fit contain 黑边；完全 pointer-events:none，Android 不收到演示的任何触摸事件。
+- `CardStepEditor.vue` 增加「定位演示（只读）」与结果反馈/清除，`PhoneCard.vue` 呈现覆盖层并转发点击；`AutomationCenter.vue` 仅调用已有授权 GET hierarchy，确认账号、设备指纹、视频会话、分辨率、stepID 与步骤指纹仍未变化才展示。
+- 高亮清理：手工操作、切换步骤、保存、重拾、视频失效、旋转、换设备、页切换、运行创建时清除，12秒自动失效；迟到响应不重新显示。
+- **未执行**：本地单测、TypeScript检查、lint、构建或 FnOS/Android 真机验证（遵循当前调试模式）；push 后原有自动 CI 状态应单独核验，未宣称验收成功。
+- 后续：T10 服务端草稿持久化、T11 前端同步；M4 正式单步骤执行与失败回修。

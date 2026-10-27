@@ -13,6 +13,8 @@ import CardPickingOverlay from './CardPickingOverlay.vue';
 import CardContextMenu from './CardContextMenu.vue';
 import CardStepTimeline from './CardStepTimeline.vue';
 import CardStepEditor from './CardStepEditor.vue';
+import CardLocatorDemo from './CardLocatorDemo.vue';
+import type { LocatorDemoResult } from '../../modules/automation-locator-demo';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
 import type { PickerMenuAction, PickerPhase, PickerVideoPoint } from '../../modules/automation-picker-state';
 
@@ -26,6 +28,8 @@ const props = defineProps<{
     draft: AutomationDraftWorkspace;
     editingStepId?: string;
     repickingStepId?: string;
+    demoResult?: LocatorDemoResult | null;
+    demoLoading?: boolean; demoError?: string;
 }>();
 const emit = defineEmits<{
     selection: [id: string, selected: boolean]; configure: [device: AutomationDevice];
@@ -35,6 +39,7 @@ const emit = defineEmits<{
     'step-select': [deviceId: string, stepId: string]; 'step-edit': [deviceId: string, stepId: string];
     'step-close': [deviceId: string]; 'step-save': [deviceId: string, stepId: string, expected: AutomationStep, updated: AutomationStep];
     'step-repick': [deviceId: string, stepId: string]; 'step-dirty': [deviceId: string, dirty: boolean];
+    'step-demo': [deviceId: string, stepId: string]; 'demo-clear': [deviceId: string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -452,6 +457,7 @@ onBeforeUnmount(() => {
                 <Button v-if="device.active_session && !pending && session.state.phase !== 'cleanup_pending'" :label="t('cleanupSaved')" icon="pi pi-stop" size="small" severity="warn" :loading="cleaningSaved" @click="cleanupSaved" />
                 <small v-if="!device.connection.enabled">{{ t('disabled') }}</small>
             </div>
+            <CardLocatorDemo :demo="demoResult ?? null" :video-width="currentGeometry.width" :video-height="currentGeometry.height" />
             <CardPickingOverlay :phase="pickingPhase" :error="pickerError" @exit="emit('toggle-picking', device.id)" />
             <button v-if="pickerMenu" type="button" class="pick-menu-dismiss" tabindex="-1" aria-label="关闭控件快捷菜单" @pointerdown.stop @click.stop="closePickerMenu()" />
             <CardContextMenu v-if="pickerMenu" :left="pickerMenu.x" :top="pickerMenu.y"
@@ -488,9 +494,13 @@ onBeforeUnmount(() => {
             @edit="emit('step-edit', device.id, $event)" />
         <CardStepEditor v-if="editingStep" :key="editingStep.id" :step="editingStep"
             :step-number="editingStepNumber" :repicking="repickingStepId === editingStep.id"
+            :demo-loading="demoLoading" :demo-result="demoResult" :demo-error="demoError"
+            :demo-available="ready && runnerAvailable"
             @close="emit('step-close', device.id)"
             @save="(stepId, expected, updated) => emit('step-save', device.id, stepId, expected, updated)"
             @repick="emit('step-repick', device.id, $event)"
+            @demo="emit('step-demo', device.id, $event)"
+            @clear-demo="emit('demo-clear', device.id)"
             @dirty-change="emit('step-dirty', device.id, $event)" />
         <small v-if="session.state.unlockState === 'wake_sent'" class="unlock-notice">手机已发送亮屏指令；该 ADB 服务没有保存开屏密码，请在设备管理中配置后重试。</small>
         <small v-else-if="session.state.unlockState === 'already_unlocked'" class="unlock-notice">已检测到手机处于解锁状态，因此没有输入密码。</small>
