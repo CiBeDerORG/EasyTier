@@ -46,6 +46,7 @@ function requestClose() {
     }
     emit('close', 'normal');
 }
+defineExpose({ requestClose });
 function keepEditing() {
     discardRequested.value = false;
     void nextTick(() => panel.value?.focus({ preventScroll: true }));

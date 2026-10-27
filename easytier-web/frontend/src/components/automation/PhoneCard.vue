@@ -22,6 +22,10 @@ import AutomationFloatingPanel from './AutomationFloatingPanel.vue';
 import AutomationScriptSelector from './AutomationScriptSelector.vue';
 import AutomationScriptCloneDialog from './AutomationScriptCloneDialog.vue';
 import AutomationScriptSwitchDialog from './AutomationScriptSwitchDialog.vue';
+import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
+import AutomationConditionDeleteDialog from './AutomationConditionDeleteDialog.vue';
+import type { AutomationStepDeletion } from '../../modules/automation-card-step-delete';
+import { planAutomationStepDeletion } from '../../modules/automation-card-step-delete';
 import type { AutomationScript } from '../../types/automation';
 import type { AutomationScriptAction, ScriptGuard, ScriptSwitchDecision } from '../../modules/automation-script-workspace';
 import type { LocatorDemoResult } from '../../modules/automation-locator-demo';
@@ -42,6 +46,8 @@ const props = defineProps<{
     scriptsLoading?: boolean;
     scriptsError?: string;
     scriptGuard?: ScriptGuard;
+    undoDeleteLabel?: string;
+    editingDirty?: boolean;
     editingStepId?: string;
     repickingStepId?: string;
     demoResult?: LocatorDemoResult | null;
@@ -56,6 +62,8 @@ const emit = defineEmits<{
     'script-refresh': [deviceId: string];
     'script-action': [action: AutomationScriptAction];
     'step-edit': [deviceId: string, stepId: string];
+    'step-delete': [deviceId: string, requestedId: string, expectedFingerprint: string, confirmedTargetId: string];
+    'step-undo': [deviceId: string];
     'step-close': [deviceId: string]; 'step-save': [deviceId: string, stepId: string, expected: AutomationStep, updated: AutomationStep];
     'step-repick': [deviceId: string, stepId: string]; 'step-dirty': [deviceId: string, dirty: boolean];
     'step-demo': [deviceId: string, stepId: string]; 'demo-clear': [deviceId: string];
@@ -143,6 +151,22 @@ const menuOpen = ref(false);
 const automationPanelOpen = ref(false);
 const cloneSourceId = ref<string | null>(null);
 const pendingScriptAction = ref<AutomationScriptAction | null>(null);
+const pendingStepDeletion = ref<AutomationStepDeletion | null>(null);
+const stepEditorDialog = ref<InstanceType<typeof AutomationFloatingDialog> | null>(null);
+function requestStepDeletion(stepId: string) {
+    const plan = planAutomationStepDeletion(props.draft.steps, stepId);
+    if(!plan)return;
+    if(plan.requiresConfirmation)pendingStepDeletion.value=plan;
+    else emit('step-delete',props.device.id,plan.requestedId,plan.fingerprint,plan.targetId);
+}
+function confirmStepDeletion(plan: AutomationStepDeletion) {
+    pendingStepDeletion.value=null;
+    emit('step-delete',props.device.id,plan.requestedId,plan.fingerprint,plan.targetId);
+}
+function requestEditorClose() { stepEditorDialog.value?.requestClose(); }
+function finishEditorClose(reason: 'normal' | 'discard') {
+    emit('step-close', props.device.id, reason === 'discard');
+}
 const cloneSource = computed(() => props.scripts?.find(item => item.id === cloneSourceId.value) ?? null);
 const effectiveScriptGuard = computed<ScriptGuard>(() => props.scriptGuard ?? 'loading');
 function openAutomationPanel() {
@@ -179,6 +203,9 @@ function decideScriptSwitch(decision:ScriptSwitchDecision) {
     pendingScriptAction.value=null;
     if(pending)emit('script-action',{...pending,decision});
 }
+watch(() => props.editingStepId, id => {
+    if(id && !automationPanelOpen.value) openAutomationPanel();
+});
 watch(() => props.draft.editingId, (next,previous) => {
     if(next && next!==previous) cloneSourceId.value=null;
 });
@@ -186,6 +213,7 @@ watch(() => [props.ownerId, props.device.id], () => {
     automationPanelOpen.value = false;
     cloneSourceId.value=null;
     pendingScriptAction.value=null;
+    pendingStepDeletion.value=null;
 });
 const pickerMenu = ref<{ point: PickerVideoPoint; x: number; y: number } | null>(null);
 function closePickerMenu() { pickerMenu.value = null; }
@@ -661,7 +689,13 @@ onBeforeUnmount(() => {
                     :error="scriptsError" :sync-label="draftSyncLabel"
                     @refresh="emit('script-refresh',device.id)"
                     @create="name => requestScriptAction({kind:'create',deviceId:device.id,name})"
-                    @select="chooseScript" @clone="openScriptClone" />
+                    @select="chooseScript" @clone="openScriptClone">
+                    <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
+                        :undo-label="undoDeleteLabel"
+                        @edit="emit('step-edit',device.id,$event)"
+                        @trial="openCardTrial" @delete="requestStepDeletion"
+                        @undo="emit('step-undo',device.id)" />
+                </AutomationScriptSelector>
             </AutomationFloatingPanel>
             <AutomationScriptCloneDialog :source="cloneSource"
                 :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
@@ -670,14 +704,31 @@ onBeforeUnmount(() => {
                 :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
                 :guard="effectiveScriptGuard" :busy="!!scriptsBusy"
                 @cancel="pendingScriptAction=null" @decide="decideScriptSwitch" />
+            <AutomationConditionDeleteDialog :plan="pendingStepDeletion"
+                :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
+                @cancel="pendingStepDeletion=null" @confirm="confirmStepDeletion" />
+            <AutomationFloatingDialog v-if="editingStep" ref="stepEditorDialog"
+                :visible="!!editingStep" :portal-target="automationSubwindowHost"
+                :fullscreen="isFullscreen" :dirty="!!editingDirty"
+                :title="'编辑第 '+editingStepNumber+' 步'"
+                @close="finishEditorClose">
+                <CardStepEditor :key="editingStep.id" floating
+                    :step="editingStep" :step-number="editingStepNumber"
+                    :repicking="repickingStepId === editingStep.id"
+                    :demo-loading="demoLoading" :demo-result="demoResult"
+                    :demo-error="demoError" :demo-available="ready && runnerAvailable"
+                    @close="requestEditorClose"
+                    @save="(stepId, expected, updated) => emit('step-save',device.id,stepId,expected,updated)"
+                    @repick="emit('step-repick',device.id,$event)"
+                    @demo="emit('step-demo',device.id,$event)"
+                    @clear-demo="emit('demo-clear',device.id)"
+                    @dirty-change="emit('step-dirty',device.id,$event)" />
+            </AutomationFloatingDialog>
             <!-- T24: target for controlled Teleport of editable child windows.
                  It MUST stay inside phone-screen, not document.body. -->
             <div ref="automationSubwindowHost" class="automation-subwindow-host" />
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
-        <CardStepTimeline :draft="draft" :sync-label="draftSyncLabel" :picker-active="pickingPhase === 'on'"
-            @edit="emit('step-edit', device.id, $event)"
-            @trial="openCardTrial" />
         <CardRepairEntry v-if="repairContext && repairStep" :repair="repairContext"
             :step="repairStep" :step-number="repairStepNumber"
             :editing="!!editingStepId" :runner-available="runnerAvailable"
@@ -693,16 +744,6 @@ onBeforeUnmount(() => {
             @close="trialStepId = null"
             @history="runId => { trialStepId = null; emit('trial-history',device.id,runId); }"
             @repair="(runId,stepId) => { trialStepId = null; emit('trial-repair',device.id,runId,stepId); }" />
-        <CardStepEditor v-if="editingStep" :key="editingStep.id" :step="editingStep"
-            :step-number="editingStepNumber" :repicking="repickingStepId === editingStep.id"
-            :demo-loading="demoLoading" :demo-result="demoResult" :demo-error="demoError"
-            :demo-available="ready && runnerAvailable"
-            @close="emit('step-close', device.id)"
-            @save="(stepId, expected, updated) => emit('step-save', device.id, stepId, expected, updated)"
-            @repick="emit('step-repick', device.id, $event)"
-            @demo="emit('step-demo', device.id, $event)"
-            @clear-demo="emit('demo-clear', device.id)"
-            @dirty-change="emit('step-dirty', device.id, $event)" />
         <small v-if="session.state.unlockState === 'wake_sent'" class="unlock-notice">手机已发送亮屏指令；该 ADB 服务没有保存开屏密码，请在设备管理中配置后重试。</small>
         <small v-else-if="session.state.unlockState === 'already_unlocked'" class="unlock-notice">已检测到手机处于解锁状态，因此没有输入密码。</small>
         <small v-else-if="session.state.unlockState === 'lock_state_unknown'" class="unlock-notice">手机已唤醒，但 Android 未返回可靠的锁屏状态；为避免把密码输入其他应用，已跳过自动解锁。</small>

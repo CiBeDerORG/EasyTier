@@ -10,6 +10,7 @@ const props = defineProps<{
     step: AutomationStep; stepNumber: number; repicking?: boolean;
     demoLoading?: boolean; demoResult?: LocatorDemoResult | null; demoError?: string;
     demoAvailable?: boolean;
+    floating?: boolean;
 }>();
 const emit = defineEmits<{
     save: [stepId: string, previous: AutomationStep, next: AutomationStep];
@@ -56,8 +57,8 @@ function repick() {
 </script>
 
 <template>
-    <section class="card-step-editor" aria-label="卡片步骤编辑">
-        <header>
+    <section class="card-step-editor" :class="{ floating }" aria-label="卡片步骤编辑">
+        <header v-if="!floating">
             <div><strong>编辑第 {{ stepNumber }} 步</strong><small>在当前卡片修改参数，不离开实时画面</small></div>
             <button type="button" class="close-editor" aria-label="关闭步骤编辑" @click="emit('close')">
                 <i class="pi pi-times" aria-hidden="true"/>
@@ -90,6 +91,7 @@ function repick() {
 
 <style scoped>
 .card-step-editor{padding:10px 12px;border-top:1px solid var(--console-border);background:var(--console-panel);min-width:0;display:grid;gap:10px}
+.card-step-editor.floating{padding:0;border:0;background:transparent}
 header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 header>div{min-width:0;display:flex;flex-direction:column;gap:3px}
 header strong{font-size:12px}
