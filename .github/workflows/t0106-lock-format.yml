@@ -20,7 +20,8 @@ jobs:
         run: cargo metadata --format-version 1 > /dev/null
       - name: Standard format only T01-06 Rust sources
         run: |
-          rustfmt --edition 2024 \
+          rustup component add --toolchain 1.95.0 rustfmt
+          rustfmt +1.95.0 --edition 2024 \
             easytier-web/src/asset_agent.rs \
             easytier-web/src/asset_agent_tls.rs \
             easytier-web/src/restful/asset_agent.rs \
