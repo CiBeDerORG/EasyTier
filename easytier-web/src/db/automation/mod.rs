@@ -1,6 +1,7 @@
 //! Automation business records. Phone side effects never run inside a DB transaction.
 mod runs;
 mod scripts;
+mod drafts;
 mod validation;
 
 use std::{collections::BTreeMap, net::Ipv4Addr};

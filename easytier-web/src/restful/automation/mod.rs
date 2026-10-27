@@ -1,6 +1,7 @@
 //! Session-authenticated automation APIs. Media never traverses these routes.
 pub(crate) mod common;
 mod devices;
+mod drafts;
 mod preparations;
 mod unlock;
 pub(crate) mod runner;
@@ -48,6 +49,8 @@ pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner>
         .route("/api/v1/automation/sessions/{id}/unlock", post(sessions::unlock))
         .route("/api/v1/automation/sessions/{id}/control", get(sessions::control))
         .route("/api/v1/automation/sessions/{id}/close", post(sessions::close))
+        .route("/api/v1/automation/drafts", get(drafts::list).post(drafts::create))
+        .route("/api/v1/automation/drafts/{id}", get(drafts::get_one).put(drafts::update).delete(drafts::discard))
         .route("/api/v1/automation/scripts", get(scripts::list).post(scripts::create))
         .route("/api/v1/automation/scripts/{id}", put(scripts::update).delete(scripts::remove))
         .route("/api/v1/automation/runs", get(runs::list).post(runs::create))

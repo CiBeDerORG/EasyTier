@@ -91,3 +91,12 @@
 - 核查 T08 CI `40460773164` 与 T09 CI `40461701630` 的 Web 构建日志：`AutomationCenter.vue` 分别报 TS2339 `PickerIntent` 的 `stepId` 属性不存在；此前 T08 引入的 `current.intent` 在异步 Inspector 分支内未能被 vue-tsc 保持 discriminated union 缩窄。
 - 修复：局部冻结 `capturedIntent: PickerIntent`，先判断 `kind`，仅在 `replace` 分支读取 `stepId`。不取消设备与草稿的 generation 二次校验，不改步骤新增/替换逻辑。
 - **未执行**本地测试、类型检查、构建或额外手工 Actions（调试模式）；本次修复随正常代码 push 触发已有 CI，真实成功状态需另行核验。
+
+## 2026-10-27 · T10 服务端草稿数据、API、CAS及请求幂等
+
+- 数据迁移：`m20261027_000025_automation_drafts.rs` 新增草稿表（owner/actor/ID/revision/时间/步骤）及独立操作回执表（owner+actor+request_id 唯一）；不更改已有正式脚本表、运行表及执行协议。
+- 数据访问：`db/automation/drafts.rs` 提供按owner列出/读取/新建/按修订更新/按修订删除，写事务采用 `BEGIN IMMEDIATE`，写入前二次检查账号授权；404 表示当前账号内不存在，409 表示草稿修订冲突或同UUID重放内容不一致。
+- 保护：每次新增/更新/删除保存请求 UUID+hash及当时的结果作为原子回执，网络重试不会重复新建或增加 revision；删除后仍可重放同一删除请求并获取当时精简回执。仅在草稿表储存步骤正文，幂等回执表只保存 ID/修订号/删除标志，避免删除后残留正文。草稿空步骤合法，非空步骤复用后端正式脚本格式/分支校验；输入文字步骤只允许参数名，禁止保存字面输入及运行时参数值。
+- API：`GET/POST /api/v1/automation/drafts` 与 `GET/PUT/DELETE /api/v1/automation/drafts/{id}`，全程已有 session 登录、origin/actor/owner-scoped 认证；字段/状态/重试语义写入 `task/t10-draft-api-contract.md`。
+- 限制：此轮**只有服务端**，尚无前端定时同步、断线恢复或版本冲突提示；这些是 T11/T16。已经确认并写入服务端的步骤不会因视频断线丢失，但尚未接入前端的步骤仍仅在内存。
+- **未执行**：本地 Rust 测试、构建、类型检查、迁移演练、FnOS/SQLite 实际部署或接口调用（继续调试模式）；提交触发的原有自动 CI 状态另行核实，不能据此宣称代码已验证。
