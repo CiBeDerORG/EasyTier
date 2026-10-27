@@ -1,6 +1,6 @@
 # T21 · 可拖拽自动化主浮窗容器
 
-> 状态：**待开发**；阶段：P08；难度：M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
+> 状态：**浮窗组件已提交，等待 T22 入口和 T23 全屏联调**；阶段：P08；难度：M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
 
 ## 唯一写入责任
 - 负责人：**卡片/浮窗 Agent**。
@@ -13,12 +13,13 @@
 3. 将浮窗位置限制在可见区域，支持触摸和鼠标 pointer capture/cancel，阻止拖动误发手机 touch。
 
 ## 完成判定
-- [ ] 主浮窗可打开/关闭/拖动/滚动，手机触控流在拖动过程中无事件。
-- [ ] 录制/投屏/脚本运行在关闭浮窗后继续保持原状态。
-- [ ] 交接时提供修改文件、API/event 契约、已知风险、待联调场景；仅代码提交不等于真机验收。
+- [x] 实现受控 visible/close、标题栏拖动、内容滚动及 pointer 事件隔离；**未浏览器验证**。
+- [x] 仅本机 UI open 状态，关闭事件不涉及视频/草稿/运行逻辑；**未实机验证**。
+- [x] 输出 `AutomationFloatingPanel.vue` + `useAutomationFloatingLayer.ts` + `PhoneCard.vue` 受控挂载/开关 API；T22 负责可见按钮接入，T23 负责 fullscreen 联调。
 
 ## 禁止与风险
 先实现容器、使用占位内容；此任务不搬脚本业务或改运行权限。
 
 ## 交接/验证状态
-- 未开始、未实施、未测试；当前仓库调试模式未经后续授权不执行本地测试、构建或手动 CI。
+- 已开发 UI 承载壳与独立控制状态，当前卡片原时间线仍保留；用户在 T22 完成前没有图标入口。
+- T21 的手动开关通过 PhoneCard expose 提供给后续集成，**未执行 TypeScript/浏览器/真机验证**（调试模式）。

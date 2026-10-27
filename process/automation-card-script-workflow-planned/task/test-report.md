@@ -261,3 +261,10 @@
 - `AutomationCenter.vue::selectCardStep` 统一 owner/device/workspace 校验为 `canAccessAutomationCard`，原步骤是否存在的硬校验保留；本次不改任何媒体/Executor/Rust/UiAutomator2/运行逻辑。
 - 新增 `require/require-09-t20-workspace-events-contract.md`，逐事件标注来源、身份字段、跨账号/换脚本/全屏失效及唯一写入 owner，交接 T21～T51。
 - **未执行测试、类型检查、构建、lint、手动 CI、浏览器或真机操作（调试模式）**；合同与接线提交不等于浮窗已实现或实机验证通过。
+
+## 2026-10-27 · T21 可拖拽自动化主浮窗（调试模式）
+- 新增 `modules/useAutomationFloatingLayer.ts`：panel/host ref、鼠标与触控 pointer capture 拖动、标题栏唯一拖动触发区域、容器/窗口 ResizeObserver 与 fullScreen/resize 位置 clamp，任何拖动均不触发 ADB。
+- 新增 `components/automation/AutomationFloatingPanel.vue`：受控 visible/close、标题栏、关闭按钮、默认占位 slot、纵向滚动、阻断背景视频 pointer/click/wheel 冒泡；浮窗不拥有 MediaStream、脚本 store、运行控制或租约。
+- `PhoneCard.vue` 在**原 phone-screen 内**挂载唯一浮窗壳，per card 独立 `automationPanelOpen` UI 状态、重置账号/设备时关闭；暴露 open/close/toggle 函数。仍保留原 footer CardStepTimeline，未迁移业务逻辑。
+- 已交接 T22：添加实际自动化 icon 作为用户可见入口；已交接 T23：进入退出 fullscreen 可视层级、尺寸与坐标联调。
+- **未执行**单测、TS、lint、构建、手动 CI、浏览器/Android 真机操作（调试模式）；实现效果待实际验证，不声称拖动/全屏验收通过。

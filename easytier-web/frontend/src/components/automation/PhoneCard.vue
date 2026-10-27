@@ -18,6 +18,7 @@ import CardRepairEntry from './CardRepairEntry.vue';
 import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import type { CardRepairContext } from '../../modules/automation-run-repair';
 import CardLocatorDemo from './CardLocatorDemo.vue';
+import AutomationFloatingPanel from './AutomationFloatingPanel.vue';
 import type { LocatorDemoResult } from '../../modules/automation-locator-demo';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
 import type { PickerMenuAction, PickerPhase, PickerVideoPoint } from '../../modules/automation-picker-state';
@@ -95,6 +96,12 @@ onMounted(() => document.addEventListener('fullscreenchange', syncFullscreen));
 const dock = ref<'left' | 'right'>('right');
 const anchorFraction = ref(0.5);
 const menuOpen = ref(false);
+/** T21: UI only. T22 will connect the floating automation button. */
+const automationPanelOpen = ref(false);
+function openAutomationPanel() { automationPanelOpen.value = true; }
+function closeAutomationPanel() { automationPanelOpen.value = false; }
+function toggleAutomationPanel() { automationPanelOpen.value = !automationPanelOpen.value; }
+watch(() => [props.ownerId, props.device.id], () => { automationPanelOpen.value = false; });
 const pickerMenu = ref<{ point: PickerVideoPoint; x: number; y: number } | null>(null);
 function closePickerMenu() { pickerMenu.value = null; }
 function pickAction(action: PickerMenuAction) {
@@ -435,7 +442,7 @@ async function retryEndpoint(stage: 'cleanup'|'connection'|'publication') {
 function getState() { return { phase: session.state.phase, ready: ready.value, ...geometry() }; }
 function getStream() { return session.stream.value; }
 function getSessionId() { return session.getSessionId(); }
-defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock, getState, getStream, getSessionId, cancelPointer, resetPointer });
+defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock, getState, getStream, getSessionId, cancelPointer, resetPointer, openAutomationPanel, closeAutomationPanel, toggleAutomationPanel });
 onBeforeUnmount(() => {
     document.removeEventListener('fullscreenchange', syncFullscreen);
     if (document.fullscreenElement === screen.value) void document.exitFullscreen().catch(() => undefined);
@@ -525,6 +532,8 @@ onBeforeUnmount(() => {
                 </div>
                 <Button class="main-orb" :icon="menuOpen ? 'pi pi-times' : 'pi pi-sliders-h'" rounded :aria-expanded="menuOpen" :aria-label="t('localControl')" :title="syncRole ? t('controlsLocked') : t('localControl')" @pointerdown.stop="dragStart" @pointermove.stop="dragMove" @pointerup.stop="dragEnd" @pointercancel.stop="dragEnd" @click.stop="toggleOrb" />
             </div>
+            <AutomationFloatingPanel :visible="automationPanelOpen" :device-name="device.name"
+                @close="closeAutomationPanel" />
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
         <CardStepTimeline :draft="draft" :sync-label="draftSyncLabel" :picker-active="pickingPhase === 'on'"
