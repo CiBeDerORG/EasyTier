@@ -15,6 +15,10 @@ import {
     type DeviceCompatibilityReview,
 } from '../../modules/automation-device-compatibility';
 import type { AutomationDevice, AutomationRunInput, AutomationStep } from '../../types/automation';
+import {
+    readTrialReceipt, reserveTrialReceipt, clearTrialReceipt, findTrialRun,
+    type TrialSubmissionReceipt,
+} from '../../modules/automation-trial-receipt';
 
 const props=defineProps<{
     visible: boolean;
@@ -46,6 +50,18 @@ const frozen=ref<AutomationStep | null>(null);
 const targetFingerprint=ref('');
 const pending=ref<AutomationRunInput | null>(null);
 const uncertain=ref(false);
+const unresolvedReceipt=ref<TrialSubmissionReceipt|null>(null);
+const receiptFailure=ref('');
+const checkingReceipt=ref(false);
+function loadReceipt() {
+    try {
+        unresolvedReceipt.value=readTrialReceipt(window.sessionStorage,props.ownerId,props.device.id);
+        receiptFailure.value='';
+    }catch(cause){
+        unresolvedReceipt.value=null;
+        receiptFailure.value='不能安全读取本页历史试跑请求：'+automationErrorMessage(cause);
+    }
+}
 let epoch=0;
 let disposed=false;
 const busy=computed(()=>['releasing','preparing','submitting'].includes(phase.value));
@@ -68,6 +84,19 @@ function snapshot(step:AutomationStep):AutomationStep {
 }
 function clearSecrets(){parameterValue.value='';}
 function resetForOpen(){
+    loadReceipt();
+    if(receiptFailure.value || unresolvedReceipt.value) {
+        result.reset();
+        pending.value=null;uncertain.value=true;consent.value=false;
+        compatibilityReview.value=null;compatibilityConsent.value=false;
+        clearSecrets();phase.value='unknown';
+        frozen.value=props.step ? snapshot(props.step) : null;
+        targetFingerprint.value=props.device.target_fingerprint??'';
+        warning.value=receiptFailure.value ||
+            '发现上一条试跑请求尚未核实（请求编号 '+unresolvedReceipt.value!.requestId+
+            '）。只能先查询执行记录并核对手机现场，禁止产生第二条动作。';
+        return;
+    }
     if(pending.value && uncertain.value) {
         // Preserve request_id/body but never replay it on a DIFFERENT step.
         phase.value='unknown';
@@ -97,6 +126,12 @@ function checkReadyToPrepare(): string | null {
     return null;
 }
 async function prepare(){
+    loadReceipt();
+    if(receiptFailure.value || unresolvedReceipt.value) {
+        phase.value='unknown';
+        warning.value=receiptFailure.value || '该手机尚有未核实的试跑请求，请先按请求编号只读查询执行记录。';
+        return;
+    }
     if(busy.value || pending.value || result.run.value)return;
     const problem=checkReadyToPrepare();
     if(problem){warning.value=problem;return;}
@@ -157,6 +192,10 @@ async function prepare(){
     }
 }
 async function submit(){
+    loadReceipt();
+    if(receiptFailure.value || unresolvedReceipt.value) {
+        phase.value='unknown';warning.value=receiptFailure.value || '旧试跑尚未核实，禁止新请求。';return;
+    }
     if(phase.value!=='ready' || pending.value || !frozen.value || !usable.value)return;
     if(!compatibilityReview.value || compatibilityReview.value.status==='blocked'){
         warning.value='当前手机兼容性核验尚未通过，不能执行此步骤。';return;
@@ -212,28 +251,51 @@ async function submit(){
     }
 }
 async function sendFrozen(mine:number,owner:number,id:string,original:string,payload:AutomationRunInput){
-    try{
+    const proof:TrialSubmissionReceipt={
+        ownerId:owner,deviceId:id,stepId:payload.steps?.[0]?.id??'',requestId:payload.request_id,
+        createdAt:new Date().toISOString(),
+    };
+    let dispatched=false;
+    try {
+        // Persist only UUID and device/step metadata BEFORE sending the POST.
+        // Never serialize the POST body, inline parameters, selectors or text.
+        reserveTrialReceipt(window.sessionStorage,proof);
+        unresolvedReceipt.value=proof;receiptFailure.value='';
+        dispatched=true;
         // Server create_run() still owns definitive BEGIN IMMEDIATE admission.
         const created=await api.createRun(owner,payload);
-        if(!valid(mine,owner,id,original))return;
+        if(!valid(mine,owner,id,original))return; // receipt remains until read-only reconciliation
         if(!created.id || !created.devices.some(d=>d.device_id===id)) {
             uncertain.value=true;phase.value='unknown';
-            warning.value='服务器响应未包含可确认的目标运行记录，请前往执行记录核实。';return;
+            warning.value='服务器响应没有可核实的目标运行记录；请求身份已保留，请只读查询历史。';return;
         }
+        clearTrialReceipt(window.sessionStorage,proof);
+        unresolvedReceipt.value=null;
         pending.value=null;uncertain.value=false;phase.value='observing';
         result.observe(owner,created,id,payload.steps?.[0]?.id??'');
         warning.value='';
     }catch(cause){
         if(!valid(mine,owner,id,original))return;
-        const unknown=!(cause instanceof AutomationApiError) || cause.status>=500;
-        uncertain.value=unknown;
-        phase.value=unknown?'unknown':'failed';
-        warning.value=automationErrorMessage(cause) +
-            (unknown?'。服务端接收结果未知，可手动使用原请求编号重试；不会自动重发手机动作。':'');
+        // Only explicit server validation/admission errors prove no run was
+        // created. A generic network error, 408, 429 or 5xx never does.
+        const definitive=dispatched && cause instanceof AutomationApiError &&
+            [400,401,403,404,409,422].includes(cause.status);
+        if(definitive){
+            try{clearTrialReceipt(window.sessionStorage,proof);unresolvedReceipt.value=null;}
+            catch{receiptFailure.value='请求虽被拒绝，但未能清理本地保护凭据。';}
+        }
+        const unknown=dispatched && !definitive;
+        uncertain.value=unknown;phase.value=unknown?'unknown':'failed';
+        warning.value=(dispatched?'': '无法安全保存试跑请求身份，未发送动作：')+
+            automationErrorMessage(cause)+
+            (unknown?'。动作可能已被服务器接收；请按原请求编号只读核对，不能新建请求。':'');
         if(!unknown)pending.value=null;
     }
 }
 async function retryUncertain(){
+    loadReceipt();
+    if(receiptFailure.value || !unresolvedReceipt.value || !pending.value ||
+        unresolvedReceipt.value.requestId!==pending.value.request_id)return;
     if(!uncertain.value || !pending.value || busy.value ||
         pending.value.steps?.[0]?.id!==props.step?.id ||
         pending.value.device_ids.length!==1 ||
@@ -244,6 +306,35 @@ async function retryUncertain(){
     // Same immutable POST, same request_id: retries can only recover the
     // original run receipt, never invent a second run.
     await sendFrozen(mine,owner,id,original,pending.value);
+}
+async function recheckTrialReceipt(){
+    if(checkingReceipt.value)return;
+    loadReceipt();
+    if(!unresolvedReceipt.value || receiptFailure.value)return;
+    const proof=unresolvedReceipt.value;
+    checkingReceipt.value=true;
+    try{
+        // LIST is read-only. Never send a new POST to learn whether an old
+        // UUID was admitted. For >100 runs or eventual consistency, keep
+        // the guard and ask the operator to check server logs.
+        const listed=await api.listRuns(proof.ownerId);
+        const matched=findTrialRun(listed.items,proof);
+        if(!matched){
+            warning.value='服务器近期运行记录未找到请求 '+proof.requestId+
+                '；不能据此认定动作没有发生，保护仍然生效。请核对设备现场和服务器日志。';
+            return;
+        }
+        if(!matched.script_snapshot.steps.some(step=>step.id===proof.stepId))
+            throw new Error('同一请求编号的历史步骤与保存的步骤身份不匹配，不能解除保护。');
+        clearTrialReceipt(window.sessionStorage,proof);
+        loadReceipt();
+        if(props.ownerId!==proof.ownerId || props.device.id!==proof.deviceId || !props.visible)return;
+        pending.value=null;uncertain.value=false;phase.value='observing';
+        result.observe(proof.ownerId,matched,proof.deviceId,proof.stepId);
+        warning.value='已通过只读历史记录找回原试跑；没有提交第二次动作。';
+    }catch(cause){
+        warning.value='查询旧试跑失败，保护仍然有效：'+automationErrorMessage(cause);
+    }finally{checkingReceipt.value=false;}
 }
 async function recheckPreparation(){
     if(phase.value!=='unknown' || !!pending.value || !frozen.value)return;
@@ -272,6 +363,10 @@ function openRepair(){
         emit('repair',view.runId,view.stepId);
 }
 function hide(){
+    if(phase.value==='submitting' && unresolvedReceipt.value) {
+        uncertain.value=true;phase.value='unknown';
+        warning.value='请求已经发送或结果尚未确认。关闭弹窗不会解除试跑保护。';
+    }
     ++epoch;
     if(phase.value==='preparing' || phase.value==='releasing')
         void preparation.cancel(props.ownerId,props.device.id);
@@ -365,8 +460,11 @@ onBeforeUnmount(()=>{
                     @click="openHistory"/>
                 <Button v-if="phase==='unknown' && !pending" label="只读复核准备状态" outlined size="small"
                     :disabled="busy" @click="recheckPreparation"/>
-                <Button v-if="uncertain && pending" label="按原请求编号人工重查" outlined size="small"
-                    :disabled="busy || pending.steps?.[0]?.id!==step?.id" @click="retryUncertain"/>
+                <Button v-if="unresolvedReceipt || receiptFailure" label="只读查询旧请求"
+                    outlined size="small" :loading="checkingReceipt"
+                    :disabled="!!receiptFailure || checkingReceipt" @click="recheckTrialReceipt"/>
+                <Button v-if="uncertain && pending && !unresolvedReceipt" label="按原请求编号人工重查" outlined size="small"
+                    :disabled="true" />
                 <Button v-if="!started && phase!=='ready'" label="自动准备试跑设备"
                     icon="pi pi-link" size="small" :loading="busy"
                     :disabled="!runnerAvailable || !!blocked || !usable || busy || phase==='unknown'"
