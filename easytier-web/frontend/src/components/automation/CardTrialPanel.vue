@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** T14: one selected step on this phone; reuse T12/T13 and the ordinary /runs API. */
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { Button, Checkbox, InputText, Message, Tag } from 'primevue';
 import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
 import { v4 as uuid } from 'uuid';
@@ -9,6 +9,7 @@ import { useCardTrialPreparation, type CardTrialPhase } from '../../modules/useC
 import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import { useCardRunStatus } from '../../modules/useCardRunStatus';
 import { makeSingleStepRun, stepTrialSafety } from '../../modules/automation-single-step';
+import { freezeInlineStepRunIntent, inlineStepIntentStillCurrent, inlineStepMayAutoSubmit, type InlineStepRunIntent } from '../../modules/useInlineStepRun';
 import { cardStepLabels } from '../../modules/card-step-projection';
 import {
     reviewAutomationDeviceCompatibility, compatibilityStillCurrent,
@@ -50,6 +51,7 @@ const compatibilityConsent=ref(false);
 const compatibilityReview=ref<DeviceCompatibilityReview | null>(null);
 const parameterValue=ref('');
 const frozen=ref<AutomationStep | null>(null);
+const lockedIntent=ref<InlineStepRunIntent | null>(null);
 const targetFingerprint=ref('');
 const handedOffSessionId=ref<string | null>(null);
 const pending=ref<AutomationRunInput | null>(null);
@@ -83,19 +85,18 @@ const preparePhases:Record<CardTrialPhase,string>={
     helper_check:'检查控件组件',helper_start:'提交控件初始化',helper_wait:'初始化控件中',
     ready:'准备就绪',failed:'准备失败',unknown:'准备结果未知',cancelled:'已停止准备',
 };
-function snapshot(step:AutomationStep):AutomationStep {
-    return JSON.parse(JSON.stringify(step)) as AutomationStep;
-}
 function clearSecrets(){parameterValue.value='';}
 function resetForOpen(){
     handedOffSessionId.value=null;
+    lockedIntent.value=freezeInlineStepRunIntent(
+        props.ownerId,props.device.id,props.device.target_fingerprint??'',props.step,uuid());
     loadReceipt();
     if(receiptFailure.value || unresolvedReceipt.value) {
         result.reset();
         pending.value=null;uncertain.value=true;consent.value=false;
         compatibilityReview.value=null;compatibilityConsent.value=false;
         clearSecrets();phase.value='unknown';
-        frozen.value=props.step ? snapshot(props.step) : null;
+        frozen.value=lockedIntent.value?.step??null;
         targetFingerprint.value=props.device.target_fingerprint??'';
         warning.value=receiptFailure.value ||
             '发现上一条试跑请求尚未核实（请求编号 '+unresolvedReceipt.value!.requestId+
@@ -113,13 +114,15 @@ function resetForOpen(){
     result.reset();pending.value=null;uncertain.value=false;consent.value=false;
     compatibilityReview.value=null;compatibilityConsent.value=false;
     clearSecrets();phase.value='idle';warning.value='';
-    frozen.value=props.step ? snapshot(props.step) : null;
+    frozen.value=lockedIntent.value?.step??null;
     targetFingerprint.value=props.device.target_fingerprint ?? '';
 }
 function valid(mine:number, owner:number, deviceId:string, original:string):boolean {
     return !disposed && props.visible && mine===epoch &&
         props.ownerId===owner && props.device.id===deviceId &&
         props.device.target_fingerprint===targetFingerprint.value &&
+        inlineStepIntentStillCurrent(lockedIntent.value,owner,deviceId,
+            props.device.target_fingerprint,props.step) &&
         !!props.step && JSON.stringify(props.step)===original && !props.blocked;
 }
 function checkReadyToPrepare(): string | null {
@@ -193,7 +196,15 @@ async function prepare(){
             if(checked.status==='blocked'){
                 phase.value='failed';
                 warning.value='原步骤的坐标与当前手机不匹配。请重新拾取或修改步骤，执行已阻止。';
-            }else {phase.value='ready';warning.value='';}
+            }else {
+                phase.value='ready';warning.value='';
+                if(inlineStepMayAutoSubmit(safety.value,checked,parameter.value)) {
+                    // The original ▶ is sufficient for a read-only assertion.
+                    // Mutating actions, screenshots and uncertain locators
+                    // still require explicit operator confirmation.
+                    void submit();
+                }
+            }
         }
         else {
             phase.value=prepared?.phase==='unknown'?'unknown':'failed';
@@ -226,7 +237,11 @@ async function submit(){
     }
     const owner=props.ownerId,id=props.device.id,mine=++epoch;
     const original=JSON.stringify(props.step);
-    const payload=makeSingleStepRun(frozen.value,id,uuid(),
+    const intent=lockedIntent.value;
+    if(!inlineStepIntentStillCurrent(intent,owner,id,props.device.target_fingerprint,props.step)) {
+        warning.value='单步执行身份或草稿内容已发生变化，拒绝产生新设备动作。';return;
+    }
+    const payload=makeSingleStepRun(frozen.value,id,intent!.requestId,
         parameter.value ? {[parameter.value]:parameterValue.value} : {},consent.value);
     if(!payload){warning.value='步骤不支持脱离上下文单独执行。';return;}
     pending.value=payload; // Freeze request ID and body across uncertain HTTP outcomes.
@@ -410,7 +425,12 @@ watch(()=>props.visible,open=>{
     if(open) {
         if(result.run.value && result.view.value?.stepId===props.step?.id &&
             result.view.value?.runId===result.run.value.id) result.resume();
-        else resetForOpen();
+        else {
+            resetForOpen();
+            if(phase.value==='idle') void nextTick(() => {
+                if(props.visible && !disposed && phase.value==='idle') void prepare();
+            });
+        }
     } else {
         if(phase.value==='preparing' || phase.value==='releasing')
             void preparation.cancel(props.ownerId,props.device.id);
