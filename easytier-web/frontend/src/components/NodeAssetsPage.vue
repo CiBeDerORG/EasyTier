@@ -11,6 +11,7 @@ import DeviceTypeDialog from './node-assets/DeviceTypeDialog.vue';
 import DiscoveryDialog from './node-assets/DiscoveryDialog.vue';
 import AssetDeviceTable from './node-assets/AssetDeviceTable.vue';
 import AssetDeviceDialog from './node-assets/AssetDeviceDialog.vue';
+import ServerAgentEntryDialog from './node-assets/ServerAgentEntryDialog.vue';
 import AssetServicePanel from './node-assets/AssetServicePanel.vue';
 
 const props = defineProps<{ api: ApiClient }>();
@@ -26,6 +27,7 @@ const pageElement = ref<HTMLElement | null>(null);
 const gatewayFocusId = ref<string | null>(null);
 const deviceInitialMode = ref<'metadata' | 'binding' | 'address'>('metadata');
 const editingDevice = ref<AssetDevice | null>(null);
+const agentEntryDevice = ref<AssetDevice | null>(null);
 const deleteDevice = ref<AssetDevice | null>(null);
 const deleting = ref(false), actionError = ref('');
 const serviceRequests = ref<Record<string, number>>({});
@@ -45,6 +47,7 @@ const typeOptions = computed(() => [{ id: null, name: t('assets.page.all_types')
 watch(contextVersion, () => {
     discovery.value = null; showGroups.value = false; showTypes.value = false; showDevice.value = false;
     deleteDevice.value = null; editingDevice.value = null;
+    agentEntryDevice.value = null;
     gatewayFocusId.value = null; deviceInitialMode.value = 'metadata';
     serviceRequests.value = {}; actionError.value = ''; deleting.value = false;
 });
@@ -163,7 +166,7 @@ async function confirmDelete() {
                 <Message v-if="listError && hasLoadedDevices" severity="warn" :closable="false">{{ t('assets.page.stale_results') }}</Message>
                 <AssetDeviceTable v-if="!listError || hasLoadedDevices" :rows="rows" :loading="loading" :total="total" :page="page" :page-size="pageSize" :expanded-ids="expandedIds"
                     :groups="groups" :types="types" @discovery="(device, action) => discovery = { device, action }" @page="loadDevices" @expand="expand" @edit="editDevice"
-                    @delete="deleteDevice = $event; actionError = ''" @add-service="addService" @binding="openDeviceBinding" @address="editDevice($event, 'address')">
+                    @delete="deleteDevice = $event; actionError = ''" @add-service="addService" @agent="agentEntryDevice = $event" @binding="openDeviceBinding" @address="editDevice($event, 'address')">
                     <template #services="{ device }"><AssetServicePanel :key="`${scope.owner_user_id}/${scope.machine_id}/${device.id}`"
                         :api="api" :scope="scope" :device="device" :add-request="serviceRequests[device.id] ?? 0"
                         @add-request-consumed="serviceRequests[device.id] = 0" @context-error="handleContextFailure" /></template>
@@ -173,6 +176,8 @@ async function confirmDelete() {
         </template>
 
         <template v-if="scope">
+            <ServerAgentEntryDialog v-if="agentEntryDevice" :key="agentEntryDevice.id" :api="api"
+                :scope="scope" :device="agentEntryDevice" @close="agentEntryDevice = null" />
             <DiscoveryDialog v-if="discovery" :key="discovery.device.id" :gateway="discovery.device" :owner-id="scope.owner_user_id" :initial-action="discovery.action" @close="discovery = null" @changed="refreshPage" />
             <GatewayGroupDialog v-if="showGroups" :visible="true" :api="api" :scope="scope" :focus-id="gatewayFocusId" :owner-label="ownerName" :node-label="selectedNode?.alias || selectedNode?.hostname || nodeId || ''" @close="showGroups = false" @changed="refreshCatalogs" @context-error="handleContextFailure" />
             <DeviceTypeDialog v-if="showTypes" :visible="true" :api="api" :owner-user-id="scope.owner_user_id" :owner-label="ownerName" @close="showTypes = false" @changed="refreshCatalogs" @context-error="handleContextFailure" />
