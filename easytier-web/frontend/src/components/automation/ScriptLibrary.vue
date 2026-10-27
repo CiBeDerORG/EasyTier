@@ -580,14 +580,14 @@ async function receiveRepairRequest(request: AutomationRepairRequest) {
         }
     }
 }
-function validationError(candidate?: AutomationStep[], singleStep = false): string | null {
+function validationError(candidate?: AutomationStep[], singleStep = false, allowEmpty = false): string | null {
     if (!singleStep) {
         if (!name.value.trim()) return text('请填写脚本名称。', 'Enter a script name.');
         if (new TextEncoder().encode(name.value.trim()).length > 128) return text('脚本名称不能超过 128 字节。', 'The script name must be at most 128 bytes.');
         if (new TextEncoder().encode(description.value.trim()).length > 2000) return text('脚本说明不能超过 2000 字节。', 'The description must be at most 2000 bytes.');
     }
     const normalized = candidate ?? normalizeSteps();
-    if (!normalized.length || normalized.length > 100) return text('脚本需要 1–100 个步骤。', 'A script needs 1–100 steps.');
+    if (normalized.length > 100 || (!allowEmpty && !normalized.length)) return text('执行需 1–100 个步骤；空脚本可以保存后继续编辑。', 'Runs need 1–100 steps; an empty script can be saved for editing.');
     const marked = normalized.filter(step => step.business_verification !== undefined);
     if (marked.length && (!businessCheckStepId(normalized)
         || analyzeAutomationFlow(normalized).entries[normalized.length - 1]?.ancestors.length)) {
@@ -673,7 +673,8 @@ function validationError(candidate?: AutomationStep[], singleStep = false): stri
 }
 async function save() {
     if (busy.value) return;
-    const invalid = validationError();
+    // T25: persisted scripts may be empty; trial/batch validation stays strict.
+    const invalid = validationError(undefined, false, true);
     if (invalid) { error.value = invalid; return; }
     const scope = scopeRevision;
     const owner = props.ownerId;
