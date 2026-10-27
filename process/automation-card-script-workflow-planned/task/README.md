@@ -1,6 +1,6 @@
 ## T33～T35 · Inspector 单一原画面闭环（2026-10-27）
 - **T33 代码已提交，待验证**：保留 UiAutomator2 控件树、属性、候选及动作配置，`UiInspectorDialog.vue` 改为可拖拽浮动子窗，直接挂在目标 `PhoneCard` 同一个视频容器的 fullscreen top layer；彻底不渲染旧 Inspector 第二个 video。
-- **T34 代码已提交，待验证**：`CardInspectorOverlay.vue` 只在原视频上画选中框和拖拽 A/B，捕获只读点位并按原视频 `object-fit:contain` 像素映射回控件树；旋转/尺寸变化使旧快照失效，重新查询层级树。
+- **T34 代码已提交，待验证**：`CardInspectorOverlay.vue` 只在原视频上画选中框和拖拽 A/B，捕获只读点位并按原视频 `object-fit:contain` 像素映射回控件树；旋转/尺寸变化使旧快照失效，重新查询层级树；允许编码分辨率下采样并按现有唯一点位引擎映射 UIA 原生尺寸。
 - **T35 代码已提交，待验证**：原屏右键不再主动退出全屏；Inspector 内查看脚本改为开启当前卡片脚本主浮窗；旧 ScriptLibrary 的步骤重新拾取导航回原卡片，确认有原视频后才能拾取，不自动抢占新会话。
 - **保留安全底座**：picker owner/device/fingerprint/session/generation、stepId、候选唯一性、截断处理、坐标确认、只读演示、脚本 CAS、Executor Journal 均未绕过或删除。
 - **未执行测试、编译、浏览器/真实手机验证（调试模式）**；T36～T39 执行器 Viewer/Action 租约分层尚待实现。旧试跑 modal 仍在，不能误判全自动化执行已闭环。

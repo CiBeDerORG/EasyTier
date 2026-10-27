@@ -319,5 +319,12 @@
 - 新增 `automation-inspector-overlay.ts` 类型合同和 `CardInspectorOverlay.vue`：根据主 `PhoneCard.primary-video` 实际宽高及含黑边的 contain 映射，只在原视频上显示选中控件范围、拖拽 A/B 起终点；捕获只读点击，绝不透传 Android 触控。
 - `PhoneCard.vue` 将 Inspector 浮窗作为同一视频宿主的子窗，根据 Center 传入 token、owner、设备、选择位置与候选操作类型来接收属性和动作配置；手控原视频和其它工具栏不重建。
 - `AutomationCenter.vue` 已撤下 global/body Inspector 模态，原屏右键操作不再调用 `document.exitFullscreen`；控件树依旧根据原先 picker binding/session generation + revision/stepId 规则判断 append 与 replace。Inspector “查看脚本浮窗”直接打开本机自动化面板，不再换 scripts Tab；旧脚本库 pick-target 则引导至当前手机原实时画面拾取，不再另开播放器。
-- 手机旋转或元数据尺寸变化后原快照失效，坐标兜底和拖拽必须新快照与主视频尺寸一致才能继续；UiAutomator2 截断、fingerprint 错误或已失效的点位严禁录入。
+- 手机旋转或元数据尺寸变化后原快照失效，坐标兜底和拖拽必须经过新快照时效、绑定与视频方向/宽高比校验；视频允许正常编码降采样，坐标步骤按 UIA 原生尺寸保存；UiAutomator2 截断、fingerprint 错误或已失效的点位严禁录入。
 - **未执行** TypeScript、lint、自动测试、构建、手动 CI、浏览器/安卓/FnOS 真机操作（调试模式）。待查：全屏/横屏下主画面高亮是否精确、触屏/键盘拖拽 A/B，4 步连录、重新拾取不新增步、旧脚本库跳转保护、切换账号和双浏览器防串台。代码改动需后续验证后才能标验收通过。
+
+### T33～T35 收尾修正：实际投屏缩放、快照时效与悬浮窗遮挡（未测试）
+- Inspector 的原画面点位继续调用既有 `matchPickerPoint()`：该算法已经处理编码视频（如 432×960）和 UiAutomator2 Android 原生截图（如 1080×2400）的等比例映射、绑定指纹、快照采集时间及控件碰撞；前端不再次重复转换像素。坐标步骤按 UIA 原生宽高和归一化点记录。
+- `CardInspectorOverlay` 将 UIA 原生控件矩形按比例映射回当前 WebRTC 编码视频的 SVG viewBox，保留 object-fit:contain 黑边及全屏原主画面，仅方向/比例不一致时阻断。并非要求编码/原生像素数完全相等。
+- 开始拖拽、点击 A/B、保存拖拽、坐标确认、录入或重拾步骤时都检查 snapshot.captured_at 的 20 秒有效期和目标指纹；过期先刷新，不向真实手机发任何动作。
+- 拖拽拾取模式下 Inspector 自动折叠较高的树/属性部分以露出原手机实时画面，允许拖动小浮窗再在原视频上点 A/B，不需要副视频。普通查看控件树时完整树/候选仍在子窗内。
+- **未执行**任何测试、构建或真实交互（调试模式）；后续仍须用至少两种不同视频编码尺寸、手机旋转和全屏来验证映射正确性与回归。
