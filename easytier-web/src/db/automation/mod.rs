@@ -249,6 +249,14 @@ impl AutomationStore {
         let busy:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_sessions WHERE (device_id=? OR target_key=?) AND state NOT IN ('closed','failed'))")
             .bind(device_id).bind(&key).fetch_one(&mut *tx).await?;
         if busy {return Err(conflict("device_busy","This device already has a viewing session or pending cleanup. Close it before opening another."));}
+        // T13: the reverse fence of create_run(). Both admissions use BEGIN
+        // IMMEDIATE so a competing page cannot open manual control after a
+        // script has been recorded for dispatch but before executor claim.
+        // Match by physical device OR ADB endpoint, including any tenant
+        // sharing that endpoint. Unknown outcomes retain the lease.
+        let running:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_run_devices WHERE (device_id=? OR target_key=?) AND cleanup_confirmed=0 AND state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending'))")
+            .bind(device_id).bind(&key).fetch_one(&mut *tx).await?;
+        if running {return Err(conflict("device_busy","The device has a running script or unconfirmed script cleanup; manual preview is unavailable."));}
         let id=Uuid::new_v4().to_string();let timestamp=now();
         sqlx::query("INSERT INTO automation_sessions(id,actor_user_id,owner_user_id,device_id,target_key,target_fingerprint,target_json,quality,state,created_at,updated_at,expires_at) VALUES(?,?,?,?,?,?,?,?,'opening',?,?,?)")
             .bind(&id).bind(actor).bind(owner).bind(device_id).bind(&key).bind(target["target_fingerprint"].as_str()).bind(target.to_string()).bind(quality).bind(&timestamp).bind(&timestamp).bind(deadline()).execute(&mut *tx).await?;
