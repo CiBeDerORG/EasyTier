@@ -52,7 +52,7 @@ interface PhoneHandle {
     cancelRestoreIntent(): void;
     send(message: AutomationControl): Promise<AutomationControlReply>;
     unlock(): Promise<{ unlock_state: string }>;
-    getState(): { phase: string; ready: boolean; width: number; height: number };
+    getState(): { phase: string; ready: boolean; viewerOnly?: boolean; width: number; height: number };
     getStream(): MediaStream | null;
     getSessionId(): string | null;
     cancelPointer(): void;
@@ -618,6 +618,11 @@ const visibleDevices = computed(() => {
 const visibleIds = computed(() => new Set(visibleDevices.value.map(device => device.id)));
 const liveCount = computed(() => Object.values(phases.value).filter(phase => phase === 'live').length);
 const globalTargets = computed(() => sync.value?.deviceIds ?? selectedIds.value);
+const globalManualBlocked = computed(() => globalTargets.value.some(id => {
+    const card = cards.get(id)?.getState();
+    const device = devices.value.find(item => item.id === id);
+    return !card?.ready || !!card.viewerOnly || !!device?.run_occupied;
+}));
 const recordingName = computed(() => deviceNames.value[recordingId.value ?? ''] ?? '');
 
 function setCard(id: string, value: unknown) {
@@ -1114,6 +1119,7 @@ function localAction(id: string, message: AutomationControl) {
 }
 function globalAction(message: AutomationControl) {
     const targets = [...globalTargets.value];
+    if (globalManualBlocked.value) { error.value = '所选手机含只读观看、脚本占用或控制未就绪设备，不能批量发送手控指令。'; return; }
     if (targets.some(id => unlockingIds.value.includes(id))) return;
     if (sync.value?.blocked.length) { error.value = `${t('targetsUnavailable')} ${sync.value.blocked.map(id => deviceNames.value[id] ?? id).join('、')}`; return; }
     void sendAction(targets, message);
@@ -1877,7 +1883,7 @@ onBeforeUnmount(() => { stopEvents?.();
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
                 <button v-if="globalOpen && !fullscreenActive" class="global-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="globalOpen = false" />
                 <div v-if="devices.length && !fullscreenActive" class="global-controls" @pointerdown.stop @click.stop @keydown.esc="globalOpen = false">
-                    <div v-if="globalOpen" class="global-actions" role="group" :aria-label="t('globalControl')"><span class="global-scope">{{ t('globalControl') }} · {{ t('targetCount', { count: globalTargets.length }) }}</span><Button icon="pi pi-arrow-left" rounded :title="t('back')" :aria-label="t('back')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'BACK' })" /><Button icon="pi pi-home" rounded :title="t('home')" :aria-label="t('home')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'HOME' })" /><Button icon="pi pi-clone" rounded :title="t('recent')" :aria-label="t('recent')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'RECENT' })" /><Button icon="pi pi-pencil" rounded :title="t('text')" :aria-label="t('text')" :disabled="!globalTargets.length" @click="showText([...globalTargets])" /><Button icon="pi pi-power-off" rounded :title="t('wake')" :aria-label="t('wake')" :disabled="!globalTargets.length" @click="globalAction({ type: 'key', key: 'WAKE' })" /><Button icon="pi pi-unlock" rounded severity="primary" :title="t('unlockPhone')" :aria-label="t('unlockPhone')" :loading="globalTargets.some(id => unlockingIds.includes(id))" :disabled="!globalTargets.length || !!sync || !!recordingId || globalTargets.some(id => unlockingIds.includes(id))" @click="unlockPhones([...globalTargets])" /><Button icon="pi pi-ban" rounded severity="secondary" :title="t('releaseManual')" :aria-label="t('releaseManual')" :disabled="!globalTargets.length || globalTargets.some(id => unlockingIds.includes(id))" @click="releaseManual([...globalTargets])" /><Button :icon="sync ? 'pi pi-stop-circle' : 'pi pi-share-alt'" rounded :severity="sync ? 'danger' : 'primary'" :title="t(sync ? 'stopSync' : 'sync')" :aria-label="t(sync ? 'stopSync' : 'sync')" @click="sync ? stopSync() : prepareSync()" /></div>
+                    <div v-if="globalOpen" class="global-actions" role="group" :aria-label="t('globalControl')"><span class="global-scope">{{ t('globalControl') }} · {{ t('targetCount', { count: globalTargets.length }) }}</span><Button icon="pi pi-arrow-left" rounded :title="t('back')" :aria-label="t('back')" :disabled="!globalTargets.length || globalManualBlocked" @click="globalAction({ type: 'key', key: 'BACK' })" /><Button icon="pi pi-home" rounded :title="t('home')" :aria-label="t('home')" :disabled="!globalTargets.length || globalManualBlocked" @click="globalAction({ type: 'key', key: 'HOME' })" /><Button icon="pi pi-clone" rounded :title="t('recent')" :aria-label="t('recent')" :disabled="!globalTargets.length || globalManualBlocked" @click="globalAction({ type: 'key', key: 'RECENT' })" /><Button icon="pi pi-pencil" rounded :title="t('text')" :aria-label="t('text')" :disabled="!globalTargets.length || globalManualBlocked" @click="showText([...globalTargets])" /><Button icon="pi pi-power-off" rounded :title="t('wake')" :aria-label="t('wake')" :disabled="!globalTargets.length || globalManualBlocked" @click="globalAction({ type: 'key', key: 'WAKE' })" /><Button icon="pi pi-unlock" rounded severity="primary" :title="t('unlockPhone')" :aria-label="t('unlockPhone')" :loading="globalTargets.some(id => unlockingIds.includes(id))" :disabled="!globalTargets.length || globalManualBlocked || !!sync || !!recordingId || globalTargets.some(id => unlockingIds.includes(id))" @click="unlockPhones([...globalTargets])" /><Button icon="pi pi-ban" rounded severity="secondary" :title="t('releaseManual')" :aria-label="t('releaseManual')" :disabled="!globalTargets.length || globalManualBlocked || globalTargets.some(id => unlockingIds.includes(id))" @click="releaseManual([...globalTargets])" /><Button :icon="sync ? 'pi pi-stop-circle' : 'pi pi-share-alt'" rounded :severity="sync ? 'danger' : 'primary'" :title="t(sync ? 'stopSync' : 'sync')" :aria-label="t(sync ? 'stopSync' : 'sync')"  :disabled="!sync && globalManualBlocked" @click="sync ? stopSync() : prepareSync()" /></div>
                     <Button class="global-orb" :icon="globalOpen ? 'pi pi-times' : 'pi pi-sliders-h'" rounded :aria-label="t('globalControl')" :aria-expanded="globalOpen" @click="globalOpen = !globalOpen" /><span class="target-badge" aria-hidden="true">{{ globalTargets.length }}</span>
                 </div>
             </div>
