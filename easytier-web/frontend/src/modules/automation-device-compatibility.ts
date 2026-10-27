@@ -32,7 +32,24 @@ export function reuseStepFingerprint(steps: AutomationStep[]): string {
 function validSize(n: number) {return Number.isInteger(n) && n > 0 && n <= 16384;}
 function absoluteGeometry(step: AutomationStep): boolean {
     return step.type === 'swipe' || step.type === 'drag'
-        || ((step.type === 'tap' || step.type === 'long_press') && !step.selector);
+        || ((step.type === 'tap' || step.type === 'long_press') &&
+            step.x !== undefined && step.y !== undefined);
+}
+/** Native keys and app launches need no heavy UiAutomator2 helper. */
+export function requiresReuseHierarchy(steps:AutomationStep[]):boolean {
+    return steps.some(step=>absoluteGeometry(step) || !!step.selector || !!step.scroll_container);
+}
+export function statelessCompatibility(
+    ownerId:number, device:AutomationDevice, steps:AutomationStep[],
+):DeviceCompatibilityReview {
+    if(ownerId<=0 || device.owner_user_id!==ownerId ||
+        !device.connection.enabled || !!device.availability_reason || !device.target_fingerprint)
+        throw new Error('目标手机没有有效的授权或 ADB 绑定。');
+    if(requiresReuseHierarchy(steps))
+        throw new Error('包含定位步骤，必须先读取本机最新控件快照。');
+    return {ownerId,deviceId:device.id,targetFingerprint:device.target_fingerprint,
+        capturedAt:new Date().toISOString(),viewport:{width:0,height:0},
+        status:'compatible',issues:[],stepFingerprint:reuseStepFingerprint(steps)};
 }
 function issue(step: AutomationStep, i: number, severity: CompatibilitySeverity, message: string): CompatibilityIssue {
     return {stepId:step.id,stepNumber:i+1,severity,message};
