@@ -19,6 +19,10 @@ import {
 import {
     initPreflightRow, probePreflightRow, requiresAutomationHelper, selectedReadyIds, type PreflightRow,
 } from '../../modules/automation-preflight';
+import {
+    reviewAutomationDeviceCompatibility, statelessCompatibility, requiresReuseHierarchy,
+    compatibilityStillCurrent, type DeviceCompatibilityReview,
+} from '../../modules/automation-device-compatibility';
 
 const props = defineProps<{
     ownerId: number;
@@ -87,6 +91,11 @@ const runParameters = ref<Record<string, string>>(Object.create(null));
 const pendingRun = ref<AutomationRunInput>();
 const uncertainRun = ref(false);
 const preflightRows = ref<PreflightRow[]>([]);
+const deviceReuseReviews = ref<Record<string,DeviceCompatibilityReview>>({});
+const reuseConsent = ref(false);
+const selectedReuseIssues = computed(() => eligibleRunDevices.value.flatMap(id =>
+    deviceReuseReviews.value[id]?.issues.filter(issue=>issue.severity==='confirm')
+        .map(issue=>({deviceId:id,...issue})) ?? []));
 const preflightRunning = ref(false);
 const preflightError = ref('');
 const previewId = ref<string | null>(null);
@@ -166,6 +175,7 @@ function selectPreflightDevice(id: string, checked: boolean) {
 async function checkRunPreflight() {
     if (!runVisible.value || pendingRun.value) return;
     const generation = ++preflightGeneration;
+    deviceReuseReviews.value={};reuseConsent.value=false;
     const owner = props.ownerId, scope = scopeRevision;
     const ids = [...shownRunDevices.value];
     if (!ids.length) {
@@ -218,8 +228,32 @@ async function checkRunPreflight() {
                         update({...row,state:'unavailable',selected:false,message:'设备绑定已变化，请重新打开试跑对话框。'});
                         continue;
                     }
-                    if (row.state === 'checking') update(await probePreflightRow(row,owner,requiresAutomationHelper(runSteps.value),api));
-                    else update(row);
+                    const probed=row.state==='checking'
+                        ? await probePreflightRow(row,owner,requiresAutomationHelper(runSteps.value),api) : row;
+                    if(!valid())return;
+                    if(probed.state==='ready' && latestDevice){
+                        try {
+                            const review=requiresReuseHierarchy(runSteps.value)
+                                ? reviewAutomationDeviceCompatibility(owner,latestDevice,
+                                    await api.hierarchy(owner,id),runSteps.value)
+                                : statelessCompatibility(owner,latestDevice,runSteps.value);
+                            if(!valid())return;
+                            if(review.status==='blocked'){
+                                update({...probed,state:'unavailable',selected:false,
+                                    message:'目标画面与脚本坐标不匹配：'+review.issues
+                                        .filter(item=>item.severity==='block')
+                                        .map(item=>'第'+item.stepNumber+'步').join('、')+'，请重新拾取。'});
+                                continue;
+                            }
+                            deviceReuseReviews.value={...deviceReuseReviews.value,[id]:review};
+                            update({...probed,message:review.status==='confirm'
+                                ? '连接就绪；定位与坐标需人工确认（详见下方）' : '连接与当前设备的只读核验通过'});
+                        }catch(cause){
+                            if(valid())update({...probed,state:'unavailable',selected:false,
+                                message:'跨机只读核验未通过：'+automationErrorMessage(cause)});
+                            continue;
+                        }
+                    }else update(probed);
                     if (id===ids[0] && own.stream) {
                         previewId.value=id; previewStream.value=own.stream;
                     }
@@ -245,11 +279,13 @@ watch(runTrialDevice, (next, previous) => {
     // to another target always requires a fresh explicit confirmation.
     if (runVisible.value && runMode.value === 'step' && next !== previous)
         stepTrialConsent.value = false;
+    if(next!==previous)reuseConsent.value=false;
 });
 watch([runVisible, runTrialDevice], ([visible], [wasVisible]) => {
     if (!visible) {
         preflightGeneration++;
         preflightRows.value = []; preflightRunning.value = false; preflightError.value = '';
+        deviceReuseReviews.value={};reuseConsent.value=false;
         previewId.value = null; previewStream.value = null;
         void props.releaseRunPreviews([],()=>{}).catch(()=>{ /* next submission still checks server cleanup */ });
         return;
@@ -713,6 +749,18 @@ async function submitRun() {
             return;
         }
         const ids = eligibleRunDevices.value;
+        const stale=ids.find(id=>{
+            const device=props.runDeviceSnapshots.find(item=>item.id===id);
+            return !device || !compatibilityStillCurrent(
+                deviceReuseReviews.value[id]??null,props.ownerId,device,runSteps.value);
+        });
+        if(stale){
+            runError.value='设备核验已过期、步骤或绑定已改变，请重新检查：'+(props.deviceNames?.[stale]??stale);
+            return;
+        }
+        if(selectedReuseIssues.value.length && !reuseConsent.value){
+            runError.value='当前脚本存在跨机定位或坐标风险，请在执行前明确勾选确认。';return;
+        }
         if (runMode.value === 'step' && ids.length !== 1) {
             runError.value = text('单步骤试跑必须且只能选择一台通过预检的手机。',
                 'Single-step trials require exactly one ready device.');
@@ -764,6 +812,15 @@ async function submitRun() {
             if (!device || device.target_fingerprint !== runFingerprints.value[id] ||
                 device.availability_reason || device.active_session || device.run_occupied)
                 throw new Error('设备会话尚未移交或绑定状态已改变，请重新检查该手机：'+(device?.name || id));
+            const review=requiresReuseHierarchy(runSteps.value)
+                ? reviewAutomationDeviceCompatibility(owner,device,
+                    await api.hierarchy(owner,id),runSteps.value)
+                : statelessCompatibility(owner,device,runSteps.value);
+            if(review.status==='blocked' ||
+                JSON.stringify(review.issues)!==JSON.stringify(deviceReuseReviews.value[id]?.issues))
+                throw new Error('手机定位/画面兼容性已改变，请重新核对后试跑：'+(device?.name||id));
+            if(review.status==='confirm' && !reuseConsent.value)
+                throw new Error('尚未确认跨手机定位风险：'+(device?.name||id));
         }
         previewId.value=null; previewStream.value=null;
         runError.value='';
@@ -795,6 +852,7 @@ watch(() => props.ownerId, () => {
     stepTrialSource.value = null; stepTrialConsent.value = false;
     preflightGeneration++; preflightRows.value = []; preflightRunning.value = false; preflightError.value = '';
     runFingerprints.value = {};
+    deviceReuseReviews.value={};reuseConsent.value=false;
     if (props.draft.ownerId !== props.ownerId) {
         Object.assign(props.draft, emptyAutomationDraft(props.ownerId));
     }
@@ -1035,6 +1093,18 @@ watch(() => props.repairRequest, request => {
                             <Tag :value="preflightLabels[row.state]" :severity="preflightSeverity(row.state)" />
                         </li>
                     </ul>
+                    <p v-if="selectedReuseIssues.length" class="muted" role="status">
+                        {{ text('跨手机复用存在需要核对的定位/坐标条件：',
+                            'Cross-device reuse needs explicit locator/coordinate review:') }}
+                        <span v-for="item in selectedReuseIssues.slice(0,8)" :key="item.deviceId+item.stepId+item.message">
+                            {{ deviceNames?.[item.deviceId]||item.deviceId }} · {{ item.stepNumber }}：{{ item.message }}
+                        </span>
+                    </p>
+                    <label v-if="selectedReuseIssues.length" class="single-step-consent">
+                        <Checkbox v-model="reuseConsent" binary :disabled="runSubmitting || !!pendingRun"/>
+                        <strong>{{ text('我已人工核对所选手机的定位和画面布局；此确认仅针对本次执行。',
+                            'I reviewed the target phone layouts and locators. Approval applies to this run only.') }}</strong>
+                    </label>
                     <p class="muted">
                         {{ text(`已选 ${eligibleRunDevices.length} 台可执行设备 / ${preflightRows.length} 台目标设备`,
                             `${eligibleRunDevices.length} ready devices selected / ${preflightRows.length} targets`) }}
@@ -1048,7 +1118,9 @@ watch(() => props.repairRequest, request => {
                 <p v-if="runError" class="error-message" role="alert">{{ runError }}</p>
             </div>
             <template #footer><Button :label="text('关闭', 'Close')" text :disabled="runSubmitting" @click="runVisible = false" /><Button :label="uncertainRun ? text('重试同一请求', 'Retry same request') : text('确认运行', 'Start run')" icon="pi pi-play" :loading="runSubmitting"
-                :disabled="!pendingRun && (!preflightFinished || !eligibleRunDevices.length || (trialRequiresConsent && !stepTrialConsent))"
+                :disabled="!pendingRun && (!preflightFinished || !eligibleRunDevices.length ||
+                    (trialRequiresConsent && !stepTrialConsent) ||
+                    (selectedReuseIssues.length>0 && !reuseConsent))"
                 @click="submitRun" /></template>
         </Dialog>
     </section>
