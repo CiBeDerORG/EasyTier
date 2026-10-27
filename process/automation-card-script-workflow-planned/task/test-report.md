@@ -61,3 +61,10 @@
 - 状态：对照脚本库 baseline 只显示「草稿未保存 / 有未保存修改 / 已保存修订」，当前无后台草稿同步功能，绝不提示「云端同步成功」。离开当前页面时未正式保存的数据仍可能丢失，交 T10/T11。
 - 已知遗留：T08 原卡片内编辑及重新拾取、T09 定位演示尚未开发；同机型实际右键连续4步与手机浏览器展示需阶段联调。
 - **未执行**：本地单测、类型检查、lint、构建、FnOS/Android/浏览器实际操作（遵循调试模式）；仅推送触发原有自动 CI，结果另行核实。
+
+## 2026-10-27 · T07 集成期修正既有 CI 编译阻断
+
+- 核查先前 T06 push 对应 GitHub Actions `40458883740`：Web 资产阶段 `vue-tsc` 因 `UiInspectorDialog.vue(489): TS2345` 失败，详情为子组件缺少 `suggestedXPath` 必填属性。
+- 原因：T05 属性面板拆分后，父组件使用 Vue 自动解析的 `suggested-xpath`（对应 `suggestedXpath`），子组件却声明驼峰缩写 `suggestedXPath`，TypeScript 严格组件入参校验不匹配。
+- 修复：`InspectorPropertiesPanel.vue` 统一使用 `suggestedXpath` props 及插值，与父组件既有绑定匹配；不改变 XPath 构造逻辑或控件定位条件。
+- **未执行**本地测试、类型检查、构建、手工 Actions/CI；只对已有 Actions 失败日志做复盘，最终结果以后续 push 自动 CI 为准。

@@ -27,7 +27,7 @@ const props = defineProps<{
     coordinateConfirmed: boolean;
     coordinatesAllowed: boolean;
     confirmedLocator: AutomationSelector | null;
-    suggestedXPath: string;
+    suggestedXpath: string;
     snapshotTruncated: boolean;
     canAdd: boolean;
     canReplace: boolean;
@@ -125,7 +125,7 @@ function title(node: AutomationHierarchyNode) {
                                 outlined size="small" :disabled="!coordinatesAllowed || coordinateConfirmed" @click="emit('confirm-coordinates')" />
                         </div>
                         <p v-else-if="mode === 'composite'" class="hint">已确认的唯一组合条件：{{ JSON.stringify(confirmedLocator ?? {}) }}</p>
-                        <p v-else-if="mode === 'xpath'" class="hint"><code>{{ suggestedXPath }}</code></p>
+                        <p v-else-if="mode === 'xpath'" class="hint"><code>{{ suggestedXpath }}</code></p>
                         <div v-if="replaceStep" class="step-actions">
                             <Button label="更新当前步骤控件" icon="pi pi-check" size="small"
                                 :disabled="!canReplace" @click="emit('replace-target')" />
