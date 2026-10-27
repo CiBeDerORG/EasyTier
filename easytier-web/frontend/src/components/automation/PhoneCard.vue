@@ -62,7 +62,8 @@ const emit = defineEmits<{
     'script-refresh': [deviceId: string];
     'script-action': [action: AutomationScriptAction];
     'step-edit': [deviceId: string, stepId: string];
-    'step-delete': [deviceId: string, requestedId: string, expectedFingerprint: string, confirmedTargetId: string];
+    'step-delete': [deviceId: string, requestedId: string, expectedFingerprint: string, confirmedTargetId: string,
+        ownerId: number, scriptId: string | null, scriptRevision: number | null];
     'step-undo': [deviceId: string];
     'step-close': [deviceId: string]; 'step-save': [deviceId: string, stepId: string, expected: AutomationStep, updated: AutomationStep];
     'step-repick': [deviceId: string, stepId: string]; 'step-dirty': [deviceId: string, dirty: boolean];
@@ -151,7 +152,8 @@ const menuOpen = ref(false);
 const automationPanelOpen = ref(false);
 const cloneSourceId = ref<string | null>(null);
 const pendingScriptAction = ref<AutomationScriptAction | null>(null);
-const pendingStepDeletion = ref<AutomationStepDeletion | null>(null);
+const pendingStepDeletion = ref<{ plan: AutomationStepDeletion; ownerId: number;
+    scriptId: string | null; scriptRevision: number | null } | null>(null);
 const stepDeleteError = ref('');
 const stepEditorDialog = ref<InstanceType<typeof AutomationFloatingDialog> | null>(null);
 function requestStepDeletion(stepId: string) {
@@ -161,12 +163,19 @@ function requestStepDeletion(stepId: string) {
         stepDeleteError.value='当前条件结构不完整，不能安全删除；请先修复条件结构。';
         return;
     }
-    if(plan.requiresConfirmation)pendingStepDeletion.value=plan;
-    else emit('step-delete',props.device.id,plan.requestedId,plan.fingerprint,plan.targetId);
+    const context={ plan, ownerId: props.ownerId,
+        scriptId: props.draft.editingId ?? null,
+        scriptRevision: props.draft.revision ?? null };
+    if(plan.requiresConfirmation)pendingStepDeletion.value=context;
+    else emit('step-delete',props.device.id,plan.requestedId,plan.fingerprint,plan.targetId,
+        context.ownerId,context.scriptId,context.scriptRevision);
 }
 function confirmStepDeletion(plan: AutomationStepDeletion) {
+    const context=pendingStepDeletion.value;
     pendingStepDeletion.value=null;
-    emit('step-delete',props.device.id,plan.requestedId,plan.fingerprint,plan.targetId);
+    if(!context || context.plan!==plan)return;
+    emit('step-delete',props.device.id,plan.requestedId,plan.fingerprint,plan.targetId,
+        context.ownerId,context.scriptId,context.scriptRevision);
 }
 function requestEditorClose() { stepEditorDialog.value?.requestClose(); }
 function finishEditorClose(reason: 'normal' | 'discard') {
@@ -711,7 +720,7 @@ onBeforeUnmount(() => {
                 :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
                 :guard="effectiveScriptGuard" :busy="!!scriptsBusy"
                 @cancel="pendingScriptAction=null" @decide="decideScriptSwitch" />
-            <AutomationConditionDeleteDialog :plan="pendingStepDeletion"
+            <AutomationConditionDeleteDialog :plan="pendingStepDeletion?.plan ?? null"
                 :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
                 @cancel="pendingStepDeletion=null" @confirm="confirmStepDeletion" />
             <AutomationFloatingDialog v-if="editingStep" ref="stepEditorDialog"
