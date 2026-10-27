@@ -844,6 +844,7 @@ onBeforeUnmount(() => {
             <CardRepairEntry v-if="repairContext && repairStep" :repair="repairContext"
                 :step="repairStep" :step-number="repairStepNumber"
                 :editing="!!editingStepId" :runner-available="runnerAvailable"
+                :saved="effectiveScriptGuard === 'clean'"
                 :blocked="!!syncRole || recording || !!unlocking"
                 @edit="emit('step-edit',device.id,$event)"
                 @repick="emit('repair-repick',device.id,$event)"
