@@ -20,7 +20,7 @@ import RunHistory from './automation/RunHistory.vue';
 import ExecutorSettings from './automation/ExecutorSettings.vue';
 import { automationMessages } from './automation/messages';
 import { analyzeAutomationFlow } from '../modules/automation-flow';
-import { appendAutomationDraftSteps, emptyAutomationDraft } from '../modules/automation-draft';
+import { appendAutomationDraftSteps, appendPickedAutomationStep, emptyAutomationDraft } from '../modules/automation-draft';
 import {
     beginPicker, readyPicker, stopPicker, setPickerIntent, invalidatePickerSnapshot,
     pickerMatches, pickerCanApply,
@@ -173,6 +173,17 @@ const pickerPoints = reactive<Record<string, {
     point: PickerVideoPoint; generation: number; snapshotGeneration: number;
     action: PickerMenuAction;
 }>>({});
+// Immutable acceptance scope captured when ONE Inspector is opened. No
+// event may reconstruct its token from the live picker state at submit time.
+interface InspectorAppendScope {
+    token: number;
+    deviceId: string;
+    binding: PickerBinding;
+    generation: number;
+    snapshotGeneration: number;
+    submitted: boolean;
+}
+const inspectorAppendScope = ref<InspectorAppendScope | null>(null);
 let pickerEpoch = 0;
 function pickerBinding(id: string): PickerBinding | null {
     const device = devices.value.find(item => item.id === id);
@@ -260,9 +271,24 @@ async function onCardPickAction(id: string, point: PickerVideoPoint, action: Pic
         catch { error.value = '无法退出全屏显示控件属性窗口，请手动退出全屏。'; return; }
     }
     if (!valid()) return;
-    inspectorOpenGeneration.value += 1;
+    const token = ++inspectorOpenGeneration.value;
+    inspectorAppendScope.value = null;
     openInspector(id);
     if (inspectorDeviceId.value !== id) return;
+    // Fullscreen exit, opening the dialog and further ADB callbacks may
+    // invalidate the captured picker; never silently bind a new session.
+    if (!valid()) { closeInspector(); return; }
+    const captured = pickerPoints[id];
+    if (!captured || captured.generation !== current.generation ||
+        captured.snapshotGeneration !== current.snapshotGeneration) {
+        closeInspector();
+        error.value = '拾取目标已变化，请在手机画面上重新右键选择。';
+        return;
+    }
+    inspectorAppendScope.value = {
+        token, deviceId: id, binding: { ...binding }, generation: current.generation,
+        snapshotGeneration: current.snapshotGeneration, submitted: false,
+    };
     const labels: Partial<Record<PickerMenuAction,string>> = {
         tap:'点击', long_press:'长按', input_text:'输入文字', wait_for:'等待出现',
         wait_gone:'等待消失', assert:'检查控件', assert_property:'属性断言',
@@ -990,6 +1016,8 @@ function openScriptInspector(stepId: string, stepType: AutomationStepType, devic
         error.value = '无法拾取：步骤或手机配置已变化。请先确认该手机已启用 ADB 服务。';
         return;
     }
+    ++inspectorOpenGeneration.value;
+    inspectorAppendScope.value = null;
     inspectorEditScope.value = {
         ownerId: ownerId.value, stepId, stepType, targetFingerprint: device.target_fingerprint,
         editingId: draftWorkspace.editingId, revision: draftWorkspace.revision,
@@ -1000,6 +1028,9 @@ function openScriptInspector(stepId: string, stepType: AutomationStepType, devic
     inspectorStream.value = null;
 }
 function closeInspector() {
+    const id = inspectorDeviceId.value;
+    if (id) delete pickerPoints[id];
+    inspectorAppendScope.value = null;
     inspectorDeviceId.value = null;
     inspectorStream.value = null;
     inspectorEditScope.value = null;
@@ -1027,26 +1058,38 @@ function replaceInspectorTarget(stepId: string, target: StepTarget) {
     closeInspector();
     notice.value = '已重新绑定当前步骤控件；动作参数和步骤编号保持不变。请先单机试跑。';
 }
-function addInspectorStep(step: AutomationStep) {
-    if (inspectorEditScope.value) return; // replacement mode can never append
-    // The old Inspector still supports adding steps; reject stale results
-    // after a card reconnect, account switch, script change or geometry reset.
-    if (inspectorStream.value && inspectorDeviceId.value) {
-        const current = pickerContexts[inspectorDeviceId.value];
-        const binding = pickerBinding(inspectorDeviceId.value);
-        if (!current || !binding || !pickerCanApply(
-            current, binding, current.generation, current.snapshotGeneration, {kind:'append'},
-        )) {
-            error.value = '拾取会话或脚本上下文已经变化，未追加步骤；请重新拾取。';
-            closeInspector();
-            return;
-        }
-    }
-    if (!appendAutomationDraftSteps(draftWorkspace, ownerId.value, [step], uuid)) {
-        error.value = '无法添加控件：草稿超过 100 步或分支结构无效，请先在脚本库处理。';
+function addInspectorStep(step: AutomationStep, token: number, acknowledge: (accepted: boolean) => void) {
+    const scope = inspectorAppendScope.value;
+    if (!scope || scope.token !== token || scope.submitted ||
+        scope.deviceId !== inspectorDeviceId.value || inspectorEditScope.value ||
+        tab.value !== 'workbench') {
+        acknowledge(false); // late/duplicate submit must never affect a newer Inspector
         return;
     }
-    notice.value = '控件步骤已加入当前脚本草稿。';
+    const active = pickerContexts[scope.deviceId];
+    const binding = pickerBinding(scope.deviceId);
+    const click = pickerPoints[scope.deviceId];
+    if (!active || !binding || !pickerMatches(active, scope.binding) ||
+        !pickerCanApply(active, binding, scope.generation, scope.snapshotGeneration, {kind:'append'}) ||
+        !click || click.generation !== scope.generation ||
+        click.snapshotGeneration !== scope.snapshotGeneration) {
+        acknowledge(false);
+        error.value = '本次拾取对应的设备、画面或脚本已经变化，未录入步骤；请重新右键拾取。';
+        closeInspector();
+        return;
+    }
+    if (!appendPickedAutomationStep(draftWorkspace, scope.binding.ownerId, step, uuid)) {
+        acknowledge(false);
+        error.value = '无法录入：步骤重复、脚本超过 100 步或分支结构无效。请检查草稿后重新确认。';
+        return;
+    }
+    // Consume this opening token BEFORE the Vue dialog is torn down; a
+    // double click or late event cannot append a second copy of this step.
+    scope.submitted = true;
+    acknowledge(true);
+    const index = draftWorkspace.steps.findIndex(item => item.id === step.id);
+    closeInspector(); // closes only the modal; leaves live video + picker ON
+    notice.value = `已录入第 ${index + 1} 步 · ${step.type}。手机拾取仍开启，可继续在画面上右键添加下一步。`;
 }
 function editInspectorDraft() {
     closeInspector();
@@ -1215,7 +1258,7 @@ onBeforeUnmount(() => { stopEvents?.();
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
-        <UiInspectorDialog v-if="inspectorDevice" :key="inspectorOpenGeneration" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" :replace-step="inspectorReplaceStep" :initial-point="inspectorInitialPoint" :preferred-action="inspectorPreferredAction"
+        <UiInspectorDialog v-if="inspectorDevice" :key="inspectorOpenGeneration" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" :replace-step="inspectorReplaceStep" :initial-point="inspectorInitialPoint" :preferred-action="inspectorPreferredAction" :commit-token="inspectorOpenGeneration"
             @close="closeInspector" @add-step="addInspectorStep" @replace-target="replaceInspectorTarget" @edit="editInspectorDraft" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
         <Dialog :visible="!!gestureConfirmation" :appendTo="textDialogTarget" modal

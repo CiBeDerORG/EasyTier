@@ -20,6 +20,19 @@ export function emptyAutomationDraft(ownerId: number): AutomationDraftWorkspace 
     };
 }
 
+/**
+ * A picked UI step may only be inserted once by its generated step ID.
+ * The general recording importer is intentionally allowed to re-key IDs;
+ * the inspector path must not: retries/double events are NOT new steps.
+ */
+export function appendPickedAutomationStep(
+    draft: AutomationDraftWorkspace, ownerId: number,
+    step: AutomationStep, newId: () => string,
+): boolean {
+    return !!step.id && !draft.steps.some(existing => existing.id === step.id)
+        && appendAutomationDraftSteps(draft, ownerId, [step], newId);
+}
+
 /** Both recording and inspector append into one per-owner workspace. */
 export function appendAutomationDraftSteps(
     draft: AutomationDraftWorkspace, ownerId: number, incoming: AutomationStep[],

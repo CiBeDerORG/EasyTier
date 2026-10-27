@@ -18,9 +18,11 @@ const props = defineProps<{
     /** Original card's right-click position. Null keeps the legacy manual picker. */
     initialPoint?: PickerVideoPoint | null;
     preferredAction?: InspectorAction | null;
+    /** Unique token for the dialog opening; prevents stale/double commits. */
+    commitToken: number;
 }>();
 const emit = defineEmits<{
-    close: []; 'add-step': [step: AutomationStep]; edit: [];
+    close: []; 'add-step': [step: AutomationStep, token: number, acknowledge: (accepted: boolean) => void]; edit: [];
     'replace-target': [stepId: string, target: StepTarget];
 }>();
 const api = new AutomationApi();
@@ -33,6 +35,17 @@ const search = ref('');
 type LocatorMode = 'resource_id' | 'text' | 'description' | 'composite' | 'xpath' | 'coordinates';
 const mode = ref<LocatorMode>('resource_id');
 const loading = ref(false);
+const committing = ref(false);
+function submitStep(step: AutomationStep) {
+    if (committing.value) return;
+    committing.value = true;
+    emit('add-step', step, props.commitToken, accepted => {
+        if (!accepted) {
+            committing.value = false;
+            feedback.value = '步骤未录入：请查看错误信息，确认后可以重试。';
+        }
+    });
+}
 const error = ref('');
 const feedback = ref('');
 const videoSize = ref({ width: 0, height: 0 });
@@ -213,7 +226,7 @@ const modeOptions = computed(() => {
     return choices;
 });
 const activeMode = computed(() => modeOptions.value.find(item => item.value === mode.value));
-const canAdd = computed(() => !props.replaceStep && !!selected.value
+const canAdd = computed(() => !props.replaceStep && !committing.value && !!selected.value
     && !!snapshot.value && !snapshot.value.truncated
     && response.value?.target_fingerprint === props.device.target_fingerprint
     && (mode.value === 'coordinates' ? coordinatesAllowed.value && coordinateConfirmed.value : !!confirmedLocator.value)
@@ -304,14 +317,14 @@ function cancelDragPick() {
     feedback.value = '';
 }
 function saveDrag() {
-    if (!dragReady.value || !snapshot.value || !dragStart.value || !dragEnd.value || props.queuedCount >= 100) return;
-    emit('add-step', {
+    if (committing.value || !dragReady.value || !snapshot.value || !dragStart.value || !dragEnd.value || props.queuedCount >= 100) return;
+    submitStep({
         id: uuid(), type: 'drag',
         x: dragStart.value.x, y: dragStart.value.y, to_x: dragEnd.value.x, to_y: dragEnd.value.y,
         width: snapshot.value.width, height: snapshot.value.height, duration_ms: 700,
     });
-    cancelDragPick();
-    feedback.value = '已添加拖拽步骤到草稿；可在脚本库调整持续时间，执行前先单机试跑。';
+    // The parent closes this dialog only after a confirmed append. If
+    // rejected, keep both drag points for a retry instead of claiming success.
 }
 function pick(event: MouseEvent) {
     if (!surface.value || !snapshot.value || !compatibleVideo.value) return;
@@ -401,12 +414,11 @@ function add(type: InspectorAction) {
         step.timeout_ms = 20000;
     }
     if (type === 'input_text') step.parameter = 'picked_' + uuid().slice(0, 8);
-    emit('add-step', step);
-    feedback.value = '已添加到脚本草稿：' + ({ tap: '点击', long_press: '长按', wait_for: '等待控件', wait_gone: '等待消失', assert: '检查控件',
-        assert_property: '断言属性', scroll_find: '滚动查找', input_text: '输入文字' }[type]);
+    submitStep(step);
 }
 watch([() => props.visible, () => props.device.id, () => props.device.target_fingerprint, () => props.ownerId], async () => {
     ++requestGeneration;
+    committing.value = false;
     initialPointUsed = false;
     response.value = null; selectedId.value = null; selectedCandidate.value = null;
     coordinateConfirmed.value = false; collapsedIds.value = []; loading.value = false;
@@ -472,7 +484,9 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                         <Button v-if="dragPickMode" label="取消" text size="small" @click="cancelDragPick" />
                     </div>
                     <small v-if="dragPickMode" class="hint">A 为起点，B 为终点；至少相距 16 像素。仅添加草稿，不会立即拖动手机。</small>
-                    <small v-if="snapshot && !                <InspectorPropertiesPanel
+                    <small v-if="snapshot && !compatibleVideo" class="hint">画面尺寸或方向与控件树不一致，请确认投屏已加载或旋转完毕，再刷新控件树。</small>
+                </section>
+                <InspectorPropertiesPanel
                     :selected="selected" :selected-id="selectedId" :visible-nodes="visibleNodes"
                     :node-count="snapshot?.nodes.length ?? 0" :snapshot-loaded="!!snapshot" :parent-ids="parentIds"
                     :collapsed-ids="collapsedIds" :search="search" :loading="loading"
