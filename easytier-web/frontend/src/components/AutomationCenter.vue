@@ -1364,9 +1364,13 @@ const deletedStepUndoLabel = computed(() => {
 });
 function deleteCardDraftStep(
     deviceId:string,stepId:string,expectedFingerprint:string,confirmedTargetId:string,
+    expectedOwner:number,expectedScriptId:string|null,expectedScriptRevision:number|null,
 ) {
     const device=devices.value.find(item=>item.id===deviceId);
-    if(!canAccessAutomationCard(ownerId.value,deviceId,device,draftWorkspace) ||
+    if(ownerId.value!==expectedOwner ||
+        (draftWorkspace.editingId??null)!==expectedScriptId ||
+        (draftWorkspace.revision??null)!==expectedScriptRevision ||
+        !canAccessAutomationCard(ownerId.value,deviceId,device,draftWorkspace) ||
         !draftSyncState.initialized || draftSyncState.ownerId!==ownerId.value ||
         draftSyncState.phase==='loading' || draftSyncState.phase==='conflict') {
         error.value='当前手机或草稿修订状态不可用，未删除步骤。';return;
