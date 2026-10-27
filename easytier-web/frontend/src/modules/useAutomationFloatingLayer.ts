@@ -19,11 +19,16 @@ const EDGE = 8;
 const NORMAL_POSITION = { x: 12, y: 44 } as const;
 const FULLSCREEN_TOP = 44;
 
-export function useAutomationFloatingLayer(fullscreen: Readonly<Ref<boolean>>) {
+export interface AutomationFloatingLayerOptions {
+    /** A child dialog starts offset from its parent rather than obscuring its title. */
+    normalStart?: AutomationFloatingPoint;
+    fullscreenTop?: number;
+}
+export function useAutomationFloatingLayer(fullscreen: Readonly<Ref<boolean>>, options: AutomationFloatingLayerOptions = {}) {
     const host = ref<HTMLElement | null>(null);
     const panel = ref<HTMLElement | null>(null);
-    const normalPosition = ref<AutomationFloatingPoint>({ ...NORMAL_POSITION });
-    const fullscreenPosition = ref<AutomationFloatingPoint>({ x: EDGE, y: FULLSCREEN_TOP });
+    const normalPosition = ref<AutomationFloatingPoint>({ ...(options.normalStart ?? NORMAL_POSITION) });
+    const fullscreenPosition = ref<AutomationFloatingPoint>({ x: EDGE, y: options.fullscreenTop ?? FULLSCREEN_TOP });
     const position = computed<AutomationFloatingPoint>({
         get: () => fullscreen.value ? fullscreenPosition.value : normalPosition.value,
         set: value => {
@@ -99,7 +104,7 @@ export function useAutomationFloatingLayer(fullscreen: Readonly<Ref<boolean>>) {
         if (enabled && !fullscreenPlaced && host.value && panel.value) {
             fullscreenPosition.value = {
                 x: Math.max(EDGE, host.value.clientWidth - panel.value.offsetWidth - 12),
-                y: FULLSCREEN_TOP,
+                y: options.fullscreenTop ?? FULLSCREEN_TOP,
             };
             fullscreenPlaced = true;
         }
@@ -119,9 +124,14 @@ export function useAutomationFloatingLayer(fullscreen: Readonly<Ref<boolean>>) {
         window.removeEventListener('orientationchange', constrain);
         document.removeEventListener('fullscreenchange', constrain);
     });
+    /** Keyboard movement uses the same boundary constraints as pointer dragging. */
+    function moveBy(dx: number, dy: number): void {
+        position.value = { x: position.value.x + dx, y: position.value.y + dy };
+        constrain();
+    }
     const style = computed<CSSProperties>(() => ({
         left: `${position.value.x}px`,
         top: `${position.value.y}px`,
     }));
-    return { host, panel, position, style, constrain, pointerDown, pointerMove, pointerEnd };
+    return { host, panel, position, style, constrain, moveBy, pointerDown, pointerMove, pointerEnd };
 }

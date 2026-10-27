@@ -1,6 +1,6 @@
 # T24 · 统一可拖动子窗、焦点与关闭保护
 
-> 状态：**待开发**；阶段：P08；难度：M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
+> 状态：**子浮窗公共组件已提交；待业务接线与浏览器验证**；阶段：P08；难度：M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
 
 ## 唯一写入责任
 - 负责人：**浮窗 Agent**。
@@ -13,12 +13,14 @@
 3. 支持内容滚动/焦点返回/键盘/拖动误触隔离，全屏挂入同一安全宿主。
 
 ## 完成判定
-- [ ] 双层主/子窗均可拖动与编辑，子窗不会越出当前可用视口。
-- [ ] dirty 编辑关闭使用原未保存保护，不丢参数。
-- [ ] 交接时提供修改文件、API/event 契约、已知风险、待联调场景；仅代码提交不等于真机验收。
+- [ ] 主窗、子窗支持位移和边界约束的代码已实现，**待普通/全屏真实浏览器验证**。
+- [ ] 子窗已实现 dirty 关闭保护界面，实际草稿编辑/保存接线须等待 T32；真实未保存回归仍未做。
+- [x] 已交付组件 API、host 约束、Escape/焦点/脏编辑契约；后续集成方必须处理 `@close="reason => ..."` 的 discard 数据清理。
 
 ## 禁止与风险
 本任务不重新实现 ScriptStepEditor 或脚本数据，子窗只作承载层。
 
 ## 交接/验证状态
-- 未开始、未实施、未测试；当前仓库调试模式未经后续授权不执行本地测试、构建或手动 CI。
+- 新增 `AutomationFloatingDialog.vue` 与 `automation-floating-dialog-stack.ts`，扩展 `useAutomationFloatingLayer.ts` 支持子窗独立初始位置/键盘移动；不修改 Rust、Executor 或 WebRTC。
+- **子窗仅为公共基础设施**，尚未替换步骤编辑、克隆和删除条件窗口，不宣称 UI 业务闭环。
+- **未执行**单测、TS 检查、lint、构建、手动 CI、浏览器/安卓真机（当前调试模式）。

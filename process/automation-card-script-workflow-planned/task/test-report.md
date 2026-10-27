@@ -283,3 +283,11 @@
 - 同一 `phone-screen` 下预留 `automationSubwindowHost` DOM 目标（无子视频、无脚本数据），T24 可将可拖子编辑窗 Teleport 到此元素；主面板 9、展开菜单 12、子窗口宿主 13 层，悬浮菜单开启时应不被主窗遮挡。
 - **实际改动限 3 个前端文件 + 本任务、看板/测试记录**；没有实现 T24 子窗、脚本编辑、运行权限、批量执行、只读 lease；也未修改任何 Rust/Executor 代码。
 - **未执行**单元测试、TS/类型检查、lint、构建、手动 CI、浏览器/Android 真机验证（调试模式）。待验收：普通/全屏来回至少三次、关闭/打开浮窗位置保持、旋转与横屏低高度所有按钮可访问、键盘输入/滚动/拖动不会穿透手机触控、现有视频 session 未重建。
+
+## 2026-10-27 · T24 可拖动内部编辑子浮窗公共底座（调试模式）
+- 新增 `components/automation/AutomationFloatingDialog.vue`：受控 `visible/portalTarget/fullscreen/title/dirty/closable`，内容和 Footer 插槽、标题栏指针拖动+键盘方向键移动、内容可滚动，支持标题栏关闭与仅当前最前景焦点窗口 Esc 关闭。
+- 新增 `modules/automation-floating-dialog-stack.ts`：只有子窗口排序，不管理脚本/参数/视频/运行权限；多窗点击前置，Esc 只选前置窗。
+- 扩展 `modules/useAutomationFloatingLayer.ts`：允许子窗口配置正常/全屏初始坐标，增加通过同一 clamp 的键盘位置移动；主窗无参数调用继续保持现状。
+- 子窗通过 Teleport **仅渲染到同一 PhoneCard 的 `automationSubwindowHost`**，不挂 document.body，不建立第二视频/脚本状态/动作 lease。未确认数据 `dirty` 关闭时先在浮窗内询问“继续编辑/放弃修改”，只有用户明确选择后发 `close('discard')`，调用方负责清空未确认字段。
+- **本任务只实现公共窗口**，当前旧 `CardStepEditor`、克隆/条件/运行弹窗还未搬进去，下一步 T25 空脚本后端和后续脚本/步骤任务才能使用窗口。
+- **未执行** TypeScript、lint、单元测试、构建、手动 CI 或实机/浏览器验证（当前调试模式）。待验：两子窗的层级和 Esc、全屏转场窗口位置、手机原画面触控是否隔离、dirty 父层处理。

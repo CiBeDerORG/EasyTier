@@ -54,6 +54,11 @@
 - 自动准备、UiAutomator2 与实际试跑期间保留原手机实时画面并观察效果：拟拆分只读视频观看权与独占动作控制权（当前自研 Journal.claim 互斥包含手控/准备/脚本，需要前端+Rust+Executor协同）。
 - 产品/技术详情及 UX-01～UX-07 任务建议见 `../require/require-04-single-screen-observable-trial.md`；**未实现，未测试**。
 
+## T24 统一可拖拽子浮窗组件交付（2026-10-27）
+- **T24 公共组件已提交，业务编辑未迁移**：新增 `AutomationFloatingDialog.vue`，支持插槽内容、可移动标题栏、受控开关、非模态层级与按窗口顺序的 Esc 行为、焦点返回和未保存编辑二次确认。
+- 子窗通过 `portalTarget` 指向原 `PhoneCard.getAutomationSubwindowHost()`，全屏仍在原 `phone-screen` 内；不给 document.body 任何回退；单纯关闭不执行手机命令、不清空草稿或停止运行。
+- T27 克隆命名、T31 条件安全删除、T32 步骤编辑、T40 运行参数可复用该容器。未保存参数的真实保存/撤销需后续业务调用方接线，**尚未测试/构建/真机验证**。
+
 ## T23 同一主画面的全屏浮窗承载已提交（2026-10-27）
 - **T23 代码已提交，待真实全屏/旋转验证**：主面板使用普通/全屏两套位置，切换不销毁浮窗/视频；`phone-screen` 内预留 `automationSubwindowHost` 给 T24 子窗 Teleport，禁止 `appendTo=body`。
 - 超短横屏/窄屏菜单切换为**卡片内部紧凑滚动菜单**，保留唤醒在输入组、自动化在原侧边槽和其它全部操作；主浮窗/子窗、展开菜单各有明确层级。
