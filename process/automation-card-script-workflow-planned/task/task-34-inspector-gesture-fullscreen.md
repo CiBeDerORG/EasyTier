@@ -1,6 +1,6 @@
 # T34 · 控件树拾取与拖拽步骤全屏联调
 
-> 状态：**待开发**｜计划：P11｜复杂度：M｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**业务代码已提交，待真实验证**｜计划：P11｜复杂度：M｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一职责与依赖
 - Owner：**Inspector Agent**。
@@ -22,3 +22,9 @@
 
 ## 验证状态
 当前仅有计划文档；待开发、未测试、未构建。遵守仓库 AGENTS.md 调试模式，不主动运行本地检查或手动 CI。
+
+## 2026-10-27 · 代码交付与验证状态
+- 继续在原 primary-video 右键拾取，原屏 selected node 的 bounds 按同一 object-fit:contain 的 native 坐标画 SVG 高亮；拖拽 A/B 进入临时只读覆盖模式，捕获 pointer 后只回给 Inspector，不发 ADB touch。
+- 画面尺寸/方向变化使旧树、坐标确认及拖拽点位失效，重新抓取控件树；提交拖拽前要求树快照与主视频真实像素尺寸一致；多步录入和重新拾取仍经过旧 picker generation/binding/stepId 审查。
+- **尚未验证**：普通/全屏反复切换、视频旋转/黑边、触屏拖拽 A/B 两点、四步连续录入、重新拾取不换 stepId、控件树截断/过期/唯一性以及跨设备/双浏览器异步回执。
+- **调试模式**：本轮未运行 TS、lint、单测、构建、手动 CI、浏览器或真机测试；源代码提交不等于全部验收条件已通过。

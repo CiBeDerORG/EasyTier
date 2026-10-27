@@ -1,6 +1,6 @@
 # T35 · Inspector 第二视频和跨页编辑引导替换
 
-> 状态：**待开发**｜计划：P11｜复杂度：S-M｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**业务代码已提交，待真实验证**｜计划：P11｜复杂度：S-M｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一职责与依赖
 - Owner：**Inspector Agent + 集成负责人按文件串行**。
@@ -22,3 +22,9 @@
 
 ## 验证状态
 当前仅有计划文档；待开发、未测试、未构建。遵守仓库 AGENTS.md 调试模式，不主动运行本地检查或手动 CI。
+
+## 2026-10-27 · 代码交付与验证状态
+- Inspector 全局 body modal 替换为卡片内 Teleport 到 automationSubwindowHost；不再因右键拾取退出全屏；“查看脚本浮窗”直接打开该卡片主浮窗，不执行 changeTab('scripts')。
+- 旧脚本库的“重新拾取”兼容入口返回工作台并要求使用已打开的原手机视频，确认步骤和授权后引导在原画面右键操作；不自动新建视频，不保留脚本库第二播放器。
+- **尚未验证**：普通/全屏反复切换、视频旋转/黑边、触屏拖拽 A/B 两点、四步连续录入、重新拾取不换 stepId、控件树截断/过期/唯一性以及跨设备/双浏览器异步回执。
+- **调试模式**：本轮未运行 TS、lint、单测、构建、手动 CI、浏览器或真机测试；源代码提交不等于全部验收条件已通过。

@@ -313,3 +313,11 @@
 - **T32**：已有 `CardStepEditor.vue` 保留原参数表单、重拾、只读演示和期望值冲突校验，移入 `AutomationFloatingDialog.vue`；T24 提供标题拖动、同一全屏元素子窗宿主、未保存编辑二次确认，取消不再使用原编辑器固定卡片区的 modal/inline 容器。
 - **边界**：真实 ▶ 仍复用旧 `CardTrialPanel` 交接安全逻辑，T40 才实现不退出全屏的一键试跑；Inspector 的第二播放器/属性浮窗将在 T33～T35 替换，不在本轮冒险删除。正式脚本与不可变 run 历史未受删除影响。
 - **未执行** TS、lint、单元测试、构建、手动 CI、浏览器/Android/FnOS 实机验证（项目调试模式）。待验：4 步连录、普通/全屏子窗、条件删除范围、最后子项替代确认、删除/撤销与 CAS 409、另一卡片编辑 dirty、运行快照完整性。
+
+## 2026-10-27 · T33～T35 原手机唯一实时画面 Inspector 迁移（调试模式）
+- `UiInspectorDialog.vue` 去掉第二个 `<video>`、`setVideo`、stream attachment、附带的预览画布与弹窗，改为 `AutomationFloatingDialog`（Portal 目标为本机原 `phone-screen.automationSubwindowHost`）仅显示控件树、属性、候选定位和动作录入，旧 API`hierarchy()`、唯一候选判断、只读树与控件匹配均保留。
+- 新增 `automation-inspector-overlay.ts` 类型合同和 `CardInspectorOverlay.vue`：根据主 `PhoneCard.primary-video` 实际宽高及含黑边的 contain 映射，只在原视频上显示选中控件范围、拖拽 A/B 起终点；捕获只读点击，绝不透传 Android 触控。
+- `PhoneCard.vue` 将 Inspector 浮窗作为同一视频宿主的子窗，根据 Center 传入 token、owner、设备、选择位置与候选操作类型来接收属性和动作配置；手控原视频和其它工具栏不重建。
+- `AutomationCenter.vue` 已撤下 global/body Inspector 模态，原屏右键操作不再调用 `document.exitFullscreen`；控件树依旧根据原先 picker binding/session generation + revision/stepId 规则判断 append 与 replace。Inspector “查看脚本浮窗”直接打开本机自动化面板，不再换 scripts Tab；旧脚本库 pick-target 则引导至当前手机原实时画面拾取，不再另开播放器。
+- 手机旋转或元数据尺寸变化后原快照失效，坐标兜底和拖拽必须新快照与主视频尺寸一致才能继续；UiAutomator2 截断、fingerprint 错误或已失效的点位严禁录入。
+- **未执行** TypeScript、lint、自动测试、构建、手动 CI、浏览器/安卓/FnOS 真机操作（调试模式）。待查：全屏/横屏下主画面高亮是否精确、触屏/键盘拖拽 A/B，4 步连录、重新拾取不新增步、旧脚本库跳转保护、切换账号和双浏览器防串台。代码改动需后续验证后才能标验收通过。

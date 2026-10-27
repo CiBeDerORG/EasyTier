@@ -1,6 +1,6 @@
 # T33 · Inspector 属性树基于原主画面浮窗
 
-> 状态：**待开发**｜计划：P11｜复杂度：M｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**业务代码已提交，待真实验证**｜计划：P11｜复杂度：M｜交付分支：`feat/automation-center`｜总合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一职责与依赖
 - Owner：**Inspector Agent**。
@@ -22,3 +22,9 @@
 
 ## 验证状态
 当前仅有计划文档；待开发、未测试、未构建。遵守仓库 AGENTS.md 调试模式，不主动运行本地检查或手动 CI。
+
+## 2026-10-27 · 代码交付与验证状态
+- Inspector 控件树、候选、动作配置已沿用 UiInspectorDialog/InspectorPropertiesPanel 并改在 PhoneCard 的 AutomationFloatingDialog 中；旧独立 video、stream、video metadata/preview DOM 被移除，控件高亮传至 CardInspectorOverlay 叠加在原主视频。
+- 原视频本机像素由 PhoneCard 当前 primary-video videoWidth/videoHeight 提供；UiAutomator2 截断/指纹检查、只读候选唯一性、属性与 XPath 保留。
+- **尚未验证**：普通/全屏反复切换、视频旋转/黑边、触屏拖拽 A/B 两点、四步连续录入、重新拾取不换 stepId、控件树截断/过期/唯一性以及跨设备/双浏览器异步回执。
+- **调试模式**：本轮未运行 TS、lint、单测、构建、手动 CI、浏览器或真机测试；源代码提交不等于全部验收条件已通过。

@@ -21,9 +21,9 @@
 | [T30](task-30-ordinary-step-delete.md) | 普通步骤删除 | P10 | 步骤 | W3 | T28,T29 | 代码已提交，待验证 |
 | [T31](task-31-branch-delete-undo.md) | 条件分支删除/撤销 | P10 | 步骤 | W3 | T24,T29,T30 | 代码已提交，待验证 |
 | [T32](task-32-floating-step-editor.md) | 步骤编辑浮窗 | P10 | 步骤 | W3 | T20,T24,T29 | 代码已提交，待验证 |
-| [T33](task-33-inspector-main-video.md) | 原视频属性树 | P11 | Inspector | W2 | T20,T23 | 待开发 |
-| [T34](task-34-inspector-gesture-fullscreen.md) | 控件树/拖拽全屏 | P11 | Inspector | W3 | T23,T33 | 待开发 |
-| [T35](task-35-inspector-legacy-exit.md) | 去 Inspector 重复视频 | P11 | Inspector/集成 | W4 | T32,T33,T34 | 待开发 |
+| [T33](task-33-inspector-main-video.md) | 原视频属性树 | P11 | Inspector | W2 | T20,T23 | 代码已提交，待验证 |
+| [T34](task-34-inspector-gesture-fullscreen.md) | 控件树/拖拽全屏 | P11 | Inspector | W3 | T23,T33 | 代码已提交，待验证 |
+| [T35](task-35-inspector-legacy-exit.md) | 去 Inspector 重复视频 | P11 | Inspector/集成 | W4 | T32,T33,T34 | 代码已提交，待验证 |
 | [T36](task-36-lease-contract.md) | Viewer/Action 合同 | P12 | 架构 | W1 | T20 | 待开发 |
 | [T37](task-37-executor-lease.md) | Executor 动作租约 | P12 | Executor | W2 | T36 | 待开发 |
 | [T38](task-38-rust-lease.md) | Rust 观看/动作权限 | P12 | Rust-运行 | W2 | T36,T37 接口 | 待开发 |
