@@ -1,6 +1,6 @@
 import type { AutomationStep } from '../types/automation';
 import type { AutomationDraftWorkspace } from './automation-draft';
-import { analyzeAutomationFlow } from './automation-flow';
+import { analyzeAutomationFlow } from './automation-flow.ts';
 
 /** Replace exactly one existing step in the account's shared draft (CAS). */
 export function updateCardDraftStep(
