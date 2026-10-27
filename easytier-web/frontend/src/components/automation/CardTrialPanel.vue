@@ -56,9 +56,11 @@ function snapshot(step:AutomationStep):AutomationStep {
 function clearSecrets(){parameterValue.value='';}
 function resetForOpen(){
     if(pending.value && uncertain.value) {
-        // An unknown POST must keep its immutable request/body for an
-        // explicit retry, never quietly create a second Android action.
-        warning.value='上一条试跑请求结果未确认。只能用相同请求编号重查/手动重试，不能启动新动作。';
+        // Preserve request_id/body but never replay it on a DIFFERENT step.
+        phase.value='unknown';
+        warning.value=pending.value.steps?.[0]?.id===props.step?.id
+            ? '上一条试跑请求结果未确认。只能用相同请求编号人工重查，不会自动创建新动作。'
+            : '其他步骤的试跑请求结果仍未确认。请返回原步骤核实记录，不能在这里重新执行。';
         return;
     }
     result.reset();pending.value=null;uncertain.value=false;consent.value=false;
@@ -179,13 +181,33 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
     }
 }
 async function retryUncertain(){
-    if(!uncertain.value || !pending.value || busy.value)return;
+    if(!uncertain.value || !pending.value || busy.value ||
+        pending.value.steps?.[0]?.id!==props.step?.id ||
+        pending.value.device_ids.length!==1 ||
+        pending.value.device_ids[0]!==props.device.id)return;
     const mine=++epoch,owner=props.ownerId,id=props.device.id,original=JSON.stringify(props.step);
     if(!valid(mine,owner,id,original)){warning.value='设备或步骤已变化，不允许重新提交。';return;}
     phase.value='submitting';
     // Same immutable POST, same request_id: retries can only recover the
     // original run receipt, never invent a second run.
     await sendFrozen(mine,owner,id,original,pending.value);
+}
+async function recheckPreparation(){
+    if(phase.value!=='unknown' || !!pending.value || !frozen.value)return;
+    const owner=props.ownerId,id=props.device.id,mine=++epoch,original=JSON.stringify(props.step);
+    phase.value='preparing';warning.value='只读复核此前准备状态，不会发起新的连接或初始化请求。';
+    try {
+        const state=await preparation.reconcile({
+            ownerId:owner,deviceId:id,targetFingerprint:targetFingerprint.value,steps:[frozen.value],
+        });
+        if(!valid(mine,owner,id,original))return;
+        phase.value=state?.phase==='ready'?'ready':state?.phase==='unknown'?'unknown':'failed';
+        warning.value=state?.phase==='ready'?'':state?.message||'准备状态无法确认。';
+    }catch(cause){
+        if(valid(mine,owner,id,original)){
+            phase.value='unknown';warning.value=automationErrorMessage(cause);
+        }
+    }
 }
 function hide(){
     ++epoch;
@@ -198,13 +220,18 @@ function hide(){
 watch(()=>props.visible,open=>{
     ++epoch;
     if(open) {
-        if(result.run.value)result.resume();
+        if(result.run.value && result.view.value?.stepId===props.step?.id &&
+            result.view.value?.runId===result.run.value.id) result.resume();
         else resetForOpen();
-    } else {result.stop();clearSecrets();}
+    } else {
+        if(phase.value==='preparing' || phase.value==='releasing')
+            void preparation.cancel(props.ownerId,props.device.id);
+        result.stop();clearSecrets();
+    }
 },{immediate:true});
-watch(()=>[props.ownerId,props.device.id] as const,()=>{
+watch(()=>[props.ownerId,props.device.id] as const,(_current, previous)=>{
     ++epoch;
-    preparation.dispose();
+    if(previous) void preparation.cancel(previous[0],previous[1]);
     result.reset();pending.value=null;uncertain.value=false;clearSecrets();
     phase.value='idle';
 });
@@ -259,8 +286,10 @@ onBeforeUnmount(()=>{
                     :loading="result.polling.value" @click="result.refresh()"/>
                 <Button v-if="result.run.value" label="在执行记录查看" icon="pi pi-history" size="small"
                     @click="emit('history',result.run.value.id)"/>
+                <Button v-if="phase==='unknown' && !pending" label="只读复核准备状态" outlined size="small"
+                    :disabled="busy" @click="recheckPreparation"/>
                 <Button v-if="uncertain && pending" label="按原请求编号人工重查" outlined size="small"
-                    :disabled="busy" @click="retryUncertain"/>
+                    :disabled="busy || pending.steps?.[0]?.id!==step?.id" @click="retryUncertain"/>
                 <Button v-if="!started && phase!=='ready'" label="自动准备试跑设备"
                     icon="pi pi-link" size="small" :loading="busy"
                     :disabled="!runnerAvailable || !!blocked || !usable || busy || phase==='unknown'"
