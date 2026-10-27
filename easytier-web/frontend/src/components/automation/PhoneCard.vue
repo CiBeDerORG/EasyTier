@@ -42,7 +42,7 @@ const emit = defineEmits<{
     input: [id: string, message: AutomationControl]; action: [id: string, message: AutomationControl]; unlock: [id: string];
     text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string];
     'toggle-picking': [id: string]; 'pick-action': [id: string, point: PickerVideoPoint, action: PickerMenuAction];
-    'step-select': [deviceId: string, stepId: string]; 'step-edit': [deviceId: string, stepId: string];
+    'step-edit': [deviceId: string, stepId: string];
     'step-close': [deviceId: string]; 'step-save': [deviceId: string, stepId: string, expected: AutomationStep, updated: AutomationStep];
     'step-repick': [deviceId: string, stepId: string]; 'step-dirty': [deviceId: string, dirty: boolean];
     'step-demo': [deviceId: string, stepId: string]; 'demo-clear': [deviceId: string];
@@ -528,7 +528,6 @@ onBeforeUnmount(() => {
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
         <CardStepTimeline :draft="draft" :sync-label="draftSyncLabel" :picker-active="pickingPhase === 'on'"
-            @select="emit('step-select', device.id, $event)"
             @edit="emit('step-edit', device.id, $event)"
             @trial="openCardTrial" />
         <CardRepairEntry v-if="repairContext && repairStep" :repair="repairContext"

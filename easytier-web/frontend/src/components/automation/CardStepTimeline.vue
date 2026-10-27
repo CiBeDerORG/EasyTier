@@ -9,7 +9,6 @@ const props=defineProps<{
     pickerActive?: boolean;
 }>();
 const emit=defineEmits<{
-    select: [stepId: string];
     edit: [stepId: string];
     trial: [stepId: string];
 }>();
@@ -31,10 +30,6 @@ watch(() => [props.draft.ownerId,props.draft.editingId] as const, () => {
     manuallyCollapsed.value=false;
     expanded.value=!!props.pickerActive && props.draft.steps.length > 0;
 });
-function openEditor(id: string) {
-    emit('select',id);
-    emit('edit',id);
-}
 </script>
 
 <template>
@@ -66,7 +61,7 @@ function openEditor(id: string) {
                     <button class="step-select" type="button"
                         :aria-pressed="step.id === draft.selectedStepId"
                         :title="'选择步骤 '+step.number+'：'+step.label"
-                        @click="openEditor(step.id)">
+                        @click="emit('edit',step.id)">
                         <span class="number">{{ step.number }}</span>
                         <span class="step-info" :style="{ paddingLeft: Math.min(step.depth,3)*7+'px' }">
                             <strong>{{ step.label }}</strong>
@@ -82,7 +77,7 @@ function openEditor(id: string) {
                     </button>
                     <button type="button" class="step-edit" :aria-label="'编辑步骤 '+step.number"
                         title="在当前手机卡片编辑步骤"
-                        @click="openEditor(step.id)">
+                        @click="emit('edit',step.id)">
                         <i class="pi pi-pencil" aria-hidden="true" />
                     </button>
                 </li>

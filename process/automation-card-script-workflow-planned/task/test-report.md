@@ -239,3 +239,8 @@
 - **保留前述确认**：脚本下拉窄宽、展开首行新建不重复标题、选中加载、克隆改名产生新 ID、每步都有删除、单步本机 ▶、全局选机 ▶、viewer/action lease 写锁安全不降低。
 - 主文档 `require/require-05-final-card-script-workflow.md` 重整为 V3.0；FINAL-09/FINAL-10 纳入任务看板，验收改为 FF01～FF18；旧 AC01～AC12 保留。
 - **本轮业务代码未修改；未测试、构建、类型检查、手动触发 CI 或真机操作**（调试模式）。新增需求均未实现且未验收。
+
+## 2026-10-27 · 产品前端交互收敛与 R0 代码去重（调试模式）
+- 新增 `require/require-07-product-frontend-simplification.md`，以 FINAL V3 原实时画面为准，列出卡片 footer/ScriptLibrary 双 UI、Inspector 二次 video、脚本库 run preview、两个试跑弹窗、跨 Tab 编辑等冗余，按 R0～R5 明确替代后删除门槛。
+- **实际代码改动仅 R0**：`CardStepTimeline` 步骤正文/编辑图标不再双发 `select/edit`，只发 `edit`；移除 `PhoneCard` `step-select` emit/透传及 `AutomationCenter` 监听。由 `editCardStep()` 单独校验并选中步骤，不动媒体/执行器/脚本 API。
+- **未执行**本地 TypeScript、单元测试、lint、构建、手动 CI、FnOS/Android/浏览器交互（调试模式）。待验：编辑时取消放弃未保存步骤，行/编辑按钮触发一次，双手机之间切换编辑状态。其余 R1～R5 均待开发。
