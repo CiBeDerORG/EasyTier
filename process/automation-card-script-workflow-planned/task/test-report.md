@@ -335,3 +335,12 @@
 - 修复仅靠键盘 Enter/Space 触发的合成 click 没有正确 screen clientX/Y 的问题：支持焦点下方向键 5% 移动画面光标、Shift+方向键 1% 微调、Home 归中、Enter/Space 确认；通过当前视频 contain 缩放与全屏黑边换算成原主画面 client 坐标。抑制触屏 pointerup 后产生的重复 click，SVG 标记不参与触控。
 - 对应代码提交：`801eaecfffbb679d59b82af18dba5a0391e5ce1a`。
 - **未执行** TypeScript、lint、单测、构建、手动 Actions/CI、浏览器、FnOS 或 Android 真机操作（持续调试模式）。需手工检查触屏快速点 A/B、双指触摸、滑动/取消、键盘箭头/回车、旋转、普通/全屏含黑边后两点标注及不透传 Android，且原 T33～T35 的 4 步连录/替换不复制步骤等均未标记验收通过。
+
+## 2026-10-28 · P12 / T36～T39 Viewer/Action 读写分权开发记录（调试模式）
+- GitHub 原分支 `feat/automation-center` 已提交 T36 只读 Viewer 和独占 Action Lease 合同：`require/require-10-t36-viewer-action-lease-contract.md`。
+- T37 Executor：加固 `Journal.claim` 的目标指纹/holder 类型校验，防 STOP / touch.release 穿透其它占用；新增同一 `sessionId` 的 `view-only` / `resume-manual` 内部接口。降权须确认手动触控释放及 worker 清理，首次失败不允许重试伪装成功；恢复前检查媒体和执行器动作占用。**保留原 WebRTC session 不关视频**。
+- T38 Rust：`automation_sessions.state` 使用 `suspending → view_only → resuming` 两阶段事务状态和 Executor 回执核实；`POST /runs` 仅豁免同账户/同 deviceId/同 fingerprint 已确认 `view_only`；WebSocket 手控与 unlock 端点必须检验当前权威状态。旧 migration `automation_sessions.state TEXT` 无枚举 CHECK，现有设备/endpoint 单观看 session 唯一索引保持不变。
+- T39 前端：`usePhoneSession` 降权前本地阻断队列及输入，迟到手控回执不误关视频；`PhoneCard` 同画面只读提示、禁手控、显式恢复；`CardTrialPanel` 单步骤试跑改为验证当前卡片自身的 session ID、执行器降权为 viewer、两次复核 `active_session.state=view_only`，不主动销毁原视频。批量/脚本库旧 handoff 尚未迁移，保留旧安全约束。
+- 关键修正提交：`4098a005`（降权失败重试不能误报成功）、`909962cf`（旧手控回执不误关视频）、`2300bc43`（批量悬浮动作遇 viewer 禁用）；各文件详见 T36～T39 任务卡。
+- **状态**：真实运行中原画面不断流、停止和恢复手控、全屏单步试跑、UiAutomator2、双浏览器竞争、失败清理/重启/重绑定仍**没有真实验收**。T40 全屏窗口与 T43～T45 批量入口仍待开发，不把 P12 代码提交等同整个 FINAL V3 完成。
+- **未执行** lint、TypeScript、Rust/Python 检查、单测、构建、手工 GitHub Actions、浏览器、FnOS 或 Android 真机操作（遵守现行调试模式）。
