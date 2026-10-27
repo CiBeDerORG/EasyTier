@@ -11,7 +11,7 @@ import type {
     BindingPreviewInput, CandidateQuery, CreateAssetRequest, DeviceAddressPreviewInput,
     DeviceCreateInput, DeviceType, DeviceTypeInput, GatewayCreateInput, GatewayGroup,
     GatewayGroupUpdateInput, GatewaySubnetsPreviewInput, InstanceCandidate, InstancePreview,
-    PagedDevices, ServicePublicationNetwork, Subject,
+    PagedDevices, ServerAgentEntry, ServicePublicationNetwork, Subject,
 } from '../types/node-assets';
 
 export interface ValidateConfigResponse {
@@ -382,6 +382,14 @@ export class ApiClient {
 
     public async assetsDevice(scope: AssetScope, id: string): Promise<AssetDevice> {
         return this.client.get<unknown, AssetDevice>(`/assets/devices/${encodeURIComponent(id)}`, { params: scope });
+    }
+
+    /** Reads only the stored, authorized server asset. Never probes the Agent. */
+    public async assetsServerAgentEntry(scope: AssetScope, id: string): Promise<ServerAgentEntry> {
+        return this.client.get<unknown, ServerAgentEntry>(
+            `/assets/devices/${encodeURIComponent(id)}/agent-entry`,
+            { params: scope },
+        );
     }
 
     public async assetsCreateDevice(scope: AssetScope, input: DeviceCreateInput): Promise<AssetDevice> {
