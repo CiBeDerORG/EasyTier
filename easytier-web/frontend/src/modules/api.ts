@@ -11,7 +11,8 @@ import type {
     BindingPreviewInput, CandidateQuery, CreateAssetRequest, DeviceAddressPreviewInput,
     DeviceCreateInput, DeviceType, DeviceTypeInput, GatewayCreateInput, GatewayGroup,
     GatewayGroupUpdateInput, GatewaySubnetsPreviewInput, InstanceCandidate, InstancePreview,
-    PagedDevices, ServerAgentEntry, ServicePublicationNetwork, Subject,
+    PagedDevices, ServerAgentEntry, AssetAgentStatus, AssetAgentProbe, AssetAgentProbeInput,
+    AssetAgentPairInput, ServicePublicationNetwork, Subject,
 } from '../types/node-assets';
 
 export interface ValidateConfigResponse {
@@ -389,6 +390,25 @@ export class ApiClient {
         return this.client.get<unknown, ServerAgentEntry>(
             `/assets/devices/${encodeURIComponent(id)}/agent-entry`,
             { params: scope },
+        );
+    }
+
+    /** Controller database only, never a remote Agent query. */
+    public async assetsAgentStatus(scope: AssetScope, id: string): Promise<AssetAgentStatus> {
+        return this.client.get<unknown, AssetAgentStatus>(
+            `/assets/devices/${encodeURIComponent(id)}/agent/status`, { params: scope },
+        );
+    }
+    /** Requires a fingerprint obtained from the host's trusted local terminal. */
+    public async assetsAgentProbe(scope: AssetScope, id: string, input: AssetAgentProbeInput): Promise<AssetAgentProbe> {
+        return this.client.post<unknown, AssetAgentProbe>(
+            `/assets/devices/${encodeURIComponent(id)}/agent/probe`, input, { params: scope },
+        );
+    }
+    /** Pairing code never persists in the browser. Raw bearer never leaves Rust backend. */
+    public async assetsAgentPair(scope: AssetScope, id: string, input: AssetAgentPairInput): Promise<AssetAgentProbe> {
+        return this.client.post<unknown, AssetAgentProbe>(
+            `/assets/devices/${encodeURIComponent(id)}/agent/pair`, input, { params: scope },
         );
     }
 
