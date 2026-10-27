@@ -11,7 +11,7 @@
 | [T20](task-20-contract-and-events.md) | 状态事件契约 | P07 | 集成 | W0 | T19 | 契约已提交，待测试 |
 | [T21](task-21-floating-host.md) | 主浮窗 | P08 | 卡片 | W1 | T20 | 浮窗壳已提交；待 T22 入口/测试 |
 | [T22](task-22-orb-layout.md) | icon 重排 | P08 | 卡片 | W1 | T21 | 代码已提交，待验证 |
-| [T23](task-23-fullscreen-portal.md) | 全屏宿主 | P08 | 卡片 | W1 | T21 | 待开发 |
+| [T23](task-23-fullscreen-portal.md) | 全屏宿主 | P08 | 卡片 | W1 | T21 | 代码已提交，待验证 |
 | [T24](task-24-child-floating-window.md) | 子浮窗 | P08 | 浮窗 | W2 | T23 | 待开发 |
 | [T25](task-25-empty-script-backend.md) | 0 步脚本服务端 | P09 | Rust-脚本 | W1 | T20 | 待开发 |
 | [T26](task-26-script-selector.md) | 脚本窄下拉/新建 | P09 | 脚本/集成 | W2 | T21,T25 | 待开发 |

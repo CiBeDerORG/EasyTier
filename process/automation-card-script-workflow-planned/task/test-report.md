@@ -275,3 +275,11 @@
 - 上方操作组现在 4 个按钮，动态计算展开菜单的上下安全停靠范围；菜单关闭时仍维持原主 orb 停靠范围，加入窗口 resize 约束，兼容左右 dock。
 - `messages.ts` 新增中英文“自动化脚本”菜单标签。T21 的主面板与 `menuOpen`、视频/脚本数据/后端执行生命周期独立。
 - **实际代码修改**：`PhoneCard.vue`、`messages.ts`。**未执行测试、TypeScript、lint、构建、手动 CI 或真机操作**（持续调试模式）。待测：普通/全屏侧边第三槽与唤醒实际位置、自动化开闭、左/右 dock、极短横屏菜单裁切、原 WAKE 指令未误触。
+
+## 2026-10-27 · T23 全屏主/子窗层级与横屏适配（调试模式）
+- `modules/useAutomationFloatingLayer.ts` 将普通模式/浏览器全屏两套位置独立存储在组件内存，窗口位置不会因全屏坐标巨大而在退出时被强制卡到错误边界；首次进入全屏默认靠右上方，拖动鼠标/触摸后后续继续使用上次全屏位置。ResizeObserver、window resize、orientationchange、fullscreenchange 约束坐标；组件未重建/不操作 MediaStream。
+- `AutomationFloatingPanel.vue` 增加受控 `fullscreen` 属性，面板仍挂在原 `phone-screen` 内部，原视频是唯一操作画面；不使用 appendTo body。
+- `PhoneCard.vue` 增加当前屏幕宽高监测。窄屏或高度不足时，将原上方 4 个、侧边 4 个和下方 3 个工具按钮原样放入可滚动的紧凑浮动菜单；仍保留唤醒在上方、自动化在侧边第 3 槽及原来的 WAKE/record/nav 事件。普通高屏幕保留原纵向布局。
+- 同一 `phone-screen` 下预留 `automationSubwindowHost` DOM 目标（无子视频、无脚本数据），T24 可将可拖子编辑窗 Teleport 到此元素；主面板 9、展开菜单 12、子窗口宿主 13 层，悬浮菜单开启时应不被主窗遮挡。
+- **实际改动限 3 个前端文件 + 本任务、看板/测试记录**；没有实现 T24 子窗、脚本编辑、运行权限、批量执行、只读 lease；也未修改任何 Rust/Executor 代码。
+- **未执行**单元测试、TS/类型检查、lint、构建、手动 CI、浏览器/Android 真机验证（调试模式）。待验收：普通/全屏来回至少三次、关闭/打开浮窗位置保持、旋转与横屏低高度所有按钮可访问、键盘输入/滚动/拖动不会穿透手机触控、现有视频 session 未重建。

@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { nextTick, watch } from 'vue';
+import { nextTick, toRef, watch } from 'vue';
 import { useAutomationFloatingLayer } from '../../modules/useAutomationFloatingLayer';
 
 const props = defineProps<{
     visible: boolean;
+    fullscreen: boolean;
     title?: string;
     deviceName: string;
 }>();
 const emit = defineEmits<{ close: [] }>();
-const { host, panel, style, constrain, pointerDown, pointerMove, pointerEnd } = useAutomationFloatingLayer();
+const { host, panel, style, constrain, pointerDown, pointerMove, pointerEnd } = useAutomationFloatingLayer(toRef(props, 'fullscreen'));
 
 watch(() => props.visible, open => {
     if (open) void nextTick(constrain);
@@ -47,7 +48,7 @@ watch(() => props.visible, open => {
 </template>
 
 <style scoped>
-.automation-floating-host{position:absolute;inset:0;z-index:9;pointer-events:none}
+.automation-floating-host{position:absolute;inset:0;z-index:9;pointer-events:none;contain:layout style}
 .automation-floating-host.hidden{visibility:hidden}
 .automation-floating-panel{
     position:absolute;display:flex;flex-direction:column;
@@ -72,5 +73,11 @@ watch(() => props.visible, open => {
 .automation-floating-body p{margin:0 0 8px}
 .automation-floating-body small{color:var(--console-muted)}
 .automation-floating-caption{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Only the containing phone-screen enters the fullscreen top layer. */
+:global(.phone-screen:fullscreen) .automation-floating-host{position:absolute;inset:0;z-index:9}
+:global(.phone-screen:fullscreen) .automation-floating-panel{
+    max-height:calc(100% - 16px);
+    background:var(--console-panel);
+}
 @media (max-width:500px){.automation-floating-panel{border-radius:9px}}
 </style>

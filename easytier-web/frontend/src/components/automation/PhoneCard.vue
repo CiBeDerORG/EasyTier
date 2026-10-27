@@ -88,18 +88,46 @@ const ambientVideo = ref<HTMLVideoElement | null>(null);
 const card = ref<HTMLElement | null>(null);
 const screen = ref<HTMLElement | null>(null);
 const isFullscreen = ref(false);
+const automationSubwindowHost = ref<HTMLElement | null>(null);
+/** T24 subwindows Teleport HERE, inside the current phone-screen fullscreen top layer. */
+function getAutomationSubwindowHost() { return automationSubwindowHost.value; }
+const screenDimensions = ref({ width: 0, height: 0 });
+const compactActions = computed(() =>
+    screenDimensions.value.width > 0 && (
+        screenDimensions.value.width < 310 || screenDimensions.value.height < 440
+    ));
+const actionBoundsStyle = computed(() => ({
+    '--screen-width': screenDimensions.value.width + 'px',
+    '--screen-height': screenDimensions.value.height + 'px',
+}));
+let screenSizeObserver: ResizeObserver | null = null;
+function measureScreen() {
+    const element = screen.value;
+    if (!element) return;
+    const width = element.clientWidth, height = element.clientHeight;
+    if (width !== screenDimensions.value.width || height !== screenDimensions.value.height)
+        screenDimensions.value = { width, height };
+    if (menuOpen.value) constrainOrbAnchor();
+}
 function syncFullscreen() {
     isFullscreen.value = document.fullscreenElement === screen.value;
     closePickerMenu();
+    measureScreen();
 }
 onMounted(() => {
     document.addEventListener('fullscreenchange', syncFullscreen);
-    window.addEventListener('resize', constrainOrbAnchor);
+    window.addEventListener('resize', measureScreen);
+    window.addEventListener('orientationchange', measureScreen);
+    if (typeof ResizeObserver !== 'undefined') {
+        screenSizeObserver = new ResizeObserver(measureScreen);
+        if (screen.value) screenSizeObserver.observe(screen.value);
+    }
+    measureScreen();
 });
 const dock = ref<'left' | 'right'>('right');
 const anchorFraction = ref(0.5);
 const menuOpen = ref(false);
-/** T21: UI only. T22 will connect the floating automation button. */
+/** T21/T22: per-card UI only; independent of orb menu, stream and running scripts. */
 const automationPanelOpen = ref(false);
 function openAutomationPanel() { automationPanelOpen.value = true; }
 function closeAutomationPanel() { automationPanelOpen.value = false; }
@@ -146,6 +174,13 @@ function expandedOrbRange(): { min: number; max: number } {
     if (!height) return { min: 0.35, max: 0.65 };
     const compact = window.matchMedia('(max-width:600px)').matches;
     const size = compact ? 36 : 42;
+    if (compactActions.value) {
+        // In a short landscape/fullscreen surface the actions become a
+        // scrollable tray beside the orb. Keep the whole tray within bounds.
+        const halfTray = Math.min(Math.max(0, height - 16), 260) / 2 + 8;
+        const min = Math.min(0.5, halfTray / height);
+        return { min, max: 1 - min };
+    }
     // WAKE is the 4th upper action; navigation has 3 lower actions.
     const top = (size * 4 + 4 * 3 + 6 + 10 + size / 2 + 8) / height;
     const bottom = 1 - (size * 3 + 4 * 2 + 6 + 10 + size / 2 + 8) / height;
@@ -466,10 +501,13 @@ async function retryEndpoint(stage: 'cleanup'|'connection'|'publication') {
 function getState() { return { phase: session.state.phase, ready: ready.value, ...geometry() }; }
 function getStream() { return session.stream.value; }
 function getSessionId() { return session.getSessionId(); }
-defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock, getState, getStream, getSessionId, cancelPointer, resetPointer, openAutomationPanel, closeAutomationPanel, toggleAutomationPanel });
+defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock, getState, getStream, getSessionId, cancelPointer, resetPointer, openAutomationPanel, closeAutomationPanel, toggleAutomationPanel, getAutomationSubwindowHost });
 onBeforeUnmount(() => {
     document.removeEventListener('fullscreenchange', syncFullscreen);
-    window.removeEventListener('resize', constrainOrbAnchor);
+    window.removeEventListener('resize', measureScreen);
+    window.removeEventListener('orientationchange', measureScreen);
+    screenSizeObserver?.disconnect();
+    screenSizeObserver = null;
     if (document.fullscreenElement === screen.value) void document.exitFullscreen().catch(() => undefined);
     if (ambientVideo.value) ambientVideo.value.srcObject = null;
     disposed = true; trialStepId.value = null; watching = false; ++intentVersion; closePickerMenu(); clearMenuTimer(); stopFrameChase(); cancelPointer(); void session.close();
@@ -536,7 +574,8 @@ onBeforeUnmount(() => {
             <span v-if="recording" class="record-badge"><span /> REC</span>
             <Button v-if="syncActive" class="fullscreen-stop" severity="danger" :label="t('stopSync')" size="small" @click="emit('stopSync')" />
             <button v-if="menuOpen" class="control-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="menuOpen = false" />
-            <div class="phone-controls" :class="`dock-${dock}`" :style="floatingStyle" @pointerdown.capture="markMenuInteraction" @click.capture="markMenuInteraction" @pointerdown.stop @click.stop>
+            <div class="phone-controls" :class="[`dock-${dock}`, { 'compact-actions': compactActions, 'menu-expanded': menuOpen }]"
+                :style="[floatingStyle, actionBoundsStyle]" @pointerdown.capture="markMenuInteraction" @click.capture="markMenuInteraction" @pointerdown.stop @click.stop>
                 <div v-if="menuOpen" class="floating-actions" role="group" :aria-label="t('localControl')">
                     <div class="input-actions">
                         <Button icon="pi pi-pencil" rounded :aria-label="t('text')" :title="t('text')" :disabled="!manualAllowed" @click="emit('text', device.id)" />
@@ -560,8 +599,11 @@ onBeforeUnmount(() => {
                 </div>
                 <Button class="main-orb" :icon="menuOpen ? 'pi pi-times' : 'pi pi-sliders-h'" rounded :aria-expanded="menuOpen" :aria-label="t('localControl')" :title="syncRole ? t('controlsLocked') : t('localControl')" @pointerdown.stop="dragStart" @pointermove.stop="dragMove" @pointerup.stop="dragEnd" @pointercancel.stop="dragEnd" @click.stop="toggleOrb" />
             </div>
-            <AutomationFloatingPanel :visible="automationPanelOpen" :device-name="device.name"
-                @close="closeAutomationPanel" />
+            <AutomationFloatingPanel :visible="automationPanelOpen" :fullscreen="isFullscreen"
+                :device-name="device.name" @close="closeAutomationPanel" />
+            <!-- T24: target for controlled Teleport of editable child windows.
+                 It MUST stay inside phone-screen, not document.body. -->
+            <div ref="automationSubwindowHost" class="automation-subwindow-host" />
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
         <CardStepTimeline :draft="draft" :sync-label="draftSyncLabel" :picker-active="pickingPhase === 'on'"
@@ -645,6 +687,8 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .screen-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#91a6bd;background:radial-gradient(ellipse at center,#11273a,#07111d 75%);padding:18px;text-align:center}.screen-placeholder>.pi{font-size:34px;color:#54738f}.screen-placeholder small{font-size:11px}
 .role-badge{position:absolute;top:10px;left:10px;pointer-events:none}.record-badge{position:absolute;top:12px;right:12px;color:#fda4af;font-size:11px;display:flex;align-items:center;gap:5px}.record-badge>span{width:7px;height:7px;border-radius:50%;background:#fb7185}
 .phone-controls{position:absolute;z-index:6;transform:translateY(-50%);display:flex;align-items:center;gap:6px;transition:left .16s ease;touch-action:none}
+.phone-controls.menu-expanded{z-index:12}
+.automation-subwindow-host{position:absolute;inset:0;z-index:13;pointer-events:none}
 .phone-controls :deep(.p-button){width:42px;height:42px;min-width:42px;box-shadow:0 3px 14px #0006;border:1px solid #ffffff38;backdrop-filter:blur(10px)}
 .phone-controls :deep(.p-button-secondary){background:#142c42e8;color:#e1edf7}
 .main-orb{background:var(--p-primary-color);cursor:grab;touch-action:none;position:relative;z-index:2}.main-orb:active{cursor:grabbing}
@@ -655,12 +699,39 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .side-actions{top:0;flex-direction:row}.side-actions :deep(.p-button){width:37px;height:37px;min-width:37px}
 .dock-right .side-actions{right:calc(100% + 7px)}
 .dock-left .side-actions{left:calc(100% + 7px)}
+/* When portrait width or landscape height is too small, all action groups
+   remain in their original DOM order but use a scrollable tray INSIDE the
+   existing fullscreen phone-screen; no group may be clipped off screen. */
+.phone-controls.compact-actions .floating-actions{
+    inset:auto;top:50%;transform:translateY(-50%);
+    display:flex;flex-direction:column;gap:5px;align-items:stretch;
+    width:min(215px,calc(var(--screen-width) - 62px));
+    max-height:calc(var(--screen-height) - 16px);
+    overflow-y:auto;overscroll-behavior:contain;
+    padding:5px;pointer-events:auto;border-radius:12px;
+    background:color-mix(in srgb,#081b30 92%,transparent);
+    box-shadow:0 6px 24px #0009;
+}
+.phone-controls.compact-actions.dock-right .floating-actions{right:calc(100% + 6px)}
+.phone-controls.compact-actions.dock-left .floating-actions{left:calc(100% + 6px)}
+.phone-controls.compact-actions .floating-actions>div{
+    position:static;display:flex;flex-direction:row;flex-wrap:wrap;
+    justify-content:center;align-items:center;flex:0 0 auto;width:100%;
+    gap:4px;padding:3px;border-radius:8px;
+    background:transparent;box-shadow:none;backdrop-filter:none;
+}
+.phone-controls.compact-actions .floating-actions :deep(.p-button){
+    width:36px;height:36px;min-width:36px
+}
 .control-dismiss{position:absolute;inset:0;z-index:5;background:transparent;border:0;cursor:default}
 footer{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;gap:8px;font-size:11px}.phase{color:var(--console-muted)}.phase.live{color:var(--p-green-500)}.phase.live:before{content:'';display:inline-block;width:6px;height:6px;background:currentColor;border-radius:50%;margin-right:6px}.unlock-notice{display:block;padding:0 12px 10px;color:var(--console-muted);font-size:11px}.phone-error{font-size:11px;padding:0 12px 10px;color:var(--p-red-500);overflow-wrap:anywhere;max-height:80px;overflow:auto}.fullscreen-stop{display:none}
 /* Match EasyADB: only the phone SCREEN enters the browser top layer.
    The decoded image is never stretched or cropped, on desktop or mobile. */
 .phone-screen:fullscreen{width:100vw;max-width:none;height:100dvh;max-height:none;aspect-ratio:auto!important;border-radius:0;background:#142033}
 .phone-screen:fullscreen .primary-video{object-fit:contain;z-index:1}
+/* The existing main video, the automation panel and T24's portal are all
+   children of this SAME fullscreen element, never portals to body. */
+.phone-screen:fullscreen .automation-subwindow-host{position:absolute;inset:0;z-index:13}
 .phone-screen:fullscreen .ambient-video{object-fit:cover;z-index:0;pointer-events:none;filter:blur(28px) brightness(.4);transform:scale(1.04);touch-action:none}
 .phone-screen:fullscreen .phone-controls.dock-right{left:auto!important;right:14px;top:50%}
 .phone-screen:fullscreen .phone-controls.dock-left{left:14px!important;right:auto;top:50%}

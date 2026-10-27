@@ -1,10 +1,11 @@
 /**
- * T21: Position-only floating layer for a PhoneCard's existing video surface.
+ * T21/T23: position-only floating layer on the EXISTING PhoneCard video surface.
  *
- * No media session, ADB action, script store or browser persistence lives here.
- * T23 will reuse this clamp when switching in/out of the fullscreen top layer.
+ * Fullscreen and card modes have independent coordinates. The same DOM subtree,
+ * script state and MediaStream stay mounted across browser Fullscreen changes.
+ * This module never creates a second player, session, action lease or store.
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties, type Ref } from 'vue';
 import type { AutomationFloatingPoint } from './automation-floating-contract';
 
 type ActiveDrag = {
@@ -15,33 +16,40 @@ type ActiveDrag = {
 };
 
 const EDGE = 8;
-const INITIAL_X = 12;
-const INITIAL_Y = 44;
+const NORMAL_POSITION = { x: 12, y: 44 } as const;
+const FULLSCREEN_TOP = 44;
 
-export function useAutomationFloatingLayer() {
+export function useAutomationFloatingLayer(fullscreen: Readonly<Ref<boolean>>) {
     const host = ref<HTMLElement | null>(null);
     const panel = ref<HTMLElement | null>(null);
-    const position = ref<AutomationFloatingPoint>({ x: INITIAL_X, y: INITIAL_Y });
+    const normalPosition = ref<AutomationFloatingPoint>({ ...NORMAL_POSITION });
+    const fullscreenPosition = ref<AutomationFloatingPoint>({ x: EDGE, y: FULLSCREEN_TOP });
+    const position = computed<AutomationFloatingPoint>({
+        get: () => fullscreen.value ? fullscreenPosition.value : normalPosition.value,
+        set: value => {
+            if (fullscreen.value) fullscreenPosition.value = value;
+            else normalPosition.value = value;
+        },
+    });
+    let fullscreenPlaced = false;
     let active: ActiveDrag | null = null;
     let resizeObserver: ResizeObserver | null = null;
 
     function constrain(): void {
         const container = host.value, windowElement = panel.value;
-        if (!container || !windowElement || !container.clientWidth || !container.clientHeight) return;
+        if (!container || !windowElement || !container.clientWidth || !container.clientHeight ||
+            !windowElement.offsetWidth || !windowElement.offsetHeight) return;
         const maximumX = Math.max(0, container.clientWidth - windowElement.offsetWidth - EDGE);
         const maximumY = Math.max(0, container.clientHeight - windowElement.offsetHeight - EDGE);
-        position.value = {
-            x: Math.max(0, Math.min(position.value.x, maximumX)),
-            y: Math.max(0, Math.min(position.value.y, maximumY)),
-        };
+        const x = Math.max(0, Math.min(position.value.x, maximumX));
+        const y = Math.max(0, Math.min(position.value.y, maximumY));
+        if (x !== position.value.x || y !== position.value.y) position.value = { x, y };
     }
 
     function pointerDown(event: PointerEvent): void {
         if (event.button !== 0 || !event.isPrimary || !host.value || !panel.value) return;
         active = {
-            pointerId: event.pointerId,
-            startClientX: event.clientX,
-            startClientY: event.clientY,
+            pointerId: event.pointerId, startClientX: event.clientX, startClientY: event.clientY,
             startPosition: { ...position.value },
         };
         (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
@@ -57,10 +65,9 @@ export function useAutomationFloatingLayer() {
         event.preventDefault();
         const maximumX = Math.max(0, container.clientWidth - windowElement.offsetWidth - EDGE);
         const maximumY = Math.max(0, container.clientHeight - windowElement.offsetHeight - EDGE);
-        position.value = {
-            x: Math.max(0, Math.min(active.startPosition.x + event.clientX - active.startClientX, maximumX)),
-            y: Math.max(0, Math.min(active.startPosition.y + event.clientY - active.startClientY, maximumY)),
-        };
+        const x = Math.max(0, Math.min(active.startPosition.x + event.clientX - active.startClientX, maximumX));
+        const y = Math.max(0, Math.min(active.startPosition.y + event.clientY - active.startClientY, maximumY));
+        position.value = { x, y };
     }
 
     function pointerEnd(event: PointerEvent): void {
@@ -83,15 +90,33 @@ export function useAutomationFloatingLayer() {
         constrain();
     }
 
+    // Browser Fullscreen places the existing .phone-screen in the top layer.
+    // Restore the previous location for EACH mode, instead of clamping the
+    // fullscreen pixel coordinate into the original small card on exit.
+    watch(fullscreen, async enabled => {
+        active = null;
+        await nextTick();
+        if (enabled && !fullscreenPlaced && host.value && panel.value) {
+            fullscreenPosition.value = {
+                x: Math.max(EDGE, host.value.clientWidth - panel.value.offsetWidth - 12),
+                y: FULLSCREEN_TOP,
+            };
+            fullscreenPlaced = true;
+        }
+        constrain();
+    }, { flush: 'post' });
     watch([host, panel], observe, { flush: 'post' });
     onMounted(() => {
         window.addEventListener('resize', constrain);
+        window.addEventListener('orientationchange', constrain);
         document.addEventListener('fullscreenchange', constrain);
         observe();
     });
     onBeforeUnmount(() => {
+        active = null;
         resizeObserver?.disconnect();
         window.removeEventListener('resize', constrain);
+        window.removeEventListener('orientationchange', constrain);
         document.removeEventListener('fullscreenchange', constrain);
     });
     const style = computed<CSSProperties>(() => ({
