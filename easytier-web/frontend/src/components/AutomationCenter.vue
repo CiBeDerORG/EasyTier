@@ -1091,6 +1091,24 @@ function addInspectorStep(step: AutomationStep, token: number, acknowledge: (acc
     closeInspector(); // closes only the modal; leaves live video + picker ON
     notice.value = `已录入第 ${index + 1} 步 · ${step.type}。手机拾取仍开启，可继续在画面上右键添加下一步。`;
 }
+function selectCardStep(deviceId: string, stepId: string): boolean {
+    const cardDevice = devices.value.find(item => item.id === deviceId);
+    if (draftWorkspace.ownerId !== ownerId.value ||
+        !cardDevice || cardDevice.owner_user_id !== ownerId.value ||
+        !draftWorkspace.steps.some(step => step.id === stepId)) return false;
+    draftWorkspace.selectedStepId = stepId;
+    return true;
+}
+function editCardStep(deviceId: string, stepId: string) {
+    if (!selectCardStep(deviceId, stepId)) {
+        error.value = '步骤或手机归属已变化，请重新打开脚本草稿。';
+        return;
+    }
+    // T07 transitional entry: uses the existing full script editor without
+    // copying steps. T08 will keep edits in the original card panel.
+    notice.value = '正在前往脚本库编辑所选步骤；切换页面可能释放当前手机画面。';
+    void changeTab('scripts');
+}
 function editInspectorDraft() {
     closeInspector();
     void changeTab('scripts');
@@ -1239,8 +1257,8 @@ onBeforeUnmount(() => { stopEvents?.();
                 <div v-if="!devices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-mobile" aria-hidden="true" /><h2>{{ t('noAssets') }}</h2><p>{{ t('noAssetsDetail') }}</p><Button :label="t('toAssets')" outlined @click="router.push({ name: 'nodeAssets' })" /></div>
                 <div v-else-if="!visibleDevices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-search" aria-hidden="true" /><h2>{{ t('noResults') }}</h2><Button :label="t('reset')" text @click="filters = { node: '', group: '', type: '', keyword: '' }; query()" /></div>
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
-                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
-                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
+                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" :draft="draftWorkspace" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
+                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @step-select="selectCardStep" @step-edit="editCardStep" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
                 <button v-if="globalOpen && !fullscreenActive" class="global-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="globalOpen = false" />
                 <div v-if="devices.length && !fullscreenActive" class="global-controls" @pointerdown.stop @click.stop @keydown.esc="globalOpen = false">

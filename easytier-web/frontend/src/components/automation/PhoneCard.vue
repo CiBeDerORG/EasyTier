@@ -11,6 +11,8 @@ import { usePhoneSession } from './usePhoneSession';
 import PhoneAutomationPanel from './PhoneAutomationPanel.vue';
 import CardPickingOverlay from './CardPickingOverlay.vue';
 import CardContextMenu from './CardContextMenu.vue';
+import CardStepTimeline from './CardStepTimeline.vue';
+import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
 import type { PickerMenuAction, PickerPhase, PickerVideoPoint } from '../../modules/automation-picker-state';
 
 const props = defineProps<{
@@ -19,12 +21,15 @@ const props = defineProps<{
     componentStatus?: AutomationComponentStatus;
     syncRole?: 'master' | 'follower'; syncActive: boolean; recording: boolean; unlocking?: boolean;
     pickerPhase?: PickerPhase; pickerError?: string;
+    /** Single account-scoped draft. Card reads it, never stores a copy. */
+    draft: AutomationDraftWorkspace;
 }>();
 const emit = defineEmits<{
     selection: [id: string, selected: boolean]; configure: [device: AutomationDevice];
     input: [id: string, message: AutomationControl]; action: [id: string, message: AutomationControl]; unlock: [id: string];
     text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string];
     'toggle-picking': [id: string]; 'pick-action': [id: string, point: PickerVideoPoint, action: PickerMenuAction];
+    'step-select': [deviceId: string, stepId: string]; 'step-edit': [deviceId: string, stepId: string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -471,6 +476,9 @@ onBeforeUnmount(() => {
             </div>
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
+        <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
+            @select="emit('step-select', device.id, $event)"
+            @edit="emit('step-edit', device.id, $event)" />
         <small v-if="session.state.unlockState === 'wake_sent'" class="unlock-notice">手机已发送亮屏指令；该 ADB 服务没有保存开屏密码，请在设备管理中配置后重试。</small>
         <small v-else-if="session.state.unlockState === 'already_unlocked'" class="unlock-notice">已检测到手机处于解锁状态，因此没有输入密码。</small>
         <small v-else-if="session.state.unlockState === 'lock_state_unknown'" class="unlock-notice">手机已唤醒，但 Android 未返回可靠的锁屏状态；为避免把密码输入其他应用，已跳过自动解锁。</small>
