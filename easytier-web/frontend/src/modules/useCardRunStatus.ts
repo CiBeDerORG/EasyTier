@@ -21,6 +21,7 @@ type RunReader = Pick<AutomationApi, 'getRun'>;
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'interrupted', 'outcome_unknown',
     'cleanup_pending', 'completed', 'partial_failed']);
 const OK = new Set(['succeeded', 'completed']);
+const SUCCESSFUL_STEPS = new Set(['succeeded','completed','assertion_passed','condition_passed','passed','action_completed']);
 const FAIL = new Set(['failed', 'partial_failed']);
 const UNKNOWN = new Set(['outcome_unknown', 'cleanup_pending']);
 
@@ -40,13 +41,13 @@ export function summarizeCardRun(
         : ['cancelled', 'interrupted'].includes(stepState) ||
             ['cancelled', 'interrupted'].includes(deviceState) ? 'cancelled'
         : stepState === 'action_sent' && OK.has(deviceState) ? 'action_sent'
-        : OK.has(stepState) && OK.has(deviceState) ? 'succeeded'
+        : SUCCESSFUL_STEPS.has(stepState) && OK.has(deviceState) ? 'succeeded'
         : TERMINAL.has(deviceState) && !OK.has(stepState) ? 'failed'
         : ['running', 'starting'].includes(stepState) || ['running', 'starting'].includes(deviceState)
             ? 'running' : 'queued';
     const label: Record<CardRunPhase, string> = {
         idle:'尚未执行',checking:'正在查询',queued:'任务排队中',running:'设备执行中',
-        succeeded:'本步骤条件检查已通过（不等于整个业务成功）',
+        succeeded:'本步骤执行已完成（业务结果需独立验证）',
         action_sent:'动作已发送至设备；尚未验证应用业务结果',
         failed:'本步骤执行失败',cancelled:'已取消或中断',
         unknown:'执行结果或清理未确认，禁止自动重放',
