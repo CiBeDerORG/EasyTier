@@ -1,6 +1,6 @@
 # P12 · 视频观看与动作写锁分离
 
-> **状态：待开发**｜**FINAL V3 计划**｜**目标分支：** `feat/automation-center`｜**产品主合同：** `../require/require-05-final-card-script-workflow.md`。
+> **状态：跨层代码已提交、待联调及实机验证**｜**FINAL V3 计划**｜**目标分支：** `feat/automation-center`｜**产品主合同：** `../require/require-05-final-card-script-workflow.md`。
 
 ## 业务目标
 确保自动准备、UIA 初始化和脚本运行期间，原视频持续显示；手控/准备/脚本动作权仍遵守每机独占与完整清理。
@@ -25,3 +25,10 @@
 
 ## 禁止提前声称完成
 当前仅完成需求与任务拆分；无新增业务功能验收证据时状态必须维持“待开发/待联调”，不把文件创建计作交付。
+
+## 2026-10-28 · 实际开发进度
+- T36：写入 [状态机与错误合同](../require/require-10-t36-viewer-action-lease-contract.md)，保留原视频、owner/指纹、两阶段降权与脚本动作独占。
+- T37：Executor `Journal.claim` 加固，STOP/TOUCH RELEASE 受独占仲裁，`view-only` / `resume-manual` 保留原 WebRTC 并 fail-closed；错误降权重试必须确认完成手控资源释放。
+- T38：Rust `automation_sessions` 新增 `suspending/view_only/resuming` 事务状态；`create_run` 仅豁免真实已确认的本账户/设备/指纹 viewer；WebSocket/解锁双层硬拒写。
+- T39：原卡片及 `CardTrialPanel` 单步试跑接入不关视频的只读移交、同会话校验、手控禁用及显式恢复；批量入口和旧脚本库暂保留旧安全交接方式，留给 T40/T43/T45 独立迁移。
+- **所有原验收复选框保持未勾选**：按调试模式未运行 TypeScript、Rust/Python 检查、前端测试、构建、CI 手工触发、浏览器及 FnOS/Android 真机验收。不同组件的提交不等于端到端闭环已验收。
