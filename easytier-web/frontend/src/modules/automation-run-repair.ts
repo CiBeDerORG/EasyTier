@@ -72,3 +72,61 @@ export function planAutomationRepair(
         reason: !request.scriptId ? 'inline' : original ? 'updated' : 'deleted',
     };
 }
+
+
+/** T15: ephemeral link back from immutable run evidence to the shared card editor.
+ * No run snapshot is mutated and no "retry" request is created here. */
+export interface CardRepairContext {
+    ownerId: number;
+    runId: string;
+    deviceId: string;
+    stepId: string;
+    resultState: string;
+    sourceStepFingerprint: string;
+    sourceRevision?: number;
+    sourceKind: AutomationRepairPlan['kind'];
+    sourceReason?: 'updated' | 'deleted' | 'inline';
+}
+
+export function createCardRepairContext(
+    request: AutomationRepairRequest, plan: AutomationRepairPlan,
+): CardRepairContext | null {
+    const source = request.snapshotSteps.filter(step => step.id === request.stepId);
+    if (source.length !== 1 || plan.stepId !== request.stepId ||
+        plan.sourceRunId !== request.runId || plan.sourceDeviceId !== request.deviceId ||
+        !repairableStates.has(request.resultState) ||
+        !planSteps(plan).some(step => step.id === request.stepId)) return null;
+    return {
+        ownerId: request.ownerId, runId: request.runId, deviceId: request.deviceId,
+        stepId: request.stepId, resultState: request.resultState,
+        sourceStepFingerprint: JSON.stringify(source[0]),
+        sourceRevision: request.revision,
+        sourceKind: plan.kind,
+        ...(plan.kind === 'copy' ? {sourceReason: plan.reason} : {}),
+    };
+}
+function planSteps(plan: AutomationRepairPlan): AutomationStep[] {
+    return plan.kind === 'saved' ? plan.script.steps : plan.steps;
+}
+
+/** Workspaces created for history repair must be new server DRAFTS.
+ * A safe copy is never allowed to inherit the newer published script's CAS id.
+ * Caller must call draftSync.fork() before applying the result. */
+export function cardRepairWorkspace(
+    ownerId: number, plan: AutomationRepairPlan,
+): Pick<import('./automation-draft').AutomationDraftWorkspace,
+    'ownerId' | 'editingId' | 'revision' | 'name' | 'description' |
+    'steps' | 'selectedStepId' | 'baseline'> {
+    const steps = cloneRepairSteps(planSteps(plan));
+    const name = plan.kind === 'saved' ? plan.script.name : plan.name;
+    const description = plan.kind === 'saved' ? plan.script.description : '';
+    return {
+        ownerId,
+        editingId: plan.kind === 'saved' ? plan.script.id : undefined,
+        revision: plan.kind === 'saved' ? plan.script.revision : undefined,
+        name, description, steps, selectedStepId: plan.stepId,
+        baseline: plan.kind === 'saved'
+            ? JSON.stringify({name,description,steps})
+            : JSON.stringify({name:'',description:'',steps:[]}),
+    };
+}
