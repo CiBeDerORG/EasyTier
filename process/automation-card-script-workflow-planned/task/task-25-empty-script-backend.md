@@ -1,6 +1,6 @@
 # T25 · 空白脚本 0 步持久化契约与后端改造
 
-> 状态：**待开发**；阶段：P09；难度：M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
+> 状态：**代码已提交，待验证**；阶段：P09；难度：M；分支：`feat/automation-center`；产品源：`../require/require-05-final-card-script-workflow.md`。
 
 ## 唯一写入责任
 - 负责人：**Rust 脚本数据 Agent**。
@@ -22,3 +22,7 @@
 
 ## 交接/验证状态
 - 未开始、未实施、未测试；当前仓库调试模式未经后续授权不执行本地测试、构建或手动 CI。
+
+## 本轮交付记录（2026-10-27）
+- T25：Rust Script 保存允许 0 步，运行校验继续要求至少 1 步；原脚本库保存界面同步允许空脚本，运行仍禁止空步骤。
+- 以上仅代表代码已提交；未执行测试、构建、浏览器/真机验收（调试模式）。

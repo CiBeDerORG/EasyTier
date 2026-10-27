@@ -13,10 +13,10 @@
 | [T22](task-22-orb-layout.md) | icon 重排 | P08 | 卡片 | W1 | T21 | 代码已提交，待验证 |
 | [T23](task-23-fullscreen-portal.md) | 全屏宿主 | P08 | 卡片 | W1 | T21 | 代码已提交，待验证 |
 | [T24](task-24-child-floating-window.md) | 子浮窗 | P08 | 浮窗 | W2 | T23 | 公共组件已提交，待接线/验证 |
-| [T25](task-25-empty-script-backend.md) | 0 步脚本服务端 | P09 | Rust-脚本 | W1 | T20 | 待开发 |
-| [T26](task-26-script-selector.md) | 脚本窄下拉/新建 | P09 | 脚本/集成 | W2 | T21,T25 | 待开发 |
-| [T27](task-27-script-clone.md) | 克隆改名确认 | P09 | 脚本 | W2 | T24,T26 | 待开发 |
-| [T28](task-28-draft-switch-cas.md) | 草稿 CAS 防丢 | P09 | 集成 | W2 | T20,T26,T27 | 待开发 |
+| [T25](task-25-empty-script-backend.md) | 0 步脚本服务端 | P09 | Rust-脚本 | W1 | T20 | 代码已提交，待验证 |
+| [T26](task-26-script-selector.md) | 脚本窄下拉/新建 | P09 | 脚本/集成 | W2 | T21,T25 | 代码已提交，待验证 |
+| [T27](task-27-script-clone.md) | 克隆改名确认 | P09 | 脚本 | W2 | T24,T26 | 代码已提交，待验证 |
+| [T28](task-28-draft-switch-cas.md) | 草稿 CAS 防丢 | P09 | 集成 | W2 | T20,T26,T27 | 代码已提交，待验证 |
 | [T29](task-29-timeline-migration.md) | 步骤列表迁入浮窗 | P10 | 步骤/卡片 | W3 | T21,T26 | 待开发 |
 | [T30](task-30-ordinary-step-delete.md) | 普通步骤删除 | P10 | 步骤 | W3 | T28,T29 | 待开发 |
 | [T31](task-31-branch-delete-undo.md) | 条件分支删除/撤销 | P10 | 步骤 | W3 | T24,T29,T30 | 待开发 |

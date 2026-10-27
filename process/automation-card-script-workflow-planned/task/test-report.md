@@ -296,3 +296,12 @@
 - dirty 关闭确认出现时，编辑内容及 Footer 改用 `v-show` 隐藏而不是 `v-if` 卸载，用户选择“继续编辑”后保持原组件局部输入状态，不提前销毁未保存表单。
 - 标题栏拖拽时先将当前子浮窗置顶，再进行 pointer capture，避免后台窗口拖动无法提高层级。
 - **未执行**测试/类型检查/浏览器操作；仍按调试模式保留待验证状态。
+
+## 2026-10-27 · T25 + T26～T28 合并开发（调试模式）
+- Rust 数据端新增 saved_steps，保存空脚本；create_run 仍通过 steps() 禁止执行空脚本。
+- 原 ScriptLibrary 保存校验允许空步骤，但运行检查仍要求非空。
+- 新增 AutomationScriptSelector、AutomationScriptCloneDialog、AutomationScriptSwitchDialog，在 PhoneCard 原主视频悬浮层工作，未增加第二播放器。
+- 新增 automation-script-workspace.ts，复用唯一 draftWorkspace 和 draftSync，读取服务器脚本、真实创建/选择/克隆，复制步骤时重生成 UUID；同步器 adoptSavedScript 保留旧草稿并建立新 CAS 身份。
+- 对保存/切换/克隆实现 dirty 保护、owner/device/revision 异步作用域核验；POST 结果未知不自动重发。
+- T29 尚未实施，旧 footer 时间线仍保留；T36+ 执行器分权没有变动。
+- **未执行** TypeScript、Rust 编译、lint、测试、手动 CI、API 联调、FnOS/手机实测（调试模式）。
