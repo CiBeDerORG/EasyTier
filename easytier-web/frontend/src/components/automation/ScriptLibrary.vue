@@ -5,6 +5,8 @@ import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
 import type { AutomationDevice, AutomationRun, AutomationRunInput, AutomationScript, AutomationStep, AutomationStepType } from '../../types/automation';
+import { readTrialReceipt, reserveTrialReceipt, clearTrialReceipt, findTrialRun,
+    type TrialSubmissionReceipt } from '../../modules/automation-trial-receipt';
 import ScriptStepEditor from './ScriptStepEditor.vue';
 import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
 import { addFlowBranchStep, createFlowCondition, removeFlowBlock } from '../../modules/automation-flow-tree';
@@ -90,6 +92,47 @@ const runConcurrency = ref<number | null>(1);
 const runParameters = ref<Record<string, string>>(Object.create(null));
 const pendingRun = ref<AutomationRunInput>();
 const uncertainRun = ref(false);
+const blockedRunReceipts=ref<TrialSubmissionReceipt[]>([]);
+const checkingOldRun=ref(false);
+function checkOldRunReceipts(ids:string[]):boolean {
+    try{
+        blockedRunReceipts.value=ids.map(id=>readTrialReceipt(window.sessionStorage,props.ownerId,id))
+            .filter((item):item is TrialSubmissionReceipt=>item!==null);
+        if(!blockedRunReceipts.value.length)return true;
+        error.value='这些设备存在接收结果未知的运行请求：'+
+            blockedRunReceipts.value.map(item=>item.requestId).join('、')+
+            '。请先只读核对旧请求，不能另建运行。';
+        return false;
+    }catch(cause){
+        error.value='无法确认历史请求保护：'+automationErrorMessage(cause)+
+            '。禁止发送手机动作。';return false;
+    }
+}
+async function recoverOldRunReceipts(){
+    if(checkingOldRun.value || !blockedRunReceipts.value.length)return;
+    checkingOldRun.value=true;
+    const owner=props.ownerId,scope=scopeRevision;
+    try {
+        const response=await api.listRuns(owner);
+        if(disposed || scope!==scopeRevision)return;
+        const matched=blockedRunReceipts.value.map(receipt=>({
+            receipt,run:findTrialRun(response.items,receipt),
+        }));
+        const missing=matched.find(item=>!item.run ||
+            !item.run.script_snapshot.steps.some(step=>step.id===item.receipt.stepId));
+        if(missing){
+            error.value='近期执行历史没有找到原请求 '+missing.receipt.requestId+
+                '；不能认定动作未发生，保护继续生效。请查看服务器日志与手机现场。';return;
+        }
+        for(const item of matched)clearTrialReceipt(window.sessionStorage,item.receipt);
+        blockedRunReceipts.value=[];
+        error.value='';notice.value='已从只读历史找回原任务，没有重新发送手机动作。';
+        if(matched[0]?.run)emit('run-created',matched[0].run);
+    }catch(cause){
+        if(!disposed && scope===scopeRevision)error.value='历史恢复失败：'+automationErrorMessage(cause);
+    }finally{checkingOldRun.value=false;}
+}
+
 const preflightRows = ref<PreflightRow[]>([]);
 const deviceReuseReviews = ref<Record<string,DeviceCompatibilityReview>>({});
 const reuseConsent = ref(false);
