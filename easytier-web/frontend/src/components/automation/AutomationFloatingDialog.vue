@@ -55,6 +55,10 @@ function discardAndClose() {
     discardRequested.value = false;
     emit('close', 'discard');
 }
+function beginDrag(event: PointerEvent) {
+    raise();
+    pointerDown(event);
+}
 function moveByArrow(event: KeyboardEvent) {
     // The drag header itself must have focus; arrow keys in editors stay usable.
     if (event.target !== event.currentTarget) return;
@@ -120,7 +124,7 @@ onBeforeUnmount(() => {
             @focusin="raise">
             <header class="automation-child-titlebar" tabindex="0"
                 :aria-label="`拖动${title}；方向键移动浮窗`"
-                @keydown="moveByArrow" @pointerdown="pointerDown"
+                @keydown="moveByArrow" @pointerdown="beginDrag"
                 @pointermove="pointerMove" @pointerup="pointerEnd"
                 @pointercancel="pointerEnd">
                 <span class="automation-child-title">{{ title }}</span>
@@ -139,10 +143,11 @@ onBeforeUnmount(() => {
                         @click="discardAndClose">放弃修改并关闭</button>
                 </div>
             </div>
-            <div v-else class="automation-child-body">
+            <!-- Hide, don't unmount the editor while a discard decision is pending. -->
+            <div v-show="!discardRequested" class="automation-child-body">
                 <slot />
             </div>
-            <footer v-if="$slots.footer && !discardRequested" class="automation-child-footer">
+            <footer v-if="$slots.footer" v-show="!discardRequested" class="automation-child-footer">
                 <slot name="footer" />
             </footer>
         </section>
