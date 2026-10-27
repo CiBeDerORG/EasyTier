@@ -9,7 +9,7 @@ import { useCardTrialPreparation, type CardTrialPhase } from '../../modules/useC
 import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import { useCardRunStatus } from '../../modules/useCardRunStatus';
 import { makeSingleStepRun, stepTrialSafety } from '../../modules/automation-single-step';
-import { freezeInlineStepRunIntent, inlineStepIntentStillCurrent, inlineStepMayAutoSubmit, type InlineStepRunIntent } from '../../modules/useInlineStepRun';
+import { freezeInlineStepRunIntent, inlineStepIntentStillCurrent, inlineStepMayAutoSubmit, type InlineStepRunIntent, type InlineStepRunProgress } from '../../modules/useInlineStepRun';
 import { cardStepLabels } from '../../modules/card-step-projection';
 import {
     reviewAutomationDeviceCompatibility, compatibilityStillCurrent,
@@ -33,7 +33,8 @@ const props=defineProps<{
     runnerAvailable: boolean;
     blocked?: boolean;
 }>();
-const emit=defineEmits<{ close: []; history: [runId: string]; repair: [runId: string, stepId: string] }>();
+const emit=defineEmits<{ close: []; history: [runId: string]; repair: [runId: string, stepId: string];
+    progress: [value: InlineStepRunProgress] }>();
 const api=new AutomationApi();
 const preparation=useCardTrialPreparation(api);
 const result=useCardRunStatus(api);
@@ -79,6 +80,34 @@ const usable=computed(()=>!!frozen.value && !!frozen.value.id &&
     !(frozen.value.type==='input_text' && !frozen.value.parameter));
 const started=computed(()=>!!result.run.value || !!pending.value);
 const label=computed(()=>frozen.value ? cardStepLabels[frozen.value.type] : '未选择步骤');
+const inlineStatus=computed<InlineStepRunProgress|null>(() => {
+    const intent=lockedIntent.value;
+    if(!props.visible || !intent) return null;
+    const run=runView.value;
+    let status:InlineStepRunProgress['phase']='preparing';
+    let text='开始检查设备';
+    if(run){
+        status=run.phase==='succeeded'?'succeeded':
+            run.phase==='action_sent'?'action_sent':
+            run.phase==='failed'?'failed':
+            run.phase==='cancelled'?'cancelled':
+            run.phase==='unknown'?'unknown':'running';
+        text=run.label;
+    }else if(phase.value==='submitting'){status='submitting';text='提交本步骤中';}
+    else if(phase.value==='observing'){status='running';text='查询本步骤执行进度';}
+    else if(phase.value==='unknown'){status='unknown';text='动作或准备结果尚未确认';}
+    else if(phase.value==='failed'){status='failed';text='设备准备或安全检查失败';}
+    else if(phase.value==='ready'){status='ready';text='待确认后执行本步骤';}
+    else if(phase.value==='releasing'){text='释放手控写锁，原画面保持';}
+    else if(phase.value==='preparing'){text=prepProgress.value?.message||'正在准备控件及ADB';}
+    return {
+        ownerId:intent.ownerId,deviceId:intent.deviceId,stepId:intent.stepId,
+        requestId:pending.value?.request_id??intent.requestId,
+        runId:run?.runId??null,phase:status,label:text,
+        message:run?.detail || warning.value || undefined,
+    };
+});
+watch(inlineStatus,value=>{if(value)emit('progress',value);},{immediate:true});
 const preparePhases:Record<CardTrialPhase,string>={
     queued:'准备排队中',binding:'核对设备绑定',adb_check:'查询 ADB',connecting:'连接 ADB',
     helper_check:'检查控件组件',helper_start:'提交控件初始化',helper_wait:'初始化控件中',
