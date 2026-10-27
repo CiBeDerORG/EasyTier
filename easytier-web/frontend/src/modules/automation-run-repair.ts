@@ -84,7 +84,7 @@ export interface CardRepairContext {
     resultState: string;
     sourceStepFingerprint: string;
     sourceRevision?: number;
-    sourceKind: AutomationRepairPlan['kind'];
+    sourceKind: AutomationRepairPlan['kind'] | 'current';
     sourceReason?: 'updated' | 'deleted' | 'inline';
 }
 
