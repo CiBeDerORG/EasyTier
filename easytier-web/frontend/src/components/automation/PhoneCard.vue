@@ -834,14 +834,22 @@ onBeforeUnmount(() => {
             <div ref="automationSubwindowHost" class="automation-subwindow-host" />
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}<template v-if="session.state.phase === 'live' && session.state.viewerOnly"> · 只读观看，手控已锁定</template></span><Button v-if="session.state.phase === 'live' && session.state.viewerOnly" label="恢复手控" size="small" text :loading="resumingManual" :disabled="!!device.run_occupied || resumingManual" @click="resumeManualControl" /><span class="mono-value">{{ device.overlay_ip }}</span></footer>
-        <CardRepairEntry v-if="repairContext && repairStep" :repair="repairContext"
-            :step="repairStep" :step-number="repairStepNumber"
-            :editing="!!editingStepId" :runner-available="runnerAvailable"
-            :blocked="!!syncRole || recording || !!unlocking"
-            @edit="emit('step-edit',device.id,$event)"
-            @repick="emit('repair-repick',device.id,$event)"
-            @trial="stepId => openCardTrial(stepId,true)"
-            @dismiss="emit('repair-dismiss',device.id)" />
+        <!-- T42: failed-step repair uses the same real PhoneCard video and
+             its fullscreen subwindow host, never a second preview or footer UI. -->
+        <AutomationFloatingDialog :visible="!!repairContext && !!repairStep"
+            :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
+            :title="'第 '+repairStepNumber+' 步 · 失败回修'"
+            :closable="repairContext?.resultState !== 'outcome_unknown'"
+            @close="emit('repair-dismiss',device.id)">
+            <CardRepairEntry v-if="repairContext && repairStep" :repair="repairContext"
+                :step="repairStep" :step-number="repairStepNumber"
+                :editing="!!editingStepId" :runner-available="runnerAvailable"
+                :blocked="!!syncRole || recording || !!unlocking"
+                @edit="emit('step-edit',device.id,$event)"
+                @repick="emit('repair-repick',device.id,$event)"
+                @trial="stepId => openCardTrial(stepId,true)"
+                @dismiss="emit('repair-dismiss',device.id)" />
+        </AutomationFloatingDialog>
         <CardTrialPanel :visible="trialStepId !== null" :owner-id="ownerId" :device="device"
             :step="trialStep" :preview-handle="getTrialPreviewHandle"
             :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
