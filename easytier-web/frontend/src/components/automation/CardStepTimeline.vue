@@ -10,6 +10,7 @@ const props=defineProps<{
     undoLabel?: string;
     pickerActive?: boolean;
     trialProgress?: InlineStepRunProgress | null;
+    trialActive?: boolean;
 }>();
 const emit=defineEmits<{
     edit: [stepId: string];
@@ -50,7 +51,7 @@ const projected=computed(()=>projectCardSteps(props.draft));
                 </button>
                 <button type="button" class="step-trial" :aria-label="'试跑第 '+step.number+' 步"
                     title="当前手机单步骤真实试跑"
-                    :disabled="step.incomplete || step.type === 'if_gone' || step.type === 'if_else'"
+                    :disabled="trialActive || step.incomplete || step.type === 'if_gone' || step.type === 'if_else'"
                     @click.stop="emit('trial',step.id)">
                     <i class="pi pi-play" aria-hidden="true" />
                 </button>
