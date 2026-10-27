@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { Button, Dialog, InputText, Message, Tag } from 'primevue';
+import { Button, Dialog, Message, Tag } from 'primevue';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
 import type { AutomationDevice, AutomationHierarchy, AutomationHierarchyNode, AutomationSelector, AutomationStep } from '../../types/automation';
 import type { StepTarget } from '../../modules/automation-step-target';
 import { locatorIsUnique, rankLocatorCandidates } from '../../modules/automation-locator-candidates';
+import InspectorPropertiesPanel from './InspectorPropertiesPanel.vue';
+import type { InspectorAction } from '../../modules/automation-inspector-actions';
 import { matchPickerPoint } from '../../modules/automation-pick-engine';
 import type { PickerVideoPoint } from '../../modules/automation-picker-state';
 
@@ -15,6 +17,7 @@ const props = defineProps<{
     replaceStep?: Pick<AutomationStep, 'id' | 'type'> | null;
     /** Original card's right-click position. Null keeps the legacy manual picker. */
     initialPoint?: PickerVideoPoint | null;
+    preferredAction?: InspectorAction | null;
 }>();
 const emit = defineEmits<{
     close: []; 'add-step': [step: AutomationStep]; edit: [];
@@ -139,6 +142,10 @@ function onLocatorModeChange() {
     selectedCandidate.value = null;
     coordinateConfirmed.value = false;
 }
+function changeLocatorMode(value: LocatorMode) {
+    mode.value = value;
+    onLocatorModeChange();
+}
 const nativeFields = ['resource_id', 'text', 'description', 'class_name', 'package'] as const;
 type NativeField = typeof nativeFields[number];
 const bestComposite = computed<AutomationSelector | null>(() => {
@@ -227,10 +234,6 @@ const nodeHighlight = computed(() => {
     return { left: left / shot.width * 100 + '%', top: top / shot.height * 100 + '%',
         width: (right - left) / shot.width * 100 + '%', height: (bottom - top) / shot.height * 100 + '%' };
 });
-function title(node: AutomationHierarchyNode) {
-    if (node.password) return node.resource_id || node.class_name || '敏感输入框';
-    return node.text || node.description || node.resource_id || node.class_name || '未命名控件';
-}
 function selectNode(id: number) {
     selectedId.value = id; selectedCandidate.value = null; coordinateConfirmed.value = false; feedback.value = '';
     const expanded = new Set(collapsedIds.value);
@@ -374,7 +377,7 @@ function replaceTarget() {
     // The controller checks the owner, script identity and step type again.
     emit('replace-target', props.replaceStep.id, target);
 }
-function add(type: 'tap' | 'long_press' | 'wait_for' | 'wait_gone' | 'assert' | 'assert_property' | 'scroll_find' | 'input_text') {
+function add(type: InspectorAction) {
     if (!selected.value || !snapshot.value || !canAdd.value) return;
     const selector = locator();
     if (!selector && type !== 'tap' && type !== 'long_press') return;
@@ -469,95 +472,23 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                         <Button v-if="dragPickMode" label="取消" text size="small" @click="cancelDragPick" />
                     </div>
                     <small v-if="dragPickMode" class="hint">A 为起点，B 为终点；至少相距 16 像素。仅添加草稿，不会立即拖动手机。</small>
-                    <small v-if="snapshot && !compatibleVideo" class="hint">画面尺寸或方向与控件树不一致，请确认投屏已加载或旋转完毕，再刷新控件树。</small>
-                    <small v-else-if="!dragPickMode" class="hint">在画面上点选控件，右侧自动读取属性；如果界面发生变化，请刷新。</small>
-                </section>
-                <section class="tree-panel" aria-label="控件列表">
-                    <div class="pane-heading"><strong>控件树</strong><small>{{ snapshot?.nodes.length ?? 0 }} 个节点</small></div>
-                    <InputText v-model="search" placeholder="搜索文字 / ID / 类名" size="small" :disabled="!snapshot" />
-                    <div class="node-list">
-                        <div v-for="node in visibleNodes" :key="node.id" class="tree-item"
-                            :style="{ paddingLeft: Math.min(100, node.depth * 10) + 'px' }">
-                            <button v-if="parentIds.has(node.id)" type="button" class="branch-toggle"
-                                :disabled="!!search.trim()" :aria-label="collapsedIds.includes(node.id) ? '展开子控件' : '折叠子控件'"
-                                :aria-expanded="!collapsedIds.includes(node.id)" @click="toggleBranch(node.id)">
-                                <i :class="collapsedIds.includes(node.id) && !search.trim() ? 'pi pi-chevron-right' : 'pi pi-chevron-down'" aria-hidden="true" />
-                            </button>
-                            <span v-else class="branch-spacer" aria-hidden="true" />
-                            <button type="button" class="node-row" :class="{ active: selectedId === node.id }"
-                                :aria-pressed="selectedId === node.id" @click="selectNode(node.id)">
-                                <i :class="node.clickable ? 'pi pi-circle-fill' : 'pi pi-circle'" aria-hidden="true" />
-                                <span><strong :title="title(node)">{{ title(node) }}</strong><small>{{ node.class_name.split('.').pop() }}</small></span>
-                            </button>
-                        </div>
-                        <div v-if="!snapshot" class="empty-tree">{{ loading ? '正在读取手机控件树…' : '暂无控件信息' }}</div>
-                        <div v-else-if="!visibleNodes.length" class="empty-tree">没有匹配的控件</div>
-                    </div>
-                    <small class="hint">按层级展开或折叠；搜索时会显示匹配节点及其祖先。最多展示 250 条。</small>
-                </section>
-                <section class="details-panel" aria-label="控件属性及生成步骤">
-                    <div class="pane-heading"><strong>控件属性</strong><Tag v-if="selected" :value="selected.clickable ? '可点击' : '非可点击'" severity="secondary" /></div>
-                    <template v-if="selected">
-                        <div class="ancestry" aria-label="控件父子层级">
-                            <span>控件路径</span>
-                            <div class="ancestry-nodes">
-                                <button v-for="node in lineage" :key="node.id" type="button" :class="{ current: node.id === selectedId }"
-                                    :title="title(node)" @click="selectNode(node.id)">{{ node.class_name.split('.').pop() || 'Node' }} #{{ node.id }}</button>
-                            </div>
-                        </div>
-                        <div v-if="!selected.clickable && clickableParent" class="parent-recommendation">
-                            <span>当前控件不可点击，建议使用最近的可点击父节点。</span>
-                            <Button label="选中可点击父节点" text size="small" @click="selectNode(clickableParent.id)" />
-                        </div>
-                        <div class="property"><span>类名</span><code>{{ selected.class_name || '—' }}</code></div>
-                        <div class="property"><span>Resource ID</span><code>{{ selected.resource_id || '—' }}</code></div>
-                        <div class="property"><span>文字</span><code>{{ selected.password ? '敏感输入框（已隐藏）' : selected.text || '—' }}</code></div>
-                        <div class="property"><span>描述</span><code>{{ selected.password ? '敏感输入框（已隐藏）' : selected.description || '—' }}</code></div>
-                        <div class="property"><span>范围</span><code>{{ selected.bounds.left }}, {{ selected.bounds.top }} → {{ selected.bounds.right }}, {{ selected.bounds.bottom }}</code></div>
-                        <div class="locator-recommendations" aria-label="候选控件定位">
-                            <strong>候选定位条件（需人工确认）</strong>
-                            <small v-if="snapshot?.truncated">控件树已截断，无法验证唯一性，请刷新。</small>
-                            <small v-else-if="!locatorCandidates.length">没有安全候选，可改选其他控件。</small>
-                            <button v-for="item in locatorCandidates.slice(0, 8)" :key="item.id" type="button"
-                                class="candidate-row" :class="{ chosen: selectedCandidate === item.id }"
-                                :disabled="!item.unique" @click="chooseCandidate(item.id)">
-                                <span>{{ item.label }} · {{ item.unique ? '唯一' : '匹配 ' + item.matches + ' 个' }}</span>
-                                <small>{{ selectedCandidate === item.id ? '已确认' : item.unique ? '选择' : '不可用' }}</small>
-                            </button>
-                            <small>请点选上方唯一候选进行确认。仅验证当前快照；不使用 instance 序号。界面变化后请刷新。</small>
-                        </div>
-                        <label class="locator-label" for="ui-inspector-locator">定位方式</label>
-                        <select id="ui-inspector-locator" v-model="mode" class="locator-select" @change="onLocatorModeChange">
-                            <option v-for="option in modeOptions" :key="option.value" :value="option.value" :disabled="!option.unique">{{ option.label }}{{ option.unique ? '' : ' · 不可用或不唯一' }}</option>
-                        </select>
-                        <div v-if="mode === 'coordinates'" class="coordinate-confirm">
-                            <small class="hint">坐标定位依赖当前画面和方向；必须主动确认，不会自动回退。</small>
-                            <Button :label="coordinateConfirmed ? '已确认坐标' : '确认使用坐标'"
-                                outlined size="small" :disabled="!coordinatesAllowed || coordinateConfirmed" @click="confirmCoordinates" />
-                        </div>
-                        <p v-else-if="mode === 'composite'" class="hint">已确认的唯一组合条件：{{ JSON.stringify(confirmedLocator ?? {}) }}</p>
-                        <p v-else-if="mode === 'xpath'" class="hint"><code>{{ suggestedXPath }}</code></p>
-                        <div v-if="replaceStep" class="step-actions">
-                            <Button label="更新当前步骤控件" icon="pi pi-check" size="small"
-                                :disabled="!canReplace" @click="replaceTarget" />
-                            <small v-if="activeMode && !activeMode.unique" class="hint">当前定位条件未通过唯一性检查，请选择其他条件或刷新控件树。</small>
-                            <small v-if="mode === 'xpath' && ['input_text', 'assert_property'].includes(replaceStep.type)" class="hint">此动作只支持组合控件定位，请选择 Resource ID、文字或组合条件。</small>
-                            <small v-if="mode === 'coordinates' && !['tap', 'long_press'].includes(replaceStep.type)" class="hint">当前步骤必须使用唯一控件定位，不能使用画面坐标。</small>
-                        </div>
-                        <div v-else class="step-actions">
-                            <Button label="添加点击" icon="pi pi-plus" size="small" :disabled="!canAdd" @click="add('tap')" />
-                            <Button label="添加长按" outlined size="small" :disabled="!canAdd" @click="add('long_press')" />
-                            <Button label="等待出现" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('wait_for')" />
-                            <Button label="等待消失" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('wait_gone')" />
-                            <Button label="断言存在" outlined size="small" :disabled="!canAdd || mode === 'coordinates'" @click="add('assert')" />
-                            <Button label="属性断言" outlined size="small" :disabled="!canAdd || mode === 'coordinates' || mode === 'xpath'" @click="add('assert_property')" />
-                            <Button label="滚动查找" outlined size="small" :disabled="!canAdd || mode === 'coordinates' || !scrollContainer"
-                                :title="scrollContainer ? '自动使用唯一滚动父容器' : '请先在脚本编辑器中指定滚动容器'" @click="add('scroll_find')" />
-                            <Button label="输入文字" outlined size="small" :disabled="!canAdd || mode === 'coordinates' || mode === 'xpath'" @click="add('input_text')" />
-                        </div>
-                    </template>
-                    <div v-else class="empty-detail">从左侧控件树中选择元素，或点击手机画面开始拾取。</div>
-                </section>
+                    <small v-if="snapshot && !                <InspectorPropertiesPanel
+                    :selected="selected" :selected-id="selectedId" :visible-nodes="visibleNodes"
+                    :node-count="snapshot?.nodes.length ?? 0" :snapshot-loaded="!!snapshot" :parent-ids="parentIds"
+                    :collapsed-ids="collapsedIds" :search="search" :loading="loading"
+                    :lineage="lineage" :clickable-parent="clickableParent"
+                    :locator-candidates="locatorCandidates" :selected-candidate="selectedCandidate"
+                    :mode="mode" :mode-options="modeOptions" :active-mode="activeMode"
+                    :coordinate-confirmed="coordinateConfirmed" :coordinates-allowed="coordinatesAllowed"
+                    :confirmed-locator="confirmedLocator" :suggested-xpath="suggestedXPath"
+                    :snapshot-truncated="!!snapshot?.truncated" :can-add="canAdd" :can-replace="canReplace"
+                    :scroll-container="scrollContainer" :replace-step="replaceStep"
+                    :preferred-action="preferredAction"
+                    @update-search="search = $event" @toggle-branch="toggleBranch"
+                    @select-node="selectNode" @choose-candidate="chooseCandidate"
+                    @change-mode="changeLocatorMode" @confirm-coordinates="confirmCoordinates"
+                    @replace-target="replaceTarget" @add-step="add"
+                />
             </div>
             <div class="inspector-footer">
                 <span role="status">{{ feedback || (replaceStep ? '重新拾取只修改已有步骤，不会操作手机或新增步骤。' : '脚本步骤只会加入草稿，不会立即执行。') }}</span>

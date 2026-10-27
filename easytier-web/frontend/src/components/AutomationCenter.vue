@@ -13,6 +13,7 @@ import AutomationApi, { AutomationApiError, automationErrorMessage } from '../mo
 import type { AutomationContext, AutomationControl, AutomationControlReply, AutomationDevice, AutomationRun, AutomationStep, AutomationMediaSettings, AutomationComponentStatus, AutomationPhoneConnectionState } from '../types/automation';
 import PhoneCard from './automation/PhoneCard.vue';
 import UiInspectorDialog from './automation/UiInspectorDialog.vue';
+import { menuToInspectorAction } from '../modules/automation-inspector-actions';
 import ConnectionDialog from './automation/ConnectionDialog.vue';
 import ScriptLibrary from './automation/ScriptLibrary.vue';
 import RunHistory from './automation/RunHistory.vue';
@@ -395,15 +396,17 @@ const runnerAvailable = computed(() => context.value?.available === true && cont
 const managedAccount = computed(() => accounts.value.find(account => account.id === ownerId.value)?.username ?? String(ownerId.value));
 const deviceNames = computed(() => Object.fromEntries(devices.value.map(device => [device.id, device.name])));
 const inspectorDevice = computed(() => devices.value.find(device => device.id === inspectorDeviceId.value));
-const inspectorInitialPoint = computed<PickerVideoPoint | null>(() => {
+const inspectorPickContext = computed(() => {
     const id = inspectorDeviceId.value;
     // Script-library replacement stays independent of any active card cursor.
     if (!id || inspectorEditScope.value || tab.value !== 'workbench') return null;
     const saved = pickerPoints[id], context = pickerContexts[id], binding = pickerBinding(id);
     return saved && context && binding && pickerCanApply(
         context, binding, saved.generation, saved.snapshotGeneration, {kind:'append'},
-    ) ? saved.point : null;
+    ) ? saved : null;
 });
+const inspectorInitialPoint = computed<PickerVideoPoint | null>(() => inspectorPickContext.value?.point ?? null);
+const inspectorPreferredAction = computed(() => menuToInspectorAction(inspectorPickContext.value?.action ?? 'inspect'));
 const nodeOptions = computed(() => [...new Map([
     ...catalogNodes.value.map(node => [node.machine_id, node.alias || node.hostname || node.machine_id] as const),
     ...devices.value.map(device => [device.machine_id, device.node_name] as const),
@@ -1212,7 +1215,7 @@ onBeforeUnmount(() => { stopEvents?.();
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
-        <UiInspectorDialog v-if="inspectorDevice" :key="inspectorOpenGeneration" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" :replace-step="inspectorReplaceStep" :initial-point="inspectorInitialPoint"
+        <UiInspectorDialog v-if="inspectorDevice" :key="inspectorOpenGeneration" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" :replace-step="inspectorReplaceStep" :initial-point="inspectorInitialPoint" :preferred-action="inspectorPreferredAction"
             @close="closeInspector" @add-step="addInspectorStep" @replace-target="replaceInspectorTarget" @edit="editInspectorDraft" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
         <Dialog :visible="!!gestureConfirmation" :appendTo="textDialogTarget" modal
