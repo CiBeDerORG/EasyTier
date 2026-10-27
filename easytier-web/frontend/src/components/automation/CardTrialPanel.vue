@@ -345,8 +345,33 @@ async function recheckPreparation(){
             ownerId:owner,deviceId:id,targetFingerprint:targetFingerprint.value,steps:[frozen.value],
         });
         if(!valid(mine,owner,id,original))return;
-        phase.value=state?.phase==='ready'?'ready':state?.phase==='unknown'?'unknown':'failed';
-        warning.value=state?.phase==='ready'?'':state?.message||'准备状态无法确认。';
+        if(state?.phase==='ready') {
+            // A recovered preparation is NOT a recovered T16 device review.
+            // This read-only check is mandatory before any new run request.
+            const latestDevice=(await api.devices(owner)).items.find(item=>item.id===id);
+            if(!valid(mine,owner,id,original))return;
+            if(!latestDevice)throw new Error('原授权设备已消失，不能继续试跑。');
+            const checked=requiresReuseHierarchy([frozen.value])
+                ? reviewAutomationDeviceCompatibility(owner,latestDevice,
+                    await api.hierarchy(owner,id),[frozen.value])
+                : statelessCompatibility(owner,latestDevice,[frozen.value]);
+            if(!valid(mine,owner,id,original))return;
+            compatibilityReview.value=checked;
+            compatibilityConsent.value=false;consent.value=false;
+            if(checked.status==='blocked'){
+                phase.value='failed';
+                warning.value='设备准备已恢复，但屏幕坐标与当前手机不兼容；请重新拾取。';
+            }else{
+                phase.value='ready';
+                warning.value=checked.status==='confirm'
+                    ? '准备已恢复，请重新人工确认本手机的定位和坐标风险。'
+                    : '准备状态及只读设备核验均已恢复。';
+            }
+        }else{
+            compatibilityReview.value=null;
+            phase.value=state?.phase==='unknown'?'unknown':'failed';
+            warning.value=state?.message||'准备状态无法确认。';
+        }
     }catch(cause){
         if(valid(mine,owner,id,original)){
             phase.value='unknown';warning.value=automationErrorMessage(cause);
