@@ -47,6 +47,8 @@ pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner>
         .route("/api/v1/automation/sessions", post(sessions::create))
         .route("/api/v1/automation/sessions/{id}/offer", post(sessions::offer))
         .route("/api/v1/automation/sessions/{id}/unlock", post(sessions::unlock))
+        .route("/api/v1/automation/sessions/{id}/view-only", post(sessions::view_only))
+        .route("/api/v1/automation/sessions/{id}/resume-manual", post(sessions::resume_manual))
         .route("/api/v1/automation/sessions/{id}/control", get(sessions::control))
         .route("/api/v1/automation/sessions/{id}/close", post(sessions::close))
         .route("/api/v1/automation/drafts", get(drafts::list).post(drafts::create))
