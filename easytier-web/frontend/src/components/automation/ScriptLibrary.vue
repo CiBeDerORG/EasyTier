@@ -740,6 +740,7 @@ function prepareSingleStep() {
             'No available phones. Configure ADB on the device workbench first.');
         return;
     }
+    if(!checkOldRunReceipts([defaultPickerDevice.value??ids[0]]))return;
     runFingerprints.value = Object.fromEntries(ids.map(id => [
         id, props.runDeviceSnapshots.find(device => device.id === id)?.target_fingerprint ?? null,
     ]));
@@ -768,6 +769,7 @@ function prepareRun(mode: 'saved' | 'draft') {
     const ids = [...new Set(props.selectedDeviceIds)];
     if (!ids.length) { error.value = text('请先在设备工作台选择目标手机。', 'Select target phones in the device workspace first.'); return; }
     if (ids.length > 20) { error.value = text('一次最多运行 20 台手机，请先缩小工作台选择。', 'A run supports at most 20 devices. Reduce the selection first.'); return; }
+    if(!checkOldRunReceipts(ids))return;
     runFingerprints.value = Object.fromEntries(ids.map(id => [
         id, props.runDeviceSnapshots.find(device => device.id === id)?.target_fingerprint ?? null,
     ]));
@@ -891,6 +893,7 @@ watch(() => props.ownerId, () => {
     scripts.value = []; loading.value = false; saving.value = false; deleting.value = false;
     runVisible.value = false; deleteVisible.value = false; runSubmitting.value = false;
     runParameters.value = Object.create(null); pendingRun.value = undefined; uncertainRun.value = false;
+    blockedRunReceipts.value=[];checkingOldRun.value=false;
     runSteps.value = []; runDevices.value = []; runName.value = ''; deleteTarget.value = undefined;
     stepTrialSource.value = null; stepTrialConsent.value = false;
     preflightGeneration++; preflightRows.value = []; preflightRunning.value = false; preflightError.value = '';
@@ -914,6 +917,9 @@ watch(() => props.repairRequest, request => {
 <template>
     <section class="script-library" :aria-label="text('脚本库', 'Script library')">
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+        <Button v-if="blockedRunReceipts.length" label="只读查询未确认的执行请求"
+            icon="pi pi-history" outlined size="small" :loading="checkingOldRun"
+            :disabled="checkingOldRun" @click="recoverOldRunReceipts"/>
         <p v-if="notice" class="notice-message" role="status">{{ notice }}</p>
         <div class="library-columns">
             <aside class="console-panel script-sidebar">
