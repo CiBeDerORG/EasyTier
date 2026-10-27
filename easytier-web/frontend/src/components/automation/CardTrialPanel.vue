@@ -232,7 +232,7 @@ async function prepare(){
             compatibilityReview.value=checked;
             if(checked.status==='blocked'){
                 phase.value='failed';
-                warning.value='原步骤的坐标与当前手机不匹配。请重新拾取或修改步骤，执行已阻止。';
+                warning.value='本机屏幕尺寸、控件唯一性或目标定位不符合安全校验；请刷新控件树、重新拾取或修改步骤，执行已阻止。';
             }else {
                 phase.value='ready';warning.value='';
                 if(inlineStepMayAutoSubmit(safety.value,checked,parameter.value)) {
@@ -303,7 +303,7 @@ async function submit(){
         if(rechecked.status==='blocked'){
             pending.value=null;compatibilityReview.value=rechecked;
             phase.value='failed';
-            warning.value='提交时手机画面尺寸不符，已中止本次执行。';return;
+            warning.value='提交前发现控件定位不唯一、目标不可靠或画面尺寸不符，已中止本次执行。';return;
         }
         if(!compatibilityStillCurrent(compatibilityReview.value,owner,row,[frozen.value]) ||
             JSON.stringify(rechecked.issues)!==JSON.stringify(compatibilityReview.value?.issues)){
@@ -426,7 +426,7 @@ async function recheckPreparation(){
             consent.value=false;
             if(checked.status==='blocked'){
                 phase.value='failed';
-                warning.value='设备准备已恢复，但屏幕坐标与当前手机不兼容；请重新拾取。';
+                warning.value='准备已恢复，但控件定位或屏幕坐标仍不安全；请重新拾取。';
             }else{
                 phase.value='ready';
                 warning.value=checked.status==='confirm'
