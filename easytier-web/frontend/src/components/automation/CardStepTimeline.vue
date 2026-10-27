@@ -64,7 +64,7 @@ function openEditor(id: string) {
                     <button class="step-select" type="button"
                         :aria-pressed="step.id === draft.selectedStepId"
                         :title="'选择步骤 '+step.number+'：'+step.label"
-                        @click="emit('select',step.id)">
+                        @click="openEditor(step.id)">
                         <span class="number">{{ step.number }}</span>
                         <span class="step-info" :style="{ paddingLeft: Math.min(step.depth,3)*7+'px' }">
                             <strong>{{ step.label }}</strong>
@@ -72,14 +72,14 @@ function openEditor(id: string) {
                             <small>{{ step.context }}{{ step.incomplete ? ' · 待完善' : '' }}</small>
                         </span>
                     </button>
-                    <button type="button" class="step-edit" :aria-label="'到脚本库编辑步骤 '+step.number"
-                        title="在脚本库编辑此步骤（切换页面可能关闭实时画面）"
+                    <button type="button" class="step-edit" :aria-label="'编辑步骤 '+step.number"
+                        title="在当前手机卡片编辑步骤"
                         @click="openEditor(step.id)">
                         <i class="pi pi-pencil" aria-hidden="true" />
                     </button>
                 </li>
             </ol>
-            <small class="draft-hint">步骤与脚本库实时共享；点击步骤选中，铅笔进入完整编辑。卡片内编辑与定位演示将在后续阶段支持。</small>
+            <small class="draft-hint">步骤与脚本库实时共享；点击步骤直接在卡片内编辑参数、重新拾取控件。定位演示将在下一阶段支持。</small>
         </template>
     </section>
 </template>

@@ -27,7 +27,8 @@ import {
     type PickerBinding, type PickerContext, type PickerIntent, type PickerVideoPoint, type PickerMenuAction,
 } from '../modules/automation-picker-state';
 import type { AutomationRepairRequest } from '../modules/automation-run-repair';
-import { replaceAutomationStepTarget, type StepTarget } from '../modules/automation-step-target';
+import { replaceAutomationStepTarget, stepCanPickTarget, type StepTarget } from '../modules/automation-step-target';
+import { updateCardDraftStep } from '../modules/automation-card-step-edit';
 import type { AutomationStepType } from '../types/automation';
 import {
     beginCapturedGesture, observeCapturedGesture, finishCapturedGesture,
@@ -147,9 +148,18 @@ const inspectorOpenGeneration = ref(0);
 const inspectorStream = shallowRef<MediaStream | null>(null);
 interface PickerEditScope {
     ownerId: number; stepId: string; stepType: AutomationStepType; targetFingerprint: string;
-    editingId?: string; revision?: number;
+    editingId?: string; revision?: number; origin: 'scripts' | 'card';
+    binding?: PickerBinding; generation?: number; snapshotGeneration?: number;
+    /** Detect changes to the original step during the asynchronous hierarchy read. */
+    stepSnapshot?: string;
 }
 const inspectorEditScope = ref<PickerEditScope | null>(null);
+const cardStepEditor = ref<{ deviceId: string; stepId: string } | null>(null);
+const cardEditorDirty = ref(false);
+watch(() => [draftWorkspace.ownerId, draftWorkspace.editingId, draftWorkspace.revision], () => {
+    cardStepEditor.value = null;
+    cardEditorDirty.value = false;
+});
 const inspectorReplaceStep = computed(() => inspectorEditScope.value
     ? { id: inspectorEditScope.value.stepId, type: inspectorEditScope.value.stepType }
     : null);
@@ -226,7 +236,8 @@ function toggleCardPicking(id: string) {
     const current = pickerContexts[id];
     if (current && current.phase !== 'off') {
         stopCardPicking(id);
-        if (inspectorDeviceId.value === id && !inspectorEditScope.value) closeInspector();
+        if (inspectorDeviceId.value === id &&
+            (!inspectorEditScope.value || inspectorEditScope.value.origin === 'card')) closeInspector();
         notice.value = '已退出该手机的拾取模式；当前脚本步骤不会丢失。';
         return;
     }
@@ -285,10 +296,21 @@ async function onCardPickAction(id: string, point: PickerVideoPoint, action: Pic
         error.value = '拾取目标已变化，请在手机画面上重新右键选择。';
         return;
     }
-    inspectorAppendScope.value = {
-        token, deviceId: id, binding: { ...binding }, generation: current.generation,
-        snapshotGeneration: current.snapshotGeneration, submitted: false,
-    };
+    if (current.intent.kind === 'append') {
+        inspectorAppendScope.value = {
+            token, deviceId: id, binding: { ...binding }, generation: current.generation,
+            snapshotGeneration: current.snapshotGeneration, submitted: false,
+        };
+    } else {
+        // In replace mode the dialog may ONLY replace the captured step. It
+        // cannot emit an append event, and the old ID survives the operation.
+        if (inspectorEditScope.value?.origin !== 'card' ||
+            inspectorEditScope.value.stepId !== current.intent.stepId) {
+            closeInspector();
+            error.value = '当前旧步骤已变化，重新拾取已取消。';
+            return;
+        }
+    }
     const labels: Partial<Record<PickerMenuAction,string>> = {
         tap:'点击', long_press:'长按', input_text:'输入文字', wait_for:'等待出现',
         wait_gone:'等待消失', assert:'检查控件', assert_property:'属性断言',
@@ -422,13 +444,21 @@ const runnerAvailable = computed(() => context.value?.available === true && cont
 const managedAccount = computed(() => accounts.value.find(account => account.id === ownerId.value)?.username ?? String(ownerId.value));
 const deviceNames = computed(() => Object.fromEntries(devices.value.map(device => [device.id, device.name])));
 const inspectorDevice = computed(() => devices.value.find(device => device.id === inspectorDeviceId.value));
+const repickingStepIds = computed<Record<string,string>>(() => Object.fromEntries(
+    Object.entries(pickerContexts).flatMap(([id,context]) =>
+        context.phase === 'on' && context.intent.kind === 'replace'
+            ? [[id,context.intent.stepId] as const] : []),
+));
 const inspectorPickContext = computed(() => {
     const id = inspectorDeviceId.value;
-    // Script-library replacement stays independent of any active card cursor.
-    if (!id || inspectorEditScope.value || tab.value !== 'workbench') return null;
+    // Script-library replacement stays independent of any card cursor.
+    if (!id || inspectorEditScope.value?.origin === 'scripts' || tab.value !== 'workbench') return null;
     const saved = pickerPoints[id], context = pickerContexts[id], binding = pickerBinding(id);
+    const intent: PickerIntent = inspectorEditScope.value?.origin === 'card'
+        ? {kind:'replace',stepId:inspectorEditScope.value.stepId,stepType:inspectorEditScope.value.stepType}
+        : {kind:'append'};
     return saved && context && binding && pickerCanApply(
-        context, binding, saved.generation, saved.snapshotGeneration, {kind:'append'},
+        context, binding, saved.generation, saved.snapshotGeneration, intent,
     ) ? saved : null;
 });
 const inspectorInitialPoint = computed<PickerVideoPoint | null>(() => inspectorPickContext.value?.point ?? null);
@@ -998,7 +1028,20 @@ function openInspector(id: string) {
         && !armCardPicking(id)) {
         error.value = '无法开启拾取：设备会话、账号或草稿上下文已变化。'; return;
     }
-    inspectorEditScope.value = null;
+    if (current?.intent.kind === 'replace') {
+        const item = draftWorkspace.steps.find(step => step.id === current.intent.stepId);
+        if (!item || item.type !== current.intent.stepType || !stepCanPickTarget(item) || !binding) {
+            error.value = '重新拾取的原步骤已变化，请重新选择步骤。';
+            return;
+        }
+        inspectorEditScope.value = {
+            ownerId: ownerId.value, origin: 'card', stepId: item.id,
+            stepType: item.type, targetFingerprint: binding.targetFingerprint,
+            editingId: draftWorkspace.editingId, revision: draftWorkspace.revision,
+            binding: {...binding}, generation: current.generation,
+            snapshotGeneration: current.snapshotGeneration, stepSnapshot: JSON.stringify(item),
+        };
+    } else inspectorEditScope.value = null;
     inspectorDeviceId.value = id;
     inspectorStream.value = stream;
 }
@@ -1019,7 +1062,8 @@ function openScriptInspector(stepId: string, stepType: AutomationStepType, devic
     ++inspectorOpenGeneration.value;
     inspectorAppendScope.value = null;
     inspectorEditScope.value = {
-        ownerId: ownerId.value, stepId, stepType, targetFingerprint: device.target_fingerprint,
+        ownerId: ownerId.value, origin:'scripts',
+        stepId, stepType, targetFingerprint: device.target_fingerprint,
         editingId: draftWorkspace.editingId, revision: draftWorkspace.revision,
     };
     inspectorDeviceId.value = deviceId;
@@ -1029,34 +1073,65 @@ function openScriptInspector(stepId: string, stepType: AutomationStepType, devic
 }
 function closeInspector() {
     const id = inspectorDeviceId.value;
+    const previous = inspectorEditScope.value;
     if (id) delete pickerPoints[id];
     inspectorAppendScope.value = null;
     inspectorDeviceId.value = null;
     inspectorStream.value = null;
     inspectorEditScope.value = null;
+    // Cancel/confirm both end ONE replace intent, without closing the live
+    // screen, disabling picking or altering the original step on cancel.
+    if (id && previous?.origin === 'card') {
+        const current = pickerContexts[id];
+        if (current?.phase === 'on' && current.intent.kind === 'replace' &&
+            current.intent.stepId === previous.stepId && current.generation === previous.generation)
+            pickerContexts[id] = setPickerIntent(current, {kind:'append'}, ++pickerEpoch);
+    }
 }
 function replaceInspectorTarget(stepId: string, target: StepTarget) {
     const scope = inspectorEditScope.value;
-    const device = devices.value.find(item => item.id === inspectorDeviceId.value);
-    if (!scope || !device || device.target_fingerprint !== scope.targetFingerprint
-        || scope.stepId !== stepId || scope.ownerId !== ownerId.value
-        || draftWorkspace.ownerId !== scope.ownerId
-        || draftWorkspace.editingId !== scope.editingId
-        || draftWorkspace.revision !== scope.revision
-        || tab.value !== 'scripts') {
+    const id = inspectorDeviceId.value;
+    const device = devices.value.find(item => item.id === id);
+    const currentStep = draftWorkspace.steps.find(item => item.id === stepId);
+    const basicValid = !!scope && !!device && device.target_fingerprint === scope.targetFingerprint
+        && device.owner_user_id === ownerId.value
+        && scope.stepId === stepId && scope.ownerId === ownerId.value
+        && draftWorkspace.ownerId === scope.ownerId
+        && draftWorkspace.editingId === scope.editingId
+        && draftWorkspace.revision === scope.revision
+        && currentStep?.type === scope.stepType;
+    if (!basicValid || !scope || !device || !id) {
         error.value = '脚本、账号或设备上下文已发生变化，未修改草稿。';
         closeInspector();
         return;
     }
+    if (scope.origin === 'card') {
+        const context = pickerContexts[id], binding = pickerBinding(id), point = pickerPoints[id];
+        const intent: PickerIntent = {kind:'replace',stepId,stepType:scope.stepType};
+        if (tab.value !== 'workbench' || !scope.binding || !binding ||
+            !pickerMatches(context,scope.binding) ||
+            !pickerCanApply(context,binding,scope.generation ?? -1,scope.snapshotGeneration ?? -1,intent) ||
+            !point || point.generation !== scope.generation ||
+            point.snapshotGeneration !== scope.snapshotGeneration ||
+            !cardStepEditor.value || cardStepEditor.value.deviceId !== id ||
+            cardStepEditor.value.stepId !== stepId ||
+            JSON.stringify(currentStep) !== scope.stepSnapshot) {
+            error.value = '设备会话、步骤参数或拾取位置已改变，未替换旧步骤。';
+            closeInspector(); return;
+        }
+    } else if (tab.value !== 'scripts') {
+        error.value = '脚本库上下文已变化，未替换旧步骤。';
+        closeInspector(); return;
+    }
     const next = replaceAutomationStepTarget(draftWorkspace.steps, stepId, scope.stepType, target);
     if (!next) {
-        error.value = '无法替换该步骤的定位条件：请检查动作类型及所选控件。';
+        error.value = '无法替换该步骤定位：请检查动作类型及唯一控件条件。';
         return;
     }
     draftWorkspace.steps = next;
     draftWorkspace.selectedStepId = stepId;
     closeInspector();
-    notice.value = '已重新绑定当前步骤控件；动作参数和步骤编号保持不变。请先单机试跑。';
+    notice.value = '已更新第 '+(next.findIndex(item=>item.id===stepId)+1)+' 步的定位目标，原步骤ID、操作参数和条件范围均保留。';
 }
 function addInspectorStep(step: AutomationStep, token: number, acknowledge: (accepted: boolean) => void) {
     const scope = inspectorAppendScope.value;
@@ -1104,10 +1179,60 @@ function editCardStep(deviceId: string, stepId: string) {
         error.value = '步骤或手机归属已变化，请重新打开脚本草稿。';
         return;
     }
-    // T07 transitional entry: uses the existing full script editor without
-    // copying steps. T08 will keep edits in the original card panel.
-    notice.value = '正在前往脚本库编辑所选步骤；切换页面可能释放当前手机画面。';
-    void changeTab('scripts');
+    const previous=cardStepEditor.value;
+    if (previous && (previous.deviceId !== deviceId || previous.stepId !== stepId)) {
+        if (!closeCardStepEditor(previous.deviceId)) {
+            draftWorkspace.selectedStepId = previous.stepId;
+            return;
+        }
+    }
+    cardStepEditor.value={deviceId,stepId};
+    cardEditorDirty.value=false;
+}
+function markCardStepDirty(deviceId: string, dirty: boolean) {
+    if (cardStepEditor.value?.deviceId === deviceId) cardEditorDirty.value=dirty;
+}
+function closeCardStepEditor(deviceId: string): boolean {
+    if (cardStepEditor.value?.deviceId !== deviceId) return true;
+    if (cardEditorDirty.value &&
+        !window.confirm('这一步还有未保存的参数修改，确定放弃修改吗？')) return false;
+    cardStepEditor.value=null;
+    cardEditorDirty.value=false;
+    if (inspectorDeviceId.value === deviceId && inspectorEditScope.value?.origin === 'card') {
+        closeInspector();
+    }
+    const picker=pickerContexts[deviceId];
+    if (picker?.phase === 'on' && picker.intent.kind === 'replace')
+        pickerContexts[deviceId]=setPickerIntent(picker,{kind:'append'},++pickerEpoch);
+    return true;
+}
+function saveCardStep(deviceId:string,stepId:string,expected:AutomationStep,updated:AutomationStep) {
+    const device=devices.value.find(item=>item.id===deviceId);
+    if (!device || device.owner_user_id!==ownerId.value ||
+        cardStepEditor.value?.deviceId!==deviceId ||
+        cardStepEditor.value.stepId!==stepId ||
+        !updateCardDraftStep(draftWorkspace,ownerId.value,stepId,expected,updated)) {
+        error.value='无法保存：该步骤已改变、存在编辑冲突或条件分支不合法，请重新打开步骤。';
+        return;
+    }
+    cardEditorDirty.value=false;
+    closeCardStepEditor(deviceId);
+    notice.value='步骤参数已更新至当前脚本草稿；正式保存及试跑前仍需完成脚本检查。';
+}
+function repickCardStep(deviceId:string,stepId:string) {
+    const item=draftWorkspace.steps.find(step=>step.id===stepId);
+    const device=devices.value.find(d=>d.id===deviceId);
+    if (!item || !stepCanPickTarget(item) || !device || device.owner_user_id!==ownerId.value ||
+        cardStepEditor.value?.deviceId!==deviceId || cardStepEditor.value.stepId!==stepId ||
+        tab.value!=='workbench') {
+        error.value='此步骤或手机当前不能重新拾取，请先选择有效步骤。';return;
+    }
+    if (inspectorDeviceId.value) closeInspector();
+    if (!armCardPicking(deviceId,{kind:'replace',stepId,stepType:item.type})) {
+        error.value='请先打开目标手机画面，并结束录制或群控，再重新拾取。';return;
+    }
+    notice.value='已进入第 '+(draftWorkspace.steps.findIndex(step=>step.id===stepId)+1)+
+        ' 步的重新拾取模式：下一次在原手机画面右键选控件并确认，仅替换原定位，不新增步骤。';
 }
 function editInspectorDraft() {
     closeInspector();
@@ -1131,6 +1256,8 @@ function finishRecording(edit: boolean) {
 }
 async function changeTab(next: typeof tab.value) {
     if (next === tab.value || switchingTab.value || connecting.value || sendingText.value) return;
+    if (tab.value === 'workbench' && cardEditorDirty.value &&
+        !window.confirm('当前卡片步骤存在未保存的参数修改，确定切换页面并放弃这些修改吗？')) return;
     if (gestureConfirmation.value && tab.value === 'workbench') {
         notice.value = '还有待确认的滑动或拖拽，确认后再切换页面。';
         return;
@@ -1147,6 +1274,8 @@ async function changeTab(next: typeof tab.value) {
             if (!await releaseManual(live)) return;
         }
         tab.value = next;
+        cardStepEditor.value = null;
+        cardEditorDirty.value = false;
         stopAllPicking();
         if (next === 'settings') settingsVisited.value = true;
         if (next === 'workbench') await loadDevices();
@@ -1257,8 +1386,11 @@ onBeforeUnmount(() => { stopEvents?.();
                 <div v-if="!devices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-mobile" aria-hidden="true" /><h2>{{ t('noAssets') }}</h2><p>{{ t('noAssetsDetail') }}</p><Button :label="t('toAssets')" outlined @click="router.push({ name: 'nodeAssets' })" /></div>
                 <div v-else-if="!visibleDevices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-search" aria-hidden="true" /><h2>{{ t('noResults') }}</h2><Button :label="t('reset')" text @click="filters = { node: '', group: '', type: '', keyword: '' }; query()" /></div>
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
-                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" :draft="draftWorkspace" @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
-                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @step-select="selectCardStep" @step-edit="editCardStep" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
+                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" :draft="draftWorkspace" :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
+                        :repicking-step-id="repickingStepIds[device.id]"
+                        @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
+                        @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction" @step-select="selectCardStep" @step-edit="editCardStep" @step-close="closeCardStepEditor"
+                        @step-save="saveCardStep" @step-repick="repickCardStep" @step-dirty="markCardStepDirty" @connect="id => connectPhones([id])" @toggle-screen="toggleDeviceScreen" @state="onState" @geometry="onGeometry" @stop-sync="stopSync" @refresh="loadDevices" /></div>
                 <section v-if="results.length" class="console-panel results-panel"><div class="section-heading"><h2>{{ t('operationResults') }}</h2></div><ul><li v-for="result in results" :key="result.id"><strong>{{ result.name }}</strong><span :class="{ failed: result.state !== 'action_sent' }">{{ result.state === 'action_sent' ? t('actionSent') : result.state === 'sending' ? t('loading') : t('resultUnknown') }}</span><p v-if="result.message">{{ result.message }}</p></li></ul></section>
                 <button v-if="globalOpen && !fullscreenActive" class="global-dismiss" :aria-label="t('collapse')" @pointerdown.stop @click.stop="globalOpen = false" />
                 <div v-if="devices.length && !fullscreenActive" class="global-controls" @pointerdown.stop @click.stop @keydown.esc="globalOpen = false">

@@ -4,7 +4,7 @@ import { Checkbox, InputNumber, InputText, Select, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import type { AutomationKey, AutomationSelector, AutomationStep, AutomationStepType } from '../../types/automation';
 
-const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean }>();
+const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean; lockActionType?: boolean }>();
 const emit = defineEmits<{ 'update:modelValue': [step: AutomationStep] }>();
 const { locale } = useI18n();
 const cn = computed(() => locale.value === 'cn' || locale.value.startsWith('zh'));
@@ -67,7 +67,7 @@ function update(patch: Partial<AutomationStep>) {
     if (!props.disabled) emit('update:modelValue', { ...props.modelValue, ...patch });
 }
 function changeType(type: AutomationStepType) {
-    if (props.disabled || type === props.modelValue.type) return;
+    if (props.disabled || props.lockActionType || type === props.modelValue.type) return;
     const step: AutomationStep = { id: props.modelValue.id, type };
     if (type === 'key') step.key = 'HOME';
     if (['tap', 'long_press', 'wait_for', 'wait_gone', 'if_gone', 'if_else', 'assert', 'assert_property', 'scroll_find'].includes(type)) step.selector = { resource_id: '' };
@@ -131,7 +131,7 @@ function updateNumber(key: string, value: number | null | undefined) {
     <div class="step-editor">
         <label class="field" :for="fieldId('type')">
             <span>{{ text('操作类型', 'Action') }}</span>
-            <Select :input-id="fieldId('type')" :model-value="modelValue.type" :options="actionOptions" option-label="label" option-value="value" :disabled="disabled || ['if_gone','if_else'].includes(modelValue.type)" @update:model-value="changeType" />
+            <Select :input-id="fieldId('type')" :model-value="modelValue.type" :options="actionOptions" option-label="label" option-value="value" :disabled="disabled || lockActionType || ['if_gone','if_else'].includes(modelValue.type)" @update:model-value="changeType" />
         </label>
 
         <small v-if="['if_gone','if_else'].includes(modelValue.type)" class="hint">{{ text('条件节点的类型已锁定。需要修改类型时请删除整个条件块后重建。', 'Conditional types are locked. Remove the whole condition block to change the type.') }}</small>

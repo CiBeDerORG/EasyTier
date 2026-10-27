@@ -68,3 +68,11 @@
 - 原因：T05 属性面板拆分后，父组件使用 Vue 自动解析的 `suggested-xpath`（对应 `suggestedXpath`），子组件却声明驼峰缩写 `suggestedXPath`，TypeScript 严格组件入参校验不匹配。
 - 修复：`InspectorPropertiesPanel.vue` 统一使用 `suggestedXpath` props 及插值，与父组件既有绑定匹配；不改变 XPath 构造逻辑或控件定位条件。
 - **未执行**本地测试、类型检查、构建、手工 Actions/CI；只对已有 Actions 失败日志做复盘，最终结果以后续 push 自动 CI 为准。
+
+## 2026-10-27 · T08 卡片步骤原位编辑及重新拾取
+
+- 变更：新增 `CardStepEditor.vue`（复用 `ScriptStepEditor`，编辑副本暂存/保存/取消/重新拾取）、`automation-card-step-edit.ts`（按 stepId/CAS/类型/条件跨度校验安全替换）；`CardStepTimeline.vue` 点击步骤直接打开卡片编辑器，`PhoneCard.vue` 承载编辑器及事件。`ScriptStepEditor.vue` 新增可选动作类型锁定开关，不影响脚本库原操作。
+- `AutomationCenter.vue`：同一账号/当前设备的共享草稿编辑；切换步骤、关闭编辑或切换页时，若参数未保存，会提示放弃。重新拾取设置 `PickerIntent.replace`，下一次右键预选控件；确认复用 `replaceAutomationStepTarget`，保留原 ID/动作参数/步骤位置/条件范围。
+- 安全：读取右键后的新控件树；替换前校验当前设备会话、target fingerprint、draft revision、拾取/快照世代、打开窗口时的步骤 JSON 未被异步修改；老 Inspector 脚本库路径保持独立；失败/取消不写草稿。
+- 仍待联调的场景：手机横竖屏、旧 UIA 快照、正在编辑时投屏掉线、全屏右键退出顶层、不同浏览器同时编辑；T09 的只读定位演示未开发，T10/T11 服务端草稿持久化未开发。
+- **未执行**：本地单元测试、TypeScript 类型检查、lint、构建与 FnOS/Android 真机操作（遵循当前调试模式）。仅按分支 push 触发既有自动 CI，最终状态另行确认。

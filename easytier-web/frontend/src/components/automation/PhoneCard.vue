@@ -4,7 +4,7 @@ import { Button, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
 import AutomationApi from '../../modules/automation-api';
-import type { AutomationControl, AutomationDevice, AutomationMediaSettings, AutomationComponentStatus, AutomationPhoneConnectionState } from '../../types/automation';
+import type { AutomationControl, AutomationDevice, AutomationMediaSettings, AutomationComponentStatus, AutomationPhoneConnectionState, AutomationStep } from '../../types/automation';
 import { automationMessages } from './messages';
 import type { EndpointEvent } from '../../modules/discovery-api';
 import { usePhoneSession } from './usePhoneSession';
@@ -12,6 +12,7 @@ import PhoneAutomationPanel from './PhoneAutomationPanel.vue';
 import CardPickingOverlay from './CardPickingOverlay.vue';
 import CardContextMenu from './CardContextMenu.vue';
 import CardStepTimeline from './CardStepTimeline.vue';
+import CardStepEditor from './CardStepEditor.vue';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
 import type { PickerMenuAction, PickerPhase, PickerVideoPoint } from '../../modules/automation-picker-state';
 
@@ -23,6 +24,8 @@ const props = defineProps<{
     pickerPhase?: PickerPhase; pickerError?: string;
     /** Single account-scoped draft. Card reads it, never stores a copy. */
     draft: AutomationDraftWorkspace;
+    editingStepId?: string;
+    repickingStepId?: string;
 }>();
 const emit = defineEmits<{
     selection: [id: string, selected: boolean]; configure: [device: AutomationDevice];
@@ -30,9 +33,13 @@ const emit = defineEmits<{
     text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string];
     'toggle-picking': [id: string]; 'pick-action': [id: string, point: PickerVideoPoint, action: PickerMenuAction];
     'step-select': [deviceId: string, stepId: string]; 'step-edit': [deviceId: string, stepId: string];
+    'step-close': [deviceId: string]; 'step-save': [deviceId: string, stepId: string, expected: AutomationStep, updated: AutomationStep];
+    'step-repick': [deviceId: string, stepId: string]; 'step-dirty': [deviceId: string, dirty: boolean];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
+const editingStep = computed(() => props.draft.steps.find(item => item.id === props.editingStepId));
+const editingStepNumber = computed(() => props.draft.steps.findIndex(item => item.id === props.editingStepId)+1);
 const api = new AutomationApi();
 const session = usePhoneSession(api);
 const video = ref<HTMLVideoElement | null>(null);
@@ -479,6 +486,12 @@ onBeforeUnmount(() => {
         <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
             @select="emit('step-select', device.id, $event)"
             @edit="emit('step-edit', device.id, $event)" />
+        <CardStepEditor v-if="editingStep" :key="editingStep.id" :step="editingStep"
+            :step-number="editingStepNumber" :repicking="repickingStepId === editingStep.id"
+            @close="emit('step-close', device.id)"
+            @save="(stepId, expected, updated) => emit('step-save', device.id, stepId, expected, updated)"
+            @repick="emit('step-repick', device.id, $event)"
+            @dirty-change="emit('step-dirty', device.id, $event)" />
         <small v-if="session.state.unlockState === 'wake_sent'" class="unlock-notice">手机已发送亮屏指令；该 ADB 服务没有保存开屏密码，请在设备管理中配置后重试。</small>
         <small v-else-if="session.state.unlockState === 'already_unlocked'" class="unlock-notice">已检测到手机处于解锁状态，因此没有输入密码。</small>
         <small v-else-if="session.state.unlockState === 'lock_state_unknown'" class="unlock-notice">手机已唤醒，但 Android 未返回可靠的锁屏状态；为避免把密码输入其他应用，已跳过自动解锁。</small>

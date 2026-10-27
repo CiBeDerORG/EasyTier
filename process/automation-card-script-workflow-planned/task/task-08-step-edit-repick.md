@@ -2,8 +2,18 @@
 
 - 里程碑：M2；负责人（唯一写入）：步骤 Agent；相对工作量：M
 - 依赖：T05 T07；映射验收：AC-07
-- 当前状态：**待开发**；未执行测试/构建。
+- 当前状态：**代码已提交，待联调**；未执行本地测试/构建。
 - 写入范围：新增 CardStepEditor.vue；复用 ScriptStepEditor.vue；automation-step-target.ts 由集成负责人按合同接线
+
+## 2026-10-27 实际交付
+
+- `CardStepTimeline.vue` 点击某一步即在**原手机卡片**打开编辑器；铅笔按钮同样打开当前卡片，不再切换到脚本库/释放投屏。
+- 新增 `CardStepEditor.vue`：复用已有 `ScriptStepEditor.vue` 编辑字段，采用临时编辑副本、明确「保存到草稿/取消/重新拾取」操作。原操作类型在卡片内锁定，避免误改条件动作导致分支错乱。
+- 新增 `automation-card-step-edit.ts`：CAS 对比步骤原始快照，校验唯一 ID、动作类型、条件分支 span 和现有 `analyzeAutomationFlow`，只替换原草稿列表对应位置；不会额外插入步骤。字段输入仍在脚本库正式保存流程接受其完整校验。
+- `PhoneCard.vue` 在投屏下方渲染当前步骤编辑区；变更仅向 `AutomationCenter.vue` 发送修改/重新拾取意图；草稿源仍为原 `draftWorkspace`。未保存参数修改时切换步骤、关闭编辑或切换管理页均会询问是否放弃。
+- `AutomationCenter.vue` 在当前手机会话有效且用户授权时支持重新拾取：进入 `PickerIntent.replace`，用户**下一次在原画面右键选目标**，打开现有 UiAutomator2 选择窗口并根据该右键位置预选节点；确认时复用 `replaceAutomationStepTarget`，只改定位，保留原 `step.id`、动作参数、分支范围和步骤顺序。
+- 卡片替换时冻结设备指纹、投屏会话、草稿修订、拾取 generation/snapshotGeneration 与原步骤 JSON，执行前重新检查；取消或退出拾取后旧步骤不变，拾取模式可恢复追加。原脚本库重新拾取功能沿用。
+- **后续**：T09 实现只读高亮定位演示；M3 才负责服务器草稿持久化。本轮不执行手机点击、运行脚本或自动保存正式脚本。
 
 ## 交付范围
 点击步骤侧栏/抽屉编辑；重新拾取标记replace目标，确认只改定位字段；取消无副作用。
