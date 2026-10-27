@@ -14,7 +14,9 @@ import CardContextMenu from './CardContextMenu.vue';
 import CardStepTimeline from './CardStepTimeline.vue';
 import CardStepEditor from './CardStepEditor.vue';
 import CardTrialPanel from './CardTrialPanel.vue';
+import CardRepairEntry from './CardRepairEntry.vue';
 import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
+import type { CardRepairContext } from '../../modules/automation-run-repair';
 import CardLocatorDemo from './CardLocatorDemo.vue';
 import type { LocatorDemoResult } from '../../modules/automation-locator-demo';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
@@ -33,6 +35,7 @@ const props = defineProps<{
     repickingStepId?: string;
     demoResult?: LocatorDemoResult | null;
     demoLoading?: boolean; demoError?: string;
+    repairContext?: CardRepairContext | null;
 }>();
 const emit = defineEmits<{
     selection: [id: string, selected: boolean]; configure: [device: AutomationDevice];
@@ -44,11 +47,19 @@ const emit = defineEmits<{
     'step-repick': [deviceId: string, stepId: string]; 'step-dirty': [deviceId: string, dirty: boolean];
     'step-demo': [deviceId: string, stepId: string]; 'demo-clear': [deviceId: string];
     'trial-history': [deviceId: string, runId: string];
+    'trial-repair': [deviceId: string, runId: string, stepId: string];
+    'repair-repick': [deviceId: string, stepId: string];
+    'repair-dismiss': [deviceId: string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
 const editingStep = computed(() => props.draft.steps.find(item => item.id === props.editingStepId));
 const editingStepNumber = computed(() => props.draft.steps.findIndex(item => item.id === props.editingStepId)+1);
+const repairStep = computed(() => props.repairContext?.deviceId === props.device.id
+    && props.repairContext.ownerId === props.ownerId
+    ? props.draft.steps.find(step => step.id === props.repairContext!.stepId) : undefined);
+const repairStepNumber = computed(() => repairStep.value
+    ? props.draft.steps.findIndex(step => step.id === repairStep.value!.id)+1 : 0);
 const trialStepId = ref<string | null>(null);
 const trialStep = computed(() => props.draft.steps.find(item => item.id === trialStepId.value) ?? null);
 async function openCardTrial(stepId: string) {
@@ -516,12 +527,21 @@ onBeforeUnmount(() => {
             @select="emit('step-select', device.id, $event)"
             @edit="emit('step-edit', device.id, $event)"
             @trial="openCardTrial" />
+        <CardRepairEntry v-if="repairContext && repairStep" :repair="repairContext"
+            :step="repairStep" :step-number="repairStepNumber"
+            :editing="!!editingStepId" :runner-available="runnerAvailable"
+            :blocked="!!syncRole || recording || !!unlocking"
+            @edit="emit('step-edit',device.id,$event)"
+            @repick="emit('repair-repick',device.id,$event)"
+            @trial="openCardTrial"
+            @dismiss="emit('repair-dismiss',device.id)" />
         <CardTrialPanel :visible="trialStepId !== null" :owner-id="ownerId" :device="device"
             :step="trialStep" :preview-handle="getTrialPreviewHandle"
             :runner-available="runnerAvailable"
             :blocked="!!recording || !!syncRole || !!unlocking || !!editingStepId"
             @close="trialStepId = null"
-            @history="emit('trial-history',device.id,$event)" />
+            @history="runId => { trialStepId = null; emit('trial-history',device.id,runId); }"
+            @repair="(runId,stepId) => { trialStepId = null; emit('trial-repair',device.id,runId,stepId); }" />
         <CardStepEditor v-if="editingStep" :key="editingStep.id" :step="editingStep"
             :step-number="editingStepNumber" :repicking="repickingStepId === editingStep.id"
             :demo-loading="demoLoading" :demo-result="demoResult" :demo-error="demoError"
