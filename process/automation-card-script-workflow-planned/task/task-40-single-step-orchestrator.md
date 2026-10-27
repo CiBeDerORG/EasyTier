@@ -30,5 +30,7 @@
 - `PhoneCard.vue` 取消“打开单步试跑前退出全屏”；`CardTrialPanel.vue` 已从 appendTo body 的 PrimeVue modal 改成挂载原 `PhoneCard.automationSubwindowHost` 的 `AutomationFloatingDialog` 可拖动子浮窗；全屏和普通模式共享原视频/同会话，不创建第二条流。
 - 点击步骤 ▶ 自动触发准备与既有 ADB/UiAutomator2 检查，使用 T39 服务端确认的同 sessionId viewer 移交；准备成功后对 `read_only + compatible + 无参数` 的只读检查自动提交一次；涉及真实动作、截图/定位风险或动态输入，合并成同子浮窗一次明确确认再发送动作。
 - 提交前继续验证 `active_session.state=view_only` 与会话/绑定指纹、兼容性快照 20 秒时效；网络未知保留旧 sessionStorage 请求回执，仅只读查询，不自动重复 POST。同卡片的另一 ▶ 在当前浮窗未关闭前被禁用。
-- 未完成：更精细的高风险/普通操作策略（当前所有实际输入动作保留确认）；UiAutomator2 匹配唯一性强阻断细节仍需 T42/QA 补充；错误/确认子窗实际排版及移动端多指手势需浏览器验收。
+- 未完成：更精细的高风险/普通操作策略（当前所有实际输入动作保留确认）；UiAutomator2 严格匹配已完成源码接线，但覆盖率与真机验证仍待 T42/QA 补充；错误/确认子窗实际排版及移动端多指手势需浏览器验收。
 - **无测试、构建、手动 CI、浏览器或 FnOS/Android 真机验收**；所有现有验收框不勾选。
+
+- 后续安全加固：`reviewAutomationDeviceCompatibility` 增加可选 `requireUniqueSelectors`（仅单步真实执行启用）。控件树截断、XPath 无法只读证明唯一、候选为零或多于一个时从“人工确认”升级为硬阻断；准备、提交前再核验与异常只读复核三个入口一致，错误文案不再只提示“尺寸不符”。提交 `8a10b2f7`、`b099bfc0`、`18030ab6`；该安全路径仍需 Browser+Android 真机验证。
