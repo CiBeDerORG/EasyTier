@@ -16,6 +16,7 @@ defineProps<{ progress: InlineStepRunProgress }>();
         <i v-else-if="progress.phase==='failed' || progress.phase==='unknown'"
             class="pi pi-exclamation-triangle" aria-hidden="true" />
         <span>{{ progress.label }}</span>
+        <span v-if="progress.elapsedMs !== undefined" class="id">{{ (progress.elapsedMs / 1000).toFixed(1) }}s</span>
         <span v-if="progress.runId" class="id">{{ progress.runId.slice(0,8) }}</span>
     </small>
 </template>
