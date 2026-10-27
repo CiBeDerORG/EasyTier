@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Button, InputText, Message, Tag } from 'primevue';
+import { Button, Checkbox, InputText, Message, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import type ApiClient from '../../modules/api';
 import type { AgentAddressChoice, AssetAgentProbe, AssetAgentStatus, AssetScope, ServerAgentEntry } from '../../types/node-assets';
@@ -12,6 +12,7 @@ const status = ref<AssetAgentStatus | null>(null);
 const address = ref<AgentAddressChoice>('overlay');
 const pin = ref('');
 const pairingCode = ref('');
+const trustedLocally = ref(false);
 const verified = ref<AssetAgentProbe | null>(null);
 const busy = ref(false);
 const error = ref('');
@@ -20,7 +21,8 @@ let alive = true;
 let requestNumber = 0;
 const normalized = computed(() => pin.value.trim().toLowerCase());
 const selectedIp = computed(() => address.value === 'overlay' ? props.entry.overlay_ip : props.entry.lan_ip);
-const canProbe = computed(() => !busy.value && !!selectedIp.value && /^[a-f0-9]{64}$/.test(normalized.value));
+const canProbe = computed(() => !busy.value && !!selectedIp.value && /^[a-f0-9]{64}$/.test(normalized.value)
+    && (status.value?.bound === true || trustedLocally.value));
 const canPair = computed(() => canProbe.value && verified.value?.tls_verified === true
     && /^[a-fA-F0-9]{32}$/.test(pairingCode.value.trim()));
 
@@ -42,7 +44,7 @@ async function localStatus() {
         if (alive && sequence === requestNumber) busy.value = false;
     }
 }
-watch([address, pin], () => { verified.value = null; message.value = ''; });
+watch([address, pin], () => { verified.value = null; message.value = ''; trustedLocally.value = false; });
 async function detect() {
     if (!canProbe.value) return;
     const sequence = ++requestNumber;
@@ -69,11 +71,13 @@ async function pair() {
     if (!canPair.value || !verified.value) return;
     const expectedAgent = verified.value.identity.agent_id;
     const sequence = ++requestNumber;
+    const oneTimeCode = pairingCode.value.trim().toLowerCase();
+    pairingCode.value = ''; // Never retain a used/rejected code in the page.
     busy.value = true; error.value = ''; message.value = '';
     try {
         const result = await props.api.assetsAgentPair(props.scope, props.entry.asset_device_id, {
             address: address.value, trusted_spki_sha256: normalized.value,
-            pairing_code: pairingCode.value.trim().toLowerCase(),
+            pairing_code: oneTimeCode,
         });
         if (!alive || sequence !== requestNumber) return;
         if (!result.bound || result.identity.agent_id !== expectedAgent) {
@@ -90,7 +94,7 @@ async function pair() {
     }
 }
 onMounted(localStatus);
-onBeforeUnmount(() => { alive = false; ++requestNumber; });
+onBeforeUnmount(() => { alive = false; ++requestNumber; pairingCode.value = ''; });
 </script>
 
 <template>
@@ -109,12 +113,16 @@ onBeforeUnmount(() => { alive = false; ++requestNumber; });
         <InputText id="agent-pin" v-model="pin" autocomplete="off" spellcheck="false"
             :placeholder="t('pinPlaceholder')" :disabled="busy" />
         <p class="muted">{{ t('pinHint') }}</p>
+        <div v-if="!status?.bound" class="trusted-checkbox">
+            <Checkbox inputId="agent-trusted-fingerprint" v-model="trustedLocally" binary :disabled="busy" />
+            <label for="agent-trusted-fingerprint">{{ t('trustedConfirm') }}</label>
+        </div>
         <Button :label="t('detect')" icon="pi pi-link" :loading="busy" :disabled="!canProbe" @click="detect" />
         <Message v-if="verified" severity="success" :closable="false">{{ t('verified') }}
             · {{ verified.identity.hostname }} · {{ verified.identity.agent_id }} · {{ verified.endpoint }}
         </Message>
         <label for="agent-code">{{ t('pairingCode') }}</label>
-        <InputText id="agent-code" v-model="pairingCode" autocomplete="off" spellcheck="false"
+        <InputText id="agent-code" v-model="pairingCode" type="password" autocomplete="off" spellcheck="false"
             :placeholder="t('codePlaceholder')" :disabled="busy" />
         <Button :label="t('pair')" icon="pi pi-lock" :loading="busy" :disabled="!canPair" @click="pair" />
         <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
@@ -132,4 +140,6 @@ onBeforeUnmount(() => { alive = false; ++requestNumber; });
 .server-agent-pairing :deep(.p-inputtext) { width: 100%; font-family: ui-monospace, monospace; }
 .server-agent-pairing :deep(.p-button) { justify-self: start; }
 .server-agent-pairing code { overflow-wrap: anywhere; }
+.trusted-checkbox { display: flex; gap: .5rem; align-items: center; }
+.trusted-checkbox label { font-weight: 400; }
 </style>
