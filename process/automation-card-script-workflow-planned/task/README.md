@@ -54,28 +54,24 @@
 - 自动准备、UiAutomator2 与实际试跑期间保留原手机实时画面并观察效果：拟拆分只读视频观看权与独占动作控制权（当前自研 Journal.claim 互斥包含手控/准备/脚本，需要前端+Rust+Executor协同）。
 - 产品/技术详情及 UX-01～UX-07 任务建议见 `../require/require-04-single-screen-observable-trial.md`；**未实现，未测试**。
 
-## FINAL V2.0：冻结的交付范围与工作分配（2026-10-27）
-**主需求：** `../require/require-05-final-card-script-workflow.md`；优先遵守用户最后截图红框。**全部是待开发，不代表旧 T01～T18 状态变化。**
+## FINAL V3.0 · 最高优先级“同一实时画面”与全屏浮窗（最新待开发）
+需求唯一主入口：`../require/require-05-final-card-script-workflow.md`。**V3 取代“在红框原地嵌入脚本列表”的旧方案**，但保留红框脚本下拉、克隆、每步删除的操作细节。原视频、卡片大小、其它操作按钮均不随意重构。
 
-### 阶段 A · 仅红框内局部改造（先交付）
+| 任务 | 职责与交付范围 | 唯一修改人 / 关键代码文件 | 依赖 | 状态 |
+|---|---|---|---|---|
+| FINAL-01 | 唯一原视频、共享草稿、卡片绑定执行目标、浮窗生命周期状态/事件合同 | 集成负责人（合同） | 无 | 待开发 |
+| **FINAL-09（新增）** | 浮动菜单自动化 icon **替换原唤醒槽**、唤醒上移；自动化主浮窗、编辑子浮窗可拖动、开关、边界约束、全屏顶层兼容 | 卡片 Agent：`PhoneCard.vue`、浮窗容器组件 | 01 | 待开发 |
+| FINAL-02 | 主浮窗脚本窄下拉：第一行新建、选择已保存脚本、克隆改名确认、原脚本不变、CAS 防丢 | 脚本 Agent 单独组件；集成负责人唯一改 `AutomationCenter.vue`、`ScriptLibrary.vue` | 09 | 待开发 |
+| FINAL-03 | 原底部步骤列表**仅迁入主浮窗**；每行 ▶ ✎ 🗑，所有步骤安全删除；步骤编辑、条件确认改拖动子窗 | 步骤 Agent：`CardStepTimeline.vue`、`CardStepEditor.vue` | 02 | 待开发 |
+| FINAL-07 | Inspector 控件树/属性/动作与只读高亮浮窗化，**仅卡片原视频**、全屏适配，不重复播放器 | Inspector Agent：`UiInspectorDialog.vue` | 09 | 待开发 |
+| FINAL-04 | WebRTC 只读 viewer lease / 独占 action lease；Rust + Executor 原子移交，试跑时不关视频 | Rust Agent / Executor Agent 独立后端文件 | 01 | 待开发 |
+| FINAL-05 | 悬浮步骤 ▶ 点击即在本机自动准备、真实执行、行内/子窗观察结果与修复，不重复确认 | 运行 Agent；集成负责人接线 | 03/04/07 | 待开发 |
+| FINAL-06 | 自动化主浮窗全流程 ▶，只对工作台明确勾选设备运行，设备并行，按设备原视频观察、结果追溯 | 运行 Agent；集成负责人接线 | 02/04 | 待开发 |
+| **FINAL-10（新增）** | 全屏浮窗层级/焦点、拖动不误触、旋转、旧树/设备绑定、异步及多机状态联调 | 集成负责人 + QA（文件不冲突） | 02～07/09 | 待开发 |
+| FINAL-08 | FINAL V3 FF01～FF18 + 旧 AC01～AC12；FnOS、两 OEM、两浏览器、断线及未知结果取证 | QA | 05/06/09/10 | 待执行 |
 
-| 任务 | 目标与硬约束 | 文件唯一写入者 | 状态 |
-|---|---|---|---|
-| FINAL-01 | 冻结 ScriptSelector / 草稿切换 CAS / 脚本身份与名称布局规则，左侧下拉不得遮挡右侧步数 | 集成负责人（契约） | 待开发 |
-| FINAL-02 | 下拉首行即输入+新建；旧脚本行选中并加载；克隆须修改名称确认并**新建独立正式脚本记录**；未保存草稿保护 | 脚本组件 Agent 新组件；`AutomationCenter.vue`、`ScriptLibrary.vue` 由集成负责人唯一接线 | 待开发 |
-| FINAL-03 | **每行**（普通、条件和分支步骤）均显示删除入口；撤销、条件块范围确认、保留其余 step_id、CAS | 步骤 Agent 写 `CardStepTimeline.vue` 与纯函数，集成负责人接共享状态 | 待开发 |
-| FINAL-06（入口） | 在红框状态行紧凑放置全流程入口；仅调用已有安全运行流程，不能动旧锁/视频；右侧 x/100 不被遮挡 | 集成负责人/运行 Agent | 待开发 |
-| FINAL-08（A 验收） | FINAL V2 中 A-01～A-10，重点是下拉原位、无重复标题、计数、克隆新记录、每步删除和草稿防丢失 | QA | 待执行 |
-
-### 阶段 B · 独立执行与单画面专项（A 不顺带改）
-
-| 任务 | 目标 | 唯一写入负责人 | 状态 |
-|---|---|---|---|
-| FINAL-04 | Video viewer lease / Action lease 分权、Rust + Executor 原子控制权移交与 fail-closed | Executor Agent 管 `runtime.py/journal.py`；Rust Agent 管服务端会话接口 | 待开发 |
-| FINAL-05 | 卡片绿 ▶ 点击即在**本机**自动准备并执行，行内反馈，不弹普遍确认框，画面不断流 | 运行 Agent，集成负责人接线 | 待开发 |
-| FINAL-06（执行） | 全局完整脚本对勾选设备并行执行、设备内顺序、历史追溯、视频观察 | 运行 Agent + 集成负责人/服务端 Agent | 待开发 |
-| FINAL-07 | Inspector 停靠面板，唯一原画面，全屏/触屏/旋转高亮 | Inspector Agent 写 `UiInspectorDialog.vue`；集成负责人接线 | 待开发 |
-| FINAL-08（B 验收） | B-01～B-06，FnOS + 两个 OEM + 双浏览器/断网/锁竞争/未知动作等 | QA | 待执行 |
-
-**共同约束：** 跨 `AutomationCenter.vue` / `ScriptLibrary.vue` 的改动由集成负责人独占；其他 Agent 只交付新组件或独立模块。不要复制脚本数据源或媒体流；未经用户授权仍遵守调试模式，不做本地验证或手动 CI。
-
+### 重要开发顺序与边界
+1. 契约 → 浮窗容器与图标 → 脚本下拉 → 步骤及编辑子窗；同时推进后端 viewer/action 安全分权；最后接真实一键执行/全局流程、Inspector 与全屏验收。
+2. **所有自动化操作只基于自动化中心手机卡片原主视频**：不切离工作台，不另开 WebRTC，不在浮窗里放手机视频。全屏 `phone-screen` 为 top layer 时，浮窗必须属于该元素或受控 Teleport 到它。
+3. 共享 `AutomationCenter.vue` / `ScriptLibrary.vue` 由集成负责人独占接线；卡片 Agent 独占 `PhoneCard.vue`；步骤 Agent 独占步骤模块；Inspector Agent 独占 Inspector；后端各自独占服务范围。不要跨 Agent 同时写同一文件。
+4. **调试模式**：本轮仅产品记录，未改业务代码、不手动跑测试/类型检查/构建/CI。新 FINAL 功能和真机验收仍待执行。
