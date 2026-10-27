@@ -84,6 +84,7 @@ oauth2-reqwest = "=0.1.0-alpha.3"
 # making rustls backend selection ambiguous when core/web are built together.
 # Initialize the process provider before constructing a reqwest client.
 reqwest = { workspace = true, features = ["json", "rustls-no-provider"] }
+rustls = { workspace = true, features = ["ring", "std"] }
 subtle = "2.6"
 ring = "0.17"
 
