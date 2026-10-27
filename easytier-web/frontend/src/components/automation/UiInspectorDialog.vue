@@ -150,8 +150,10 @@ const coordinateBoundsValid = computed(() => {
         && b.right > b.left && b.bottom > b.top
         && b.right <= shot.width && b.bottom <= shot.height;
 });
-const coordinatesAllowed = computed(() => compatibleVideo.value && snapshot.value?.width===props.screenWidth &&
-    snapshot.value?.height===props.screenHeight && coordinateBoundsValid.value
+// WebRTC's encoded dimensions can be scaled (e.g. 432×960) while the
+// UiAutomator2 hierarchy uses Android's native 1080×2400 screen. Match the
+// displayed aspect/orientation, then store all coordinates in snapshot space.
+const coordinatesAllowed = computed(() => compatibleVideo.value && coordinateBoundsValid.value
     && response.value?.target_fingerprint === props.device.target_fingerprint);
 function confirmCoordinates() {
     if (mode.value !== 'coordinates' || !coordinatesAllowed.value) return;
@@ -312,9 +314,8 @@ async function refresh() {
 }
 function startDragPick() {
     if (props.replaceStep) return;
-    if (!snapshot.value || !compatibleVideo.value || snapshot.value.width !== props.screenWidth ||
-        snapshot.value.height !== props.screenHeight) {
-        feedback.value='原手机画面与控件树尺寸不一致，请刷新后再进行只读拖拽拾取。';
+    if (!snapshot.value || !compatibleVideo.value) {
+        feedback.value='原手机画面与控件树方向/宽高比不一致，请刷新后再进行只读拖拽拾取。';
         return;
     }
     dragPickMode.value = true; dragStart.value = null; dragEnd.value = null;
@@ -326,8 +327,7 @@ function cancelDragPick() {
 }
 function saveDrag() {
     if (props.replaceStep || committing.value || !dragReady.value || !snapshot.value || !dragStart.value || !dragEnd.value ||
-        !compatibleVideo.value || snapshot.value.width!==props.screenWidth ||
-        snapshot.value.height!==props.screenHeight || props.queuedCount>=100) return;
+        !compatibleVideo.value || props.queuedCount>=100) return;
     submitStep({
         id: uuid(), type: 'drag',
         x: dragStart.value.x, y: dragStart.value.y, to_x: dragEnd.value.x, to_y: dragEnd.value.y,
@@ -341,13 +341,16 @@ function pickFromOriginal(point: InspectorCardScreenPoint) {
     const shot=snapshot.value;
     if (!props.visible || !shot || !compatibleVideo.value || shot.truncated ||
         point.width!==props.screenWidth || point.height!==props.screenHeight ||
-        point.width!==shot.width || point.height!==shot.height ||
         response.value?.target_fingerprint!==props.device.target_fingerprint ||
         point.x<0 || point.y<0 || point.x>=point.width || point.y>=point.height) {
-        feedback.value='手机原画面尺寸/方向或控件树快照已变化，请刷新控件树后重新选择。';
+        feedback.value='原画面的方向/宽高比或控件树快照已变化，请刷新控件树后重新选择。';
         return;
     }
-    const normX=point.x/shot.width, normY=point.y/shot.height;
+    // The original video is possibly downscaled; all stored step coordinates
+    // must use the trusted UIA hierarchy's native dimensions.
+    const normX=point.x/point.width, normY=point.y/point.height;
+    const nativeX=Math.min(shot.width-1,Math.floor(normX*shot.width));
+    const nativeY=Math.min(shot.height-1,Math.floor(normY*shot.height));
     if (dragPickMode.value) {
         if (!dragStart.value || dragEnd.value) {dragStart.value={x:normX,y:normY};dragEnd.value=null;}
         else dragEnd.value={x:normX,y:normY};
@@ -356,7 +359,7 @@ function pickFromOriginal(point: InspectorCardScreenPoint) {
         return;
     }
     const match=matchPickerPoint(response.value!,{
-        x:point.x,y:point.y,width:point.width,height:point.height,
+        x:nativeX,y:nativeY,width:shot.width,height:shot.height,
     },{targetFingerprint:props.device.target_fingerprint??''});
     if(match.status==='matched' && match.nodeId!==null) {
         selectNode(match.nodeId); feedback.value=match.message;
@@ -491,7 +494,7 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                         <Button v-if="dragPickMode" label="取消拖拽拾取" text size="small" @click="cancelDragPick" />
                     </div>
                     <small v-if="dragPickMode" class="hint">在原视频上点 A 起点和 B 终点，至少相距 16 像素；不会发真实手机动作。</small>
-                    <small v-if="snapshot && !compatibleVideo" class="hint">原视频尺寸/方向与控件树不匹配，请刷新或等待旋转完成。</small>
+                    <small v-if="snapshot && !compatibleVideo" class="hint">原视频方向或宽高比与控件树不匹配，请刷新或等待旋转完成；压缩编码尺寸不同属正常情况。</small>
                 </div>
                 <InspectorPropertiesPanel v-if="!dragPickMode"
                     :selected="selected" :selected-id="selectedId" :visible-nodes="visibleNodes"

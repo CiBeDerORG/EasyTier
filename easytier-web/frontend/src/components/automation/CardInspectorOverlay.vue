@@ -15,10 +15,16 @@ function keyboardPick(event:MouseEvent){
 const viewBox=computed(()=>`0 0 ${Math.max(1,props.videoWidth)} ${Math.max(1,props.videoHeight)}`);
 const rectangle=computed(()=>{
     const rect=props.highlight;
-    if(!rect || !props.videoWidth || !props.videoHeight ||
-        rect.sourceWidth!==props.videoWidth || rect.sourceHeight!==props.videoHeight ||
+    if(!rect || !props.videoWidth || !props.videoHeight || !rect.sourceWidth || !rect.sourceHeight ||
+        Math.abs((rect.sourceWidth/rect.sourceHeight)/(props.videoWidth/props.videoHeight)-1)>=.035 ||
         rect.left<0 || rect.top<0 || rect.right>rect.sourceWidth || rect.bottom>rect.sourceHeight) return null;
-    return {x:rect.left,y:rect.top,width:rect.right-rect.left,height:rect.bottom-rect.top};
+    // Render native UIA pixels on the encoded primary-video SVG viewBox.
+    return {
+        x:rect.left/rect.sourceWidth*props.videoWidth,
+        y:rect.top/rect.sourceHeight*props.videoHeight,
+        width:(rect.right-rect.left)/rect.sourceWidth*props.videoWidth,
+        height:(rect.bottom-rect.top)/rect.sourceHeight*props.videoHeight,
+    };
 });
 const marker=(p:{x:number;y:number}|null|undefined)=>{
     return p ? {x:p.x*props.videoWidth,y:p.y*props.videoHeight}:null;
