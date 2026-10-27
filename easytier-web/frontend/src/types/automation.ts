@@ -133,3 +133,29 @@ export interface AutomationControlReply {
     type: 'ready' | 'ack' | 'error'; command_id?: string; state?: string;
     code?: string; message?: string; session_id?: string; device_id?: string;
 }
+
+/** Unpublished, account-scoped server copy; separate from AutomationScript. */
+export interface AutomationDraftRecord {
+    id: string;
+    owner_user_id: number;
+    name: string;
+    description: string;
+    steps: AutomationStep[];
+    revision: number;
+    created_at: string;
+    updated_at: string;
+}
+export interface AutomationDraftReceipt {
+    id: string;
+    revision: number;
+    deleted: boolean;
+    request_replayed: true;
+}
+export type AutomationDraftWrite = AutomationDraftRecord | AutomationDraftReceipt;
+export interface AutomationDraftInput {
+    request_id: string;
+    name: string;
+    description: string;
+    steps: AutomationStep[];
+    revision?: number;
+}

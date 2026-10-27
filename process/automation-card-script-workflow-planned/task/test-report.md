@@ -106,3 +106,13 @@
 - 复核历史 GitHub Actions `40461898967`：`AutomationCenter.vue(1064,83)` `TS2339 PickerIntent.stepId`，T09 上次修复只覆盖右键菜单提交分支，**未覆盖 `openInspector()` 的 `Array.find()` 闭包**。
 - 修复：对 `pickedIntent.kind === 'replace'` 先冻结 `replaceStepId/replaceStepType` 两个字符串，再进入步骤列表 `find`；不更改草稿和替换步骤操作规则。
 - **未执行**：本地测试、类型检查、构建或手动触发CI（遵循调试模式）；新提交自动触发的 CI 需单独确认。
+
+## 2026-10-27 · T11 前端草稿自动同步/恢复及脚本库交互
+
+- 新增 `automation-draft-sync.ts`：单例 owner-scoped 服务器工作草稿同步管理，直接监听唯一共享 `AutomationDraftWorkspace`；冻结请求正文和 UUID，使用450ms 防抖、同草稿串行 CAS、失败同请求安全重试；新旧 owner / 已发布脚本身份变化时使迟到请求失效。
+- 接口：`types/automation.ts` + `automation-api.ts` 补充 T10 的草稿列出/读取/创建/更新/删除；后端重放回执 `request_replayed` 会 GET 正文并比对修订，避免把其他页面新内容误判为本次确认；HTTP 409 停止覆盖并提示选择人工恢复或新草稿。
+- UI：`AutomationCenter.vue` 增加工作草稿状态条、恢复下拉、刷新/保存当前/另存新草稿/删除；浏览器未落库修改拦截 beforeunload，管理账号切换时显式确认；`ScriptLibrary.vue` 原保存按钮改名「保存正式脚本」，展示独立工作草稿同步状态；`PhoneCard.vue`、`CardStepTimeline.vue` 同步显示相同状态，不再把内存保存等同于服务器确认。
+- 网络：在线事件或点击「保存当前」重试原 UUID 和原冻结请求，写入响应被确认后顺序保存最新本地内容。未成功时显示未同步；严格校验异常（未填写完整步骤、`input_text.text` 明文被拒绝）会显示错误，不能谎称同步成功。
+- 数据风险：尚未落库内容在刷新/崩溃时仍可能丢失；已完成服务端确认写入内容可在重新打开时恢复。工作草稿不会自动发布为可执行正式脚本，试跑需走既有授权运行流程。
+- 上游构建：T10 后续提交 `3b9f80c33fbe` 的 GitHub 自动构建最终标记成功，该结果**只对应历史提交**，不证明 T11 通过。
+- **未执行**：本地单测、类型检查、lint、构建、FnOS/Android 真机、多标签页 409/断网恢复接口验证（继续调试模式）；push 触发的既有 CI 状态独立记录。

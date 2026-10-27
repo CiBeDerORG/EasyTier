@@ -24,6 +24,9 @@ const props = defineProps<{
     ownerId: number;
     selectedDeviceIds: string[];
     draft: AutomationDraftWorkspace;
+    draftSyncLabel?: string;
+    draftSyncMessage?: string;
+    canReplaceWorkspace?: () => boolean;
     deviceNames?: Record<string, string>;
     pickerDevices: { id: string; name: string }[];
     runDeviceSnapshots: AutomationDevice[];
@@ -410,7 +413,7 @@ function moveStep(index: number, delta: number) {
     steps.value = reordered;
 }
 function requestOpenScript(script?: AutomationScript) {
-    if (busy.value) return;
+    if (busy.value || props.canReplaceWorkspace?.() === false) return;
     repairGeneration++;
     pendingRepairPlan.value = null;
     if (dirty.value) {
@@ -451,7 +454,7 @@ function applyRepairPlan(plan: AutomationRepairPlan) {
     error.value = '';
 }
 function confirmOpenScript() {
-    if (busy.value) return;
+    if (busy.value || props.canReplaceWorkspace?.() === false) return;
     const repair = pendingRepairPlan.value;
     if (repair) {
         applyRepairPlan(repair);
@@ -842,10 +845,14 @@ watch(() => props.repairRequest, request => {
                         'Editing only the current draft; history remains unchanged and no phone action is replayed.') }}</small>
                 </div>
                 <div class="section-heading draft-heading">
-                    <div><h2>{{ text('步骤编辑器', 'Step editor') }}</h2><span class="muted draft-state">{{ dirty || !editingId ? text('草稿 · 未保存', 'Draft · unsaved') : text(`草稿 · 已保存（修订 ${revision}）`, `Draft · saved (revision ${revision})`) }}</span></div>
+                    <div><h2>{{ text('步骤编辑器', 'Step editor') }}</h2>
+                        <span class="muted draft-state">{{ dirty || !editingId ? text('正式脚本未保存', 'Not published as a script') : text(`正式脚本 · 修订 ${revision}`, `Published script · revision ${revision}`) }}</span>
+                        <span v-if="draftSyncLabel" class="muted draft-state">{{ draftSyncLabel }}</span>
+                        <small v-if="draftSyncMessage" class="draft-sync-error">{{ draftSyncMessage }}</small>
+                    </div>
                     <div class="button-row">
                         <Button :label="text('单机试跑', 'Trial run')" icon="pi pi-play" severity="secondary" outlined size="small" :disabled="busy || !steps.length" @click="prepareRun('draft')" />
-                        <Button :label="text('保存草稿', 'Save draft')" icon="pi pi-save" size="small" :loading="saving" :disabled="deleting || runSubmitting" @click="save" />
+                        <Button :label="text('保存正式脚本', 'Publish script')" icon="pi pi-save" size="small" :loading="saving" :disabled="deleting || runSubmitting" @click="save" />
                     </div>
                 </div>
                 <div class="draft-meta">
@@ -1083,6 +1090,7 @@ watch(() => props.repairRequest, request => {
 .step-pick-controls .hint{font-size:12px;color:var(--console-muted)}
 .step-pick-controls :deep(.p-select){min-width:165px;max-width:100%}
 .draft-state { display: block; margin-top: 5px; font-size: 12px; }
+.draft-sync-error{display:block;margin-top:4px;color:var(--p-orange-500);font-size:11px;max-width:480px}
 .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .draft-meta { padding: 18px 20px; display: grid; gap: 14px; border-bottom: 1px solid var(--console-border); }
 .business-check-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap}

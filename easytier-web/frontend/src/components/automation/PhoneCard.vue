@@ -26,6 +26,7 @@ const props = defineProps<{
     pickerPhase?: PickerPhase; pickerError?: string;
     /** Single account-scoped draft. Card reads it, never stores a copy. */
     draft: AutomationDraftWorkspace;
+    draftSyncLabel?: string;
     editingStepId?: string;
     repickingStepId?: string;
     demoResult?: LocatorDemoResult | null;
@@ -489,7 +490,7 @@ onBeforeUnmount(() => {
             </div>
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
-        <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
+        <CardStepTimeline :draft="draft" :sync-label="draftSyncLabel" :picker-active="pickingPhase === 'on'"
             @select="emit('step-select', device.id, $event)"
             @edit="emit('step-edit', device.id, $event)" />
         <CardStepEditor v-if="editingStep" :key="editingStep.id" :step="editingStep"

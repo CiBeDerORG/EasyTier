@@ -21,6 +21,7 @@ import ExecutorSettings from './automation/ExecutorSettings.vue';
 import { automationMessages } from './automation/messages';
 import { analyzeAutomationFlow } from '../modules/automation-flow';
 import { appendAutomationDraftSteps, appendPickedAutomationStep, emptyAutomationDraft } from '../modules/automation-draft';
+import { createAutomationDraftSync } from '../modules/automation-draft-sync';
 import {
     beginPicker, readyPicker, stopPicker, setPickerIntent, invalidatePickerSnapshot,
     pickerMatches, pickerCanApply,
@@ -136,6 +137,53 @@ const syncPreparation = ref(false); const syncMaster = ref(''); const syncTarget
 const sync = ref<SyncSession | null>(null);
 const recordingId = ref<string | null>(null); const recordingPaused = ref(false); const recordedSteps = ref<AutomationStep[]>([]);
 const draftWorkspace = reactive(emptyAutomationDraft(0));
+const draftSync = createAutomationDraftSync(api,draftWorkspace);
+const draftSyncState=draftSync.state;
+const draftSyncLabel=computed(()=>{
+    const state=draftSyncState;
+    if(state.phase==='loading')return '正在检查服务端草稿…';
+    if(state.phase==='saving')return '工作草稿保存中…';
+    if(state.phase==='synced')return '工作草稿已同步 · 修订 '+(state.revision??'—');
+    if(state.phase==='conflict')return '草稿版本冲突 · 本地修改未覆盖服务端';
+    if(state.phase==='unsynced')return '工作草稿未同步 · 请检查状态';
+    return '工作草稿未创建';
+});
+const chosenDraftId=ref('');
+watch(()=>draftSyncState.entries.map(item=>item.id).join(','),()=>{
+    chosenDraftId.value=draftSyncState.id??draftSyncState.entries[0]?.id??'';
+});
+function warnBeforeDraftReplacement():boolean {
+    if(!draftSyncState.initialized || draftSync.canLeave())return true;
+    return window.confirm('当前工作草稿有尚未确认落库的修改。继续可能丢失这些修改，确定放弃并切换吗？');
+}
+async function restoreSavedDraft(id=chosenDraftId.value) {
+    if(!id||!warnBeforeDraftReplacement())return;
+    const okay=await draftSync.restore(id);
+    if(!okay) {error.value=draftSyncState.message||'恢复服务端草稿失败。';return;}
+    stopAllPicking();closeInspector();cardStepEditor.value=null;
+    chosenDraftId.value=id;
+    notice.value='已从服务端恢复草稿，步骤 ID 与顺序保持不变；需要正式执行时仍要保存脚本。';
+}
+async function discardSavedDraft() {
+    const id=chosenDraftId.value;
+    if(!id || !window.confirm('删除此服务端工作草稿？如果这是当前草稿，编辑区也会清空。此操作不可撤销。'))return;
+    if(!warnBeforeDraftReplacement())return;
+    if(!await draftSync.discard(id)) {error.value=draftSyncState.message||'草稿删除失败';return;}
+    stopAllPicking();closeInspector();
+    notice.value='服务端工作草稿已删除。';
+}
+function forkCurrentDraft() {
+    if(!window.confirm('将当前本地步骤另存为新的工作草稿？原服务端草稿及其修订不会被覆盖。'))return;
+    draftSync.fork();
+    notice.value='已转为独立工作草稿，正在尝试保存；请确认同步状态。';
+}
+function beforeUnloadDraft(event:BeforeUnloadEvent) {
+    if(draftSyncState.initialized && !draftSync.canLeave() &&
+        (draftWorkspace.steps.length>0||draftWorkspace.name.trim()||draftWorkspace.description.trim())) {
+        event.preventDefault();
+        event.returnValue='';
+    }
+}
 const repairRequest = ref<AutomationRepairRequest | null>(null);
 watch(ownerId, id => Object.assign(draftWorkspace, emptyAutomationDraft(id)), { immediate: true });
 // Loading/saving a different script revision invalidates picker intents but
@@ -641,6 +689,7 @@ async function query() {
 }
 async function changeOwner(id: number) {
     if (id === ownerId.value || busy.value || connecting.value || switchingTab.value) return;
+    if(!warnBeforeDraftReplacement())return;
     repairRequest.value = null;
     if (gestureConfirmation.value) { notice.value = '请先确认滑动或拖拽，才能切换管理账号。'; return; }
     stopEvents?.(); stopEvents = undefined;
@@ -1422,6 +1471,7 @@ onMounted(async () => {
     document.addEventListener('visibilitychange', visibilityChanged);
     document.addEventListener('fullscreenchange', fullScreenChanged);
     window.addEventListener('blur', releaseOnBlur);
+    window.addEventListener('beforeunload',beforeUnloadDraft);
     try {
         const value = await api.context(); if (disposed) return;
         context.value = value; ownerId.value = value.actor.id; accounts.value = [value.actor];
@@ -1439,6 +1489,8 @@ onBeforeUnmount(() => { stopEvents?.();
     document.removeEventListener('visibilitychange', visibilityChanged);
     document.removeEventListener('fullscreenchange', fullScreenChanged);
     window.removeEventListener('blur', releaseOnBlur);
+    window.removeEventListener('beforeunload',beforeUnloadDraft);
+    draftSync.dispose();
     void closeAll();
 });
 </script>
@@ -1452,6 +1504,36 @@ onBeforeUnmount(() => { stopEvents?.();
         <Message v-if="context && !context.available" severity="warn" :closable="false">{{ t('unavailable') }}</Message>
         <Message v-else-if="context && !context.runner_configured" severity="info" :closable="false">{{ t('noRunner') }} <Button v-if="context.can_manage_settings && tab !== 'settings'" :label="t('settings')" text size="small" @click="changeTab('settings')" /></Message>
         <template v-if="context?.available">
+            <div class="console-panel draft-sync-bar" role="status" aria-live="polite">
+                <div class="draft-sync-summary">
+                    <strong>{{ draftSyncLabel }}</strong>
+                    <small v-if="draftSyncState.message" class="draft-sync-message">{{ draftSyncState.message }}</small>
+                    <small v-if="draftSyncState.phase === 'unsynced' || draftSyncState.phase === 'saving'">
+                        未收到服务端确认前，请勿强制刷新网页；在此页面的切换不会清空共享草稿。
+                    </small>
+                </div>
+                <div class="draft-sync-actions">
+                    <select v-model="chosenDraftId" aria-label="选择服务端工作草稿">
+                        <option value="">选择服务端工作草稿</option>
+                        <option v-for="item in draftSyncState.entries" :key="item.id" :value="item.id">
+                            {{ item.name || '未命名草稿' }} · {{ item.count }}步 · 修订{{ item.revision }}
+                        </option>
+                    </select>
+                    <Button label="恢复" size="small" text icon="pi pi-folder-open"
+                        :disabled="!chosenDraftId || draftSyncState.phase === 'loading' || draftSyncState.phase === 'saving'"
+                        @click="restoreSavedDraft()" />
+                    <Button label="刷新草稿" size="small" text icon="pi pi-refresh" @click="draftSync.refreshList()" />
+                    <Button label="保存当前" size="small" text icon="pi pi-save"
+                        :disabled="draftSyncState.phase === 'loading' || draftSyncState.phase === 'saving' || draftSyncState.phase === 'conflict'"
+                        @click="draftSync.retry()" />
+                    <Button label="另存新草稿" size="small" text
+                        :disabled="draftSyncState.phase === 'saving' || draftSyncState.phase === 'loading'"
+                        @click="forkCurrentDraft" />
+                    <Button label="删除草稿" size="small" text severity="danger"
+                        :disabled="!chosenDraftId || draftSyncState.phase === 'saving'"
+                        @click="discardSavedDraft" />
+                </div>
+            </div>
             <div class="workspace-header">
                 <nav class="automation-tabs" :aria-label="t('title')"><button v-for="item in tabs" :key="item" type="button" :class="{ active: tab === item }" :aria-current="tab === item ? 'page' : undefined" :disabled="switchingTab || connecting || sendingText" :title="t('tabReleaseHint')" @click="changeTab(item)">{{ t(item) }}</button></nav>
                 <label v-if="context.can_manage_others && tab !== 'settings'" class="owner-select">{{ t('owner') }}<select :value="ownerId" :disabled="busy || connecting || sendingText || switchingTab" @change="changeOwner(Number(($event.target as HTMLSelectElement).value))"><option v-for="account in accounts" :key="account.id" :value="account.id">{{ account.username }}</option></select></label>
@@ -1483,7 +1565,7 @@ onBeforeUnmount(() => { stopEvents?.();
                 <div v-if="!devices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-mobile" aria-hidden="true" /><h2>{{ t('noAssets') }}</h2><p>{{ t('noAssetsDetail') }}</p><Button :label="t('toAssets')" outlined @click="router.push({ name: 'nodeAssets' })" /></div>
                 <div v-else-if="!visibleDevices.length && !busy" class="console-panel console-empty-state"><i class="pi pi-search" aria-hidden="true" /><h2>{{ t('noResults') }}</h2><Button :label="t('reset')" text @click="filters = { node: '', group: '', type: '', keyword: '' }; query()" /></div>
                 <div v-if="busy && !devices.length" class="console-panel console-empty-state" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" />{{ t('loading') }}</div>
-                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" :draft="draftWorkspace" :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
+                <div class="phone-grid"><PhoneCard v-for="device in sortedDevices" v-show="visibleIds.has(device.id)" :key="`${ownerId}:${device.id}`" :ref="value => setCard(device.id, value)" :device="device" :owner-id="ownerId" :selected="selectedIds.includes(device.id)" :runner-available="runnerAvailable" :component-status="componentStatuses[device.id]" :phone-connection="phoneConnections[device.id]" :phone-connection-error="phoneConnectionErrors[device.id]" :sync-active="!!sync" :sync-role="sync?.deviceIds.includes(device.id) ? (sync.masterId === device.id ? 'master' : 'follower') : undefined" :recording="recordingId === device.id" :unlocking="unlockingIds.includes(device.id)" :draft="draftWorkspace" :draft-sync-label="draftSyncLabel" :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
                         :repicking-step-id="repickingStepIds[device.id]"
                         :demo-result="locatorDemos[device.id]?.stepId === cardStepEditor?.stepId ? locatorDemos[device.id]?.result : null"
                         :demo-loading="locatorDemos[device.id]?.loading ?? false" :demo-error="locatorDemos[device.id]?.error"
@@ -1499,7 +1581,8 @@ onBeforeUnmount(() => { stopEvents?.();
                 </div>
             </div>
             <p v-if="liveCount" class="manual-release-hint">{{ t('tabReleaseHint') }}</p>
-            <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace" :run-device-snapshots="devices"
+            <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace" :draft-sync-label="draftSyncLabel" :draft-sync-message="draftSyncState.message"
+                :can-replace-workspace="warnBeforeDraftReplacement" :run-device-snapshots="devices"
                 :repair-request="repairRequest" :prepare-run-device="prepareRunDevice" :release-run-previews="releaseRunPreviews"
                 :picker-devices="devices.filter(device => device.connection.enabled && !!device.target_fingerprint).map(device => ({ id: device.id, name: device.name }))"
                 @pick-step-target="openScriptInspector" @run-created="onRunCreated"
@@ -1532,6 +1615,12 @@ onBeforeUnmount(() => { stopEvents?.();
 </template>
 
 <style scoped>
+.draft-sync-bar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;flex-wrap:wrap}
+.draft-sync-summary{display:flex;flex:1;min-width:180px;flex-direction:column;gap:4px;font-size:12px}
+.draft-sync-summary small{color:var(--console-muted);font-size:11px;line-height:1.5}
+.draft-sync-summary .draft-sync-message{color:var(--p-orange-500)}
+.draft-sync-actions{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.draft-sync-actions select{max-width:210px;border:1px solid var(--console-border);border-radius:6px;padding:7px;background:var(--console-panel-raised);color:var(--p-text-color);font-size:11px}
 .automation-tabs button{white-space:nowrap}
 .component-results{padding:12px 16px}.component-results-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px}.component-result-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px 16px;margin-top:8px}.component-result{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;padding:6px 0;border-bottom:1px solid var(--console-border)}.component-result strong{min-width:0;overflow-wrap:anywhere}.component-result small{flex-basis:100%;color:var(--p-red-500);overflow-wrap:anywhere}.component-result-state{margin-left:auto;color:var(--console-muted);white-space:nowrap}.component-result-state.ready{color:var(--p-green-500)}.component-result-state.preparing{color:var(--p-primary-color)}.component-result-state.query_failed,.component-result-state.adb_unavailable,.component-result-state.unavailable{color:var(--p-red-500)}
 .workbench-view{display:flex;flex-direction:column;gap:20px}.manual-release-hint{font-size:12px;color:var(--console-muted)}.automation-center{position:relative;padding-bottom:70px}.owner-caption{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--console-muted);white-space:nowrap}.owner-caption strong{color:var(--p-text-color)}.workspace-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.automation-tabs{display:flex;gap:4px;padding:4px;background:var(--console-panel-raised);border:1px solid var(--console-border);border-radius:10px}.automation-tabs button{padding:9px 17px;border:0;border-radius:7px;color:var(--console-muted);background:transparent;cursor:pointer;font-weight:550}.automation-tabs button.active{background:var(--console-accent-soft);color:var(--p-primary-color);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--p-primary-color) 25%,transparent)}.owner-select{display:flex;align-items:center;gap:9px;font-size:12px}.filters{padding:18px;display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}.filters label{display:flex;flex-direction:column;gap:7px;font-size:11px;color:var(--console-muted);flex:1;min-width:145px}.filters .keyword-field{flex:1.5;min-width:180px}select{padding:9px 10px;border:1px solid var(--console-border-strong);border-radius:7px;background:var(--console-panel);color:var(--p-text-color);max-width:100%;min-width:0;font-size:13px}.workbench-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.summary{display:flex;gap:16px;font-size:12px;color:var(--console-muted)}.summary strong{color:var(--p-text-color);margin-left:5px;font-size:16px}.toolbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.screen-action-pair{display:inline-flex;align-items:center;gap:5px;flex-wrap:nowrap}.quality,.media-toggle{display:flex;align-items:center;gap:7px;color:var(--console-muted);font-size:11px;white-space:nowrap}.media-toggle input{accent-color:var(--p-primary-color)} .media-toggle{cursor:pointer}.quality select{font-size:12px;padding:7px 9px}.phone-grid{display:flex;flex-wrap:wrap;align-items:flex-start;align-content:flex-start;gap:18px;min-width:0}.activity-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 18px;border:1px solid var(--p-primary-color);border-radius:12px;background:var(--console-accent-soft)}.activity-banner strong{font-size:14px}.activity-banner p{color:var(--console-muted);font-size:12px;margin-top:5px}.recording-banner{border-color:var(--p-red-400);background:color-mix(in srgb,var(--p-red-400) 7%,var(--console-panel))}.record-actions{display:flex;gap:8px;flex-shrink:0}.results-panel ul{padding:8px 18px}.results-panel li{display:grid;grid-template-columns:1fr auto;gap:5px 16px;padding:10px 0;border-bottom:1px solid var(--console-border);font-size:12px}.results-panel li:last-child{border:0}.results-panel p{grid-column:1 / -1;color:var(--console-muted);overflow-wrap:anywhere}.results-panel .failed{color:var(--p-orange-500)}.global-controls{position:fixed;bottom:30px;right:30px;z-index:46;display:flex;flex-direction:column;align-items:flex-end;gap:10px}.global-controls :deep(.p-button){width:46px;height:46px;border-radius:50%;box-shadow:0 4px 20px #0003;border:1px solid color-mix(in srgb,var(--p-primary-color) 45%,var(--console-border));backdrop-filter:blur(12px)}.global-controls :deep(.global-orb){width:56px;height:56px;box-shadow:0 4px 28px color-mix(in srgb,var(--p-primary-color) 35%,transparent)}.global-actions{display:grid;grid-template-columns:46px 46px;gap:8px;justify-items:end}.global-scope{grid-column:1 / -1;font-size:11px;white-space:nowrap;padding:6px 10px;background:var(--console-panel);border:1px solid var(--console-border);border-radius:20px;box-shadow:var(--console-shadow)}.target-badge{position:absolute;bottom:40px;right:-3px;min-width:22px;height:22px;padding:1px 5px;border:2px solid var(--console-panel);background:var(--p-primary-contrast-color);color:var(--p-primary-color);font-size:11px;font-weight:700;border-radius:20px;text-align:center;pointer-events:none}.global-dismiss{position:fixed;inset:0;background:transparent;z-index:45;border:0;cursor:default}.modal-content{display:flex;flex-direction:column;gap:16px}.modal-content label{display:flex;flex-direction:column;gap:8px;font-size:13px}.modal-content p,.modal-content li{font-size:12px}.modal-content ul{padding-left:18px;list-style:disc}.modal-content :deep(textarea){width:100%}

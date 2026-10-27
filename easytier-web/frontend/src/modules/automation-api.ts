@@ -5,6 +5,7 @@ import type {
     AutomationRunnerSettings, AutomationRunnerSettingsInput, AutomationRunnerCheck,
     AutomationExecutorCapacity, AutomationExecutorCapacityInput, AutomationMediaSettings,
     AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog, AutomationAdbStatus, AutomationHierarchy,
+    AutomationDraftRecord, AutomationDraftWrite, AutomationDraftInput, AutomationDraftReceipt,
 } from '../types/automation';
 
 export class AutomationApiError extends Error {
@@ -87,6 +88,18 @@ export default class AutomationApi {
         const url = new URL(this.url(`/sessions/${encodeURIComponent(id)}/control`, ownerId));
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         return url.toString();
+    }
+    listDrafts(ownerId: number) { return this.request<{items: AutomationDraftRecord[]}>('/drafts',ownerId); }
+    getDraft(ownerId: number, id: string) {
+        return this.request<AutomationDraftRecord>(`/drafts/${encodeURIComponent(id)}`,ownerId);
+    }
+    saveDraft(ownerId: number, body: AutomationDraftInput, id?: string) {
+        return this.request<AutomationDraftWrite>(id?`/drafts/${encodeURIComponent(id)}`:'/drafts',
+            ownerId,id?'PUT':'POST',body);
+    }
+    discardDraft(ownerId: number,id:string,body:{request_id:string;revision:number}) {
+        return this.request<AutomationDraftReceipt | {id:string;deleted:boolean;revision:number}>(
+            `/drafts/${encodeURIComponent(id)}`,ownerId,'DELETE',body);
     }
     listScripts(ownerId: number) { return this.request<{ items: AutomationScript[] }>('/scripts', ownerId); }
     saveScript(ownerId: number, body: AutomationScriptInput, id?: string) { return this.request<AutomationScript>(id ? `/scripts/${encodeURIComponent(id)}` : '/scripts', ownerId, id ? 'PUT' : 'POST', body); }

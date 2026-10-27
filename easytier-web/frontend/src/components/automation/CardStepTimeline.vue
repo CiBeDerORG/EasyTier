@@ -5,6 +5,7 @@ import { projectCardSteps } from '../../modules/card-step-projection';
 
 const props=defineProps<{
     draft: AutomationDraftWorkspace;
+    syncLabel?: string;
     pickerActive?: boolean;
 }>();
 const emit=defineEmits<{
@@ -41,7 +42,7 @@ function openEditor(id: string) {
             <div class="draft-identity">
                 <strong :title="projected.title">{{ projected.title }}</strong>
                 <span class="draft-badge" :class="projected.saveState">
-                    {{ projected.saveLabel }}
+                    {{ projected.saveLabel }} · {{ syncLabel ?? '工作草稿未确认同步' }}
                 </span>
             </div>
             <button type="button" class="fold-button"
