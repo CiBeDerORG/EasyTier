@@ -174,3 +174,12 @@
 - 坐标步骤严格比较参考宽高与目标设备的只读控件快照，尺寸/方向不一致 **阻断执行**、不做自动缩放。选择器/XPath/滚动容器的跨手机正确性只能提示人工确认，不能将只读匹配冒充真实执行结果。纯 native ADB 步骤无需读取 UiAutomator2。
 - 已确认保存的草稿不会因为关掉 WebRTC、切内部 Tab/打开其他授权手机而清空；未同步的修改在本页保留，浏览器刷新/离开 SPA 页面必须明确确认。草稿由 T11 通过服务端 CAS 管理，网络未知使用相同 request_id。
 - **未执行**本地单测、TypeScript 编译、lint、手动构建、FnOS/Android/多浏览器实测（调试模式），自动 CI 结果仍需按对应 commit 核对，不能宣称 AC-11/AC-12 已验证。
+
+## 2026-10-27 · T17 三层自动测试补齐（调试模式）
+- 新增三个前端 Node 测试文件：`automation-card-workflow-t17.test.mjs`（AC01–08/12）、`automation-device-compatibility-t17.test.mjs`（AC09/11）、`automation-run-safety-t17.test.mjs`（AC09/10）；追加到原有 `pnpm --dir easytier-web/frontend test:unit` 脚本。保持默认 runner，不引入 Vitest。
+- 新增执行器独占与 SQLite 恢复测试 `automation-executor/tests/test_trial_handoff_t17.py`；Rust 后端 `drafts.rs::t17_draft_regressions` 测试授权隔离、幂等回执、UUID/CAS 修订校验、输入敏感值保护。
+- 为原生 Node 测试解析，调整 `automation-device-compatibility.ts`、`automation-pick-engine.ts`、`card-step-projection.ts`、`automation-card-step-edit.ts` 的纯本地模块导入扩展名为 `.ts`；无业务分支变更。
+- **CI 真实结果：** GitHub 自动工作流 `40495290119` 的前端 test:unit 首轮为 125 项、124 项通过、1 项失败；失败点 `AC12 disconnect/switching viewed phone` 用整个步骤对象比对，而 `appendAutomationDraftSteps` 在对象上补充了两个 `undefined` 字段。已提交 `3d6b6d3` 改为比较真实需保持的步骤 ID/动作，不修改生产业务代码。
+- 之后自动 CI 执行中；`40495449470` 仅证明对应 executor 构建/烟测成功，不代表新 Rust 用例或最后前端代码全面验证成功。完整对应运行结果需要另行核实。
+- **未执行：** 本地 Node/Python/Rust 测试、手动触发 CI、FnOS/Android 真机、浏览器鼠标/触屏/全屏/SPA 实际交互测试。当前处于调试模式。
+- 后续必须做一次带真实设备、浏览器和服务端的 AC01–AC12 端到端验证，尤其 T10/T11 真实 CAS、多页面争用、T13 真实执行器 handoff 与 T16 退出守卫；不能把模拟测试当作已验收。
