@@ -283,6 +283,9 @@ const textDialogTarget = computed<HTMLElement | 'body'>(() =>
 const cards = new Map<string, PhoneHandle>();
 // T01: picker modes belong to a live card/session; steps stay in ONE draftWorkspace.
 const pickerContexts = reactive<Record<string, PickerContext>>({});
+const activePickingDeviceNames = computed(()=>Object.entries(pickerContexts)
+    .filter(([,picker])=>picker.phase==='on' || picker.phase==='preparing')
+    .map(([id])=>devices.value.find(device=>device.id===id)?.name??id));
 // Last right-click is scoped to one session/generation. T03/T04 will use it
 // for menu placement and selecting the candidate in a fresh hierarchy.
 const pickerPoints = reactive<Record<string, {
@@ -1697,6 +1700,13 @@ onBeforeUnmount(() => { stopEvents?.();
                         @click="discardSavedDraft" />
                 </div>
             </div>
+            <p v-if="draftWorkspace.steps.length" class="draft-reuse-hint" role="status">
+                同账号只有一份当前工作草稿：{{ draftWorkspace.name || '未命名草稿' }}
+                · {{ draftWorkspace.steps.length }} 步。
+                {{ activePickingDeviceNames.length ? '正在拾取：'+activePickingDeviceNames.join('、')+'。' : '当前未选择拾取设备。' }}
+                其他授权手机可查看同一草稿，但执行前会重新核验绑定、画面尺寸及控件定位；
+                不能无提示复用不匹配的坐标。
+            </p>
             <div class="workspace-header">
                 <nav class="automation-tabs" :aria-label="t('title')"><button v-for="item in tabs" :key="item" type="button" :class="{ active: tab === item }" :aria-current="tab === item ? 'page' : undefined" :disabled="switchingTab || connecting || sendingText" :title="t('tabReleaseHint')" @click="changeTab(item)">{{ t(item) }}</button></nav>
                 <label v-if="context.can_manage_others && tab !== 'settings'" class="owner-select">{{ t('owner') }}<select :value="ownerId" :disabled="busy || connecting || sendingText || switchingTab" @change="changeOwner(Number(($event.target as HTMLSelectElement).value))"><option v-for="account in accounts" :key="account.id" :value="account.id">{{ account.username }}</option></select></label>
@@ -1779,6 +1789,8 @@ onBeforeUnmount(() => { stopEvents?.();
 </template>
 
 <style scoped>
+.draft-reuse-hint{margin:0;padding:9px 12px;font-size:12px;line-height:1.6;color:var(--console-muted);border:1px solid var(--console-border);border-radius:9px;background:var(--console-panel)}
+
 .draft-sync-bar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;flex-wrap:wrap}
 .draft-sync-summary{display:flex;flex:1;min-width:180px;flex-direction:column;gap:4px;font-size:12px}
 .draft-sync-summary small{color:var(--console-muted);font-size:11px;line-height:1.5}
