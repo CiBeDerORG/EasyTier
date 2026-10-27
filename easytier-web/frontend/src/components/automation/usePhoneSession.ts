@@ -12,7 +12,8 @@ interface PendingControl {
 
 /** One explicitly opened media session. No discovery, retries, polling or browser heartbeat. */
 export function usePhoneSession(api: AutomationApi) {
-    const state = reactive({ phase: 'idle' as PhonePhase, error: '', controlReady: false, width: 0, height: 0, unlockState: '' });
+    const state = reactive({ phase: 'idle' as PhonePhase, error: '', controlReady: false,
+        viewerOnly: true, width: 0, height: 0, unlockState: '' });
     const stream = shallowRef<MediaStream | null>(null);
     let session: AutomationSession | null = null;
     let sessionOwner = 0;
@@ -36,6 +37,7 @@ export function usePhoneSession(api: AutomationApi) {
         if (firstFrameTimer) { clearTimeout(firstFrameTimer); firstFrameTimer = null; }
         if (pendingReady) { clearTimeout(pendingReady.timer); pendingReady.reject(new Error(reason)); pendingReady = null; }
         state.controlReady = false;
+        state.viewerOnly = true;
         clearCommands(reason);
         const currentSocket = socket; socket = null;
         if (currentSocket) { currentSocket.onclose = null; currentSocket.onmessage = null; currentSocket.onerror = null; currentSocket.close(); }
@@ -89,6 +91,7 @@ export function usePhoneSession(api: AutomationApi) {
         catch { fail('Control connection closed before delivery was confirmed.'); }
     }
     function send(message: AutomationControl): Promise<AutomationControlReply> {
+        if (state.viewerOnly) return Promise.reject(new Error('原画面当前仅可观看，不能发送手动操作。'));
         if (!state.controlReady || socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Control channel is unavailable'));
         return new Promise((resolve, reject) => {
             if (message.type === 'touch' && message.action === 'move') {
@@ -117,7 +120,8 @@ export function usePhoneSession(api: AutomationApi) {
         if (session || closing || state.phase === 'opening' || state.phase === 'connecting') throw new Error('Close the existing session first');
         if (typeof RTCPeerConnection === 'undefined') throw new Error('This browser does not support WebRTC');
         const mine = ++generation;
-        sessionOwner = ownerId; state.phase = 'opening'; state.error = ''; state.unlockState = ''; sequence = 0;
+        sessionOwner = ownerId; state.phase = 'opening'; state.error = ''; state.unlockState = '';
+        state.viewerOnly = false; sequence = 0;
         try {
             const created = await api.createSession(ownerId, { device_id: deviceId, quality, ...(media ? { media } : {}) });
             if (mine !== generation) { await api.closeSession(ownerId, created.id); return; }
@@ -188,7 +192,7 @@ export function usePhoneSession(api: AutomationApi) {
     async function unlock(): Promise<{ unlock_state: string }> {
         const current = session;
         const mine = generation;
-        if (!current || closing || state.phase !== 'live' || !state.controlReady) {
+        if (!current || closing || state.phase !== 'live' || !state.controlReady || state.viewerOnly) {
             throw new Error('请先打开手机画面并等待控制就绪。');
         }
         const answer = await api.unlockSession(sessionOwner, current.id);
@@ -196,11 +200,34 @@ export function usePhoneSession(api: AutomationApi) {
         state.unlockState = answer.unlock_state;
         return answer;
     }
+    async function enterViewOnly(): Promise<void> {
+        const current = session, mine = generation;
+        if (!current || closing || state.phase !== 'live')
+            throw new Error('只有已打开的原手机实时画面可移交为只读观看。');
+        // Local write permissions fail closed BEFORE the HTTP request. The
+        // server fences commands in SQLite, then the Executor drains actions.
+        state.viewerOnly = true;
+        clearCommands('投屏正转为只读观看；未确认的控制动作不可重发。');
+        const result = await api.viewOnlySession(sessionOwner,current.id);
+        if (mine !== generation || session !== current || closing || result.id !== current.id
+            || result.state !== 'view_only' || result.manual_allowed !== false)
+            throw new Error('只读移交回执与原会话不一致，不会恢复手动操作。');
+    }
+    async function resumeManual(): Promise<void> {
+        const current = session, mine = generation;
+        if (!current || closing || state.phase !== 'live' || !state.viewerOnly)
+            throw new Error('无法确认当前只读观看会话，不能恢复手控。');
+        const result = await api.resumeManualSession(sessionOwner,current.id);
+        if (mine !== generation || session !== current || closing || result.id !== current.id
+            || result.state !== 'active' || result.manual_allowed !== true)
+            throw new Error('服务端尚未确认恢复手控，设备仍保持只读。');
+        state.viewerOnly = false;
+    }
     function videoReady() {
         if (!stream.value || !state.controlReady || closing) return;
         if (firstFrameTimer) { clearTimeout(firstFrameTimer); firstFrameTimer = null; }
         state.phase = 'live';
     }
     function getSessionId() { return closing ? null : session?.id ?? null; }
-    return { state, stream, open, close, send, unlock, videoReady, getSessionId };
+    return { state, stream, open, close, send, unlock, videoReady, getSessionId, enterViewOnly, resumeManual };
 }
