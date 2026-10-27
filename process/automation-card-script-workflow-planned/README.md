@@ -49,3 +49,9 @@
 - 多 Agent 并行只发生在**互不重叠的文件**上。集成负责人唯一维护 `AutomationCenter.vue`、`ScriptLibrary.vue` 和共享接线。
 - 各模块用 props/events/composables 明确接口交付，禁止复制一套 UiInspector/草稿逻辑。
 - 代码按小任务增量 push；用户当前处于调试模式，不主动运行本地测试或手动 CI。真实验收状态严格区别于代码提交。
+
+## 2026-10-28 · P12 / T36～T39 Viewer-Action Lease 开发记录
+- 已在 `feat/automation-center` 提交 [T36状态合同](require/require-10-t36-viewer-action-lease-contract.md) 与 T37～T39 Executor、Rust、前端单卡片试跑接线，目标是不关闭原 `PhoneCard.primary-video` 即释放手动写权限。
+- Rust/Executor 双边校验后，脚本 `POST /runs` 仅允许同账号/同目标指纹已确认只读观看会话共存；触摸、STOP、输入、解锁后端保留拒写及设备动作独占。
+- **尚未完成**：T40 全屏不退场的试跑、T43～T45 批量脚本所有设备原视频观察、T49 后端安全回归、T51 真实 FnOS/Android 验收。不能把 T39 单步接线称为完整 FINAL V3 发布通过。
+- 本轮调试模式下**未执行**本地测试、类型检查、Rust/Python 编译、构建、手动 CI、浏览器或真机测试；状态详见 [P12计划](plan/plan-12-viewer-action-leases.md) 和 [测试记录](task/test-report.md)。
