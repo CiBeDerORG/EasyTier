@@ -1,0 +1,21 @@
+# 自动化中心 · 卡片连续拾取到脚本执行完整闭环
+
+状态：**规划中（仅产品/技术拆分，尚未开发）**。当前交付分支：`feat/automation-center`。关联现有 `process/automation-center-in-progress/`，不覆盖原需求。
+
+## 产品目标
+一个手机卡片持续完成：打开画面 → 开启拾取 → 右键选择操作 → 查看控件树/属性/定位条件 → 配置并确认 → 关闭属性窗（保持拾取）→ 连续追加步骤 → 编辑/定位演示 → 保存/恢复/跨设备复用 → 自动准备单步试跑 → 查看结果/修复/再试。
+
+## 范围及进度
+- 用户已确认的12条验收标准不可擅自删除，详见 `require/require-01-acceptance.md`。
+- 需求及异常分支：`require/require-02-user-journeys.md`；技术/安全边界：`require/require-03-architecture.md`。
+- 6个可交付里程碑：`plan/plan-01-foundation.md` 至 `plan/plan-06-acceptance.md`。
+- 实施任务清单：`task/README.md`；具体操作卡：`task/task-XX-*.md`。
+- 既有功能：WebRTC卡片视频、UiAutomator2只读层级、唯一定位候选、共享草稿、脚本库编辑、脚本/单步执行、执行记录及失败修复入口。
+- 尚未实现：卡片独立拾取开关、右键菜单、坐标到候选节点复用、连续收窗、卡片步骤条、只读定位演示、草稿持久化、卡片内完整试跑/回修入口。
+- 顺序：M0基础合同 → M1连续拾取 → M2步骤/演示 → M3草稿保存/复用 → M4试跑回修 → M5综合验收。
+- 不在本期：无线调试自动配对、无需用户同意执行有副作用动作、跨设备无条件复用绝对坐标、绕过执行器独占锁、Android完全关机开机。
+
+## 组织原则
+- 多 Agent 并行只发生在**互不重叠的文件**上。集成负责人唯一维护 `AutomationCenter.vue`、`ScriptLibrary.vue` 和共享接线。
+- 各模块用 props/events/composables 明确接口交付，禁止复制一套 UiInspector/草稿逻辑。
+- 所有测试状态如实标注；用户当前要求是拆分计划，并**未授权本轮执行改动或测试**。
