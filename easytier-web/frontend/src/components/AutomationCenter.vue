@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { Button, Dialog, InputText, Message, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { onBeforeRouteLeave, useRouter } from 'vue-router';
@@ -12,7 +12,6 @@ import DiscoveryDialog from './node-assets/DiscoveryDialog.vue';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../modules/automation-api';
 import type { AutomationContext, AutomationControl, AutomationControlReply, AutomationDevice, AutomationRun, AutomationStep, AutomationMediaSettings, AutomationComponentStatus, AutomationPhoneConnectionState } from '../types/automation';
 import PhoneCard from './automation/PhoneCard.vue';
-import UiInspectorDialog from './automation/UiInspectorDialog.vue';
 import { menuToInspectorAction } from '../modules/automation-inspector-actions';
 import ConnectionDialog from './automation/ConnectionDialog.vue';
 import ScriptLibrary from './automation/ScriptLibrary.vue';
@@ -233,7 +232,6 @@ watch(() => [draftWorkspace.ownerId, draftWorkspace.editingId, draftWorkspace.re
 });
 const inspectorDeviceId = ref<string | null>(null);
 const inspectorOpenGeneration = ref(0);
-const inspectorStream = shallowRef<MediaStream | null>(null);
 interface PickerEditScope {
     ownerId: number; stepId: string; stepType: AutomationStepType; targetFingerprint: string;
     editingId?: string; revision?: number; origin: 'scripts' | 'card';
@@ -404,12 +402,8 @@ async function onCardPickAction(id: string, point: PickerVideoPoint, action: Pic
         } catch (cause) { if (valid()) error.value = automationErrorMessage(cause); }
         return;
     }
-    if (document.fullscreenElement) {
-        // The existing Inspector is still attached to document.body; only
-        // the action selected from the full-screen menu exits full screen.
-        try { await document.exitFullscreen(); }
-        catch { error.value = '无法退出全屏显示控件属性窗口，请手动退出全屏。'; return; }
-    }
+    // The Inspector now resides in the SAME phone-screen fullscreen element.
+    // Do not exit fullscreen, re-open media or alter the picker generation.
     if (!valid()) return;
     const token = ++inspectorOpenGeneration.value;
     inspectorAppendScope.value = null;
@@ -574,7 +568,6 @@ let recordingGeneration = 0; let pendingRecordActions = 0;
 const runnerAvailable = computed(() => context.value?.available === true && context.value.runner_configured);
 const managedAccount = computed(() => accounts.value.find(account => account.id === ownerId.value)?.username ?? String(ownerId.value));
 const deviceNames = computed(() => Object.fromEntries(devices.value.map(device => [device.id, device.name])));
-const inspectorDevice = computed(() => devices.value.find(device => device.id === inspectorDeviceId.value));
 const repickingStepIds = computed<Record<string,string>>(() => Object.fromEntries(
     Object.entries(pickerContexts).flatMap(([id,context]) =>
         context.phase === 'on' && context.intent.kind === 'replace'
@@ -1186,33 +1179,37 @@ function openInspector(id: string) {
         };
     } else inspectorEditScope.value = null;
     inspectorDeviceId.value = id;
-    inspectorStream.value = stream;
+    // No Inspector MediaStream attachment: it only consumes this card's
+    // current native video dimensions and draws on its original main video.
 }
-function openScriptInspector(stepId: string, stepType: AutomationStepType, deviceId: string) {
-    if (tab.value !== 'scripts' || sync.value || recordingId.value
-        || draftWorkspace.ownerId !== ownerId.value) {
-        error.value = '当前脚本或手机状态已变化，请重新进入脚本库。';
+/** Legacy script-tab request: return to the ORIGINAL phone card for repicking.
+ * It must not open a second video, create a control lease or select stale pixels. */
+async function openScriptInspector(stepId: string, stepType: AutomationStepType, deviceId: string) {
+    const owner=ownerId.value, scriptId=draftWorkspace.editingId, revision=draftWorkspace.revision;
+    const step=draftWorkspace.steps.find(item=>item.id===stepId);
+    const device=devices.value.find(item=>item.id===deviceId);
+    if (tab.value!=='scripts' || !step || step.type!==stepType ||
+        !stepCanPickTarget(step) || !device || device.owner_user_id!==owner ||
+        !device.connection.enabled || !device.target_fingerprint || sync.value || recordingId.value) {
+        error.value='脚本、设备或授权信息不匹配，不能定位旧控件。';return;
+    }
+    await changeTab('workbench');
+    if (tab.value!=='workbench' || ownerId.value!==owner ||
+        draftWorkspace.editingId!==scriptId || draftWorkspace.revision!==revision ||
+        !draftWorkspace.steps.some(item=>item.id===stepId && item.type===stepType)) return;
+    await nextTick();
+    const card=cards.get(deviceId);
+    if(!card?.getState().ready || !card.getStream()) {
+        notice.value='已返回自动化中心：请打开目标手机卡片的原实时画面，再编辑步骤并重新拾取。';
         return;
     }
-    const step = draftWorkspace.steps.find(item => item.id === stepId);
-    const device = devices.value.find(item => item.id === deviceId);
-    if (!step || step.type !== stepType || !device
-        || device.owner_user_id !== ownerId.value
-        || !device.connection.enabled || !device.target_fingerprint) {
-        error.value = '无法拾取：步骤或手机配置已变化。请先确认该手机已启用 ADB 服务。';
-        return;
+    editCardStep(deviceId,stepId);
+    if(cardStepEditor.value?.deviceId!==deviceId || cardStepEditor.value.stepId!==stepId) return;
+    if(!armCardPicking(deviceId,{kind:'replace',stepId,stepType})) {
+        error.value='无法启动这台手机的原画面拾取，当前设备会话或授权已变化。';return;
     }
-    ++inspectorOpenGeneration.value;
-    inspectorAppendScope.value = null;
-    inspectorEditScope.value = {
-        ownerId: ownerId.value, origin:'scripts',
-        stepId, stepType, targetFingerprint: device.target_fingerprint,
-        editingId: draftWorkspace.editingId, revision: draftWorkspace.revision,
-    };
-    inspectorDeviceId.value = deviceId;
-    // The hierarchy API is read-only and does not require opening a WebRTC
-    // session. Editing scripts must not steal a live manual-control session.
-    inspectorStream.value = null;
+    card.openAutomationPanel();
+    notice.value='已切换到原手机实时画面与步骤浮窗，请在该画面右键选择需要重新定位的控件。';
 }
 function closeInspector() {
     const id = inspectorDeviceId.value;
@@ -1220,7 +1217,6 @@ function closeInspector() {
     if (id) delete pickerPoints[id];
     inspectorAppendScope.value = null;
     inspectorDeviceId.value = null;
-    inspectorStream.value = null;
     inspectorEditScope.value = null;
     // Cancel/confirm both end ONE replace intent, without closing the live
     // screen, disabling picking or altering the original step on cancel.
@@ -1525,8 +1521,12 @@ async function demoCardStep(deviceId:string,stepId:string) {
     }
 }
 function editInspectorDraft() {
+    const id=inspectorDeviceId.value;
     closeInspector();
-    void changeTab('scripts');
+    if(id && tab.value==='workbench') {
+        cards.get(id)?.openAutomationPanel();
+        notice.value='已打开本手机原画面上的自动化脚本浮窗，可继续编辑已有步骤。';
+    }
 }
 function finishRecording(edit: boolean) {
     if (gestureConfirmation.value) { notice.value = '请先确认刚才的滑动或拖拽，才能结束录制。'; return; }
@@ -1855,11 +1855,19 @@ onBeforeUnmount(() => { stopEvents?.();
                         :undo-delete-label="deletedStepUndoLabel" :editing-dirty="cardEditorDirty"
                         :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
                         :repicking-step-id="repickingStepIds[device.id]"
+                        :inspector-visible="inspectorDeviceId === device.id"
+                        :inspector-commit-token="inspectorOpenGeneration"
+                        :inspector-queued-count="draftWorkspace.steps.length"
+                        :inspector-replace-step="inspectorDeviceId === device.id ? inspectorReplaceStep : null"
+                        :inspector-initial-point="inspectorDeviceId === device.id ? inspectorInitialPoint : null"
+                        :inspector-preferred-action="inspectorDeviceId === device.id ? inspectorPreferredAction : null"
                         :repair-context="cardRepairContext?.deviceId === device.id ? cardRepairContext : null"
                         :demo-result="locatorDemos[device.id]?.stepId === cardStepEditor?.stepId ? locatorDemos[device.id]?.result : null"
                         :demo-loading="locatorDemos[device.id]?.loading ?? false" :demo-error="locatorDemos[device.id]?.error"
                         @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
                         @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction"
+                        @inspector-close="closeInspector" @inspector-add-step="addInspectorStep"
+                        @inspector-replace-target="replaceInspectorTarget" @inspector-edit="editInspectorDraft"
                         @script-refresh="refreshScriptList" @script-action="handleFloatingScriptAction"
                         @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
                         @step-undo="undoCardDraftStepDeletion"
@@ -1884,8 +1892,6 @@ onBeforeUnmount(() => { stopEvents?.();
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
-        <UiInspectorDialog v-if="inspectorDevice" :key="inspectorOpenGeneration" :visible="!!inspectorDeviceId" :device="inspectorDevice" :owner-id="ownerId" :stream="inspectorStream" :queued-count="draftWorkspace.steps.length" :replace-step="inspectorReplaceStep" :initial-point="inspectorInitialPoint" :preferred-action="inspectorPreferredAction" :commit-token="inspectorOpenGeneration"
-            @close="closeInspector" @add-step="addInspectorStep" @replace-target="replaceInspectorTarget" @edit="editInspectorDraft" />
         <ConnectionDialog :device="connectionDevice" :owner-id="ownerId" :runner-available="runnerAvailable" @close="connectionDevice = null" @saved="savedConnection" />
         <Dialog :visible="!!gestureConfirmation" :appendTo="textDialogTarget" modal
             :closable="false" :close-on-escape="false"
