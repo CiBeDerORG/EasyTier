@@ -9,6 +9,9 @@ const props=defineProps<{
     dragMode?:boolean;dragGuide?:InspectorCardDragGuide|null;
 }>();
 const emit=defineEmits<{pick:[event:MouseEvent]}>();
+function keyboardPick(event:MouseEvent){
+    if(event.detail===0)emit('pick',event);
+}
 const viewBox=computed(()=>`0 0 ${Math.max(1,props.videoWidth)} ${Math.max(1,props.videoHeight)}`);
 const rectangle=computed(()=>{
     const rect=props.highlight;
@@ -45,7 +48,7 @@ const b=computed(()=>marker(props.dragGuide?.end));
             @pointerdown.stop.prevent @pointermove.stop
             @pointerup.stop.prevent="emit('pick',$event)"
             @contextmenu.stop.prevent
-            @click.stop.prevent="event => { if (event.detail === 0) emit('pick',event); }" />
+            @click.stop.prevent="keyboardPick" />
     </div>
 </template>
 
