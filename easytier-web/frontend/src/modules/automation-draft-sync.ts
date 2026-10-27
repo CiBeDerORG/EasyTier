@@ -30,7 +30,7 @@ interface RequestInFlight {
     owner: number; id: string | null; revision: number | null;
     requestId: string; payload: DraftSnapshot; fingerprint: string;
 }
-export function draftFingerprint(workspace: Pick<AutomationDraftWorkspace,'name'|'description'|'steps'>): string {
+export function draftFingerprint(workspace: Pick<AutomationDraftWorkspace,'name'|'description'|'steps'|'editingId'|'revision'>): string {
     return JSON.stringify({
         name: workspace.name, description: workspace.description, steps: workspace.steps,
         script_id: workspace.editingId ?? null, script_revision: workspace.revision ?? null,
