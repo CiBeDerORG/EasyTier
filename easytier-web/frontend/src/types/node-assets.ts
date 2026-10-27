@@ -306,6 +306,37 @@ export interface ServerAgentEntry extends AssetScope {
     source: 'existing_asset_device';
 }
 
+export type AgentAddressChoice = 'overlay' | 'lan';
+export interface AssetAgentStatus {
+    bound: boolean;
+    live_status: 'not_checked';
+    agent_id?: string;
+    tls_spki_sha256?: string;
+    endpoint?: string;
+    paired_at?: string;
+    verified_at?: string;
+}
+export interface AssetAgentProbe {
+    endpoint: string;
+    tls_verified: boolean;
+    bound: boolean;
+    identity: {
+        agent_id: string;
+        hostname: string;
+        platform: string;
+        arch: string;
+        tls_spki_sha256: string;
+        protocol_version: number;
+    };
+}
+export interface AssetAgentProbeInput {
+    address: AgentAddressChoice;
+    trusted_spki_sha256: string;
+}
+export interface AssetAgentPairInput extends AssetAgentProbeInput {
+    pairing_code: string;
+}
+
 /** UI save events distinguish gateway catalog updates from device-list updates. */
 export type AssetSavedResource =
     | { resource_kind: 'gateway'; record: GatewayGroup }
