@@ -13,6 +13,8 @@ import CardPickingOverlay from './CardPickingOverlay.vue';
 import CardContextMenu from './CardContextMenu.vue';
 import CardStepTimeline from './CardStepTimeline.vue';
 import CardStepEditor from './CardStepEditor.vue';
+import CardTrialPanel from './CardTrialPanel.vue';
+import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import CardLocatorDemo from './CardLocatorDemo.vue';
 import type { LocatorDemoResult } from '../../modules/automation-locator-demo';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
@@ -41,11 +43,31 @@ const emit = defineEmits<{
     'step-close': [deviceId: string]; 'step-save': [deviceId: string, stepId: string, expected: AutomationStep, updated: AutomationStep];
     'step-repick': [deviceId: string, stepId: string]; 'step-dirty': [deviceId: string, dirty: boolean];
     'step-demo': [deviceId: string, stepId: string]; 'demo-clear': [deviceId: string];
+    'trial-history': [deviceId: string, runId: string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
 const editingStep = computed(() => props.draft.steps.find(item => item.id === props.editingStepId));
 const editingStepNumber = computed(() => props.draft.steps.findIndex(item => item.id === props.editingStepId)+1);
+const trialStepId = ref<string | null>(null);
+const trialStep = computed(() => props.draft.steps.find(item => item.id === trialStepId.value) ?? null);
+async function openCardTrial(stepId: string) {
+    if (!props.runnerAvailable || props.recording || !!props.syncRole || !!props.unlocking ||
+        !!props.editingStepId || !props.device.target_fingerprint ||
+        !props.draft.steps.some(item => item.id === stepId)) return;
+    // The fullscreen element could cover a modal appended to body.
+    if (document.fullscreenElement === screen.value) {
+        try { await document.exitFullscreen(); } catch { return; }
+    }
+    trialStepId.value = stepId;
+}
+function getTrialPreviewHandle(): TrialPreviewHandle {
+    return {
+        getSessionId: () => session.getSessionId(),
+        getState: () => ({ phase: session.state.phase }),
+        close: () => close(),
+    };
+}
 const api = new AutomationApi();
 const session = usePhoneSession(api);
 const video = ref<HTMLVideoElement | null>(null);
@@ -403,7 +425,7 @@ onBeforeUnmount(() => {
     document.removeEventListener('fullscreenchange', syncFullscreen);
     if (document.fullscreenElement === screen.value) void document.exitFullscreen().catch(() => undefined);
     if (ambientVideo.value) ambientVideo.value.srcObject = null;
-    disposed = true; watching = false; ++intentVersion; closePickerMenu(); clearMenuTimer(); stopFrameChase(); cancelPointer(); void session.close();
+    disposed = true; trialStepId.value = null; watching = false; ++intentVersion; closePickerMenu(); clearMenuTimer(); stopFrameChase(); cancelPointer(); void session.close();
 });
 </script>
 
@@ -492,7 +514,14 @@ onBeforeUnmount(() => {
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}</span><span class="mono-value">{{ device.overlay_ip }}</span></footer>
         <CardStepTimeline :draft="draft" :sync-label="draftSyncLabel" :picker-active="pickingPhase === 'on'"
             @select="emit('step-select', device.id, $event)"
-            @edit="emit('step-edit', device.id, $event)" />
+            @edit="emit('step-edit', device.id, $event)"
+            @trial="openCardTrial" />
+        <CardTrialPanel :visible="trialStepId !== null" :owner-id="ownerId" :device="device"
+            :step="trialStep" :preview-handle="getTrialPreviewHandle"
+            :runner-available="runnerAvailable"
+            :blocked="!!recording || !!syncRole || !!unlocking || !!editingStepId"
+            @close="trialStepId = null"
+            @history="emit('trial-history',device.id,$event)" />
         <CardStepEditor v-if="editingStep" :key="editingStep.id" :step="editingStep"
             :step-number="editingStepNumber" :repicking="repickingStepId === editingStep.id"
             :demo-loading="demoLoading" :demo-result="demoResult" :demo-error="demoError"
