@@ -37,7 +37,7 @@ test('T48 batch receipt fences one UUID and never clears another batch identity'
   reserveBatchReceipt(storage,first);
   assert.deepEqual(readBatchReceipt(storage,owner),first);
   assert.equal(readBatchReceipt(storage,owner+1),null,'owner must be isolated');
-  assert.throws(()=>reserveBatchReceipt(storage,{...first,requestId:'123e4567-e89b-42d3-a456-426614174001'}),/未核对/);
+  assert.throws(()=>reserveBatchReceipt(storage,{...first,requestId:'123e4567-e89b-42d3-a456-426614174001'}),/尚未.*核对|未核对/);
   assert.throws(()=>clearBatchReceipt(storage,{...first,requestId:'123e4567-e89b-42d3-a456-426614174001'}),/身份已变化/);
   assert.deepEqual(readBatchReceipt(storage,owner),first,'different receipt must remain');
   clearBatchReceipt(storage,first);
