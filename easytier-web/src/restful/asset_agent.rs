@@ -1,7 +1,7 @@
 //! Session-authenticated Agent pairing endpoints on existing server asset
 //! devices. Ownership and server semantics are revalidated on every call.
 use crate::{
-    asset_agent::{self, Manager, PairInput, ProbeInput},
+    asset_agent::{self, AdoptionIntentInput, Manager, PairInput, ProbeInput},
     central_network::service::CentralNetworkService,
     restful::{AppStateInner, ConsoleInfoConfig, assets::server_agent_entry, users::AuthSession},
 };
@@ -135,6 +135,32 @@ async fn update_host_root(
     manager.update_host_root(&device, input.software_root).await.map(Json).map_err(failure)
 }
 
+
+async fn docker_inventory(
+    auth: AuthSession,
+    Extension(config): Extension<ConsoleInfoConfig>,
+    Extension(central): Extension<Arc<CentralNetworkService>>,
+    Extension(manager): Extension<Arc<Manager>>,
+    Path(id): Path<String>,
+    Query(scope): Query<Scope>,
+) -> Outcome<Json<Value>> {
+    let device = checked(&auth, &config, &central, &id, &scope).await?;
+    manager.docker_inventory(&device).await.map(Json).map_err(failure)
+}
+
+async fn confirm_adoption_intent(
+    auth: AuthSession,
+    Extension(config): Extension<ConsoleInfoConfig>,
+    Extension(central): Extension<Arc<CentralNetworkService>>,
+    Extension(manager): Extension<Arc<Manager>>,
+    Path(id): Path<String>,
+    Query(scope): Query<Scope>,
+    Json(input): Json<AdoptionIntentInput>,
+) -> Outcome<Json<Value>> {
+    let device = checked(&auth, &config, &central, &id, &scope).await?;
+    manager.confirm_adoption_intent(&device, input).await.map(Json).map_err(failure)
+}
+
 pub fn router(manager: Arc<Manager>) -> Router<AppStateInner> {
     Router::new()
         .route("/api/v1/assets/devices/{id}/agent/status", get(status))
@@ -142,5 +168,7 @@ pub fn router(manager: Arc<Manager>) -> Router<AppStateInner> {
         .route("/api/v1/assets/devices/{id}/agent/pair", post(pair))
         .route("/api/v1/assets/devices/{id}/agent/host", get(host))
         .route("/api/v1/assets/devices/{id}/agent/host/settings", patch(update_host_root))
+        .route("/api/v1/assets/devices/{id}/agent/docker/inventory", get(docker_inventory))
+        .route("/api/v1/assets/devices/{id}/agent/docker/adoption-intents", post(confirm_adoption_intent))
         .layer(Extension(manager))
 }
