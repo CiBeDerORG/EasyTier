@@ -381,3 +381,10 @@
 - 旧脚本 Tab 尚有正式脚本保存/删除及历史入口，仍作为**兼容管理页**保留；T46 要全删之前还需在浮窗实现这些 CRUD 与旧链接迁移并真实验收。RunHistory、UiInspectorDialog 和 PhoneAutomationPanel 未被误删。单独的背景 ambient-video 和主视频共用原 session，不是独立自动化预览。
 - 代码提交包括 `b764984d`、`59dff5da`、`de194684`、`a9d079dc`；不把删除文件字符数视为功能验收。任务卡、P15计划、FINAL V3 索引已经更新。
 - **未执行** TypeScript/Vue 编译、lint、前后端单元或集成测试、构建、手动 GitHub Actions、浏览器或 FnOS/Android 真机回归，遵守当前调试模式。待确认：旧脚本管理的创建/修订/删除/回修、旧未知回执清理、工作台全屏/旋转/二浏览器不抢流、完整 batch 与单步执行结果，以及 UI 无悬空事件绑定。
+## 2026-10-28 · T46 第二批 · 正式发布删除、历史回修与条件树高级编辑
+
+- **代码提交范围**：Rust DB/REST 增加正式脚本事务内修订 CAS 删除处理器及路由；frontend API 新增 `deleteScriptVersioned`，兼容 ScriptLibrary 同步迁移。新增子浮窗 `AutomationScriptManageDialog.vue`，脚本选择器增加“发布正式版本”“确认删除”“只读核验”入口；共享 `automation-script-workspace.ts` 负责冻结草稿、严格权限/同步门禁、正式 POST/PUT、revision 回执核对、删除后保留原草稿、未知回执拒绝重复提交。
+- **历史统一**：`RunHistory.vue` 不再提供独立脚本 Tab 的重复修复入口；`AutomationCenter.vue` 统一走 `onRepairCard`，旧 `repairRequest` props/events 与 `ScriptLibrary` 历史修复副本/确认临时状态删除。历史 run/device/step 和授权指纹仍由现有方法重新查询核验。
+- **条件功能迁移**：卡片主时间线可创建未配置的动作步骤、将普通步骤转换 If/Else、向 Then/Else 分支新增动作、仅在完全相同条件分支上下移动；全部复用 `automation-flow` 和 `automation-flow-tree` 既有不交叉/最大深度/20分支项/100步结构约束。卡片编辑浮窗支持最后一个无条件 assert/assert_property 的唯一业务成功标记，操作本身不执行 Android 命令。
+- **验证情况**：**未执行** TS/Vue 类型检查、Rust 编译、lint、构建、GitHub Actions 手动触发、单元/集成/E2E、浏览器及 FnOS/Android 真机/全屏/双浏览器回归（延续 AGENTS.md 当前调试模式）。本日志仅记录已推送代码，不宣称编译/功能验收通过。
+- **重点待测风险**：旧客户端 DELETE 与新修订 CAS 并存期、双浏览器同一 revision 发布/删除、未知 HTTP 后刷新恢复、sessionStorage 损坏 fail-closed、从未发布草稿的首次新建、工作草稿 CAS 同步、条件新增后 step ID 和条件计数、断言唯一性、历史设备失联时返回卡片修复、视频不断流、旧脚本兼容编辑页的写入与新卡片共用同一草稿。T46 代码替代尚不等于可退役旧 Tab。
