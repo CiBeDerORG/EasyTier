@@ -750,13 +750,15 @@ class Runtime:
             if cancel.is_set() or (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)):
                 await self._update(rid, did, {"state": "cancelled", "steps": results})
                 return
+            # First authenticate this exact run and target BEFORE touching
+            # the physical device (even before releasing a former gesture).
+            await self._authorize(rid, target)
             # Stable manual-enabled video can coexist with this run. Only
             # its old physical gesture lease is released; viewerOnly stays
             # exactly as the floating icon selected.
             await self._claim_run_after_manual(target, holder)
-            # Authorize before any helper-side effects. If a valid helper is
-            # not running, prepare it once under this run's exclusive claim.
-            await self._authorize(rid, target)
+            # If a valid helper is not running, initialize it only under
+            # this run's exclusive journal action claim.
             await adb.require_connected(self.settings.adb_binary, target)
             # HOME/BACK/RECENT/WAKE and launching an app are native ADB
             # operations. Don't start/install the heavy UiAutomator helper
