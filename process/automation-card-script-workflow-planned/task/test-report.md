@@ -486,3 +486,17 @@
 - 修复 `fce565add36ddef86facc3c6e075209953727cbc`：把三种状态的等待/断言约束到真实 `.phone-card .batch-head .p-tag`，保留失败 `danger`、部分失败 `warn`、成功 `success` 的校验，不削弱核心业务验证。
 - 该修复 push 已触发仓库原有自动 Actions [40627840242](https://github.com/CiBeDerORG/EasyTier/actions/runs/40627840242)。查询时仍 pending；**不宣称新的自动构建成功**。旧运行的 Native 构建/回归当时仍在执行，之后状态必须独立确认。
 - **本轮未手工运行**本地 Node/Playwright/TypeScript/Rust/Python、手动构建/触发 GitHub Actions、FnOS、Android、ADB 或部署，继续遵循调试模式。
+
+## 2026-10-28 · 原手机自动化操作台与悬浮手控按钮状态闭环
+
+**用户提出：** 点击悬浮自动化按钮打开操作台后，手机转为非手控，但悬浮按钮中原“手控”按钮显示未同步；通过自动化图标再次关闭或点击操作台 X 时，需要自动恢复手控。
+
+**代码实现：**
+- `PhoneCard.vue` 在已连接原视频情况下打开操作台，调用当前 `usePhoneSession.enterViewOnly()`，立即阻断本地触控，再等待后端 SQLite/Executor 确认只读权限；不生成新视频/会话。
+- 手控状态图标直接来自 `session.state.viewerOnly`（只读锁/手控解锁，文字和无障碍标签同源），保留原 `pi-ban` 的“停止当前手动操作”动作，但明确它不等于权限切换。
+- 关闭 X 或再次点自动化图标均通过 `closeAutomationPanel` 统一退出并排队一次 `resumeManualControl()`；必须满足原视频 live、controlReady、后端无 run_occupied、批量非保护状态、无单步骤试跑/群控/录制/解锁后才调用后端 `resumeManualSession`。服务端必须确认 active + manual_allowed 才更改本地 viewerOnly=false。
+- 批量运行/单步骤试跑期间退出浮窗，不中断脚本或原视频；将手控恢复延迟到运行权限释放且服务器确认安全的时刻；未知结果/待清理不自动越权恢复，保留手工恢复入口和失败提示。
+- 浮窗打开早于视频就绪、只读移交超时、窗口关闭时移交尚在进行、账号与原会话更换等路径使用状态监听/epoch 和**关闭瞬间原会话 ID**防止误恢复别的设备/会话。关闭悬浮操作台不等于关闭投屏。
+- `tests/automation-floating-browser-t48.test.mjs` 增加 T54：挂载生产 `PhoneCard.vue`，验证无原视频时权限按钮不能谎报手控、按钮显示与“停止操作”分离，以及关闭浮窗保留原主视频 DOM。
+
+**验证范围：** 以上为已推送的源码与测试用例，未手工运行本机/Android/FnOS/ADB/真实 WebRTC；此前 `fce565a` 自动 CI 通过不等于本批源码通过。最新 push 由现有 GitHub Actions 自动执行，需用提交 SHA 核验编译与无设备浏览器回归后再标记通过。
