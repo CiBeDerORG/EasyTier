@@ -90,3 +90,6 @@
 ## 2026-10-28 · T48/T49 浮窗身份、正式回执与执行器互斥回归代码
 
 新增前端浮窗堆叠、唯一原手机身份/媒体权限、正式脚本 CAS 未知回执纯逻辑断言；将正式写操作的回执管理从巨型 Vue 工作区抽出并加固损坏凭据 fail-closed 和元数据白名单存储。Executor 新增真实 `Runtime + SQLite Journal` 的只读观看与脚本写锁模拟媒体用例。均为**已提交、未执行**，并不代表全屏、WebRTC、ADB、双浏览器或 FNOS 验收通过。详见 [T48](task/task-48-frontend-regression.md)、[T49](task/task-49-backend-regression.md) 与 [测试记录](task/test-report.md)。
+## 2026-10-28 · T49 Rust / Executor 数据库安全回归源码成型
+
+已增加 Rust `automation/tests.rs`（注册于 mod.rs），基于真实迁移链与正式资产 API 的纯内存数据库，覆盖正式脚本创建、CAS 修订/删除、跨用户授权、零步骤不可运行、请求 UUID 幂等和原视频与脚本写锁二阶段移交；加上 Executor 已编写的六条观看/写锁清理异常场景。完整用例见 [T49 测试矩阵](task/task-49-test-matrix.md)。**均尚未执行测试/构建、未做 FnOS 或 Android 真机验收**。下阶段仍需真实执行通过后进入 T50/T51。
