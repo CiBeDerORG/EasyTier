@@ -220,7 +220,7 @@ test('T54 only the floating manual icon may change permission; console open/clos
     const originalFetch=window.fetch;
     window.fetch=(...args)=>{
       const url=String(args[0]);
-      if(/\\/sessions\\/[^/]+\\/(view-only|resume-manual)/.test(url))
+      if(url.includes('/sessions/') && (url.includes('/view-only') || url.includes('/resume-manual')))
         window.t54PermissionRequests.push(url);
       return originalFetch(...args);
     };
