@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
-use std::{collections::{BTreeMap, BTreeSet}, path::{Path, PathBuf}, sync::Arc};
+use std::{collections::{BTreeMap, BTreeSet}, path::{Path, PathBuf}};
 use tokio::{process::Command, sync::Mutex, time::{Duration, timeout}};
 use uuid::Uuid;
 
@@ -157,7 +157,8 @@ impl Catalog {
         // overwritten; a failed clone/scan does not affect the previous index.
         let destination = self.base.join(format!("revision-{}", Uuid::new_v4()));
         tokio::fs::rename(stage, &destination).await.map_err(|_| Error::Storage)?;
-        let mut tx = self.db.inner().begin().await.map_err(|_| Error::Storage)?;
+        let pool = self.db.inner();
+        let mut tx = pool.begin().await.map_err(|_| Error::Storage)?;
         sqlx::query("DELETE FROM deploy_catalog_apps").execute(&mut *tx).await
             .map_err(|_| Error::Storage)?;
         for app in &apps {
