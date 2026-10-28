@@ -99,7 +99,8 @@ pub(crate) async fn reconcile_and_cache(
     let previous_map = if let Some((previous_agent, raw)) = previous {
         if previous_agent == agent {
             let parsed: Value = serde_json::from_str(&raw).map_err(|_| Error::Storage)?;
-            Some(resource_map(&parsed, agent).map_err(|_| Error::Storage)?)
+            let previous_time = parsed["observed_at"].as_str().ok_or(Error::Storage)?.to_owned();
+            Some((previous_time, resource_map(&parsed, agent).map_err(|_| Error::Storage)?))
         } else {
             // Different Agent UUIDs must never share disappearance evidence.
             sqlx::query("DELETE FROM asset_agent_docker_absences WHERE asset_device_id=?")
@@ -146,15 +147,12 @@ pub(crate) async fn reconcile_and_cache(
     // A resource missing from the immediately previous complete inventory
     // enters the evidence table. Existing evidence survives as the snapshot
     // advances, so the second complete scan can confirm it.
-    if let Some(ref old) = previous_map {
+    if let Some((old_seen_at, ref old)) = previous_map {
         for (id, item) in old {
             if !present.contains_key(id) && !absences.contains_key(id) {
-                let seen_at = previous.as_ref().map(|_| observed_at).unwrap_or(observed_at);
-                // Use the old inventory's timestamp, not the missing scan's.
-                let old_seen_at = current_old_observed_at(old, db, device_id).unwrap_or(seen_at);
                 absences.insert(id.clone(), Absence {
                     id: id.clone(), last_resource: item.clone(),
-                    last_seen_at: old_seen_at.to_string(),
+                    last_seen_at: old_seen_at.clone(),
                     first_missing_at: observed_at.to_owned(), count: 0,
                 });
             }
@@ -182,12 +180,6 @@ pub(crate) async fn reconcile_and_cache(
     .execute(&mut *tx).await.map_err(|_| Error::Storage)?;
     tx.commit().await.map_err(|_| Error::Storage)?;
     Ok(verdicts)
-}
-
-fn current_old_observed_at(
-    _old: &BTreeMap<String, Value>, _db: &Db, _device_id: &str,
-) -> Option<&'static str> {
-    None
 }
 
 #[cfg(test)]
