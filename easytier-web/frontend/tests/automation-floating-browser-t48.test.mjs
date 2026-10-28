@@ -211,3 +211,25 @@ test('T53 saved server draft unblocks the reactive formal-publish / full-run gat
   assert.deepEqual(result,{initialized:true,before:false,after:true,phase:'synced'},
     'the exact UI computed guard must update after the async request clears, not stay stale');
 });
+
+test('T54 real PhoneCard shows manual permission separately from stopping a touch action',async t=>{
+  const page=await setup(t,realCardFixture);
+  const card=page.locator('.phone-card');
+  await page.locator('#open-panel').click();
+  // No live media/API in the browser fixture, so the permission control
+  // must remain disabled instead of pretending to have manual authority.
+  const permission=card.getByRole('button',{name:/手控不可用/});
+  assert.equal(await permission.count(),1,
+    'a persistent manual-mode button must reflect actual viewer permission');
+  assert.equal(await permission.isDisabled(),true);
+  assert.equal(await card.getByRole('button',{name:'停止当前手动操作'}).count(),1,
+    'a touch-stop command is not the same operation as viewerOnly/resumeManual');
+  await permission.evaluate(node=>assert.equal(node.getAttribute('aria-pressed'),'false'));
+  // Closing the console cannot close the original PhoneCard video or create
+  // a manual session when none exists.
+  const original=card.locator('video.primary-video');
+  await original.evaluate(node=>node.dataset.t54Original='preserved');
+  await card.getByRole('button',{name:'关闭自动化脚本窗口'}).click();
+  assert.equal(await original.getAttribute('data-t54-original'),'preserved');
+  assert.equal(await card.locator('video.primary-video').count(),1);
+});
