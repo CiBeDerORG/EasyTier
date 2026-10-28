@@ -312,9 +312,8 @@ async fn t49_rust_media_to_view_only_transition_fences_run_until_confirmed() {
     let session_id=session["id"].as_str().unwrap();
     f.store.update_session(session_id,"active").await.unwrap();
 
-    let rejected=f.store.create_run(f.owner,f.owner,&run).await.unwrap_err();
-    assert_eq!(rejected.status,409,"an active manual session still owns action eligibility");
-    assert_eq!(rejected.code,"device_busy");
+    // A deliberately in-progress permission change remains fail-closed;
+    // stable active and view_only sessions are independently admissible.
     f.store.begin_session_permission(f.owner,session_id,"view_only").await.unwrap();
     assert_eq!(f.store.session(f.owner,session_id).await.unwrap()["state"],"suspending");
     let rejected=f.store.create_run(f.owner,f.owner,&run).await.unwrap_err();
@@ -327,6 +326,33 @@ async fn t49_rust_media_to_view_only_transition_fences_run_until_confirmed() {
     assert_eq!(created["state"],"dispatch_pending");
     assert_eq!(f.store.session(f.owner,session_id).await.unwrap()["state"],"view_only",
         "the original media record must survive the run admission");
+}
+
+#[tokio::test]
+async fn run_accepts_stable_same_actor_manual_viewer_without_changing_its_switch() {
+    let f=Fixture::new().await;
+    let phone=f.phone().await;
+    let session=f.store.create_session(f.owner,f.owner,&phone,"wall").await.unwrap();
+    let sid=session["id"].as_str().unwrap();
+    f.store.update_session(sid,"active").await.unwrap();
+    let body=json!({
+        "request_id":Uuid::new_v4().to_string(),
+        "name":"Active manual viewer test","steps":[valid_step()],
+        "device_ids":[phone],"parameters":{},"concurrency":1
+    });
+    let (run,created)=f.store.create_run(f.owner,f.owner,&body).await.unwrap();
+    assert!(created,"manual ON no longer blocks the scripted run admission");
+    assert_eq!(run["state"],"dispatch_pending");
+    assert_eq!(f.store.session(f.owner,sid).await.unwrap()["state"],"active",
+        "submitting a script must not silently change the floating hand-control switch");
+
+    let blocked=f.store.create_run(f.owner,f.owner,&json!({
+        "request_id":Uuid::new_v4().to_string(),
+        "name":"Second run","steps":[valid_step()],
+        "device_ids":[phone],"parameters":{},"concurrency":1
+    })).await.unwrap_err();
+    assert_eq!(blocked.code,"device_busy",
+        "allowing the viewer must not permit overlapping script action leases");
 }
 
 #[tokio::test]
