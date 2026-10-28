@@ -9,7 +9,8 @@ from automation_executor.steps import execute, StepFailure
 from automation_executor.validation import steps
 
 
-TARGET = {"ip": "10.2.3.4", "adb_port": 33001}
+TARGET = {"ip": "10.2.3.4", "adb_port": 33001,
+          "device_id": "ci-test-device", "target_fingerprint": "ci-test-target"}
 BUTTON = {"resource_id": "app:id/confirm"}
 SCROLLER = {"resource_id": "app:id/list"}
 
