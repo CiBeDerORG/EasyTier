@@ -200,3 +200,10 @@ test('T53 real PhoneCard offers explicit draft save, formal publish and this-pho
   assert.equal(await card.getByRole('button',{name:'运行已选 0 台'}).isDisabled(),true,
     'multi-phone batch remains explicitly scoped to workbench checkboxes');
 });
+
+test('T53 saved server draft unblocks the reactive formal-publish / full-run gate',async t=>{
+  const page=await setup(t,realCardFixture);
+  const result=await page.evaluate(()=>window.phoneCardReview.verifySaveUnlock());
+  assert.deepEqual(result,{initialized:true,before:false,after:true,phase:'synced'},
+    'the exact UI computed guard must update after the async request clears, not stay stale');
+});
