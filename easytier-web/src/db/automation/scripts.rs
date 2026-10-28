@@ -46,6 +46,25 @@ impl AutomationStore {
         let result=script_json(&row)?;tx.commit().await?;Ok(result)
     }
 
+    /// T46: a versioned delete for floating workspaces. The previous
+    /// DELETE endpoint stays for older clients, but all first-party UI now
+    /// uses this CAS entry so a stale dialog cannot delete a newer revision.
+    pub(crate) async fn delete_script_if_revision(&self,owner:i32,id:&str,revision:i64)->AutomationResult<Value> {
+        if revision<1{return Err(AutomationError::field("revision","A positive script revision is required."));}
+        let mut tx=self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        active_owner(&mut tx,owner).await?;
+        let changed=sqlx::query("DELETE FROM automation_scripts WHERE id=? AND owner_user_id=? AND revision=?")
+            .bind(id).bind(owner).bind(revision).execute(&mut *tx).await?;
+        if changed.rows_affected()==0 {
+            let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_scripts WHERE id=? AND owner_user_id=?)")
+                .bind(id).bind(owner).fetch_one(&mut *tx).await?;
+            if !exists{return Err(not_found());}
+            return Err(AutomationError::new(409,"script_revision_changed","The script revision changed before deletion. Refresh and review."));
+        }
+        tx.commit().await?;
+        Ok(json!({"deleted":true,"id":id,"revision":revision}))
+    }
+
     pub(crate) async fn delete_script(&self,owner:i32,id:&str)->AutomationResult<Value> {
         let mut tx=self.pool.begin_with("BEGIN IMMEDIATE").await?;active_owner(&mut tx,owner).await?;
         let changed=sqlx::query("DELETE FROM automation_scripts WHERE id=? AND owner_user_id=?").bind(id).bind(owner).execute(&mut *tx).await?;
