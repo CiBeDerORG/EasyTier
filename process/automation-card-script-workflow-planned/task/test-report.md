@@ -373,3 +373,11 @@
 - **并发修复**：旧 `automation_runs.concurrency` CHECK 限制 1～3，但 Executor 已支持可配置运行容量。新增前向迁移 `m20261028_000028_automation_run_concurrency` 建立 1:1 扩展表，仅记录 >3 并发数；旧列以 3 保存、旧外键历史不重建，Rust 创建/查询/派发选择原值或扩展值。此为代码级设计，**未做真实 SQLite/SeaORM 迁移验证**。
 - **已知限制**：Rust API 单任务仍限定 1～20 台设备，新的入口明示并拦截，不把一次操作隐式拆成多次。旧 `ScriptLibrary` 预览播放器等仍保留在旧 Tab，计划 T46 在确认新入口全面覆盖后退出。该阶段不是 FINAL V3 整体验收完成。
 - **未执行**任何本地 TS/Rust/Python 编译/单测、E2E、SQLite 迁移、Runner/docker 构建、手工 GitHub Actions、浏览器/多手机真机操作（现行调试模式）。需真实验证：A/B/C独立画面、UiAutomator初始化与流不断、批量并发 >3、单机停止其它继续、整批取消、断网结果未知请求、超时只读恢复、手机重绑、双浏览器争用、历史草稿 ID/步骤快照一致。
+
+## 2026-10-28 · P15 / T46 旧脚本独立试跑与第二视频清理（调试模式）
+- 交付范围：`frontend/src/components/automation/ScriptLibrary.vue` 删除约 3 万字符的旧试跑临时状态、内嵌第二 `<video>`、PrimeVue 试跑确认 Dialog、重复 POST/run、旧 preflight/previewPlayer、取消/副作用警告的冗余 UI 壳；并继续删除约 2KB 失效视频/试跑 CSS。正式脚本编辑/保存/删除、条件结构、`ScriptStepEditor`、旧历史失败修复、旧请求只读核对仍保留。
+- `frontend/src/components/AutomationCenter.vue` 删除约 5KB 旧 `prepareRunDevice` / `releaseRunPreviews` / `scriptPreviewIds` 预览资源生命周期和对应 ScriptLibrary props；新的卡片内单步/批量执行与服务端 Viewer/Action 写锁不经过该旧路径，避免试跑主动关闭正在观察的原媒体。
+- `frontend/src/modules/useFloatingBatchRun.ts` 启动前逐机读取旧 `TrialSubmissionReceipt`；任何遗留结果未知 UUID 都拒绝新批量提交，要求从保留的兼容脚本管理页只读核对后才能再次请求。绝不把删除旧 Dialog 当作允许重发未知动作。
+- 旧脚本 Tab 尚有正式脚本保存/删除及历史入口，仍作为**兼容管理页**保留；T46 要全删之前还需在浮窗实现这些 CRUD 与旧链接迁移并真实验收。RunHistory、UiInspectorDialog 和 PhoneAutomationPanel 未被误删。单独的背景 ambient-video 和主视频共用原 session，不是独立自动化预览。
+- 代码提交包括 `b764984d`、`59dff5da`、`de194684`、`a9d079dc`；不把删除文件字符数视为功能验收。任务卡、P15计划、FINAL V3 索引已经更新。
+- **未执行** TypeScript/Vue 编译、lint、前后端单元或集成测试、构建、手动 GitHub Actions、浏览器或 FnOS/Android 真机回归，遵守当前调试模式。待确认：旧脚本管理的创建/修订/删除/回修、旧未知回执清理、工作台全屏/旋转/二浏览器不抢流、完整 batch 与单步执行结果，以及 UI 无悬空事件绑定。
