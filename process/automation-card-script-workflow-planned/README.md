@@ -62,3 +62,8 @@
 - 单步控件定位使用严格的只读唯一候选核验；目标不唯一、截断控件树、未经验证的 XPath 均硬阻断，风险确认不能绕过。
 - **未验收**：浏览器全屏/拖拽、设备旋转、UiAutomator2 多控件/超时、双浏览器竞争、实际 Android 与 FnOS；历史 RunHistory 旧路径仍保留并计划在 T46 后续按替代门槛清理。
 - T43～T45 批量脚本同原画面并行运行尚待开发。详见 [P13计划](plan/plan-13-inline-single-trial.md)、[任务总表](task/final-v3-task-index.md)、[测试记录](task/test-report.md)。
+## 2026-10-28 · P14 / T43～T45 批量完整流程
+- 新批量执行从**工作台手机卡片脚本浮窗**发起，只采用当前勾选设备，同一个 runId/请求 UUID；A/B/C 各自保持原 PhoneCard 主视频及 sessionId，独立准备、并行执行，不为批量任务建副播放器。
+- 可从主浮窗查看每机队列、当前步骤、运行/失败/未知、原媒体中断、执行请求与 runId；支持整批停止与单机停止（Rust 新路由复用 Executor 设备级 withdraw），不会把“已请求停止”当作“清理完成”。
+- 新 SQLite 兼容迁移保存并发 >3 的实际值，不覆盖历史运行表。单次任务可选设备数目前仍受后端 20 台限制；旧 ScriptLibrary 分屏保留到 T46 替代验证后删。
+- **仅代码提交，未进行 CI、浏览器或 FnOS/Android 验收**。查看 [P14任务](plan/plan-14-batch-workflow.md)、[FINAL进度索引](task/final-v3-task-index.md)、[详细测试记录](task/test-report.md)。
