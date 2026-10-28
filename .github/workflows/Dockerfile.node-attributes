@@ -2,7 +2,7 @@
 # The generic release Dockerfile continues to support self-contained binaries.
 FROM alpine:latest
 
-RUN apk add --no-cache tzdata tini
+RUN apk add --no-cache tzdata tini git ca-certificates
 WORKDIR /app
 
 COPY --chmod=755 bin/easytier-core bin/easytier-cli bin/easytier-web bin/easytier-web-embed /usr/local/bin/
