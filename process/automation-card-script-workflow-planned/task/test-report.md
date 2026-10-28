@@ -423,3 +423,9 @@
 - Rust 原视频许可流基于 `create_session/update_session/begin_session_permission/confirm_session_permission/create_run` 真实事务回归：仅完成 `view_only` 确认才能启动脚本；脚本 `dispatch_pending` 不允许撤销 Viewer 限制或再创同手机视频 Session。
 - 结合先前提交的 Executor `test_view_only_lease_t49.py` 六条场景，统一生成 [未执行测试矩阵](task-49-test-matrix.md)：Rust RS01–RS12 + Executor EX01–EX06（预期与实际分栏，当前全部未执行）。
 - **执行情况：未执行。** 原因：仓库 `AGENTS.md` 的持续调试模式；未运行 Rust/SQLx 编译检查、单测、Python unittest、CI 手工触发、浏览器/FnOS/Android 及双浏览器联调。已提交并不保证编译/测试通过；执行后再更新本报告证据。
+
+## 2026-10-28 · T50 真实验收准备（未执行）
+
+- 创建 `task/task-50-acceptance-matrix.md`，覆盖产品 FINAL V3 FF-01～FF-18 + 原 AC-01～AC-12（30 条）及 FnOS + 2 OEM + 2 浏览器的环境字段、媒体/任务标识与脱敏录像位置。
+- 明确真实验收的阶段顺序：只读 UI/浮窗与原视频 → 草稿和正式脚本 CAS → 有授权手机的低风险单步/并行执行 → 断网/双浏览器/执行器重启/未知结果故障 → T51 证据归档与判定。发生目标指纹漂移、权限或清理未知时立即中止新动作，不重放。
+- **执行情况：未执行。** 未连接 FnOS、未向 Android 发送 ADB 或 UIA 指令，未启动浏览器控制、真机录屏或部署；也未执行上一批 Rust/Python/前端测试、lint、编译、CI 手动触发。
