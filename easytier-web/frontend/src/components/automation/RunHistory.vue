@@ -10,7 +10,7 @@ import { getApiBase } from '../../modules/api-host';
 import type { AutomationRun, AutomationRunInput, AutomationRunDevice, AutomationStep, BusinessVerificationStatus } from '../../types/automation';
 
 const props = defineProps<{ ownerId: number; focusRunId?: string }>();
-const emit = defineEmits<{ 'repair-step': [request: AutomationRepairRequest]; 'repair-card': [request: AutomationRepairRequest] }>();
+const emit = defineEmits<{ 'repair-card': [request: AutomationRepairRequest] }>();
 const api = new AutomationApi();
 const { locale } = useI18n();
 const cn = computed(() => locale.value === 'cn' || locale.value.startsWith('zh'));
@@ -391,15 +391,16 @@ function branchLabel(value: 'then' | 'else' | 'skip'): string {
     };
     return labels[value];
 }
-function repairStep(device: AutomationRunDevice, step: AutomationRunDevice['steps'][number], destination: 'scripts'|'card' = 'scripts') {
+function repairStep(device: AutomationRunDevice, step: AutomationRunDevice['steps'][number]) {
     if (!selected.value || busy.value) return;
     const request=createAutomationRepairRequest(selected.value,device,step,props.ownerId,uuid());
     if (!request) {
         error.value=text('找不到原始失败步骤或其历史快照，无法安全定位编辑。', 'The historical failed step or snapshot is missing.');
         return;
     }
-    if (destination === 'card') emit('repair-card',request);
-    else emit('repair-step',request);
+    // T46: one repair entry, routed to the original phone card and its
+    // unique shared draft. The old independent script-tab editor is retired.
+    emit('repair-card',request);
 }
 function diagnosticTarget(device: AutomationRunDevice): string {
     const target=device.diagnostic_target;
@@ -570,12 +571,9 @@ onBeforeUnmount(() => { disposed = true; scopeRevision++; requestSequence++; sto
                                     <span v-if="step.state === 'outcome_unknown'" class="device-error">{{ text('动作结果未知。先人工核对手机现状，修复不会自动重试或继续执行。',
                                         'Action outcome is unknown. Check the phone before editing; no automatic replay occurs.') }}</span>
                                     <div class="failure-diagnostics-actions">
-                                        <Button icon="pi pi-pencil" size="small" outlined
-                                            :label="text('定位并修复此步骤', 'Locate and repair step')" :disabled="busy"
-                                            @click="repairStep(device, step)" />
                                         <Button icon="pi pi-mobile" size="small" outlined
-                                            :label="text('回手机卡片修复', 'Repair on phone card')" :disabled="busy"
-                                            @click="repairStep(device,step,'card')" />
+                                            :label="text('回原手机卡片定位并修复', 'Locate and repair on original phone card')" :disabled="busy"
+                                            @click="repairStep(device,step)" />
                                     </div>
                                     <small>{{ text('历史记录只读；截图仅在该运行原本保存了证据时可查看。',
                                         'History remains read-only; screenshots are available only if originally captured.') }}</small>
