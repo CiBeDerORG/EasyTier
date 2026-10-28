@@ -445,3 +445,10 @@
 - 已提交修复 `a82439f`、`9120b25`：只对**测试自身 in-memory 虚拟手机**最新端点事件显式写入 `confirmed`，并断言恰好一行被确认；真实生产目标检查、运行锁和 Executor 不变。新提交依 GitHub push 自动触发 CI；此时**尚无新的最终 PASS**，须后续据最新 SHA 的 jobs 和日志更新。
 - 独立 Executor 自动 CI [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092)（提交 `59bce21e`）实际执行 Python **95/95**，包含 T49 六项观看/写锁模拟测试，成功推送 `ghcr.io/cibederorg/easytier-automation-executor:feat-automation-center`，镜像摘要 `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`；这是该提交对应的独立执行器版本，不代表后续主镜像已经通过。
 - **未进行** FnOS、ADB、UiAutomator2、Android 真机、双浏览器真实生产会话或部署操作。T50 仍排除在本轮范围，T51 的正式发布签收不因模拟测试成功而提前通过。
+
+## 2026-10-28 · 修复版 GHCR 自动 CI 非真机回归全部通过（主镜像打包状态独立核实）
+
+- 分支提交 `9120b252fa265fefad3507953145068738f3efa2` 对应 [GitHub Actions #40622528076](https://github.com/CiBeDerORG/EasyTier/actions/runs/40622528076)：`build_web` **成功**；Node 单测 157/157、Chromium 生产浮窗模拟测试 3/3（测试环境无真实手机/媒体）；`test_native` **成功**，日志原文 `test result: ok. 50 passed; 0 failed`，包括 `db::automation::tests::t49_*` 12/12。
+- 前一次 Rust 5 项失败归因于测试虚拟 ADB 端点缺已确认清理回执，修复后 RS08～RS12 全部 `ok`。正式设备依旧拒绝 `target_cleanup_pending`，不存在通过放宽生产资源隔离让测试变绿的行为。
+- Python Executor [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092) 为成功的独立测试/发版证据，95/95（T49 六项 6/6），digest `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`。
+- 主镜像 native 构建、容器打包/冒烟与 GHCR 发布仍须以该次工作流后续 job 明确通过及 digest 为准；本段不提前宣称镜像已发布。T50 真实设备及真实双浏览器测试未执行。
