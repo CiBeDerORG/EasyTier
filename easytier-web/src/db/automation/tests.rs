@@ -400,14 +400,14 @@ async fn review_create_uuid_replay_returns_same_formal_script_and_refuses_differ
     let f=Fixture::new().await;
     let request=Uuid::new_v4().to_string();
     let step=valid_step();
-    let body=json!({"request_id":request,"name":"only once",
+    let body=json!({"request_id":request.clone(),"name":"only once",
         "description":"create idempotency regression","steps":[step]});
     let created=f.store.save_script(f.owner,None,&body).await.unwrap();
     let replay=f.store.save_script(f.owner,None,&body).await.unwrap();
     assert_eq!(created,replay,"same UUID and payload must return same durable response");
     assert_eq!(f.store.list_scripts(f.owner).await.unwrap()["items"].as_array().unwrap().len(),1);
 
-    let different=json!({"request_id":request,"name":"should be refused",
+    let different=json!({"request_id":request.clone(),"name":"should be refused",
         "description":"create idempotency regression","steps":body["steps"]});
     let conflict=f.store.save_script(f.owner,None,&different).await.unwrap_err();
     assert_eq!(conflict.status,409);
