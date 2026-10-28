@@ -16,7 +16,7 @@ const props=defineProps<{
 const emit=defineEmits<{
     start:[parameters:Record<string,string>,concurrency:number];
     startLocal:[parameters:Record<string,string>];
-    refresh:[]; stop:[]; reconcile:[]; stopDevice:[deviceId:string]; restoreManual:[deviceId:string];
+    refresh:[]; stop:[]; reconcile:[]; stopDevice:[deviceId:string];
 }>();
 const concurrency=ref(3);
 const values=reactive<Record<string,string>>({});
@@ -119,11 +119,7 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
                 <small v-else-if="device.mediaState==='live'">视频：原画面正常</small>
                 <small v-if="device.stepId">当前步骤：{{ device.stepId }}</small>
                 <small v-if="device.runState && !terminal(device.runState)">尚未确认完成或清理</small>
-                <Button v-if="state.phase==='failed' && !state.run && device.sessionId &&
-                    device.phase!=='manual_restored' && device.phase!=='restoring_manual'"
-                    label="安全恢复手控" size="small" outlined icon="pi pi-lock-open"
-                    @click="emit('restoreManual',device.id)" />
-                <Button v-if="state.run && state.phase==='running' && device.runState &&
+                        <Button v-if="state.run && state.phase==='running' && device.runState &&
                     ['dispatch_pending','queued','accepted','starting','running'].includes(device.runState) &&
                     device.phase!=='cancel_requested'"
                     label="停止此手机" icon="pi pi-stop" severity="danger" outlined size="small"
