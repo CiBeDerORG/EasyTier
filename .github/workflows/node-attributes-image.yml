@@ -62,6 +62,12 @@ jobs:
         if: github.ref == 'refs/heads/feat/automation-center'
         run: pnpm --dir easytier-web/frontend test:unit
 
+      - name: Chromium floating window regression (no Android or ADB)
+        if: github.ref == 'refs/heads/feat/automation-center'
+        run: |
+          pnpm --dir easytier-web/frontend exec playwright install --with-deps chromium
+          pnpm --dir easytier-web/frontend test:automation-floating-browser
+
       - name: Check frontend inputs
         run: |
           test -s easytier-web/frontend/dist/index.html
