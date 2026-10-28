@@ -409,3 +409,10 @@
 - 结合用例审阅，`automation-batch-receipt.ts` 原只对 UUID 检查 36 位字符长度；现改为标准 UUID 形式、有效时间戳、1～20 个非空且不重复的设备 ID、有效 owner，并在 `setItem` 前验证，坏凭据不会写入浏览器存储。新增测试覆盖重复 ID、空 ID、超过 20 台、错误 UUID/日期。
 - 已修改 `frontend/package.json` 的既有 `test:unit` 脚本，加入上述测试文件。未修改 CI Workflow、Runner、构建/部署配置。
 - **未执行** 新增或历史测试、Vue/TypeScript、lint、Rust、构建、CI 手动触发、FnOS/Android 实机/双浏览器验证。不能报告任何测试通过数；用例覆盖只限纯前端安全模块，不能替代真实全屏/浮窗拖拽/播放器和设备租约联调。
+
+## 2026-10-28 · T48 第二批 / T49 首批（调试模式）
+
+- 前端新增三个真实纯函数/组合式函数回归文件：`automation-floating-dialog-order-t48.test.mjs`、`automation-formal-script-receipt-t48.test.mjs`、`automation-floating-scope-t48.test.mjs`；均已接入现有 `test:unit` 清单。
+- 与断言同步将正式脚本写入凭据抽到无 UI 依赖的新纯模块 `automation-formal-script-receipt.ts`，兼容旧 sessionStorage 键名；加强格式校验、最小字段 allowlist、损坏凭据拒绝重复动作；`automation-script-workspace.ts` 统一调用并捕获无法读取的旧凭据，不把失效存储当作可重新提交的授权。
+- 后端新增 `automation-executor/tests/test_view_only_lease_t49.py`，真实 Runtime/Journal + 模拟 MediaManager，覆盖 view_only 的锁释放、脚本与观看并存、resume_manual 受脚本写锁拦截、cleanup_pending 不误成功、只读观看关闭不释放脚本写锁、错误 executor ID 拒绝。无需 Android 实机即可在授权后单独回归。
+- **未执行** node --test、python unittest、Rust tests、Vue/TypeScript 编译、lint、GitHub Actions 手动触发、浏览器/Android/FnOS 或双浏览器联调。本条不包含通过数量、镜像发布证据。剩余 T48：真实 UI Esc/dirty/fullscreen/拖拽与脚本 CAS 409；剩余 T49：Rust 数据库 owner/revision/零步运行/幂等回归；T50～T51 仍待真实验收。
