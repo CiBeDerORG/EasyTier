@@ -72,10 +72,11 @@ impl Fixture {
         // cleanup reply for this specific virtual phone before admitting it.
         // Do not relax the production target_cleanup_pending guard.
         let cleanup=sqlx::query(
-            "UPDATE discovery_endpoint_events SET cleanup_json='{\\"state\\":\\"confirmed\\"}' \
-             WHERE owner_user_id=? AND device_id=? AND seq=( \
-               SELECT MAX(seq) FROM discovery_endpoint_events \
-               WHERE owner_user_id=? AND device_id=?)"
+            r#"UPDATE discovery_endpoint_events
+               SET cleanup_json='{"state":"confirmed"}'
+               WHERE owner_user_id=? AND device_id=?
+                 AND seq=(SELECT MAX(seq) FROM discovery_endpoint_events
+                          WHERE owner_user_id=? AND device_id=?)"#
         ).bind(self.owner).bind(&id).bind(self.owner).bind(&id)
         .execute(&self.db.inner()).await.unwrap();
         assert_eq!(cleanup.rows_affected(),1,
