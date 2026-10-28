@@ -1155,7 +1155,21 @@ async function openScriptInspector(stepId: string, stepType: AutomationStepType,
     if (tab.value!=='workbench' || ownerId.value!==owner ||
         draftWorkspace.editingId!==scriptId || draftWorkspace.revision!==revision ||
         !draftWorkspace.steps.some(item=>item.id===stepId && item.type===stepType)) return;
+    // Legacy script-step navigation must first make its original PhoneCard
+    // visible; otherwise cards.get(id) is null when a workbench filter hid it.
+    if(!visibleIds.value.has(deviceId)){
+        filters.value={node:'',group:'',type:'',keyword:''};
+        applied.value={...filters.value};
+    }
     await nextTick();
+    const latest=devices.value.find(item=>item.id===deviceId);
+    if(disposed || ownerId.value!==owner ||
+        !latest || latest.owner_user_id!==owner ||
+        latest.target_fingerprint!==device.target_fingerprint ||
+        !latest.connection.enabled || tab.value!=='workbench'){
+        error.value='脚本旧控件定位在切页时设备授权或目标指纹已变化，已取消。';
+        return;
+    }
     const card=cards.get(deviceId);
     if(!card?.getState().ready || !card.getStream()) {
         notice.value='已返回自动化中心：请打开目标手机卡片的原实时画面，再编辑步骤并重新拾取。';
