@@ -34,6 +34,7 @@ mod m20261028_000040_agent_host_snapshots;
 mod m20261028_000041_agent_adoption_intents;
 mod m20261028_000042_agent_docker_snapshots;
 mod m20261028_000043_agent_docker_absences;
+mod m20261028_000044_deploy_catalog;
 
 #[cfg(test)]
 mod merge_upgrade_tests;
@@ -77,6 +78,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261028_000041_agent_adoption_intents::Migration),
             Box::new(m20261028_000042_agent_docker_snapshots::Migration),
             Box::new(m20261028_000043_agent_docker_absences::Migration),
+            Box::new(m20261028_000044_deploy_catalog::Migration),
         ]
     }
 }
