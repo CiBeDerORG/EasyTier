@@ -216,6 +216,7 @@ test('T54 real PhoneCard shows manual permission separately from stopping a touc
   const page=await setup(t,realCardFixture);
   const card=page.locator('.phone-card');
   await page.locator('#open-panel').click();
+  await card.locator('.main-orb').click(); // Floating buttons only exist when expanded.
   // No live media/API in the browser fixture, so the permission control
   // must remain disabled instead of pretending to have manual authority.
   const permission=card.getByRole('button',{name:/手控不可用/});
