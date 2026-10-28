@@ -267,6 +267,15 @@ function refreshScriptList(deviceId:string) {
 function handleFloatingScriptAction(action:AutomationScriptAction) {
     void scriptWorkspace.perform(action);
 }
+function publishFloatingScript(deviceId:string,name:string,description:string){
+    void scriptWorkspace.publish(deviceId,name,description);
+}
+function removeFloatingScript(deviceId:string,scriptId:string,revision:number){
+    void scriptWorkspace.remove(deviceId,scriptId,revision);
+}
+function reconcileFloatingScript(){
+    void scriptWorkspace.reconcileFormal();
+}
 // No second draft or mutation: this is only ephemeral per-card presentation.
 interface CardDemoState {
     token: number; stepId: string; loading: boolean;
@@ -1804,6 +1813,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         :scripts="scriptWorkspace.state.items" :scripts-busy="scriptWorkspace.state.busy"
                         :scripts-loading="scriptWorkspace.state.loading" :scripts-error="scriptWorkspace.state.error"
                         :script-guard="scriptWorkspace.guard.value"
+                        :formal-pending="!!scriptWorkspace.state.formalPending"
                         :selected-device-count="selectedIds.length"
                         :batch-run-state="floatingBatch.state" :batch-draft-ready="batchDraftReady"
                         :undo-delete-label="deletedStepUndoLabel" :editing-dirty="cardEditorDirty"
@@ -1823,6 +1833,8 @@ onBeforeUnmount(() => { stopEvents?.();
                         @inspector-close="closeInspector" @inspector-add-step="addInspectorStep"
                         @inspector-replace-target="replaceInspectorTarget" @inspector-edit="editInspectorDraft"
                         @script-refresh="refreshScriptList" @script-action="handleFloatingScriptAction"
+                        @script-publish="publishFloatingScript" @script-remove="removeFloatingScript"
+                        @script-reconcile="reconcileFloatingScript"
                         @batch-start="runSelectedBatch" @batch-refresh="refreshBatch"
                         @batch-stop="stopBatch" @batch-stop-device="stopBatchDevice"
                         @batch-reconcile="reconcileBatch"
