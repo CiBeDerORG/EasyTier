@@ -60,7 +60,10 @@ async function query() {
         result.value = response;
         softwareRoot.value = response.snapshot?.software_root ?? '';
     } catch (err) {
-        if (alive && current === seq) error.value = describe(err);
+        if (alive && current === seq) {
+            error.value = describe(err);
+            result.value = { live_status: 'offline', fresh: false, snapshot: result.value?.snapshot ?? null };
+        }
     } finally {
         if (alive && current === seq) busy.value = false;
     }
