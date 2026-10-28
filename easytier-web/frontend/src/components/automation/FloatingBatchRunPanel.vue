@@ -23,6 +23,13 @@ const unresolved=computed(()=>!!props.state.pendingReceipt || props.state.phase=
 const allowed=computed(()=>props.runnerAvailable && props.draftReady && props.stepsCount>0 &&
     props.selectedCount>0 && props.selectedCount<=20 && !active.value && !unresolved.value);
 const rows=computed(()=>props.state.selected.map(id=>({id,...props.state.devices[id]})));
+const runOutcome=computed(()=>props.state.phase==='completed' ? (props.state.run?.state ?? 'outcome_unknown') : props.state.phase);
+const outcomeSeverity=computed(() => {
+    if(runOutcome.value==='completed'||runOutcome.value==='succeeded')return 'success';
+    if(runOutcome.value==='failed')return 'danger';
+    if(runOutcome.value==='partial_failed'||runOutcome.value==='outcome_unknown'||runOutcome.value==='unknown')return 'warn';
+    return 'secondary';
+});
 function start(){
     if(!allowed.value)return;
     const params:Record<string,string>={};
