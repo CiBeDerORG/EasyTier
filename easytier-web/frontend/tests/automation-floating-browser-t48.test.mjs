@@ -320,7 +320,14 @@ test('T57 product acceptance: native step and insert menus stay inside current v
     'select menu must belong to browser fullscreen top layer');
   await page.keyboard.press('Escape');
   assert.equal(await editor.isVisible(),true,
-    'Escape should close the dropdown, not discard the step editor');
+    'Escape must preserve the step editor even if the browser exits native fullscreen');
+  // Browsers are permitted to exit native fullscreen on Escape regardless of
+  // application handlers. Re-enter through a user gesture before testing the
+  // fullscreen-only overlay again.
+  if(!await page.evaluate(()=>!!document.fullscreenElement)){
+    await page.locator('#fullscreen-card').click();
+    await page.waitForFunction(()=>document.fullscreenElement?.classList.contains('phone-screen'));
+  }
   await keySelect.click();
   overlay=page.locator('.phone-screen .automation-subwindow-host .p-select-overlay:visible').last();
   await overlay.waitFor();
