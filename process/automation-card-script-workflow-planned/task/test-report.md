@@ -468,3 +468,14 @@
 - **未手工执行**：Node、TypeScript、Playwright、Rust、Python、构建、GitHub Actions 工作流派发、FnOS、Android/ADB、WebRTC 实际画面、双浏览器抢占。原因：沿用用户调试模式；提交后仓库原有 push 自动流水线可能运行，但不以其开始或取消表示通过。
 - 最新源码自动 CI 状态需以对应 SHA 的最终结果单独确认；之前成功镜像仅覆盖旧源码，不把本轮标为通过。
 - 后续：新迁移的 SQLite 升级、旧客户端协议兼容、真实不同 OEM Android 操作及 T50/T51 签收仍需现场核验。
+
+## 2026-10-28 · 截图反馈：原卡片无法保存/发布与本机全流程被禁用
+
+- 用户现象：`华为mate30` 的原手机自动化脚本浮窗只看到“更新正式版本”，缺少可见“保存草稿”入口；顶部“工作草稿已同步·修订7”，批量区却提示仍有未保存编辑/同步冲突，无法在本机执行全流程。
+- 静态定位到**状态根因**：`automation-draft-sync.ts::flush()` 在 `state.phase='synced'` 时 `busy` Promise 尚未归零；依赖 `draftSync.canLeave()` 的 `scriptWorkspace.guard` 可能缓存 `unsynced`。原 `busy` 为普通 `let`，归零不触发 Vue computed 更新。改为增加响应式 `writeInFlight`、在异步完成释放时触发守卫重算，确保同步完成后能发布/执行。
+- 原 `PhoneCard` 的脚本区显式增加“保存草稿”“发布/保存正式版本”，版本冲突时可“另存新草稿”；正式发布确认浮窗也加“① 保存工作草稿”“② 保存为正式版本”，只允许已经服务端确认的草稿发布，不允许未保存步骤被忽略。
+- 同一个 `FloatingBatchRunPanel` 增加“▶ 本机运行全流程”和“运行已选 N 台”，由 `AutomationCenter` 将当前卡片设备 ID 冻结为唯一目标（并发 1）；继续复用现有 `freezeFloatingBatchIntent` / `useFloatingBatchRun`、正式 `POST /runs`、原 `PhoneCard` 视频，只读移交和服务端独占校验不降级。
+- 添加保存失败/编辑未完成/草稿版本冲突/执行器不可用时的具体指引，在浮窗内可见，不再只使用泛化错误。
+- 浏览器新增 T53 预期回归：真实 `PhoneCard.vue` 上保存草稿/打开正式发布/零勾选下本机运行入口；无 ADB 的假服务端草稿异步确认后，响应式运行/发布门禁从 false 变 true。
+- **未手工执行**：TypeScript、Node、Playwright、Rust、Python、构建/CI、FnOS/Android/ADB、真实视频和手机动作；遵循既有调试模式。分支 push 的自动 GHCR 构建需单独按最终代码 SHA 复核，不把已排队/已开始/旧提交通过等同本轮通过。
+- **部署/真机仍待验收**：自动 CI 完成且部署最新 amd64 镜像后，检查原手机视频、ADB 和 UiAutomator2 状态，逐项执行“步骤保存→服务器草稿同步→正式发布→本机 1 台完整脚本→查看步骤和运行记录”，不得自动重放未知手机动作。
