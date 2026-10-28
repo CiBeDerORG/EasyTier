@@ -112,6 +112,11 @@ export default class AutomationApi {
     listScripts(ownerId: number) { return this.request<{ items: AutomationScript[] }>('/scripts', ownerId); }
     saveScript(ownerId: number, body: AutomationScriptInput, id?: string) { return this.request<AutomationScript>(id ? `/scripts/${encodeURIComponent(id)}` : '/scripts', ownerId, id ? 'PUT' : 'POST', body); }
     deleteScript(ownerId: number, id: string) { return this.request<{ deleted: boolean }>(`/scripts/${encodeURIComponent(id)}`, ownerId, 'DELETE'); }
+    /** Revision-CAS deletion. Use for every first-party script editor. */
+    deleteScriptVersioned(ownerId: number, id: string, revision: number) {
+        return this.request<{ deleted: boolean; id: string; revision: number }>(
+            `/scripts/${encodeURIComponent(id)}/safe-delete`,ownerId,'POST',{revision});
+    }
     createRun(ownerId: number, body: AutomationRunInput) { return this.request<AutomationRun>('/runs', ownerId, 'POST', body); }
     listRuns(ownerId: number) { return this.request<{ items: AutomationRun[] }>('/runs', ownerId); }
     getRun(ownerId: number, id: string) { return this.request<AutomationRun>(`/runs/${encodeURIComponent(id)}`, ownerId); }
