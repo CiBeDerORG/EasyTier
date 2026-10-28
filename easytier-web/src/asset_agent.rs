@@ -339,8 +339,8 @@ impl Manager {
         let endpoint: String = row.try_get("endpoint").map_err(|_|Error::Storage)?;
         let cipher: String = row.try_get("token_cipher").map_err(|_|Error::Storage)?;
         let pin = Fingerprint::parse(&spki).map_err(|_|Error::Storage)?;
-        let token = self.credentials.open(&format!("asset-agent:{owner}:{device_id}"),&cipher)
-            .map_err(|_|Error::Storage)?;
+        let token = String::from_utf8(self.credentials.open(&format!("asset-agent:{owner}:{device_id}"),&cipher)
+            .map_err(|_|Error::Storage)?).map_err(|_|Error::Storage)?;
         let controller = self.controller_id().await?;
         let client = pinned_client(&pin).map_err(|_|Error::Remote)?;
         let url = if update_root.is_some() {
