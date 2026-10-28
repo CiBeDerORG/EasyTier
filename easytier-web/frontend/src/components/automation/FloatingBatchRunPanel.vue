@@ -6,6 +6,7 @@ import type { FloatingBatchState } from '../../modules/useFloatingBatchRun';
 const props=defineProps<{
     ownerId:number;
     selectedCount:number;
+    localName?:string;localAvailable?:boolean;blockReason?:string;
     stepsCount:number;
     parameterNames:string[];
     runnerAvailable:boolean;
@@ -14,14 +15,18 @@ const props=defineProps<{
 }>();
 const emit=defineEmits<{
     start:[parameters:Record<string,string>,concurrency:number];
+    startLocal:[parameters:Record<string,string>];
     refresh:[]; stop:[]; reconcile:[]; stopDevice:[deviceId:string]; restoreManual:[deviceId:string];
 }>();
 const concurrency=ref(3);
 const values=reactive<Record<string,string>>({});
 const active=computed(()=>['preparing','submitting','running','cancel_requested'].includes(props.state.phase));
 const unresolved=computed(()=>!!props.state.pendingReceipt || props.state.phase==='unknown');
-const allowed=computed(()=>props.runnerAvailable && props.draftReady && props.stepsCount>0 &&
-    props.selectedCount>0 && props.selectedCount<=20 && !active.value && !unresolved.value);
+const canRun=computed(()=>props.runnerAvailable && props.draftReady && props.stepsCount>0 &&
+    !active.value && !unresolved.value);
+const allowed=computed(()=>canRun.value && props.selectedCount>0 && props.selectedCount<=20);
+const localAllowed=computed(()=>canRun.value && !!props.localAvailable);
+const missingParameters=computed(()=>props.parameterNames.some(name=>!values[name]));
 const rows=computed(()=>props.state.selected.map(id=>({id,...props.state.devices[id]})));
 const runOutcome=computed(()=>props.state.phase==='completed' ? (props.state.run?.state ?? 'outcome_unknown') : props.state.phase);
 const outcomeSeverity=computed(() => {
@@ -30,12 +35,20 @@ const outcomeSeverity=computed(() => {
     if(runOutcome.value==='partial_failed'||runOutcome.value==='outcome_unknown'||runOutcome.value==='unknown')return 'warn';
     return 'secondary';
 });
-function start(){
-    if(!allowed.value)return;
+function collectParameters():Record<string,string>{
     const params:Record<string,string>={};
     for(const name of props.parameterNames)params[name]=values[name]??'';
-    emit('start',params,Math.max(1,Math.floor(Number(concurrency.value)||1)));
-    // Secret parameters stay only in the input until the parent freezes them.
+    return params;
+}
+function start(){
+    if(!allowed.value || missingParameters.value)return;
+    emit('start',collectParameters(),Math.max(1,Math.floor(Number(concurrency.value)||1)));
+}
+function startLocal(){
+    if(!localAllowed.value || missingParameters.value)return;
+    // Reuses the exact same /runs UUID+CAS submission and original PhoneCard
+    // observer as a 1-target batch. Never creates another video or executor.
+    emit('startLocal',collectParameters());
 }
 watch(()=>props.ownerId,()=>{for(const key of Object.keys(values))delete values[key];});
 onBeforeUnmount(()=>{for(const key of Object.keys(values))delete values[key];});
@@ -63,14 +76,16 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
             <strong>运行全流程</strong>
             <Tag :value="label(runOutcome)" :severity="outcomeSeverity" />
         </div>
-        <small>只向工作台勾选的 {{ selectedCount }} 台手机提交。每机继续观看各自卡片原实时画面；无第二条投屏。</small>
+        <small>“本机运行”仅执行当前 {{ localName || '手机' }}；“运行已选”只执行工作台勾选的 {{ selectedCount }} 台。两者均使用原卡片实时视频，不创建第二条投屏。</small>
         <div class="batch-actions">
             <label>并行数
                 <input v-model.number="concurrency" type="number" min="1" step="1"
                     :disabled="active" aria-label="任务并发设备数" />
             </label>
-            <Button label="▶ 运行所选完整脚本" size="small" icon="pi pi-play"
-                :disabled="!allowed || parameterNames.some(name=>!values[name])" @click="start" />
+            <Button label="▶ 本机运行全流程" size="small" icon="pi pi-play"
+                :disabled="!localAllowed || missingParameters" @click="startLocal" />
+            <Button :label="'运行已选 '+selectedCount+' 台'" size="small" icon="pi pi-list"
+                outlined :disabled="!allowed || missingParameters" @click="start" />
         </div>
         <div v-if="parameterNames.length" class="batch-parameters">
             <label v-for="name in parameterNames" :key="name">本次运行参数 · {{ name }}
@@ -82,7 +97,10 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
             当前后端一次最多 20 台。请缩小选中范围；不会自动拆成多次执行。
         </Message>
         <Message v-if="!draftReady && stepsCount>0" severity="warn" :closable="false">
-            工作草稿仍有未保存编辑或同步冲突，先完成保存再执行当前不可变快照。
+            {{ blockReason || '请先保存已确认的步骤与工作草稿，等待服务器确认后再运行。' }}
+        </Message>
+        <Message v-if="draftReady && !runnerAvailable" severity="warn" :closable="false">
+            执行器未配置或不可用，请先到自动化中心设置页检查执行器。
         </Message>
         <Message v-if="state.error" severity="warn" :closable="false">{{ state.error }}</Message>
         <div v-if="state.requestId" class="batch-receipt">
