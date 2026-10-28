@@ -223,6 +223,54 @@ fn fields(text: &str) -> Result<BTreeMap<String, String>, Error> {
     Ok(map)
 }
 
+// Parse only the flat, non-executable fields of two known manifest lists.
+// This deliberately is NOT an app.yaml execution validator. Unhandled YAML
+// constructs cannot grant installation rights.
+fn display_items(text: &str, section_name: &str, allowed: &[&str]) -> Result<Vec<Value>, Error> {
+    let mut active = false;
+    let mut current = BTreeMap::<String, String>::new();
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        if line.trim().is_empty() || line.trim_start().starts_with('#') { continue; }
+        let indent = line.len() - line.trim_start().len();
+        if indent == 0 {
+            if active && !current.is_empty() {
+                rows.push(json!(current));
+                current.clear();
+            }
+            active = line.trim() == format!("{section_name}:");
+            continue;
+        }
+        if !active { continue; }
+        if indent == 2 && line.trim_start().starts_with("- ") {
+            if !current.is_empty() {
+                rows.push(json!(current));
+                current.clear();
+            }
+            if rows.len() >= 120 { return Err(Error::Invalid("Too many manifest display fields")); }
+            let field = line.trim_start().trim_start_matches("- ");
+            let key = field.split(':').next().unwrap_or("").trim();
+            if allowed.contains(&key) {
+                if let Some(value) = scalar(field, key) {
+                    current.insert(key.to_owned(), value);
+                }
+            }
+        } else if indent == 4 && !current.is_empty() {
+            let field = line.trim();
+            let key = field.split(':').next().unwrap_or("").trim();
+            if allowed.contains(&key) {
+                if let Some(value) = scalar(field, key) {
+                    if current.insert(key.to_owned(), value).is_some() {
+                        return Err(Error::Invalid("Repeated manifest display field"));
+                    }
+                }
+            }
+        }
+    }
+    if active && !current.is_empty() { rows.push(json!(current)); }
+    Ok(rows)
+}
+
 fn safe_manifest(root: &Path, id: &str) -> Result<Option<PathBuf>, Error> {
     if !safe_id(id) { return Ok(None); }
     let dir = root.join(id);
@@ -279,6 +327,11 @@ fn scan_catalog(root: &Path, revision: &str) -> Result<Vec<CatalogApp>, Error> {
                 "compose_file":get("runtime.compose_file")?,
                 "platforms":values.get("compatibility.platforms").cloned(),
                 "architectures":values.get("compatibility.architectures").cloned(),
+                "config":display_items(content, "config",
+                    &["key","label","type","target","required"])?,
+                "ports":display_items(content, "ports",
+                    &["id","label","protocol","purpose","host_port_key",
+                      "container_port","service"])?,
                 "install_available":false,
                 "management_rights":false,
                 "validation":"display_only_requires_T03_07"
