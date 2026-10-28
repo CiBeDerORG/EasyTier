@@ -356,6 +356,45 @@ impl AutomationStore {
         let result=read_run(&mut tx,owner,id).await?;tx.commit().await?;Ok(result)
     }
 
+    /// T44: fence exactly one run/device; never stop a different phone.
+    /// Persist withdraw before asking the Executor to interrupt. A timeout
+    /// leaves the durable fence in place and cannot imply cleanup succeeded.
+    pub(crate) async fn cancel_run_device(
+        &self, owner:i32, run_id:&str, device_id:&str,
+    )->AutomationResult<(Value,Option<Value>)> {
+        let mut tx=self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let current=read_run(&mut tx,owner,run_id).await?;
+        let row=sqlx::query("SELECT state,cleanup_confirmed,withdraw_requested,withdraw_event_id,target_fingerprint FROM automation_run_devices WHERE run_id=? AND device_id=?")
+            .bind(run_id).bind(device_id).fetch_optional(&mut *tx).await?.ok_or_else(not_found)?;
+        let state:String=row.try_get("state")?;
+        let clean:bool=row.try_get("cleanup_confirmed")?;
+        if clean || (terminal(&state) && !matches!(state.as_str(),"outcome_unknown"|"cleanup_pending")){
+            tx.commit().await?;return Ok((current,None));
+        }
+        let already:bool=row.try_get("withdraw_requested")?;
+        let prior:Option<String>=row.try_get("withdraw_event_id")?;
+        let event=prior.unwrap_or_else(||Uuid::new_v4().to_string());
+        let executor=current["executor_id"].as_str().map(str::to_owned);
+        let finger:String=row.try_get("target_fingerprint")?;
+        if !already {
+            let next=if executor.is_none(){"cancelled"}else{"cancel_requested"};
+            sqlx::query("UPDATE automation_run_devices SET withdraw_requested=1,withdraw_event_id=?,state=?,cleanup_confirmed=?,updated_at=? WHERE run_id=? AND device_id=? AND withdraw_requested=0")
+                .bind(&event).bind(next).bind(executor.is_none()).bind(now())
+                .bind(run_id).bind(device_id).execute(&mut *tx).await?;
+            let states:Vec<String>=sqlx::query_scalar("SELECT state FROM automation_run_devices WHERE run_id=?")
+                .bind(run_id).fetch_all(&mut *tx).await?;
+            sqlx::query("UPDATE automation_runs SET state=?,updated_at=? WHERE id=?")
+                .bind(aggregate(&states)).bind(now()).bind(run_id).execute(&mut *tx).await?;
+        }
+        let pending=read_run(&mut tx,owner,run_id).await?;
+        tx.commit().await?;
+        let grant=executor.map(|executor_id|json!({
+            "run_id":run_id,"device_id":device_id,"event_id":event,
+            "old_target_fingerprint":finger,"executor_id":executor_id,
+        }));
+        Ok((pending,grant))
+    }
+
     pub(crate) async fn authorize_run_step(&self,id:&str,device_id:&str,expected:&str,executor_id:&str)->AutomationResult<bool> {
         let row=sqlx::query("SELECT r.owner_user_id,r.actor_user_id,r.cancel_requested,r.runner_identity,d.target_fingerprint,d.state,d.withdraw_requested FROM automation_runs r JOIN automation_run_devices d ON d.run_id=r.id WHERE r.id=? AND d.device_id=?")
             .bind(id).bind(device_id).fetch_optional(&self.pool).await?;
