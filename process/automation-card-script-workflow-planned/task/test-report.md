@@ -429,3 +429,11 @@
 - 创建 `task/task-50-acceptance-matrix.md`，覆盖产品 FINAL V3 FF-01～FF-18 + 原 AC-01～AC-12（30 条）及 FnOS + 2 OEM + 2 浏览器的环境字段、媒体/任务标识与脱敏录像位置。
 - 明确真实验收的阶段顺序：只读 UI/浮窗与原视频 → 草稿和正式脚本 CAS → 有授权手机的低风险单步/并行执行 → 断网/双浏览器/执行器重启/未知结果故障 → T51 证据归档与判定。发生目标指纹漂移、权限或清理未知时立即中止新动作，不重放。
 - **执行情况：未执行。** 未连接 FnOS、未向 Android 发送 ADB 或 UIA 指令，未启动浏览器控制、真机录屏或部署；也未执行上一批 Rust/Python/前端测试、lint、编译、CI 手动触发。
+## 2026-10-28 · 用户授权完成除真机外的收尾任务：T46～T49/T51
+
+- 真实旧版 CI 失败回溯：`GHCR #40616428698` 的 `build_web` 在 `CardStepTimeline.vue` 行 94/100/104 报 TS1005；`test_native` 在 `automation/tests.rs` 因缺少 Storage trait 报 E0599。已提交修复 `5028480`、`bbc6fe7`，不得称原工作流通过。
+- T46/T47：旧脚本编辑器页面退役为只读兼容目录，正式写入、条件步骤编辑、旧单步执行与历史回修由原 PhoneCard + 唯一 owner-level draft 承载；`openScriptInspector`、对应失效 props/emit 删除。仍被新编辑器/PhoneCard/T17 测试使用的 `ScriptStepEditor`、`UiInspectorDialog`、`automation-run-handoff` 不删除。
+- T48：新增 Node `automation-legacy-retirement-t48.test.mjs`、Chromium `automation-floating-browser-t48.test.mjs` 和真实生产浮窗组件 DOM 宿主测试夹具；CI 构建后执行无真机 Chromium。批量写入未知凭据改为明确字段白名单，新增含步骤、参数/密码等多余字段不得落盘的回归断言。
+- T49：Rust DB 12 项和 Executor 6 项原版本测试继续存在；新的编译/运行结果须以最新 SHA 的 CI/job logs 确认。
+- T50：**明确排除** FnOS/Android/双 OEM/实际媒体/双浏览器真机操作；未登录、未连接 ADB/UiA、未发送手机控制命令。T51 非真机报告追踪完成，但最终签收仍阻塞于 30 条实际验收。
+- **截至本段写入：最新自动验证结果待确认**。任何后续失败应定位最新 commit、失败任务和真实日志后修复，不能把测试文件数量/提交事实转写为 PASS。
