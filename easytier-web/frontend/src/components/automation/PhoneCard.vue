@@ -111,7 +111,7 @@ const emit = defineEmits<{
     'batch-start': [params: Record<string,string>, concurrency: number];
     'batch-start-local': [deviceId:string, params:Record<string,string>];
     'batch-refresh': []; 'batch-stop': []; 'batch-reconcile': [];
-    'batch-stop-device': [deviceId: string]; 'batch-restore-manual': [deviceId: string];
+    'batch-stop-device': [deviceId: string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -210,12 +210,10 @@ const anchorFraction = ref(0.5);
 const menuOpen = ref(false);
 /** T21/T22: per-card UI only; independent of orb menu, stream and running scripts. */
 const automationPanelOpen = ref(false);
-const consolePermissionPending=ref(false);
-const consolePermissionUncertain=ref(false);
-const consoleRestoreQueued=ref(false);
-let consolePermissionEpoch=0;
-let consoleExitSessionId:string|null=null;
-let consoleHandoff:Promise<void>|null=null;
+/** Permission selection is exclusive to the floating manual-mode button.
+ * Opening/closing/editing the script console has no permission side effects. */
+const manualPermissionPending=ref(false);
+const manualPermissionUncertain=ref(false);
 const cloneSourceId = ref<string | null>(null);
 const pendingScriptAction = ref<AutomationScriptAction | null>(null);
 /** Visual-only inspector overlay; never an independent video session. */
@@ -310,98 +308,19 @@ watch(()=>props.scriptsError,error=>{
 });
 
 const effectiveScriptGuard = computed<ScriptGuard>(() => props.scriptGuard ?? 'loading');
-function consoleMayResumeManual():boolean{
-    return session.state.phase==='live' && session.state.controlReady &&
-        session.state.viewerOnly && !props.device.run_occupied &&
-        !batchVideoProtected.value && trialStepId.value===null &&
-        !props.syncRole && !props.recording && !props.unlocking;
-}
-async function switchConsoleToReadOnly():Promise<void>{
-    if(session.state.phase!=='live' || !session.state.controlReady ||
-        session.state.viewerOnly || props.device.run_occupied ||
-        trialStepId.value!==null || consolePermissionPending.value)return;
-    const id=session.getSessionId(),owner=props.ownerId,device=props.device.id;
-    if(!id)return;
-    consolePermissionPending.value=true;
-    consolePermissionUncertain.value=false;
-    const task=session.enterViewOnly();
-    consoleHandoff=task;
-    try{
-        await task;
-        if(session.getSessionId()===id && props.ownerId===owner && props.device.id===device){
-            consolePermissionUncertain.value=false;
-            emit('refresh');
-        }
-    }catch(cause){
-        // A failed/unknown view-only response must NEVER re-enable manual
-        // commands. The backend SQLite+Executor permission fence owns truth.
-        if(session.getSessionId()===id && props.ownerId===owner && props.device.id===device){
-            consolePermissionUncertain.value=true;
-            session.state.error=cause instanceof Error?cause.message:'只读权限移交未确认';
-        }
-    }finally{
-        if(consoleHandoff===task)consoleHandoff=null;
-        consolePermissionPending.value=false;
-    }
-}
-async function restoreAfterConsoleClose(epoch:number,owner:number,device:string,id:string|null){
-    const handoff=consoleHandoff;
-    if(handoff)try{await handoff;}catch{ /* server validates any recovery */ }
-    if(epoch!==consolePermissionEpoch || automationPanelOpen.value ||
-        props.ownerId!==owner || props.device.id!==device ||
-        session.getSessionId()!==id){
-        if(epoch===consolePermissionEpoch)consoleRestoreQueued.value=false;
-        return;
-    }
-    if(session.state.phase!=='live' || !session.state.viewerOnly){
-        consoleRestoreQueued.value=false;return;
-    }
-    if(!consoleMayResumeManual())return;
-    consoleRestoreQueued.value=false;
-    await resumeManualControl();
-}
 function openAutomationPanel() {
-    ++consolePermissionEpoch;
-    consoleRestoreQueued.value=false;
-    consoleExitSessionId=null;
-    if(!automationPanelOpen.value){
-        automationPanelOpen.value=true;
-        void switchConsoleToReadOnly();
-    }
-    emit('script-refresh', props.device.id);
+    automationPanelOpen.value=true;
+    emit('script-refresh',props.device.id);
 }
 function closeAutomationPanel() {
-    if(!automationPanelOpen.value)return;
     automationPanelOpen.value=false;
-    const epoch=++consolePermissionEpoch;
-    consoleRestoreQueued.value=true;
-    // Only the exact original viewer may regain manual rights. If the
-    // stream reconnects or a new browser takes over, discard this exit.
-    consoleExitSessionId=session.getSessionId();
-    void restoreAfterConsoleClose(epoch,props.ownerId,props.device.id,consoleExitSessionId);
 }
 function toggleAutomationPanel() {
-    if(automationPanelOpen.value) closeAutomationPanel();
+    if(automationPanelOpen.value)closeAutomationPanel();
     else openAutomationPanel();
 }
-// If the primary video finishes connecting AFTER the panel is opened,
-// transfer the same session into view-only then; do not open another viewer.
-watch([
-    ()=>automationPanelOpen.value,()=>session.state.phase,
-    ()=>session.state.controlReady,()=>consolePermissionPending.value,
-],([open])=>{if(open)void switchConsoleToReadOnly();});
-// Never restore a viewer while a step trial, batch run or unknown cleanup
-// still holds phone action rights. A queued close gets one safe attempt when
-// the observed owner/runner occupancy becomes eligible for manual control.
-watch([
-    () => props.device.run_occupied,()=>props.batchRunState.phase,
-    () => trialStepId.value,()=>session.state.phase,
-    () => session.state.viewerOnly,()=>props.syncRole,
-    () => props.recording,()=>props.unlocking,
-],()=>{
-    if(consoleRestoreQueued.value && !automationPanelOpen.value)
-        void restoreAfterConsoleClose(consolePermissionEpoch,props.ownerId,props.device.id,consoleExitSessionId);
-});
+// Script viewing, fullscreen, editing and closing never change manual mode.
+// Only the floating manual icon calls the server permission API.
 function requestScriptAction(action:AutomationScriptAction) {
     if(props.scriptsBusy)return;
     if(effectiveScriptGuard.value !== 'clean') {
@@ -434,10 +353,7 @@ watch(() => props.draft.editingId, (next,previous) => {
     if(next && next!==previous) cloneSourceId.value=null;
 });
 watch(() => [props.ownerId, props.device.id], () => {
-    ++consolePermissionEpoch;
-    consoleRestoreQueued.value=false;
-    consoleExitSessionId=null;
-    consolePermissionUncertain.value=false;
+    manualPermissionUncertain.value=false;
     automationPanelOpen.value = false;
     cloneSourceId.value=null;
     manageScript.value=null;manageWaiting.value=false;
@@ -766,30 +682,45 @@ async function fullscreen() {
     else await screen.value?.requestFullscreen();
 }
 function localAction(message: AutomationControl) { if (manualAllowed.value) emit('action', props.device.id, message); }
-const resumingManual=ref(false);
+/**
+ * The floating icon is the ONLY initiator of manual/view-only transitions.
+ * Frontend state stays fail-closed while a permission RPC is in flight.
+ * A rejected or unknown transition is never optimistic success.
+ */
 const manualPermissionTitle=computed(()=>{
     if(session.state.phase!=='live')return '手控不可用 · 请先打开原手机实时画面';
-    if(consolePermissionPending.value)return '手控已关闭 · 正在向服务器确认只读权限';
-    if(consolePermissionUncertain.value)return '手控保持锁定 · 只读权限结果尚未确认，请查看提示并核对服务器';
-    if(resumingManual.value)return '正在向服务器申请恢复手控';
-    if(consoleRestoreQueued.value)return '自动化操作台已关闭 · 等待运行结束并确认清理后恢复手控';
-    if(session.state.viewerOnly)return '当前为只读观看 · 点击恢复手控（须先释放所有脚本动作权）';
-    return '当前为手动控制 · 点击切换为只读观看';
+    if(manualPermissionPending.value)return '正在确认手控权限切换';
+    if(manualPermissionUncertain.value)return '权限回执未确认 · 请核对服务器后再操作';
+    if(props.device.run_occupied || batchVideoProtected.value || trialStepId.value!==null)
+        return '脚本或准备操作占用手机 · 请等安全释放后再切换手控';
+    return session.state.viewerOnly
+        ? '手控已关闭 · 点击恢复手控'
+        : '手控已开启 · 点击关闭手控（只读观看）';
 });
-async function toggleManualPermission(){
-    if(consolePermissionPending.value || resumingManual.value ||
-        props.device.run_occupied || batchVideoProtected.value ||
-        trialStepId.value!==null || props.syncRole || props.recording || props.unlocking ||
-        session.state.phase!=='live' || !session.state.controlReady)return;
-    if(session.state.viewerOnly)await resumeManualControl();
-    else await switchConsoleToReadOnly();
-}
-async function resumeManualControl(){
-    if(!consoleMayResumeManual() || resumingManual.value)return;
-    resumingManual.value=true;
-    try {await session.resumeManual();consolePermissionUncertain.value=false;emit('refresh');}
-    catch(cause){session.state.error=cause instanceof Error?cause.message:'尚不能安全恢复手动操作';}
-    finally{resumingManual.value=false;}
+const manualPermissionAllowed=computed(()=>
+    ready.value && !manualPermissionPending.value &&
+    !props.device.run_occupied && !batchVideoProtected.value &&
+    trialStepId.value===null && !props.syncRole && !props.recording && !props.unlocking);
+async function toggleManualPermission() {
+    if(!manualPermissionAllowed.value)return;
+    const originalId=session.getSessionId(),owner=props.ownerId,deviceId=props.device.id;
+    if(!originalId)return;
+    manualPermissionPending.value=true;
+    manualPermissionUncertain.value=false;
+    try {
+        if(session.state.viewerOnly)await session.resumeManual();
+        else await session.enterViewOnly();
+        if(owner===props.ownerId && deviceId===props.device.id &&
+            originalId===session.getSessionId())emit('refresh');
+    }catch(cause){
+        if(owner===props.ownerId && deviceId===props.device.id &&
+            originalId===session.getSessionId()){
+            manualPermissionUncertain.value=true;
+            session.state.error=cause instanceof Error?cause.message:'手控权限切换未确认';
+        }
+    }finally{
+        manualPermissionPending.value=false;
+    }
 }
 let watching = false, disposed = false, intentVersion = 0, latestEndpoint = -1, restoredEndpoint = -1;
 let watchQuality: 'wall' | 'focus' = 'wall';
@@ -844,7 +775,6 @@ function getState() { return { phase: session.state.phase, ready: ready.value, v
 function getStream() { return session.stream.value; }
 function getSessionId() { return session.getSessionId(); }
 defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock,
-    enterViewOnly: session.enterViewOnly, resumeManual: session.resumeManual,
     getState, getStream, getSessionId, cancelPointer, resetPointer, openAutomationPanel, closeAutomationPanel,
     toggleAutomationPanel, getAutomationSubwindowHost });
 onBeforeUnmount(() => {
@@ -931,16 +861,11 @@ onBeforeUnmount(() => {
                             rounded :severity="session.state.viewerOnly?'warn':'success'"
                             :aria-label="manualPermissionTitle" :title="manualPermissionTitle"
                             :aria-pressed="session.state.phase==='live' && !session.state.viewerOnly"
-                            :loading="consolePermissionPending || resumingManual"
-                            :disabled="!ready || consolePermissionPending || resumingManual ||
-                                !!device.run_occupied || batchVideoProtected || trialStepId !== null ||
-                                !!syncRole || recording || !!unlocking"
+                            :loading="manualPermissionPending"
+                            :disabled="!manualPermissionAllowed"
                             @click="toggleManualPermission" />
                         <Button icon="pi pi-pencil" rounded :aria-label="t('text')" :title="t('text')" :disabled="!manualAllowed" @click="emit('text', device.id)" />
                         <Button icon="pi pi-unlock" rounded severity="primary" :aria-label="t('unlockPhone')" :title="t('unlockPhone')" :loading="unlocking" :disabled="!manualAllowed || unlocking || recording" @click="emit('unlock', device.id)" />
-                        <Button icon="pi pi-ban" rounded severity="secondary"
-                            aria-label="停止当前手动操作" title="停止当前手动操作（不切换手控权限）"
-                            :disabled="!manualAllowed || unlocking" @click="localAction({ type: 'stop' })" />
                         <Button icon="pi pi-power-off" rounded :aria-label="t('wake')" :title="t('wake')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'WAKE' })" />
                     </div>
                     <div class="side-actions">
@@ -1007,7 +932,6 @@ onBeforeUnmount(() => {
                         @start-local="params=>emit('batch-start-local',device.id,params)"
                         @refresh="emit('batch-refresh')" @stop="emit('batch-stop')"
                         @stop-device="id=>emit('batch-stop-device',id)"
-                        @restore-manual="id=>emit('batch-restore-manual',id)"
                         @reconcile="emit('batch-reconcile')" />
                     <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
                         :trial-progress="trialProgress" :trial-active="trialStepId !== null"
@@ -1067,14 +991,11 @@ onBeforeUnmount(() => {
             <div ref="automationSubwindowHost" class="automation-subwindow-host" />
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}<template v-if="session.state.phase === 'live' && session.state.viewerOnly"> · 只读观看，手控已锁定</template></span>
-            <small v-if="consoleRestoreQueued" class="batch-card-status" role="status">
-                · 自动化操作台已关闭，等待安全恢复手控
-            </small>
             <small v-if="batchRunState.selected.includes(device.id) && batchRunState.devices[device.id]"
                 class="batch-card-status" role="status">
                 批量：{{ batchRunState.devices[device.id].phase }}
                 <span v-if="batchRunState.devices[device.id].mediaState==='lost'"> · 视频已断流</span>
-            </small><Button v-if="session.state.phase === 'live' && session.state.viewerOnly" label="恢复手控" size="small" text :loading="resumingManual" :disabled="!consoleMayResumeManual() || resumingManual" @click="resumeManualControl" /><span class="mono-value">{{ device.overlay_ip }}</span></footer>
+            </small><span class="mono-value">{{ device.overlay_ip }}</span></footer>
         <!-- T42: failed-step repair uses the same real PhoneCard video and
              its fullscreen subwindow host, never a second preview or footer UI. -->
         <AutomationFloatingDialog :visible="!!repairContext && !!repairStep"
