@@ -35,7 +35,7 @@
 | [T44](task-44-batch-progress.md) | 并行进度/停止 | P14 | 运行/历史 | W4 | T41,T43 | 并行进度/单机与全停已接线，待验证 |
 | [T45](task-45-batch-original-video.md) | 各机原视频观察 | P14 | 卡片/集成 | W4 | T39,T43,T44 | 每机原画面观察代码已提交，待实测 |
 | [T46](task-46-obsolete-ui-removal.md) | 替代后移除旧 UI | P15 | 集成 | W5 | T29,T32,T35,T42,T45 | 主浮窗正式CRUD/条件编辑/历史回修已接线，旧页待验收后退役 |
-| [T47](task-47-dead-code-cleanup.md) | 冗余事件样式整理 | P15 | 前端架构 | W5 | T46 | 待开发 |
+| [T47](task-47-dead-code-cleanup.md) | 冗余事件样式整理 | P15 | 前端架构 | W5 | T46 | 旧链接转主浮窗/死CSS首批提交，待联调 |
 | [T48](task-48-frontend-regression.md) | 前端自动回归 | P16 | QA-Web | W3+ | 相关 UI 功能 | 待开发 |
 | [T49](task-49-backend-regression.md) | 后端租约/空脚本回归 | P16 | QA-后端 | W3+ | T25,T37,T38 | 待开发 |
 | [T50](task-50-real-device-acceptance.md) | FnOS/安卓/全屏真机 | P16 | QA-真机 | W5 | T48,T49+所有业务 | 待开发 |
@@ -82,3 +82,5 @@
 > 2026-10-28 T46：已删除 ScriptLibrary 第二操作预览视频、重复提交 Dialog 与 AutomationCenter 旧预览资源编排，并保留旧试跑未知 UUID 只读恢复。正式脚本管理兼容入口未下线，T46 仍待完成其浮窗替代及联调。
 
 > 2026-10-28 T46 第二批：正式脚本 CAS 发布与安全删除、子浮窗、未知回执拦截、历史失败回原手机卡片、条件 Then/Else 插入、同分支排序和唯一末尾业务断言已提交。旧 ScriptLibrary 兼容页仍保留，测试/CI/真机均未执行。
+
+> 2026-10-28 T47：旧脚本管理入口已支持返回原 PhoneCard 脚本浮窗；清理失效 CSS 的第一批提交完成。旧管理页与共享安全 helper 仍在，待有替代验收/引用证据才退役。
