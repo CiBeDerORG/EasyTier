@@ -273,7 +273,7 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                     if(viewer?.active_session?.id!==sid ||
                         viewer.active_session.state!=='view_only' || !card.getState().viewerOnly ||
                         viewer.target_fingerprint!==target.fingerprint || !card.getStream())
-                        throw new Error(target.name+' 尚未确认只读移交，禁止准备脚本');
+                        throw new Error(target.name+'：悬浮手控开关需保持关闭，服务端须确认只读，才能准备脚本');
                     progress(target.id,'preparing','检查 ADB / UiAutomator2',sid);
                     inspectMedia();
                     const p=await preparation.run({
