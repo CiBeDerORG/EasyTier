@@ -277,15 +277,23 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                         !['active','view_only'].includes(viewer.active_session.state) ||
                         viewer.target_fingerprint!==target.fingerprint || !card.getStream())
                         throw new Error(target.name+' 原会话已变化或权限转换未结束，禁止准备脚本');
-                    progress(target.id,'preparing','检查 ADB / UiAutomator2',sid);
-                    inspectMedia();
-                    const p=await preparation.run({
-                        ownerId:intent.owner,deviceId:target.id,targetFingerprint:target.fingerprint,
-                        steps:intent.steps,ownedSessionId:sid,
-                    });
-                    if(!valid())return;
-                    if(p?.phase!=='ready')throw new Error(target.name+'：'+(p?.message||'设备准备结果未确认'));
-                    progress(target.id,'ready','同一原视频准备完成，等待其它手机',sid);
+                    if(viewer.active_session.state==='active'){
+                        // With manual ON, pre-POST helper initialization might
+                        // race the manual gesture lease. The Executor performs
+                        // ADB/helper preparation AFTER it safely claims the
+                        // exclusive script lease, with durable run progress.
+                        progress(target.id,'ready','手控状态不变；执行器接管动作锁后检查 ADB / UiAutomator2',sid);
+                    }else{
+                        progress(target.id,'preparing','检查 ADB / UiAutomator2',sid);
+                        inspectMedia();
+                        const p=await preparation.run({
+                            ownerId:intent.owner,deviceId:target.id,targetFingerprint:target.fingerprint,
+                            steps:intent.steps,ownedSessionId:sid,
+                        });
+                        if(!valid())return;
+                        if(p?.phase!=='ready')throw new Error(target.name+'：'+(p?.message||'设备准备结果未确认'));
+                        progress(target.id,'ready','同一原视频准备完成，等待其它手机',sid);
+                    }
                 }
             });
             const results=await Promise.allSettled(workers);
