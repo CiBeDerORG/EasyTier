@@ -71,7 +71,8 @@ impl Runner {
         // Paths are built exclusively from fixed route names and parsed UUIDs.
         let url = self.base.join(&format!("internal/v1/{}",path.trim_start_matches('/')))
             .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE,"runner_not_configured","执行器地址配置无效。"))?;
-        let seconds = if path.ends_with("/offer") || path == "prepare" { 75 }
+        let seconds = if path.ends_with("/force-cleanup") { 65 }
+            else if path.ends_with("/offer") || path == "prepare" { 75 }
             else if path == "automation/status" { 15 }
             else if path == "automation/hierarchy" || path == "automation/locator-verify" { 35 }
             else if path.ends_with("/unlock") { 40 }

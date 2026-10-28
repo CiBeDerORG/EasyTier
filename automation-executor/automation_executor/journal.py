@@ -371,6 +371,19 @@ class Journal:
             db.execute("INSERT OR IGNORE INTO target_refusals VALUES (?,?,?)", (did,fingerprint,event_id))
             return not bool(run)
 
+    def fence_device_run_only(self, rid, did, fingerprint, event_id):
+        """Fence this historical run/device without retiring the ADB target.
+
+        A forced cleanup must not invalidate future scripts on the same phone.
+        """
+        with self.transaction() as db:
+            row = db.execute("SELECT target FROM run_targets WHERE run_id=? AND device_id=?",
+                             (rid, did)).fetchone()
+            if not row or json.loads(row["target"])["target_fingerprint"] != fingerprint:
+                raise ExecutorError("target_mismatch", "原运行设备身份不匹配", 409)
+            db.execute("INSERT OR IGNORE INTO device_refusals VALUES (?,?,?,?)",
+                       (rid, did, fingerprint, event_id))
+
     def retire(self, target, event_id):
         with self.transaction() as db:
             db.execute("INSERT OR IGNORE INTO target_refusals VALUES (?,?,?)", (target["device_id"],target["target_fingerprint"],event_id))

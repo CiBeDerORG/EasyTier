@@ -421,11 +421,27 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
             state.error='核对原请求/设备状态失败，无法开始新运行：'+automationErrorMessage(error);
         }
     }
+    /** Only after the main server confirms executor/device cleanup. */
+    function acknowledgeDeviceCleanup(owner:number,deviceId:string){
+        if(state.owner!==owner || !state.selected.includes(deviceId))return;
+        if(state.selected.length>1){
+            state.selected=state.selected.filter(id=>id!==deviceId);
+            delete state.devices[deviceId];
+            return;
+        }
+        if(state.pendingReceipt)clearBatchReceipt(window.sessionStorage,state.pendingReceipt);
+        const receipt=readBatchReceipt(window.sessionStorage,owner);
+        if(receipt)clearBatchReceipt(window.sessionStorage,receipt);
+        stopTimer();++version;
+        state.phase='idle';state.error='本机占用已强制清理，可重新开启预览和运行。';
+        state.run=null;state.pendingReceipt=null;state.requestId='';
+        state.devices={};state.selected=[];
+    }
     function forgetOwner(){
         ++version;stopTimer();cardResolver=null;state.owner=0;state.phase='idle';state.error='';
         state.selected=[];state.devices={};state.run=null;state.pendingReceipt=null;
         // Do not delete persistent request proof.
     }
     onBeforeUnmount(()=>{disposed=true;forgetOwner();preparation.dispose();});
-    return {state,busy,start,refresh,reconcile,cancelAll,cancelDevice,startNewAfterUnknown,inspectMedia,forgetOwner};
+    return {state,busy,start,refresh,reconcile,cancelAll,cancelDevice,startNewAfterUnknown,acknowledgeDeviceCleanup,inspectMedia,forgetOwner};
 }

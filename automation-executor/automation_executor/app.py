@@ -188,6 +188,11 @@ async def close_session(request: Request, sid: str, body: dict):
     return await request.app.state.runtime.close_session_request(identifier(sid), body)
 
 
+@app.post("/internal/v1/devices/{did}/force-cleanup")
+async def device_force_cleanup(request: Request, did: str, body: dict):
+    return await request.app.state.runtime.force_cleanup_device(identifier(did), body)
+
+
 @app.post("/internal/v1/runs")
 async def create_run(request: Request, body: dict):
     return await request.app.state.runtime.create_run(body)

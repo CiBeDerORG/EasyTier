@@ -48,6 +48,7 @@ const props = defineProps<{
     device: AutomationDevice; ownerId: number; selected: boolean; runnerAvailable: boolean;
     phoneConnection?: AutomationPhoneConnectionState; phoneConnectionError?: string;
     componentStatus?: AutomationComponentStatus;
+    forceCleanupBusy?: boolean;
     syncRole?: 'master' | 'follower'; syncActive: boolean; recording: boolean; unlocking?: boolean;
     pickerPhase?: PickerPhase; pickerError?: string;
     /** Single account-scoped draft. Card reads it, never stores a copy. */
@@ -112,7 +113,7 @@ const emit = defineEmits<{
     'repair-dismiss': [deviceId: string];
     'batch-start-local': [deviceId:string, params:Record<string,string>];
     'batch-refresh': [deviceId:string]; 'batch-reconcile': [deviceId:string]; 'batch-new-run': [deviceId:string];
-    'batch-stop-device': [deviceId:string];
+    'batch-stop-device': [deviceId:string]; 'force-cleanup':[deviceId:string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -876,6 +877,14 @@ onBeforeUnmount(() => {
                         <i :class="phoneConnection === 'connecting' ? 'pi pi-spin pi-spinner' : 'pi pi-link'" aria-hidden="true" />
                     </button>
                 </span>
+                <span class="card-action-tip" title="强制清理本机全部自动化占用（停止脚本与旧预览）">
+                    <button type="button" class="card-icon force-cleanup-icon"
+                        :disabled="!runnerAvailable || forceCleanupBusy"
+                        :aria-label="forceCleanupBusy ? '正在强制清理本机占用' : '强制清理本机全部自动化占用'"
+                        @click="emit('force-cleanup',device.id)">
+                        <i :class="forceCleanupBusy ? 'pi pi-spin pi-spinner' : 'pi pi-wrench'" aria-hidden="true"/>
+                    </button>
+                </span>
                 <span class="card-action-tip" :title="screenActionHint">
                     <button type="button" class="card-icon adb-port"
                         :class="[session.state.phase, { unavailable: !runnerAvailable || !device.connection.enabled }]"
@@ -987,7 +996,8 @@ onBeforeUnmount(() => {
                             : effectiveScriptGuard==='conflict' ? '服务器草稿出现版本冲突，请先另存新草稿。'
                             : effectiveScriptGuard==='unsynced' ? '工作草稿未同步，请先点击“保存草稿”。'
                             : effectiveScriptGuard==='loading' ? '工作草稿正在从服务器加载。' : ''"
-                        :state="batchRunState"
+                        :state="batchRunState" :force-cleanup-busy="forceCleanupBusy"
+                        @force-cleanup="emit('force-cleanup',device.id)"
                         @start-local="params=>emit('batch-start-local',device.id,params)"
                         @refresh="emit('batch-refresh',device.id)"
                         @stop-device="id=>{if(id===device.id)emit('batch-stop-device',device.id)}"

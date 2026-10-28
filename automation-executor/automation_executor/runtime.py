@@ -979,6 +979,132 @@ class Runtime:
         self.journal.update_device(rid,did,values)
         return self.journal.run(rid)
 
+    async def force_cleanup_device(self, did, body):
+        """Explicit, device-wide stop: every owner/session/script/helper for this phone.
+
+        Never just delete leases. Persist fences before cancellation, terminate
+        only recorded process identities, and report unresolved cleanup honestly.
+        """
+        did = validation.identifier(did)
+        validation.object_fields(body, {"target", "expected_executor_id", "event_id"},
+                                 {"target", "expected_executor_id", "event_id"})
+        self.require_identity(body["expected_executor_id"])
+        validation.identifier(body["event_id"])
+        target = validation.target(body["target"])
+        if target["device_id"] != did:
+            raise ExecutorError("target_mismatch", "强制清理目标与指定手机不一致", 409)
+        endpoint = validation.endpoint(target)
+        same = lambda value: (value["device_id"] == did or validation.endpoint(value) == endpoint)
+        import json
+        async with self.admission:
+            # Scope the forced release to this physical phone, regardless of
+            # which historical run/session/helper held its claim.
+            old_runs = []
+            for row in list(self.journal.db.execute("SELECT run_id,device_id,target FROM run_targets")):
+                old = json.loads(row["target"])
+                if same(old):
+                    self.journal.fence_device_run_only(
+                        row["run_id"], row["device_id"], old["target_fingerprint"], body["event_id"])
+                    old_runs.append((row["run_id"], row["device_id"]))
+            pending = []
+            for run_id, device_id in old_runs:
+                flag = self.device_cancellations.get((run_id,device_id))
+                if flag: flag.set()
+                task = self.device_tasks.get((run_id,device_id))
+                if task and not task.done():
+                    task.cancel()
+                    pending.append(task)
+            for key, task in list(self.preparations.items()):
+                if key[0] == did and not task.done():
+                    task.cancel()
+                    pending.append(task)
+            for pid, task in list(self.preparation_tasks.items()):
+                row = self.journal.db.execute(
+                    "SELECT target FROM preparation_jobs WHERE id=?", (pid,)).fetchone()
+                if row and same(json.loads(row["target"])) and not task.done():
+                    task.cancel()
+                    pending.append(task)
+            if pending:
+                await asyncio.wait(pending,timeout=9)
+            active = any(not task.done() for task in pending)
+            # Close any viewing session for this physical endpoint, even if
+            # an older browser opened it. This intentionally ends its video.
+            sessions = []
+            for sid, item in list(self.sessions.items()):
+                if same(item.target):
+                    sessions.append(sid)
+                    try:
+                        reply = await asyncio.wait_for(self.close_session(sid), timeout=9)
+                        active |= bool(reply.get("cleanup_pending"))
+                    except Exception:
+                        active = True
+            # Stop remembered UIA helpers regardless of which script started them.
+            for helper_id, helper in list(self.helpers.items()):
+                if same(helper.target):
+                    try:
+                        stopped = await asyncio.wait_for(helper.close(), timeout=8)
+                    except Exception:
+                        stopped = False
+                    if stopped:self.helpers.pop(helper_id,None)
+                    else:active = True
+            # Match journal claims by original saved target; a reused IP on
+            # another phone must never be stopped by device-id-only inference.
+            controls = []
+            for row in list(self.journal.db.execute("SELECT * FROM controls")):
+                try:
+                    old = json.loads(row["target"])
+                except (ValueError, TypeError):
+                    active = True
+                    continue
+                if same(old): controls.append(dict(row))
+            holders = {c["holder"] for c in controls}
+            for run_id, device_id in old_runs:
+                holders.add("run:" + run_id + ":" + device_id)
+            holders.add("helper:" + did)
+            holders.update("session:" + sid for sid in sessions)
+            # Include stranded workers even where a prior crash lost the control.
+            for row in self.journal.db.execute("SELECT holder FROM workers"):
+                holder = row["holder"]
+                if holder in holders: continue
+                if holder.startswith("run:") and any(holder=="run:"+rid+":"+d for rid,d in old_runs):
+                    holders.add(holder)
+            cleaned = 0
+            for holder in holders:
+                record = self.journal.worker_record(holder)
+                stopped = False
+                for _ in range(4):
+                    if await asyncio.to_thread(cleanup_record, record):
+                        stopped=True
+                        break
+                    await asyncio.sleep(.15)
+                if stopped:
+                    self.journal.release(holder,clean=True)
+                    cleaned+=1
+                else:
+                    active=True
+            # A preparation's control record may be present even if the task
+            # has already disappeared from memory.
+            for record in controls:
+                if record["holder"] not in holders:
+                    active=True
+            if not active:
+                with self.journal.transaction() as db:
+                    db.execute("DELETE FROM prepared WHERE device_id=?", (did,))
+                    db.execute("UPDATE sessions SET state='closed',updated_at=? "
+                               "WHERE id IN (" + ",".join("?" for _ in sessions) + ")",
+                               (now(), *sessions)) if sessions else None
+                    db.execute("UPDATE preparation_jobs SET state='interrupted',"
+                               "stage='interrupted',code='forced_cleanup',"
+                               "message='用户强制清理本机占用',updated_at=? "
+                               "WHERE device_id=? AND state IN ('queued','running','cancel_requested')",
+                               (now(),did))
+            return {"device_id":did,"executor_id":self.journal.executor_id,
+                    "event_id":body["event_id"],"cleanup_confirmed":not active,
+                    "stopped_sessions":len(sessions),"fenced_run_devices":len(old_runs),
+                    "cleaned_workers":cleaned,
+                    "message":"本机全部自动化占用已清理，请重新打开实时画面" if not active
+                              else "仍有工作进程或设备会话未确认结束；已发停止请求，请检查执行器"}
+
     async def verify_unused_target(self, did, body):
         """Read-only proof for a phantom registration before first ADB pairing.
 

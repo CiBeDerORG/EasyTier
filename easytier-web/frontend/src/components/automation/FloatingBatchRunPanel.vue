@@ -16,11 +16,12 @@ const props=defineProps<{
     parameterNames:string[];
     runnerAvailable:boolean;
     draftReady:boolean;
+    forceCleanupBusy?:boolean;
     state:FloatingBatchState;
 }>();
 const emit=defineEmits<{
     startLocal:[parameters:Record<string,string>];
-    refresh:[];reconcile:[];newRun:[];stopDevice:[deviceId:string];
+    refresh:[];reconcile:[];newRun:[];stopDevice:[deviceId:string];forceCleanup:[];
 }>();
 const values=reactive<Record<string,string>>({});
 // Run state belongs to the workbench. Never expose another phone's run,
@@ -102,7 +103,12 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
         <small>仅以当前 {{ localName || '手机' }} 为执行目标，不采用工作台勾选的其他设备，也不会向其他手机发送执行或停止指令。保留原实时画面。</small>
         <div class="batch-actions">
             <Button label="▶ 本机运行全流程" size="small" icon="pi pi-play"
-                :disabled="!localAllowed || missingParameters" @click="startLocal" />
+                :disabled="!localAllowed || missingParameters || forceCleanupBusy" @click="startLocal" />
+            <Button :label="forceCleanupBusy ? '正在清理本机全部占用…' : '强制清理本机占用'"
+                icon="pi pi-wrench" severity="warn" size="small" outlined
+                :loading="forceCleanupBusy" :disabled="!runnerAvailable || forceCleanupBusy"
+                title="一次性停止本手机的所有脚本、旧会话与控件工作进程；清理成功后需要重新打开实时预览"
+                @click="emit('forceCleanup')" />
         </div>
         <div v-if="parameterNames.length" class="batch-parameters">
             <label v-for="name in parameterNames" :key="name">本次运行参数 · {{ name }}

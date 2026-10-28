@@ -63,6 +63,23 @@ class ViewOnlyLeaseTests(unittest.IsolatedAsyncioTestCase):
     def identity(self):
         return {"expected_executor_id":self.runtime.journal.executor_id}
 
+    async def test_force_cleanup_ends_all_phone_sessions_and_frees_script_lease(self):
+        holder="run:"+str(uuid4())+":"+self.phone["device_id"]
+        self.runtime.journal.claim(self.phone,holder,"script")
+        reply=await self.runtime.force_cleanup_device(self.phone["device_id"],{
+            "target":self.phone,"expected_executor_id":self.runtime.journal.executor_id,
+            "event_id":str(uuid4()),
+        })
+        self.assertTrue(reply["cleanup_confirmed"])
+        self.assertEqual(reply["stopped_sessions"],1)
+        self.assertIsNone(self.runtime.journal.control(self.phone))
+        self.assertNotIn(self.sid,self.runtime.sessions)
+        self.runtime.media.close.assert_awaited()
+        self.assertFalse(self.runtime.journal.target_refused(self.phone))
+        # After proof, ordinary preview claims can be created again.
+        self.runtime.journal.claim(self.phone,"session:fresh","manual")
+        self.runtime.journal.release("session:fresh")
+
     async def test_viewer_releases_only_its_manual_write_lease_without_closing_media(self):
         holder="session:"+self.sid
         self.runtime.journal.claim(self.phone,holder,"manual")

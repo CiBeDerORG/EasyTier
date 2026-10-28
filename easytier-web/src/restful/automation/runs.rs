@@ -172,6 +172,54 @@ pub(super) async fn cancel_device(
     }
 }
 
+/// Explicit device-scoped emergency recovery. Fences ALL saved runs on
+/// this owned phone before terminating executor workers. No manual retry or
+/// ADB action is dispatched until the executor proves the device is released.
+pub(super) async fn force_cleanup_device(
+    auth: AuthSession, State(manager): State<AppStateInner>,
+    Extension(service): Service, Extension(config): Config,
+    Extension(runtime): Runtime, query: OwnerInput,
+    Path(raw_device): Path<String>, headers: HeaderMap,
+) -> HttpResult<Json<Value>> {
+    require_origin(&headers,true)?;
+    let owner=owner(query)?;
+    authorize(&auth,&config,&service,owner).await?;
+    let device=id(&raw_device)?;
+    let store=observed_store(&manager,&service,owner,Some(&[device.clone()])).await?;
+    let target=store.target(owner,&device).await.map_err(store_error)?;
+    let remote=runner(&runtime)?;
+    let executor=remote.identity().await?;
+    let event=Uuid::new_v4().to_string();
+    // Persist a per-device refusal before the first remote operation.
+    // Queued or late requests therefore cannot perform a new authorized step.
+    store.withdraw_device_runs(owner,&device,&event).await.map_err(store_error)?;
+    let reply=remote.post(&format!("devices/{device}/force-cleanup"),&json!({
+        "target":wire_target(&target),
+        "expected_executor_id":executor,
+        "event_id":event,
+    })).await?;
+    if reply["device_id"]!=device || reply["executor_id"]!=executor
+        || reply["event_id"]!=event || !reply["cleanup_confirmed"].is_boolean() {
+        return Err(error(StatusCode::BAD_GATEWAY,"runner_response_invalid",
+            "强制清理结果和本次手机请求不一致，未释放服务端占用。"));
+    }
+    if reply["cleanup_confirmed"]==true {
+        // Do not destroy recorded action outcomes or data. Only mark the
+        // physical cleanup confirmed; retain outcome_unknown as history.
+        // No unrelated phone's run or session is modified.
+        let mut tx=service.db.inner().begin().await
+            .map_err(|cause|store_error(cause.into()))?;
+        sqlx::query("UPDATE automation_run_devices SET cleanup_confirmed=1,updated_at=?,          state=CASE WHEN state IN ('dispatch_pending','queued','accepted','starting','running',          'cancel_requested','cleanup_pending') THEN 'interrupted' ELSE state END           WHERE device_id=? AND cleanup_confirmed=0 AND run_id IN           (SELECT id FROM automation_runs WHERE owner_user_id=?)")
+            .bind(chrono::Utc::now().to_rfc3339()).bind(&device).bind(owner)
+            .execute(&mut *tx).await.map_err(|cause|store_error(cause.into()))?;
+        sqlx::query("UPDATE automation_sessions SET state='closed',updated_at=?             WHERE owner_user_id=? AND device_id=? AND state NOT IN ('closed','failed')")
+            .bind(chrono::Utc::now().to_rfc3339()).bind(owner).bind(&device)
+            .execute(&mut *tx).await.map_err(|cause|store_error(cause.into()))?;
+        tx.commit().await.map_err(|cause|store_error(cause.into()))?;
+    }
+    Ok(Json(reply))
+}
+
 pub(super) async fn internal_authorize(State(manager): State<AppStateInner>, Extension(service): Service, Extension(config): Config, Extension(runtime): Runtime, headers: HeaderMap, input: Body) -> HttpResult<Json<Value>> {
     available(&config)?;
     runner(&runtime)?.authenticate(&headers)?;

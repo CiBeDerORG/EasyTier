@@ -58,6 +58,7 @@ pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner>
         .route("/api/v1/automation/scripts/requests/{request_id}", get(scripts::creation_receipt))
         .route("/api/v1/automation/scripts/{id}", put(scripts::update).delete(scripts::remove))
         .route("/api/v1/automation/scripts/{id}/safe-delete", post(scripts::safe_remove))
+        .route("/api/v1/automation/devices/{id}/force-cleanup",post(runs::force_cleanup_device))
         .route("/api/v1/automation/runs", get(runs::list).post(runs::create))
         .route("/api/v1/automation/runs/{id}", get(runs::get_one))
         .route("/api/v1/automation/runs/{id}/refresh", post(runs::refresh))

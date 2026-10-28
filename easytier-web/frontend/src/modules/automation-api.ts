@@ -51,6 +51,12 @@ export default class AutomationApi {
         return data;
     }
     devices(ownerId: number) { return this.request<{ items: AutomationDevice[]; issues?: {device_id:string;machine_id:string;name:string;reason:string}[] }>('/devices', ownerId); }
+    forceCleanup(ownerId:number,id:string) {
+        return this.request<{device_id:string;executor_id:string;event_id:string;
+            cleanup_confirmed:boolean;stopped_sessions:number;fenced_run_devices:number;
+            cleaned_workers:number;message:string}>(
+            `/devices/${encodeURIComponent(id)}/force-cleanup`,ownerId,'POST',{});
+    }
     saveConnection(ownerId: number, id: string, body: AutomationConnection) { return this.request<AutomationDevice>(`/devices/${encodeURIComponent(id)}/connection`, ownerId, 'PUT', body); }
     prepare(ownerId: number, id: string, body: { action: 'connect' | 'pair' | 'inspect' | 'automation'; pairing_port?: number; code?: string }) { return this.request<AutomationPrepareResult>(`/devices/${encodeURIComponent(id)}/prepare`, ownerId, 'POST', body); }
     adbStatus(ownerId: number, id: string) {

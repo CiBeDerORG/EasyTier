@@ -652,6 +652,35 @@ function refreshBatch(id:string){if(batchTargetsLocal(id))void floatingBatch.ref
 function startNewLocalRun(id:string){
     if(batchTargetsLocal(id))void floatingBatch.startNewAfterUnknown(ownerId.value,id);
 }
+const cleanupBusy=reactive<Record<string,boolean>>({});
+async function forceCleanupDevice(id:string){
+    const owner=ownerId.value;
+    if(!owner || cleanupBusy[id])return;
+    cleanupBusy[id]=true;
+    floatingRunMessages[id]='正在强制停止本机全部自动化任务与工作进程，并核对清理结果……';
+    try{
+        const result=await api.forceCleanup(owner,id);
+        if(owner!==ownerId.value||disposed)return;
+        if(result.cleanup_confirmed){
+            floatingBatch.acknowledgeDeviceCleanup(owner,id);
+            // The executor has ended previous viewing sessions; the browser
+            // must open a NEW one rather than keeping stale WebRTC status.
+            await cards.get(id)?.close().catch(()=>undefined);
+            notice.value='本机自动化占用已全部清理。请重新开启实时预览。';
+            floatingRunMessages[id]='本机占用已清理：已停止 '+result.stopped_sessions
+                +' 个会话，处理 '+result.fenced_run_devices+' 个运行目标。';
+            await loadDevices();
+        }else{
+            floatingRunMessages[id]=result.message || '有进程未能确认退出，请检查执行器日志后重试。';
+            error.value=floatingRunMessages[id];
+        }
+    }catch(cause){
+        if(owner===ownerId.value&&!disposed){
+            floatingRunMessages[id]='强制清理失败：'+automationErrorMessage(cause);
+            error.value=floatingRunMessages[id];
+        }
+    }finally{delete cleanupBusy[id];}
+}
 function reconcileBatch(id:string){
     if(batchTargetsLocal(id))void floatingBatch.reconcile(ownerId.value);
 }
@@ -2053,6 +2082,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         :inspector-initial-point="inspectorDeviceId === device.id ? inspectorInitialPoint : null"
                         :inspector-preferred-action="inspectorDeviceId === device.id ? inspectorPreferredAction : null"
                         :repair-context="cardRepairContext?.deviceId === device.id ? cardRepairContext : null"
+                        :force-cleanup-busy="!!cleanupBusy[device.id]"
                         :demo-result="locatorDemos[device.id]?.stepId === cardStepEditor?.stepId ? locatorDemos[device.id]?.result : null"
                         :demo-loading="locatorDemos[device.id]?.loading ?? false" :demo-error="locatorDemos[device.id]?.error"
                         :draft-save-busy="savingFloatingDraft" :draft-save-message="floatingDraftMessage"
@@ -2070,6 +2100,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         @draft-save="saveFloatingDraft" @draft-fork="forkFloatingDraft"
                         @batch-start-local="runLocalBatch" @batch-refresh="refreshBatch"
                         @batch-stop-device="stopBatchDevice" @batch-reconcile="reconcileBatch"
+                        @force-cleanup="forceCleanupDevice"
                         @batch-new-run="startNewLocalRun"
                         @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
                         @step-create="createCardDraftStep" @step-branch-add="addCardBranchStep"

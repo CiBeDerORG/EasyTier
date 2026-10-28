@@ -84,6 +84,21 @@ class JournalTests(unittest.TestCase):
             with self.assertRaises(ExecutorError): journal.withdraw(body['id'],a['device_id'],'wrong',str(uuid4()))
             self.assertFalse(journal.withdrawn(body['id'],a['device_id']));journal.close()
 
+    def test_force_cleanup_fences_only_old_run_not_future_phone_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal=Journal(Path(directory)/'execution.sqlite3')
+            phone=target(); other=target('10.60.1.23')
+            body=run_body(journal,[phone,other])
+            journal.accept_run(body)
+            journal.fence_device_run_only(body['id'],phone['device_id'],
+                                          phone['target_fingerprint'],str(uuid4()))
+            self.assertTrue(journal.withdrawn(body['id'],phone['device_id']))
+            self.assertFalse(journal.withdrawn(body['id'],other['device_id']))
+            self.assertFalse(journal.target_refused(phone))
+            journal.claim(phone,'new:user-click','manual')
+            journal.release('new:user-click')
+            journal.close()
+
 
 class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
