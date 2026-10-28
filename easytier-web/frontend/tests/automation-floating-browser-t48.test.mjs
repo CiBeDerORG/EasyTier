@@ -26,14 +26,15 @@ before(async()=>{
   });
 });
 after(async()=>{await browser?.close();server?.kill();});
-async function setup(t){
+async function setup(t,url=base){
   const context=await browser.newContext({viewport:{width:1150,height:800}});
   t.after(()=>context.close());
   const page=await context.newPage(),errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   t.after(()=>assert.deepEqual(errors,[],'no uncaught browser exceptions'));
-  await page.goto(base);
-  await page.waitForFunction(()=>typeof window.t48Probe==='function');
+  await page.goto(url);
+  if(url===base)await page.waitForFunction(()=>typeof window.t48Probe==='function');
+  else await page.waitForFunction(()=>typeof window.phoneCardReview==='object');
   return page;
 }
 const state=page=>page.evaluate(()=>window.t48Probe());
@@ -108,4 +109,43 @@ test('T48 only topmost child handles Escape; keyboard positioning remains usable
   assert.equal((await state(page)).editor,false);
   assert.deepEqual((await state(page)).closes,['detail:normal','editor:normal']);
   assert.equal((await state(page)).main,true);
+});
+
+const realCardFixture='http://127.0.0.1:5199/tests/fixtures/automation-phone-card-review.html';
+
+test('T52 actual PhoneCard retains its primary video DOM across main/child floating UI and fullscreen',async t=>{
+  const page=await setup(t,realCardFixture);
+  const original=page.locator('.phone-card video.primary-video');
+  assert.equal(await original.count(),1,'production PhoneCard has one original foreground player');
+  await original.evaluate(node=>node.dataset.t52Original='still-owned');
+  await page.locator('#open-panel').click();
+  await page.locator('#open-step').click();
+  const editor=page.getByRole('dialog',{name:/编辑第 1 步/});
+  await editor.waitFor();
+  assert.equal(await editor.evaluate(node=>!!node.closest('.phone-screen')),true,
+    'actual step editor must be teleported inside original PhoneCard fullscreen host');
+  assert.equal(await original.getAttribute('data-t52-original'),'still-owned',
+    'opening main and child floating UI must not replace the original video');
+  assert.equal(await page.locator('.phone-card video.primary-video').count(),1);
+  await page.locator('#fullscreen-card').click();
+  await page.waitForFunction(()=>document.fullscreenElement?.classList.contains('phone-screen'));
+  assert.equal(await editor.isVisible(),true);
+  assert.equal(await original.getAttribute('data-t52-original'),'still-owned',
+    'entering fullscreen must not remount or swap the original player');
+  await page.keyboard.press('Escape');
+});
+
+test('T52 original PhoneCard protects the video stop control while batch outcome is unknown',async t=>{
+  const page=await setup(t,realCardFixture);
+  const original=page.locator('.phone-card video.primary-video');
+  await original.evaluate(node=>node.dataset.t52Original='untouched');
+  assert.equal(await page.locator('.phone-card .adb-port').isEnabled(),true,
+    'the simulated runner must allow initial screen toggle before batch protection');
+  await page.evaluate(()=>window.phoneCardReview.setBatchPhase('unknown'));
+  await page.waitForFunction(()=>document.querySelector('.phone-card .adb-port')?.disabled===true);
+  assert.equal(await original.getAttribute('data-t52-original'),'untouched');
+  assert.equal(await page.locator('.phone-card .batch-card-status').count(),1);
+  await page.evaluate(()=>window.phoneCardReview.setBatchPhase('failed'));
+  await page.waitForFunction(()=>document.querySelector('.phone-card .adb-port')?.disabled===false);
+  assert.equal(await original.getAttribute('data-t52-original'),'untouched');
 });
