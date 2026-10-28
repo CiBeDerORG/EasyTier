@@ -212,25 +212,39 @@ test('T53 saved server draft unblocks the reactive formal-publish / full-run gat
     'the exact UI computed guard must update after the async request clears, not stay stale');
 });
 
-test('T54 real PhoneCard shows manual permission separately from stopping a touch action',async t=>{
+test('T54 only the floating manual icon may change permission; console open/close never does',async t=>{
   const page=await setup(t,realCardFixture);
   const card=page.locator('.phone-card');
+  const permissionRequests=await page.evaluate(()=>{
+    window.t54PermissionRequests=[];
+    const originalFetch=window.fetch;
+    window.fetch=(...args)=>{
+      const url=String(args[0]);
+      if(/\\/sessions\\/[^/]+\\/(view-only|resume-manual)/.test(url))
+        window.t54PermissionRequests.push(url);
+      return originalFetch(...args);
+    };
+    return window.t54PermissionRequests.length;
+  });
+  assert.equal(permissionRequests,0);
   await page.locator('#open-panel').click();
-  await card.locator('.main-orb').click(); // Floating buttons only exist when expanded.
-  // No live media/API in the browser fixture, so the permission control
-  // must remain disabled instead of pretending to have manual authority.
+  await card.locator('.main-orb').click();
   const permission=card.getByRole('button',{name:/手控不可用/});
   assert.equal(await permission.count(),1,
-    'a persistent manual-mode button must reflect actual viewer permission');
-  assert.equal(await permission.isDisabled(),true);
-  assert.equal(await card.getByRole('button',{name:'停止当前手动操作'}).count(),1,
-    'a touch-stop command is not the same operation as viewerOnly/resumeManual');
+    'only the floating mode toggle controls manual permission');
+  assert.equal(await permission.isDisabled(),true,
+    'no real session must never be presented as manual authority');
   assert.equal(await permission.getAttribute('aria-pressed'),'false');
-  // Closing the console cannot close the original PhoneCard video or create
-  // a manual session when none exists.
+  assert.equal(await card.getByRole('button',{name:'停止当前手动操作'}).count(),0,
+    'remove the duplicate release/stop control');
+  assert.equal(await card.getByRole('button',{name:'恢复手控'}).count(),0,
+    'footer must not contain another manual switch');
   const original=card.locator('video.primary-video');
   await original.evaluate(node=>node.dataset.t54Original='preserved');
   await card.getByRole('button',{name:'关闭自动化脚本窗口'}).click();
+  await page.waitForTimeout(40);
   assert.equal(await original.getAttribute('data-t54-original'),'preserved');
   assert.equal(await card.locator('video.primary-video').count(),1);
+  assert.deepEqual(await page.evaluate(()=>window.t54PermissionRequests),[],
+    'neither opening nor closing the automation panel sends a permission RPC');
 });
