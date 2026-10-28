@@ -390,7 +390,19 @@ export interface AgentDockerSnapshot {
     status: 'ok' | 'error';
     resources: AgentDockerResource[];
 }
+/** Two live, complete observations establish absence, NOT permission to delete. */
+export interface AgentDockerAbsenceEvidence {
+    resource_id: string;
+    last_resource: AgentDockerResource;
+    last_seen_at: string;
+    first_missing_at: string;
+    consecutive_complete_absences: number;
+    state: 'needs_recheck' | 'confirmed_missing';
+    cleanup_allowed: false;
+    cleanup_blocked_reason: string;
+}
 export interface AgentDockerInventory extends AgentDockerSnapshot {
+    external_absences?: AgentDockerAbsenceEvidence[];
     live_status?: 'online' | 'offline' | 'degraded';
     fresh?: boolean;
     snapshot?: AgentDockerSnapshot | null;
