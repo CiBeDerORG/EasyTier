@@ -522,6 +522,11 @@ impl Manager {
         }
         if let Some(resources) = inventory["resources"].as_array_mut() {
             for resource in resources {
+                if !resource.is_object() || resource["resource_id"].as_str().is_none()
+                    || resource["containers"].as_array().is_none()
+                {
+                    return Err(Error::Remote);
+                }
                 resource["management_state"] = json!("external");
                 resource["managed"] = json!(false);
                 if let Some(id) = resource["resource_id"].as_str() {
@@ -648,6 +653,27 @@ impl Manager {
             "confirmed":true,
             "message":"Intent recorded; management rights remain disabled until trusted Deploy catalog validation and durable Agent registration"
         }))
+    }
+
+
+    // A user can cancel a pending intent without touching Docker containers,
+    // volumes, services or the Agent's own managed-app registry.
+    pub async fn cancel_adoption_intent(&self, device: &Value, resource_id: String) -> Result<Value, Error> {
+        if resource_id.len() > 256 || resource_id.is_empty() {
+            return Err(Error::Invalid("Invalid resource identifier"));
+        }
+        let _guard = self.pair_lock.lock().await;
+        let device_id = device["id"].as_str().ok_or(Error::Storage)?;
+        let owner = device["owner_user_id"].as_i64().ok_or(Error::Storage)?;
+        let agent = self.saved(device_id).await?
+            .ok_or(Error::Invalid("This server has no paired Agent"))?.0;
+        let deleted = sqlx::query(
+            "DELETE FROM asset_agent_adoption_intents WHERE asset_device_id=? AND owner_user_id=? AND agent_id=? AND resource_id=?"
+        )
+        .bind(device_id).bind(owner).bind(agent).bind(&resource_id)
+        .execute(&self.db.inner()).await.map_err(|_|Error::Storage)?;
+        Ok(json!({"resource_id":resource_id,"removed":deleted.rows_affected()>0,
+            "docker_modified":false}))
     }
 
     pub async fn status(&self, device: &Value) -> Result<Value, Error> {
