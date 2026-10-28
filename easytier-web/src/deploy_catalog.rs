@@ -61,12 +61,17 @@ impl Catalog {
     }
 
     pub async fn list(&self) -> Result<Value, Error> {
+        // Read metadata and rows under one SQLite snapshot so a concurrent
+        // manual refresh never returns a mixed revision to the UI.
+        let pool = self.db.inner();
+        let mut tx = pool.begin().await.map_err(|_| Error::Storage)?;
         let state: Option<(String, String, i64)> = sqlx::query_as(
             "SELECT git_revision,fetched_at,app_count FROM deploy_catalog_state WHERE singleton=1"
-        ).fetch_optional(&self.db.inner()).await.map_err(|_| Error::Storage)?;
+        ).fetch_optional(&mut *tx).await.map_err(|_| Error::Storage)?;
         let rows = sqlx::query(
             "SELECT app_id,git_revision,name,summary,category,compose_project,manifest_path,manifest_sha256,detail_json FROM deploy_catalog_apps ORDER BY name,app_id"
-        ).fetch_all(&self.db.inner()).await.map_err(|_| Error::Storage)?;
+        ).fetch_all(&mut *tx).await.map_err(|_| Error::Storage)?;
+        tx.commit().await.map_err(|_| Error::Storage)?;
         let mut apps = Vec::new();
         for row in rows {
             let raw: String = row.try_get("detail_json").map_err(|_| Error::Storage)?;
@@ -275,7 +280,10 @@ fn safe_manifest(root: &Path, id: &str) -> Result<Option<PathBuf>, Error> {
     if !safe_id(id) { return Ok(None); }
     let dir = root.join(id);
     let dir_meta = std::fs::symlink_metadata(&dir).map_err(|_| Error::Remote)?;
-    if !dir_meta.is_dir() || dir_meta.file_type().is_symlink() { return Ok(None); }
+    if dir_meta.file_type().is_symlink() {
+        return Err(Error::Invalid("Application directory symlinks are forbidden"));
+    }
+    if !dir_meta.is_dir() { return Ok(None); }
     let manifest = dir.join("app.yaml");
     match std::fs::symlink_metadata(&manifest) {
         Ok(m) if m.is_file() && !m.file_type().is_symlink() && m.len() <= MAX_MANIFEST =>
