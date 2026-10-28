@@ -155,6 +155,20 @@ onBeforeUnmount(() => { disposed = true; ++requestId; });
                 <div><strong>{{ cn ? '模板校验摘要' : 'Manifest SHA-256' }}</strong><span class="mono-value store-hash">{{ selected.manifest_sha256 }}</span></div>
                 <div><strong>{{ cn ? '源代码版本' : 'Source revision' }}</strong><span class="mono-value store-hash">{{ selected.git_revision }}</span></div>
             </div>
+            <div v-if="selected.detail.ports?.length" class="store-definition">
+                <h3>{{ cn ? '服务端口' : 'Service ports' }}</h3>
+                <div v-for="port in selected.detail.ports" :key="port.id" class="store-definition-row">
+                    <span><strong>{{ port.label || port.id }}</strong> · {{ port.service }}</span>
+                    <span class="mono-value">{{ port.host_port_key }} → {{ port.container_port }}/{{ port.protocol }}</span>
+                </div>
+            </div>
+            <div v-if="selected.detail.config?.length" class="store-definition">
+                <h3>{{ cn ? '配置参数（仅展示定义，不读取实际值）' : 'Configuration definitions (values are never loaded)' }}</h3>
+                <div v-for="field in selected.detail.config" :key="field.key" class="store-definition-row">
+                    <span><strong>{{ field.label || field.key }}</strong><small class="mono-value"> {{ field.key }}</small></span>
+                    <Tag :severity="field.type === 'secret' ? 'warn' : 'secondary'" :value="field.type === 'secret' ? (cn ? '敏感配置' : 'Secret') : field.type" />
+                </div>
+            </div>
             <Message severity="warn" :closable="false">{{ cn ? '安装操作尚未开放：固定版本打包、签名/摘要及 Agent 安全执行由后续任务实现。' : 'Installation is unavailable until pinned package verification and secure Agent execution are implemented.' }}</Message>
         </section>
     </section>
@@ -179,5 +193,8 @@ onBeforeUnmount(() => { disposed = true; ++requestId; });
 .store-facts > div { display: flex; gap: 1rem; justify-content: space-between; border-bottom: 1px solid var(--p-content-border-color); padding-bottom: .35rem; }
 .store-facts strong { flex: 0 0 auto; }
 .store-hash { overflow-wrap: anywhere; text-align: right; }
+.store-definition { display: grid; gap: .45rem; }
+.store-definition h3 { margin: .5rem 0; }
+.store-definition-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; border-bottom: 1px solid var(--p-content-border-color); padding: .45rem 0; }
 .mono-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; overflow-wrap: anywhere; }
 </style>
