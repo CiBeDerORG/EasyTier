@@ -61,7 +61,16 @@ export function reserveFormalReceipt(
         throw new Error('正式脚本写操作凭据无效，未发送写请求。');
     if(readFormalReceipt(storage,proof.owner))
         throw new Error('存在尚未核对的正式脚本写入，禁止重复提交。');
-    storage.setItem(formalReceiptKey(proof.owner),JSON.stringify(proof));
+    // Build an explicit allowlist rather than serializing the caller's
+    // object. Runtime extras must not leak credentials, script bodies or text.
+    const metadata:FormalScriptWriteReceipt={
+        owner:proof.owner,kind:proof.kind,scriptId:proof.scriptId,
+        revision:proof.revision,createdAt:proof.createdAt,
+        ...(proof.kind==='delete'?{}:{
+            expectedName:proof.expectedName,expectedStepIds:[...proof.expectedStepIds!],
+        }),
+    };
+    storage.setItem(formalReceiptKey(proof.owner),JSON.stringify(metadata));
     const saved=readFormalReceipt(storage,proof.owner);
     if(!saved||saved.kind!==proof.kind||saved.scriptId!==proof.scriptId||
         saved.revision!==proof.revision ||saved.createdAt!==proof.createdAt)
