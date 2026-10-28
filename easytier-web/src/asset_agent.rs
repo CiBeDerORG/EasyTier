@@ -324,6 +324,103 @@ impl Manager {
             json!({"agent_id":agent,"endpoint":endpoint,"tls_spki_sha256":pin.hex(),"bound":true,"identity":identity}),
         )
     }
+
+    // Host reads are requested by the user, never polled. A cached snapshot is
+    // strictly historical and is never interpreted as current connectivity.
+    async fn fetch_host(&self, device: &Value, update_root: Option<&str>) -> Result<Value, Error> {
+        let device_id = device["id"].as_str().ok_or(Error::Storage)?;
+        let owner = device["owner_user_id"].as_i64().ok_or(Error::Storage)?;
+        let row = sqlx::query(
+            "SELECT agent_id,spki_sha256,endpoint,token_cipher FROM asset_agent_bindings WHERE asset_device_id=? AND owner_user_id=?"
+        ).bind(device_id).bind(owner).fetch_optional(&self.db.inner()).await.map_err(|_|Error::Storage)?
+            .ok_or(Error::Invalid("This server has no paired Agent"))?;
+        let agent: String = row.try_get("agent_id").map_err(|_|Error::Storage)?;
+        let spki: String = row.try_get("spki_sha256").map_err(|_|Error::Storage)?;
+        let endpoint: String = row.try_get("endpoint").map_err(|_|Error::Storage)?;
+        let cipher: String = row.try_get("token_cipher").map_err(|_|Error::Storage)?;
+        let pin = Fingerprint::parse(&spki).map_err(|_|Error::Storage)?;
+        let token = self.credentials.open(&format!("asset-agent:{owner}:{device_id}"),&cipher)
+            .map_err(|_|Error::Storage)?;
+        let controller = self.controller_id().await?;
+        let client = pinned_client(&pin).map_err(|_|Error::Remote)?;
+        let url = if update_root.is_some() {
+            format!("{endpoint}/v1/host/settings")
+        } else {
+            format!("{endpoint}/v1/host")
+        };
+        let mut request = if let Some(root) = update_root {
+            client.patch(url).json(&json!({"software_root":root}))
+        } else {
+            client.get(url)
+        };
+        request = request.header("X-EHA-Controller-ID",&controller)
+            .header("X-EHA-Agent-ID",&agent).bearer_auth(token);
+        let response = request.send().await.map_err(|_|Error::Remote)?;
+        if response.status() == reqwest::StatusCode::CONFLICT {
+            return Err(Error::Conflict("Managed applications exist; migrate and verify before changing SOFTWARE_ROOT"));
+        }
+        if response.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
+            return Err(Error::Invalid("Invalid SOFTWARE_ROOT; use a real absolute directory without symlinks"));
+        }
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(Error::PairRejected);
+        }
+        if !response.status().is_success() {
+            return Err(Error::Remote);
+        }
+        let response_agent = response.headers().get("X-EHA-Agent-ID")
+            .and_then(|v|v.to_str().ok()).ok_or(Error::IdentityChanged)?;
+        if response_agent != agent {
+            return Err(Error::IdentityChanged);
+        }
+        let body = response.bytes().await.map_err(|_|Error::Remote)?;
+        if body.len() > 32768 { return Err(Error::Remote); }
+        let snapshot: Value = serde_json::from_slice(&body).map_err(|_|Error::Remote)?;
+        if snapshot["agent_id"].as_str() != Some(agent.as_str()) ||
+            snapshot["observed_at"].as_str().is_none() ||
+            snapshot["software_root"].as_str().is_none() ||
+            !snapshot["docker"].is_object() ||
+            !snapshot["memory"].is_object() ||
+            !snapshot["cpu"].is_object() ||
+            !snapshot["disks"].is_array() {
+            return Err(Error::IdentityChanged);
+        }
+        sqlx::query("INSERT INTO asset_agent_host_snapshots(asset_device_id,agent_id,snapshot_json,observed_at) VALUES(?,?,?,?) ON CONFLICT(asset_device_id) DO UPDATE SET agent_id=excluded.agent_id,snapshot_json=excluded.snapshot_json,observed_at=excluded.observed_at")
+            .bind(device_id).bind(agent)
+            .bind(snapshot.to_string())
+            .bind(snapshot["observed_at"].as_str().ok_or(Error::Remote)?)
+            .execute(&self.db.inner()).await.map_err(|_|Error::Storage)?;
+        Ok(json!({"live_status":"online","fresh":true,"snapshot":snapshot}))
+    }
+
+    pub async fn host(&self, device: &Value) -> Result<Value, Error> {
+        if self.saved(device["id"].as_str().unwrap_or_default()).await?.is_none() {
+            return Err(Error::Invalid("This server has no paired Agent"));
+        }
+        match self.fetch_host(device, None).await {
+            Ok(snapshot) => Ok(snapshot),
+            Err(Error::Remote) => {
+                let id = device["id"].as_str().ok_or(Error::Storage)?;
+                let agent = self.saved(id).await?.ok_or(Error::Storage)?.0;
+                let row: Option<(String,String)> = sqlx::query_as(
+                    "SELECT agent_id,snapshot_json FROM asset_agent_host_snapshots WHERE asset_device_id=?"
+                ).bind(id).fetch_optional(&self.db.inner()).await.map_err(|_|Error::Storage)?;
+                let cached = row.and_then(|(cached_agent,raw)| {
+                    if cached_agent != agent { return None; }
+                    serde_json::from_str::<Value>(&raw).ok()
+                });
+                Ok(json!({"live_status":"offline","fresh":false,"snapshot":cached,
+                    "message":"Agent is unavailable; showing last successful snapshot if any"}))
+            }
+            Err(error) => Err(error),
+        }
+    }
+    pub async fn update_host_root(&self, device: &Value, root: String) -> Result<Value, Error> {
+        if root.is_empty() || root.len() > 4096 {
+            return Err(Error::Invalid("SOFTWARE_ROOT must be an absolute path"));
+        }
+        self.fetch_host(device, Some(&root)).await
+    }
     pub async fn status(&self, device: &Value) -> Result<Value, Error> {
         let id = device["id"].as_str().ok_or(Error::Storage)?;
         let row=sqlx::query("SELECT agent_id,spki_sha256,endpoint,paired_at,verified_at FROM asset_agent_bindings WHERE asset_device_id=?")
