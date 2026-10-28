@@ -59,6 +59,7 @@ pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner>
         .route("/api/v1/automation/runs/{id}", get(runs::get_one))
         .route("/api/v1/automation/runs/{id}/refresh", post(runs::refresh))
         .route("/api/v1/automation/runs/{id}/cancel", post(runs::cancel))
+        .route("/api/v1/automation/runs/{id}/devices/{device_id}/cancel", post(runs::cancel_device))
         .route("/api/v1/automation/runs/{id}/artifacts/{artifact_id}", get(runs::artifact))
         // These routes authenticate the configured Runner, never a browser session.
         .route("/api/v1/automation/internal/authorize", post(runs::internal_authorize))
