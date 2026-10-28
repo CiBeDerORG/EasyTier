@@ -20,7 +20,6 @@ const props = defineProps<{
     draftSyncLabel?: string;
     draftSyncMessage?: string;
     canReplaceWorkspace?: () => boolean;
-    deviceNames?: Record<string, string>;
     pickerDevices: { id: string; name: string }[];
     runDeviceSnapshots: AutomationDevice[];
 }>();
@@ -55,8 +54,6 @@ const deleteVisible = ref(false);
 const deleteTarget = ref<AutomationScript>();
 const blockedRunReceipts=ref<TrialSubmissionReceipt[]>([]);
 const checkingOldRun=ref(false);
-const targetCard=computed(()=>props.selectedDeviceIds.find(id=>
-    props.pickerDevices.some(device=>device.id===id))??props.pickerDevices[0]?.id??null);
 function checkOldRunReceipts(ids:string[]):boolean {
     try{
         blockedRunReceipts.value=ids.map(id=>readTrialReceipt(window.sessionStorage,props.ownerId,id))
@@ -479,8 +476,8 @@ onBeforeUnmount(() => {
     <section class="script-library" :aria-label="text('脚本库', 'Script library')">
         <div class="library-return">
             <span>脚本编辑、运行与历史修复已迁到手机原画面的唯一脚本浮窗；此页暂为兼容管理入口。</span>
-            <Button v-if="targetCard" label="回手机原画面脚本浮窗" icon="pi pi-mobile" size="small"
-                @click="emit('to-card',targetCard)" />
+            <Button v-if="defaultPickerDevice" label="回手机原画面脚本浮窗" icon="pi pi-mobile" size="small"
+                @click="emit('to-card',defaultPickerDevice!)" />
             <small v-else>当前暂无授权可用的手机卡片，请先在设备工作台配置手机。</small>
         </div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
