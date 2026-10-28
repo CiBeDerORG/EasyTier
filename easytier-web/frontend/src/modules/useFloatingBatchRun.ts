@@ -87,7 +87,10 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
     let timer:ReturnType<typeof setTimeout>|null=null;
     let disposed=false;
     let cardResolver:((id:string)=>BatchPhoneHandle|undefined)|null=null;
-    const busy=computed(()=>['preparing','submitting','running','cancel_requested'].includes(state.phase));
+    // Unknown remote outcome is also a protected media interval. Until a read-only
+    // reconciliation proves completion, no filter/close/owner switch may retire
+    // the original PhoneCard viewer while phone actions might still run.
+    const busy=computed(()=>['preparing','submitting','running','cancel_requested','unknown'].includes(state.phase));
     // Async APIs update the reactive phase inside acceptRun()/refresh().
     // Reading it through a function prevents stale control-flow narrowing
     // across awaited calls without altering the actual state machine.
