@@ -994,7 +994,10 @@ class Runtime:
         if target["device_id"] != did:
             raise ExecutorError("target_mismatch", "强制清理目标与指定手机不一致", 409)
         endpoint = validation.endpoint(target)
-        same = lambda value: (value["device_id"] == did or validation.endpoint(value) == endpoint)
+        same = lambda value: (
+            value["owner_user_id"] == target["owner_user_id"]
+            and (value["device_id"] == did or validation.endpoint(value) == endpoint)
+        )
         import json
         async with self.admission:
             # Scope the forced release to this physical phone, regardless of
@@ -1090,6 +1093,15 @@ class Runtime:
             if not active:
                 with self.journal.transaction() as db:
                     db.execute("DELETE FROM prepared WHERE device_id=?", (did,))
+                    # An older run withdrawal can leave a target-wide refusal
+                    # even after every run is fenced and workers are reaped.
+                    # Only lift non-retirement refusals for the CURRENT exact
+                    # fingerprint; never revive a physically retired target.
+                    db.execute(
+                        "DELETE FROM target_refusals WHERE device_id=? AND fingerprint=? "
+                        "AND NOT EXISTS(SELECT 1 FROM retirements r WHERE "
+                        "r.device_id=? AND r.fingerprint=?)",
+                        (did,target["target_fingerprint"],did,target["target_fingerprint"]))
                     db.execute("UPDATE sessions SET state='closed',updated_at=? "
                                "WHERE id IN (" + ",".join("?" for _ in sessions) + ")",
                                (now(), *sessions)) if sessions else None

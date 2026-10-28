@@ -665,7 +665,8 @@ async function forceCleanupDevice(id:string){
             floatingBatch.acknowledgeDeviceCleanup(owner,id);
             // The executor has ended previous viewing sessions; the browser
             // must open a NEW one rather than keeping stale WebRTC status.
-            await cards.get(id)?.close().catch(()=>undefined);
+            const card=cards.get(id);
+            if(card)await card.close().catch(()=>undefined);
             notice.value='本机自动化占用已全部清理。请重新开启实时预览。';
             floatingRunMessages[id]='本机占用已清理：已停止 '+result.stopped_sessions
                 +' 个会话，处理 '+result.fenced_run_devices+' 个运行目标。';
