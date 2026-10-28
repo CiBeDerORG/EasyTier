@@ -398,9 +398,18 @@ export function createAutomationScriptWorkspace(
                     '请求结果；继续阻断重复修改，请人工核对版本与历史记录。';
                 return;
             }
+            if(proof.kind==='delete' && workspace.editingId===proof.scriptId){
+                if(!draftSync.canLeave())
+                    throw new Error('删除已经在服务器确认，但本页草稿仍在同步；先完成草稿同步再重新核对以安全解绑。');
+                draftSync.fork();
+                workspace.editingId=undefined;workspace.revision=undefined;
+                workspace.baseline=JSON.stringify({name:workspace.name,
+                    description:workspace.description,steps:workspace.steps});
+                onSelected();
+            }
             clearFormalReceipt(proof);state.formalPending=null;
             state.items=received.items;
-            state.error='已只读核对并确认原请求；没有重新发送写操作。';
+            state.error='已只读核对原请求，无新的正式写入；请重新选择当前正式修订。';
             // Reconciliation never silently overwrites locally edited steps.
         }catch(cause){if(owner===ownerId.value){
             state.error='只读核对失败：'+automationErrorMessage(cause);
