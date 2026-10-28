@@ -3,6 +3,7 @@ import { type Api, NetworkTypes, Utils } from 'easytier-frontend-lib';
 import { Md5 } from 'ts-md5';
 import type { NetworkMapConfig, NodeRuntimeInfo, ServiceEntry, ServiceInput } from './network-space';
 import type { DeleteManagedUserResult, ManagedUserList, UserAdminContext } from '../types/user-admin';
+import type { DeployCatalogApp, DeployCatalogIndex, DeployCatalogRefresh } from '../types/deploy-catalog';
 import type { PublicationMutationResult } from './publication-sync';
 import type {
     AddressPreviewInput, ApplyAddressInput, ApplyBindingInput, AssetAccount, AssetContextResponse,
@@ -425,6 +426,20 @@ export class ApiClient {
             `/assets/devices/${encodeURIComponent(id)}/agent/host/settings`,
             { software_root: softwareRoot }, { params: scope },
         );
+    }
+
+    /** Catalog reads are from controller SQLite only: no Git and no Agent probes. */
+    public async deployCatalogIndex(): Promise<DeployCatalogIndex> {
+        return this.client.get<unknown, DeployCatalogIndex>('/deploy/catalog');
+    }
+
+    public async deployCatalogDetail(id: string): Promise<DeployCatalogApp> {
+        return this.client.get<unknown, DeployCatalogApp>(`/deploy/catalog/${encodeURIComponent(id)}`);
+    }
+
+    /** The only Git operation; controller authorizes admins server-side. */
+    public async deployCatalogRefresh(): Promise<DeployCatalogRefresh> {
+        return this.client.post<unknown, DeployCatalogRefresh>('/deploy/catalog/refresh');
     }
 
     /** Explicit on-demand scan only. Stale snapshots must never authorize mutation. */
