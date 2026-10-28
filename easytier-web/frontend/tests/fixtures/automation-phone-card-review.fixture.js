@@ -39,6 +39,14 @@ const App={
           message:'浏览器模拟状态',sessionId:'mock-existing-session',
         }};
       },
+      setRunOutcome:outcome=>{
+        batch.phase='completed';batch.selected=[phone];
+        batch.run={id:'simulated-run',state:outcome,request_id:'simulated-request',
+          devices:[{device_id:phone,name:device.name,state:outcome,steps:[],current_step:null}],
+          script_snapshot:{steps:[...draft.steps]}};
+        batch.devices={[phone]:{name:device.name,phase:outcome,
+          message:'服务端执行结果模拟',runState:outcome}};
+      },
       edit:()=>{editing.value='step-one';card.value?.openAutomationPanel();},
       closeEdit:()=>{editing.value=null;},
       state:()=>({phase:batch.phase,sessionId:card.value?.getSessionId()}),
