@@ -668,11 +668,16 @@ async function forceCleanupDevice(id:string){
             const card=cards.get(id);
             if(card)await card.close().catch(()=>undefined);
             notice.value='本机自动化占用已全部清理。请重新开启实时预览。';
-            floatingRunMessages[id]='本机占用已清理：已停止 '+result.stopped_sessions
-                +' 个会话，处理 '+result.fenced_run_devices+' 个运行目标。';
+            floatingRunMessages[id]='本机占用已清理：停止 '+result.stopped_sessions
+                +' 个会话，处理 '+result.fenced_run_devices+' 个执行器目标；服务端释放 '
+                +(result.released_database_runs??0)+' 条运行占用、'
+                +(result.closed_database_sessions??0)+' 个旧会话。';
             await loadDevices();
         }else{
-            floatingRunMessages[id]=result.message || '有进程未能确认退出，请检查执行器日志后重试。';
+            const remaining=(result.remaining_runs??0)+(result.remaining_sessions??0);
+            floatingRunMessages[id]=(result.message || '占用仍未完全释放')+
+                (remaining ? '（剩余任务 '+(result.remaining_runs??0)+
+                    '，剩余会话 '+(result.remaining_sessions??0)+'）' : '');
             error.value=floatingRunMessages[id];
         }
     }catch(cause){

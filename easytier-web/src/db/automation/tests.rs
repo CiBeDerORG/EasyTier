@@ -389,6 +389,43 @@ async fn t49_rust_run_dispatch_fences_manual_restore_and_new_media_admission() {
 }
  
 #[tokio::test]
+async fn emergency_cleanup_releases_historical_device_id_still_holding_the_same_adb_port() {
+    let f=Fixture::new().await;
+    let phone=f.phone().await;
+    let target=f.store.target(f.owner,&phone).await.unwrap();
+    let key=super::target_key(&target).unwrap();
+    let (run,created)=f.store.create_run(f.owner,f.owner,&json!({
+        "request_id":Uuid::new_v4().to_string(),
+        "name":"stale ADB endpoint lease","steps":[valid_step()],
+        "device_ids":[phone],"parameters":{},"concurrency":1
+    })).await.unwrap();
+    assert!(created);
+    let run_id=run["id"].as_str().unwrap();
+    // A historical device identity was replaced but its immutable run target
+    // retained the same IP:port. Old cleanup selected only the *new* ID.
+    let old_device=Uuid::new_v4().to_string();
+    sqlx::query("UPDATE automation_run_devices SET device_id=? WHERE run_id=?")
+        .bind(&old_device).bind(run_id).execute(&f.db.inner()).await.unwrap();
+    sqlx::query("UPDATE automation_runs SET runner_identity=? WHERE id=?")
+        .bind(Uuid::new_v4().to_string()).bind(run_id)
+        .execute(&f.db.inner()).await.unwrap();
+
+    let denied=f.store.create_session(f.owner,f.owner,&phone,"wall").await.unwrap_err();
+    assert_eq!(denied.code,"device_busy");
+    let event=Uuid::new_v4().to_string();
+    let fenced=f.store.withdraw_endpoint_runs(f.owner,&phone,&key,&event).await.unwrap();
+    assert_eq!(fenced,1,"endpoint cleanup must include old device IDs");
+    let settled=f.store.confirm_endpoint_cleanup(f.owner,&phone,&key).await.unwrap();
+    assert_eq!(settled["admission_clear"],true);
+    assert_eq!(settled["released_runs"],1);
+    assert_eq!(settled["remaining_runs"],0);
+    assert_eq!(settled["remaining_sessions"],0);
+    assert_eq!(f.store.run(f.owner,run_id).await.unwrap()["devices"][0]["cleanup_confirmed"],true);
+    let preview=f.store.create_session(f.owner,f.owner,&phone,"wall").await.unwrap();
+    assert_eq!(preview["device_id"],phone);
+}
+
+#[tokio::test]
 async fn t49_saved_run_rejects_stale_revision_before_persisting_any_action() {
     let f=Fixture::new().await;
     let phone=f.phone().await;

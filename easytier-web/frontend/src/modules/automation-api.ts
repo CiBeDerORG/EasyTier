@@ -54,6 +54,8 @@ export default class AutomationApi {
     forceCleanup(ownerId:number,id:string) {
         return this.request<{device_id:string;executor_id:string;event_id:string;
             cleanup_confirmed:boolean;stopped_sessions:number;fenced_run_devices:number;
+            fenced_database_runs:number;released_database_runs?:number;closed_database_sessions?:number;
+            remaining_runs?:number;remaining_sessions?:number;
             cleaned_workers:number;message:string}>(
             `/devices/${encodeURIComponent(id)}/force-cleanup`,ownerId,'POST',{});
     }

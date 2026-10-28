@@ -187,12 +187,16 @@ pub(super) async fn force_cleanup_device(
     let device=id(&raw_device)?;
     let store=observed_store(&manager,&service,owner,Some(&[device.clone()])).await?;
     let target=store.target(owner,&device).await.map_err(store_error)?;
+    // The create_session gate checks device ID OR *this same* endpoint key.
+    // Cleaning only the current device ID previously left old ADB endpoint
+    // leases behind, and the UI incorrectly reported that cleanup succeeded.
+    let key=format!("default:{}:{}",target["ip"].as_str().unwrap_or_default(),
+        target["adb_port"].as_i64().unwrap_or_default());
     let remote=runner(&runtime)?;
     let executor=remote.identity().await?;
     let event=Uuid::new_v4().to_string();
-    // Persist a per-device refusal before the first remote operation.
-    // Queued or late requests therefore cannot perform a new authorized step.
-    store.withdraw_device_runs(owner,&device,&event).await.map_err(store_error)?;
+    let fenced=store.withdraw_endpoint_runs(owner,&device,&key,&event)
+        .await.map_err(store_error)?;
     let reply=remote.post(&format!("devices/{device}/force-cleanup"),&json!({
         "target":wire_target(&target),
         "expected_executor_id":executor,
@@ -201,23 +205,28 @@ pub(super) async fn force_cleanup_device(
     if reply["device_id"]!=device || reply["executor_id"]!=executor
         || reply["event_id"]!=event || !reply["cleanup_confirmed"].is_boolean() {
         return Err(error(StatusCode::BAD_GATEWAY,"runner_response_invalid",
-            "强制清理结果和本次手机请求不一致，未释放服务端占用。"));
+            "执行器强制清理响应不匹配，服务端占用保持待清理。"));
     }
-    if reply["cleanup_confirmed"]==true {
-        // Do not destroy recorded action outcomes or data. Only mark the
-        // physical cleanup confirmed; retain outcome_unknown as history.
-        // No unrelated phone's run or session is modified.
-        let mut tx=service.db.inner().begin().await
-            .map_err(|cause|store_error(cause.into()))?;
-        sqlx::query("UPDATE automation_run_devices SET cleanup_confirmed=1,updated_at=?,          state=CASE WHEN state IN ('dispatch_pending','queued','accepted','starting','running',          'cancel_requested','cleanup_pending') THEN 'interrupted' ELSE state END           WHERE device_id=? AND cleanup_confirmed=0 AND run_id IN           (SELECT id FROM automation_runs WHERE owner_user_id=?)")
-            .bind(chrono::Utc::now().to_rfc3339()).bind(&device).bind(owner)
-            .execute(&mut *tx).await.map_err(|cause|store_error(cause.into()))?;
-        sqlx::query("UPDATE automation_sessions SET state='closed',updated_at=?             WHERE owner_user_id=? AND device_id=? AND state NOT IN ('closed','failed')")
-            .bind(chrono::Utc::now().to_rfc3339()).bind(owner).bind(&device)
-            .execute(&mut *tx).await.map_err(|cause|store_error(cause.into()))?;
-        tx.commit().await.map_err(|cause|store_error(cause.into()))?;
+    let mut result=reply;
+    result["fenced_database_runs"]=json!(fenced);
+    if result["cleanup_confirmed"]==true {
+        let settled=store.confirm_endpoint_cleanup(owner,&device,&key).await
+            .map_err(store_error)?;
+        let clear=settled["admission_clear"]==true;
+        result["released_database_runs"]=settled["released_runs"].clone();
+        result["closed_database_sessions"]=settled["closed_sessions"].clone();
+        result["remaining_runs"]=settled["remaining_runs"].clone();
+        result["remaining_sessions"]=settled["remaining_sessions"].clone();
+        result["cleanup_confirmed"]=json!(clear);
+        result["message"]=if clear {
+            json!("执行器及服务端占用均已释放；现在可以重新打开手机实时画面。")
+        }else{
+            json!("执行器已释放，但数据库仍有同设备或同 ADB 端点的历史占用；未宣称清理成功，请检查返回的剩余数量。")
+        };
+    } else {
+        result["message"]=json!("执行器仍有进程未确认结束，服务端不释放该设备的占用。");
     }
-    Ok(Json(reply))
+    Ok(Json(result))
 }
 
 pub(super) async fn internal_authorize(State(manager): State<AppStateInner>, Extension(service): Service, Extension(config): Config, Extension(runtime): Runtime, headers: HeaderMap, input: Body) -> HttpResult<Json<Value>> {
