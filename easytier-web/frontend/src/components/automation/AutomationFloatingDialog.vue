@@ -15,6 +15,8 @@ const props = withDefaults(defineProps<{
     title: string;
     dirty?: boolean;
     closable?: boolean;
+    /** Wider read-only comparison tables, still bounded inside the phone screen. */
+    wide?: boolean;
 }>(), { dirty: false, closable: true });
 
 const emit = defineEmits<{
@@ -118,6 +120,7 @@ onBeforeUnmount(() => {
          PhoneCard fullscreen element, so no modal can escape to body. -->
     <Teleport v-if="portalTarget" :to="portalTarget">
         <section v-show="visible" ref="panel" class="automation-child-dialog"
+            :class="{ 'automation-child-dialog-wide': wide }"
             :style="[style, { zIndex }]" role="dialog" aria-modal="false"
             :aria-label="title" tabindex="-1"
             @pointerdown.stop="raise" @pointermove.stop @pointerup.stop
@@ -164,6 +167,7 @@ onBeforeUnmount(() => {
     background:var(--console-panel);color:var(--p-text-color);
     box-shadow:0 12px 38px #000a;
 }
+.automation-child-dialog-wide{width:min(960px,calc(100% - 16px))}
 .automation-child-dialog:focus-visible{outline:2px solid var(--p-primary-color);outline-offset:1px}
 .automation-child-titlebar{
     display:flex;align-items:center;justify-content:space-between;gap:8px;

@@ -1065,7 +1065,7 @@ onBeforeUnmount(() => {
             <span>{{trialToast.message}}</span>
             <button type="button" title="关闭提示" aria-label="关闭提示" @click="trialToast=null"><i class="pi pi-times" /></button>
         </div>
-        <AutomationFloatingDialog :visible="trialCompare !== null"
+        <AutomationFloatingDialog :visible="trialCompare !== null" wide
             :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
             title="单步骤定位 · 多控件匹配对比" @close="trialCompare=null">
             <TrialLocatorCompare v-if="trialCompare" :diagnosis="trialCompare" />
