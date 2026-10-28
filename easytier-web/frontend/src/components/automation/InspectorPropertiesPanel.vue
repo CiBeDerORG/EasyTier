@@ -3,6 +3,8 @@ import { computed } from 'vue';
 import { Button, InputText, Tag } from 'primevue';
 import type { AutomationHierarchyNode, AutomationSelector, AutomationStep } from '../../types/automation';
 import type { LocatorCandidate } from '../../modules/automation-locator-candidates';
+import type { FilterOption } from '../../modules/automation-cross-filter';
+import InspectorCrossFilter from './InspectorCrossFilter.vue';
 import { inspectorActionLabels, type InspectorAction } from '../../modules/automation-inspector-actions';
 
 type LocatorMode = 'resource_id' | 'text' | 'description' | 'composite' | 'xpath' | 'coordinates';
@@ -21,6 +23,13 @@ const props = defineProps<{
     clickableParent: AutomationHierarchyNode | null;
     locatorCandidates: LocatorCandidate[];
     selectedCandidate: string | null;
+    filterOptions: FilterOption[];
+    activeFilterIds: string[];
+    filteredNodes: AutomationHierarchyNode[];
+    allNodes: AutomationHierarchyNode[];
+    filterSelector: AutomationSelector | null;
+    filterError: string;
+    filterVerified: boolean;
     anchorPicking: boolean;
     anchorName: string;
     verifying: boolean;
@@ -43,6 +52,10 @@ const emit = defineEmits<{
     'toggle-branch': [id: number];
     'select-node': [id: number];
     'choose-candidate': [id: string];
+    'toggle-filter': [id: string,checked: boolean];
+    'verify-filter': [];
+    'preview-match': [id: number];
+    'focus-parent': [id: number];
     'start-anchor-pick': [];
     'clear-anchor': [];
     'change-mode': [mode: LocatorMode];
@@ -110,29 +123,42 @@ function title(node: AutomationHierarchyNode) {
                         <div class="property"><span>状态</span><code>已启用：{{ selected.enabled ? "是" : "否" }} / 可滚动：{{ selected.scrollable ? "是" : "否" }}</code></div>
                         <div class="property"><span>扩展状态</span><code>支持长按：{{ selected.long_clickable == null ? "未知" : selected.long_clickable ? "是" : "否" }} / 可聚焦：{{ selected.focusable == null ? "未知" : selected.focusable ? "是" : "否" }} / 可勾选：{{ selected.checkable == null ? "未知" : selected.checkable ? "是" : "否" }}</code></div>
                         <div class="property"><span>范围</span><code>{{ selected.bounds.left }}, {{ selected.bounds.top }} → {{ selected.bounds.right }}, {{ selected.bounds.bottom }}</code></div>
-                        <div class="parent-recommendation">
-                            <span>关联锚点：{{ anchorName || '自动查找' }}。手动选取时原操作目标保持不变。</span>
-                            <Button :label="anchorPicking ? '请在画面或树中选择锚点' : '手动指定关联控件'"
-                                text size="small" :disabled="loading || snapshotTruncated || anchorPicking"
-                                @click="emit('start-anchor-pick')" />
-                            <Button v-if="anchorName || anchorPicking" label="清除关联锚点" text size="small"
-                                @click="emit('clear-anchor')" />
-                        </div>
-                        <div class="locator-recommendations" aria-label="候选控件定位">
-                            <strong>候选定位条件（需人工确认）</strong>
-                            <small v-if="snapshotTruncated">控件树已截断，无法验证唯一性，请刷新。</small>
-                            <small v-else-if="!locatorCandidates.length">没有安全候选，可改选其他控件。</small>
-                            <button v-for="item in locatorCandidates.slice(0, 8)" :key="item.id" type="button"
-                                class="candidate-row" :class="{ chosen: selectedCandidate === item.id }"
-                                :disabled="!item.unique || verifying" @click="emit('choose-candidate', item.id)">
-                                <span>{{ item.label }} · {{ item.unique ? '唯一' : '匹配 ' + item.matches + ' 个' }}</span>
-                                <small>{{ selectedCandidate === item.id
-                                    ? verifying ? '正在验证' : confirmedLocator ? '已验证' : '未通过验证'
-                                    : item.unique ? item.selector.xpath ? '选择并验证' : '选择' : '不可用' }}</small>
-                            </button>
-                            <small>请点选上方唯一候选进行确认。仅验证当前快照；不使用 instance 序号。界面变化后请刷新。</small>
-                        </div>
-                        <label class="locator-label" for="ui-inspector-locator">定位方式</label>
+                        <InspectorCrossFilter
+                            :selected-id="selectedId" :options="filterOptions" :active-ids="activeFilterIds"
+                            :matches="filteredNodes" :nodes="allNodes" :selector="filterSelector"
+                            :filter-error="filterError" :verified="filterVerified" :verifying="verifying"
+                            :truncated="snapshotTruncated"
+                            @toggle="(id,checked) => emit('toggle-filter',id,checked)"
+                            @verify="emit('verify-filter')"
+                            @preview="id => emit('preview-match',id)"
+                            @focus-parent="id => emit('focus-parent',id)" />
+                        <details class="legacy-candidates">
+                            <summary>高级：自动关联锚点与快捷定位建议（可选）</summary>
+                            <div class="parent-recommendation">
+                                <span>关联锚点：{{ anchorName || '自动查找' }}。手动选取时不改变操作目标。</span>
+                                <Button :label="anchorPicking ? '请在画面或树中选择锚点' : '手动指定关联控件'"
+                                    text size="small" :disabled="loading || snapshotTruncated || anchorPicking"
+                                    @click="emit('start-anchor-pick')" />
+                                <Button v-if="anchorName || anchorPicking" label="清除关联锚点" text size="small"
+                                    @click="emit('clear-anchor')" />
+                            </div>
+                            <div class="locator-recommendations" aria-label="候选控件定位">
+                                <strong>候选定位条件（需人工确认）</strong>
+                                <small v-if="snapshotTruncated">控件树已截断，无法验证唯一性，请刷新。</small>
+                                <small v-else-if="!locatorCandidates.length">没有安全候选，可改选其他控件。</small>
+                                <button v-for="item in locatorCandidates.slice(0, 8)" :key="item.id" type="button"
+                                    class="candidate-row" :class="{ chosen: selectedCandidate === item.id }"
+                                    :disabled="!item.unique || verifying" @click="emit('choose-candidate', item.id)">
+                                    <span>{{ item.label }} · {{ item.unique ? '唯一' : '匹配 ' + item.matches + ' 个' }}</span>
+                                    <small>{{ selectedCandidate === item.id
+                                        ? verifying ? '正在验证' : confirmedLocator ? '已验证' : '未通过验证'
+                                        : item.unique ? item.selector.xpath ? '选择并验证' : '选择' : '不可用' }}</small>
+                                </button>
+                                <small>请点选上方唯一候选进行确认。仅验证当前快照；不使用 instance 序号。界面变化后请刷新。</small>
+                            </div>
+
+                        </details>
+                        <label class="locator-label" for="ui-inspector-locator">执行定位方式（默认使用上方的多选条件）</label>
                         <select id="ui-inspector-locator" :value="mode" class="locator-select" @change="emit('change-mode', ($event.target as HTMLSelectElement).value as LocatorMode)">
                             <option v-for="option in modeOptions" :key="option.value" :value="option.value" :disabled="!option.unique">{{ option.label }}{{ option.unique ? '' : ' · 不可用或不唯一' }}</option>
                         </select>
@@ -141,7 +167,7 @@ function title(node: AutomationHierarchyNode) {
                             <Button :label="coordinateConfirmed ? '已确认坐标' : '确认使用坐标'"
                                 outlined size="small" :disabled="!coordinatesAllowed || coordinateConfirmed" @click="emit('confirm-coordinates')" />
                         </div>
-                        <p v-else-if="mode === 'composite'" class="hint">已确认的唯一组合条件：{{ JSON.stringify(confirmedLocator ?? {}) }}</p>
+                        <p v-else-if="mode === 'composite'" class="hint">已配置的交叉过滤条件：{{ JSON.stringify(confirmedLocator ?? {}) }}</p>
                         <p v-else-if="mode === 'xpath'" class="hint"><code>{{ confirmedLocator?.xpath || suggestedXpath }}</code></p>
                         <div v-if="replaceStep" class="step-actions">
                             <Button label="更新当前步骤控件" icon="pi pi-check" size="small"

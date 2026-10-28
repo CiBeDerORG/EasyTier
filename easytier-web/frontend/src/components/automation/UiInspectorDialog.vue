@@ -9,6 +9,7 @@ import type { AutomationDevice, AutomationHierarchy, AutomationHierarchyNode, Au
 import type { StepTarget } from '../../modules/automation-step-target';
 import { locatorIsUnique, rankLocatorCandidates } from '../../modules/automation-locator-candidates';
 import { rankRelationalCandidates } from '../../modules/automation-relational-locator';
+import { buildFilterOptions, filterHierarchy, buildCrossFilterSelector } from '../../modules/automation-cross-filter';
 import InspectorPropertiesPanel from './InspectorPropertiesPanel.vue';
 import type { InspectorAction } from '../../modules/automation-inspector-actions';
 import { matchPickerPoint } from '../../modules/automation-pick-engine';
@@ -72,6 +73,16 @@ const nodeIndex = computed(() => new Map((snapshot.value?.nodes ?? []).map(node 
 const parentIds = computed(() => new Set((snapshot.value?.nodes ?? [])
     .map(node => node.parent_id).filter((value): value is number => value !== null)));
 const selected = computed(() => selectedId.value === null ? null : nodeIndex.value.get(selectedId.value) ?? null);
+// These are the actual user-chosen AND conditions, not a pre-generated 1/2/3-field candidate.
+const activeFilterIds = ref<string[]>([]);
+const filterOptions = computed(() => snapshot.value && selectedId.value !== null
+    ? buildFilterOptions(snapshot.value,selectedId.value) : []);
+const filteredNodes = computed(() => snapshot.value
+    ? filterHierarchy(snapshot.value,filterOptions.value,activeFilterIds.value) : []);
+const crossFilterBuild = computed(() => buildCrossFilterSelector(filterOptions.value,activeFilterIds.value));
+const crossFilterUnique = computed(() => selectedId.value !== null && !snapshot.value?.truncated
+    && filteredNodes.value.length === 1 && filteredNodes.value[0]?.id === selectedId.value);
+const previewNodeId = ref<number | null>(null);
 const manualAnchorId = ref<number | null>(null);
 const anchorPicking = ref(false);
 const verifiedXPath = ref<string | null>(null);
@@ -91,7 +102,18 @@ const locatorCandidates = computed(() => {
 const selectedCandidate = ref<string | null>(null);
 // Coordinates are a deliberate, separately confirmed fallback, never a default.
 const coordinateConfirmed = ref(false);
-const confirmedLocator = computed(() => {
+const confirmedLocator = computed<AutomationSelector | null>(() => {
+    if (activeFilterIds.value.length) {
+        if (!crossFilterUnique.value || !crossFilterBuild.value.selector
+            || mode.value === 'coordinates') return null;
+        const filtered = crossFilterBuild.value.selector;
+        if (filtered.xpath) {
+            return verifiedXPath.value === filtered.xpath && mode.value === 'xpath'
+                && !verifying.value && snapshotFresh() ? filtered : null;
+        }
+        return snapshot.value && selectedId.value !== null
+            && locatorIsUnique(snapshot.value, selectedId.value, filtered) ? filtered : null;
+    }
     const candidate = locatorCandidates.value.find(item => item.id === selectedCandidate.value && item.unique);
     if (!candidate || !snapshot.value || selectedId.value === null) return null;
     if (candidate.selector.xpath) {
@@ -189,8 +211,57 @@ function onLocatorModeChange() {
     coordinateConfirmed.value = false;
 }
 function changeLocatorMode(value: LocatorMode) {
+    // This switch is explicit, especially when the user chooses coordinates.
     mode.value = value;
     onLocatorModeChange();
+}
+function toggleFilter(id:string, checked:boolean) {
+    if (!filterOptions.value.some(x=>x.id===id) || !selected.value) return;
+    const next=new Set(activeFilterIds.value);
+    if (checked) next.add(id); else next.delete(id);
+    ++verificationGeneration;verifiedXPath.value=null;verifying.value=false;
+    selectedCandidate.value=null;coordinateConfirmed.value=false;previewNodeId.value=null;
+    activeFilterIds.value=[...next];
+    mode.value=crossFilterBuild.value.selector?.xpath?'xpath':'composite';
+    feedback.value = next.size
+        ? '已更新交叉过滤：当前匹配 '+filteredNodes.value.length+' 个目标。'
+        : '已清除筛选条件，请勾选需要组合的属性。';
+}
+async function verifyFilter() {
+    const shot=snapshot.value,node=selected.value,selector=crossFilterBuild.value.selector;
+    if (!shot || !node || !selector?.xpath || !crossFilterUnique.value || !snapshotFresh()) {
+        feedback.value='请先将过滤结果缩小至当前选中的唯一控件，并刷新过期快照。';
+        return;
+    }
+    ++verificationGeneration;const generation=verificationGeneration;
+    verifiedXPath.value=null;verifying.value=true;mode.value='xpath';
+    feedback.value='正在从手机重新采集 XML 并验证交叉过滤条件（只读）。';
+    try {
+        const result=await api.verifyLocator(props.ownerId,props.device.id,{
+            xpath:selector.xpath,expected_bounds:node.bounds,width:shot.width,height:shot.height,
+        });
+        if(generation!==verificationGeneration || !props.visible || selectedId.value!==node.id
+            || crossFilterBuild.value.selector?.xpath!==selector.xpath) return;
+        if(!snapshotFresh() || !result.verified || result.device_id!==props.device.id
+            || result.target_fingerprint!==props.device.target_fingerprint) {
+            feedback.value='验证未命中原目标或页面发生变化；请重新采集后调整过滤条件。';
+            return;
+        }
+        verifiedXPath.value=selector.xpath;
+        feedback.value='交叉过滤已通过执行器验证：唯一匹配原目标，可以配置操作。';
+    } catch(cause) {
+        if(generation===verificationGeneration) feedback.value='过滤条件验证失败：'+automationErrorMessage(cause);
+    } finally {
+        if(generation===verificationGeneration) verifying.value=false;
+    }
+}
+function previewMatch(id:number) {
+    if(!snapshot.value || !nodeIndex.value.has(id) || snapshot.value.truncated)return;
+    previewNodeId.value=id;
+}
+function focusParent(id:number) {
+    // Inspect/highlight parent without replacing the original action target.
+    previewMatch(id);
 }
 const nativeFields = ['resource_id', 'text', 'description', 'class_name', 'package'] as const;
 type NativeField = typeof nativeFields[number];
@@ -245,9 +316,10 @@ const modeOptions = computed(() => {
         { value: 'resource_id', label: 'Resource ID', unique: false },
         { value: 'text', label: '控件文字', unique: false },
         { value: 'description', label: '无障碍描述', unique: false },
-        { value: 'composite', label: '组合条件（候选推荐）', unique: locatorCandidates.value.some(item =>
-            item.unique && !item.selector.xpath && (item.id.includes('+') || !['resource_id', 'text', 'description'].includes(item.id))) },
-        { value: 'xpath', label: '关联 XPath（执行器验证后使用）', unique: !!verifiedXPath.value },
+        { value: 'composite', label: '属性交叉过滤', unique: (crossFilterUnique.value && !!crossFilterBuild.value.selector
+            && !crossFilterBuild.value.selector.xpath)
+            || locatorCandidates.value.some(item => item.unique && !item.selector.xpath) },
+        { value: 'xpath', label: '层级条件 XPath（验证后使用）', unique: !!verifiedXPath.value },
         { value: 'coordinates', label: '画面坐标（手动兜底）', unique: coordinatesAllowed.value },
     ];
     for (const choice of choices) {
@@ -275,7 +347,7 @@ const canReplace = computed(() => {
     return true;
 });
 const nodeHighlight = computed<InspectorCardHighlight | null>(() => {
-    const node = selected.value, shot = snapshot.value;
+    const node = previewNodeId.value === null ? selected.value : nodeIndex.value.get(previewNodeId.value), shot = snapshot.value;
     if (!node || !shot || !compatibleVideo.value || dragPickMode.value || shot.truncated
         || response.value?.target_fingerprint !== props.device.target_fingerprint) return null;
     return { ...node.bounds, sourceWidth: shot.width, sourceHeight: shot.height };
@@ -297,6 +369,7 @@ function selectNode(id: number) {
         return;
     }
     manualAnchorId.value = null;
+    activeFilterIds.value=[];previewNodeId.value=null;
     onLocatorModeChange();
     selectedId.value = id; feedback.value = '';
     const expanded = new Set(collapsedIds.value);
@@ -323,6 +396,7 @@ async function refresh() {
     ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
     manualAnchorId.value = null; anchorPicking.value = false;
     response.value = null; selectedId.value = null; selectedCandidate.value = null; coordinateConfirmed.value = false; collapsedIds.value = [];
+    activeFilterIds.value=[];previewNodeId.value=null;
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = ''; loading.value = true;
     try {
@@ -429,6 +503,7 @@ watch(selected, node => {
     coordinateConfirmed.value = false;
     verifiedXPath.value = null;
     selectedCandidate.value = null;
+    activeFilterIds.value=[];previewNodeId.value=null;
     // Never automatically fall back to screen coordinates when all selectors are ambiguous.
     mode.value = (['resource_id', 'description', 'text', 'composite'] as const)
         .find(key => modeOptions.value.some(option => option.value === key && option.unique)) ?? 'resource_id';
@@ -448,6 +523,7 @@ function clearAnchor() {
 async function chooseCandidate(id: string) {
     const candidate = locatorCandidates.value.find(item => item.id === id && item.unique);
     if (!candidate || !snapshot.value || selectedId.value === null || !snapshotFresh()) return;
+    activeFilterIds.value=[];previewNodeId.value=null;
     const shot = snapshot.value, node = selected.value;
     if (!node) return;
     ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
@@ -553,6 +629,7 @@ watch([() => props.visible, () => props.device.id, () => props.device.target_fin
     ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
     anchorPicking.value = false; manualAnchorId.value = null;
     response.value = null; selectedId.value = null; selectedCandidate.value = null;
+    activeFilterIds.value=[];previewNodeId.value=null;
     coordinateConfirmed.value = false; collapsedIds.value = []; loading.value = false;
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = '';
@@ -564,6 +641,7 @@ watch([() => props.screenWidth, () => props.screenHeight], () => {
     anchorPicking.value=false; manualAnchorId.value=null;
     dragPickMode.value=false;dragStart.value=null;dragEnd.value=null;
     selectedId.value=null;selectedCandidate.value=null;
+    activeFilterIds.value=[];previewNodeId.value=null;
     response.value=null; ++requestGeneration; loading.value=false;
     if (props.visible) {
         feedback.value='原画面分辨率已变化，旧树快照作废，正在重新读取控件树。';
@@ -615,6 +693,10 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                     :collapsed-ids="collapsedIds" :search="search" :loading="loading"
                     :lineage="lineage" :clickable-parent="clickableParent"
                     :locator-candidates="locatorCandidates" :selected-candidate="selectedCandidate"
+                    :filter-options="filterOptions" :active-filter-ids="activeFilterIds"
+                    :filtered-nodes="filteredNodes" :all-nodes="snapshot?.nodes ?? []"
+                    :filter-selector="crossFilterBuild.selector" :filter-error="crossFilterBuild.error ?? ''"
+                    :filter-verified="!!crossFilterBuild.selector?.xpath && verifiedXPath === crossFilterBuild.selector.xpath"
                     :anchor-picking="anchorPicking" :anchor-name="manualAnchorName" :verifying="verifying"
                     :mode="mode" :mode-options="modeOptions" :active-mode="activeMode"
                     :coordinate-confirmed="coordinateConfirmed" :coordinates-allowed="coordinatesAllowed"
@@ -624,6 +706,8 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                     :preferred-action="preferredAction"
                     @update-search="search = $event" @toggle-branch="toggleBranch"
                     @select-node="selectNode" @choose-candidate="chooseCandidate"
+                    @toggle-filter="toggleFilter" @verify-filter="verifyFilter"
+                    @preview-match="previewMatch" @focus-parent="focusParent"
                     @start-anchor-pick="startAnchorPick" @clear-anchor="clearAnchor"
                     @change-mode="changeLocatorMode" @confirm-coordinates="confirmCoordinates"
                     @replace-target="replaceTarget" @add-step="add"
