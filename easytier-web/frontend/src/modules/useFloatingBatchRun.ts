@@ -88,6 +88,10 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
     let disposed=false;
     let cardResolver:((id:string)=>BatchPhoneHandle|undefined)|null=null;
     const busy=computed(()=>['preparing','submitting','running','cancel_requested'].includes(state.phase));
+    // Async APIs update the reactive phase inside acceptRun()/refresh().
+    // Reading it through a function prevents stale control-flow narrowing
+    // across awaited calls without altering the actual state machine.
+    const phaseIs=(...phases:BatchPhase[]):boolean=>phases.includes(state.phase);
     // Per-device preparation updates are independent: a slow UiAutomator2
     // install on A must not hide B's ready/failed state.
     watch(preparation.state, observations=>{
@@ -189,7 +193,7 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
             acceptRun(match);
             clearBatchReceipt(window.sessionStorage,receipt);
             state.pendingReceipt=null;state.error='';
-            if(state.phase==='running'||state.phase==='cancel_requested')void refresh();
+            if(phaseIs('running','cancel_requested'))void refresh();
         }catch(error){
             state.phase='unknown';
             state.error='只读恢复失败，未发送任何新动作：'+automationErrorMessage(error);
@@ -314,7 +318,7 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                 acceptRun(run,intent);
                 clearBatchReceipt(window.sessionStorage,proof);
                 state.pendingReceipt=null;
-                if(state.phase==='running'||state.phase==='cancel_requested')void refresh();
+                if(phaseIs('running','cancel_requested'))void refresh();
             }catch(error){
                 if(!valid())return;
                 // 400/422 prove validation failed, not that a phone action ran.
@@ -326,7 +330,7 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
             }
         }catch(error){
             if(!valid())return;
-            if(state.phase!=='unknown')state.phase=state.pendingReceipt?'unknown':'failed';
+            if(!phaseIs('unknown'))state.phase=state.pendingReceipt?'unknown':'failed';
             state.error=automationErrorMessage(error)+(state.pendingReceipt
                 ? '；可能已接收，必须只读查询，绝不自动再次发送。'
                 : '；本次未提交完整脚本动作。');
@@ -345,13 +349,13 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
             const result=await api.cancelRunDevice(owner,run.id,deviceId);
             if(!still(owner,epoch))return;
             acceptRun(result);
-            if(state.phase==='running'||state.phase==='cancel_requested')void refresh();
+            if(phaseIs('running','cancel_requested'))void refresh();
         }catch(error){
             if(!still(owner,epoch))return;
             // Never automatically retry a possibly accepted stop action.
             progress(deviceId,'outcome_unknown','单机停止回执未知；请仅查询执行历史');
             state.error='单机停止结果未确认，请勿重复请求：'+automationErrorMessage(error);
-            if(state.phase==='running'||state.phase==='cancel_requested')void refresh();
+            if(phaseIs('running','cancel_requested'))void refresh();
         }
     }
     async function cancelAll(){
@@ -364,8 +368,8 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
             if(!still(owner,epoch))return;
             acceptRun(result);
             // Cancellation requested != stopped; keep polling actual cleanup.
-            if(state.phase==='running')state.phase='cancel_requested';
-            if(state.phase==='cancel_requested')void refresh();
+            if(phaseIs('running'))state.phase='cancel_requested';
+            if(phaseIs('cancel_requested'))void refresh();
         }catch(error){
             if(!still(owner,epoch))return;
             state.phase='unknown';state.error='停止请求结果未确认，不能自动重发：'+automationErrorMessage(error);
