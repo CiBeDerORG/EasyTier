@@ -39,6 +39,9 @@ const label=(state:string)=>{
         completed:'执行已结束',failed:'准备/提交失败',unknown:'结果未知，禁止再次提交',
         queued:'排队中',viewing:'原画面检查',suspending:'只读移交',ready:'已准备',
         succeeded:'成功',cancelled:'已取消',outcome_unknown:'结果未知',cleanup_pending:'清理待确认',
+        binding:'核对手机绑定',adb_check:'检查ADB',connecting:'连接ADB',
+        helper_check:'检查控件组件',helper_start:'启动UiAutomator2',
+        helper_wait:'初始化控件中',failed_preparation:'初始化失败',
     };
     return texts[state]||state;
 };
