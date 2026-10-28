@@ -90,22 +90,31 @@ pub(super) async fn verify_locator(
     let owner = owner(query)?;
     let did = id(&raw_id)?;
     let payload = body(input)?;
-    exact_fields(&payload, &["xpath", "expected_bounds", "width", "height"])?;
+    exact_fields(&payload, &["xpath", "expected_bounds", "width", "height", "preview_only"])?;
+    let preview=payload["preview_only"].as_bool()==Some(true);
+    if payload.get("preview_only").is_some_and(|v|!v.is_boolean())
+        || (preview && payload.get("expected_bounds").is_some())
+        || (!preview && payload.get("expected_bounds").is_none()) {
+        return Err(error(StatusCode::UNPROCESSABLE_ENTITY,"selector_invalid","定位复核参数不匹配"));
+    }
     let expression = payload["xpath"].as_str().filter(|s| (1..=512).contains(&s.len())
         && (s.starts_with('/') || s.starts_with('(')))
         .ok_or_else(||error(StatusCode::UNPROCESSABLE_ENTITY,"xpath_invalid","关联定位表达式无效"))?;
     let bounds=&payload["expected_bounds"];
-    exact_fields(bounds, &["left","top","right","bottom"])?;
-    if ["left","top","right","bottom"].iter().any(|k|bounds[*k].as_u64().is_none_or(|n|n>16384))
+    if !preview { exact_fields(bounds, &["left","top","right","bottom"])?; }
+    if (!preview && ["left","top","right","bottom"].iter().any(|k|bounds[*k].as_u64().is_none_or(|n|n>16384)))
         || payload["width"].as_u64().is_none_or(|n|!(1..=16384).contains(&n))
         || payload["height"].as_u64().is_none_or(|n|!(1..=16384).contains(&n)) {
         return Err(error(StatusCode::UNPROCESSABLE_ENTITY,"selector_geometry_invalid","控件区域或屏幕尺寸无效"));
     }
     let target=observed(&auth,&manager,&service,&config,owner,&did).await?;
-    let result=runner(&runtime)?.post("automation/locator-verify",&json!({
+    let mut outbound=json!({
         "target":wire_target(&target), "xpath":expression,
-        "expected_bounds":bounds, "width":payload["width"], "height":payload["height"],
-    })).await?;
+        "width":payload["width"], "height":payload["height"],
+    });
+    if preview { outbound["preview_only"]=json!(true); }
+    else { outbound["expected_bounds"]=bounds.clone(); }
+    let result=runner(&runtime)?.post("automation/locator-verify",&outbound).await?;
     if result["device_id"]!=did || result["target_fingerprint"]!=target["target_fingerprint"]
         || !result["verified"].is_boolean() {
         return Err(error(StatusCode::BAD_GATEWAY,"runner_response_invalid","定位验证的设备身份不一致"));

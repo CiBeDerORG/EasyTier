@@ -60,7 +60,8 @@ export default class AutomationApi {
         return this.request<AutomationComponentStatus>(`/devices/${encodeURIComponent(id)}/automation-status`,ownerId);
     }
     verifyLocator(ownerId: number, id: string, input: {
-        xpath: string; expected_bounds: AutomationHierarchyNode['bounds']; width: number; height: number;
+        xpath: string; expected_bounds?: AutomationHierarchyNode['bounds']; width: number; height: number;
+        preview_only?: true;
     }) {
         return this.request<{ device_id: string; target_fingerprint: string; verified: boolean;
             reason: string; bounds: AutomationHierarchyNode['bounds'] | null }>(

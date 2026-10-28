@@ -1603,10 +1603,36 @@ async function demoCardStep(deviceId:string,stepId:string) {
     try {
         const hierarchy=await api.hierarchy(owner,deviceId);
         if(!stillCurrent()) return;
-        const result=locateReadOnlyStep(hierarchy,step,{
-            deviceId,targetFingerprint:binding,
-            videoWidth:video.width,videoHeight:video.height,
-        });
+        let result: LocatorDemoResult;
+        if (step.selector?.xpath) {
+            // Saved relational XPath must be evaluated on fresh executor XML,
+            // not approximated from the simplified browser hierarchy.
+            const preview=await api.verifyLocator(owner,deviceId,{
+                xpath:step.selector.xpath,
+                width:hierarchy.snapshot.width,height:hierarchy.snapshot.height,
+                preview_only:true,
+            });
+            if(!stillCurrent())return;
+            if(preview.device_id!==deviceId || preview.target_fingerprint!==binding)
+                throw new Error('定位演示的设备身份已变化');
+            const status = preview.verified && preview.bounds ? 'one'
+                : preview.reason==='ambiguous' ? 'many' : 'none';
+            result={
+                status,count:status==='one'?1:status==='many'?2:0,
+                message:status==='one'
+                    ? '关联 XPath 在当前页面唯一匹配；仅高亮，不代表已证明历史业务身份。'
+                    : status==='many' ? 'XPath 匹配多个控件，已拒绝高亮。'
+                    : 'XPath 未找到当前目标，请重新拾取或检查关联锚点。',
+                capturedAt:hierarchy.captured_at,
+                sourceWidth:hierarchy.snapshot.width,sourceHeight:hierarchy.snapshot.height,
+                bounds:status==='one'?preview.bounds:null,
+            };
+        } else {
+            result=locateReadOnlyStep(hierarchy,step,{
+                deviceId,targetFingerprint:binding,
+                videoWidth:video.width,videoHeight:video.height,
+            });
+        }
         locatorDemos[deviceId]={token,stepId,loading:false,result,error:''};
         if(result.status==='one') {
             locatorDemoTimers.set(deviceId,setTimeout(()=>{

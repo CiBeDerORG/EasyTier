@@ -253,17 +253,21 @@ class Runtime:
 
     async def verify_locator(self, body):
         """Read-only XPath verification for the last manually selected node."""
-        validation.object_fields(body, {"target", "xpath", "expected_bounds", "width", "height"},
-                                 {"target", "xpath", "expected_bounds", "width", "height"})
+        validation.object_fields(body, {"target", "xpath", "expected_bounds", "width", "height", "preview_only"},
+                                 {"target", "xpath", "width", "height"})
+        preview = body.get("preview_only", False)
+        if type(preview) is not bool or (preview and "expected_bounds" in body) or (
+                not preview and "expected_bounds" not in body):
+            raise ExecutorError("selector_invalid", "预览模式与目标区域参数不匹配", 422)
         target = validation.target(body["target"])
         self.journal.ensure_target(target)
         expression = body["xpath"]
         if not isinstance(expression, str) or not expression.startswith(("/", "(")) or len(expression.encode("utf-8")) > 512:
             raise ExecutorError("xpath_invalid", "关联定位 XPath 不合法", 422)
-        expected = body["expected_bounds"]
-        if not isinstance(expected, dict) or set(expected) != {"left", "top", "right", "bottom"} or any(
+        expected = body.get("expected_bounds")
+        if not preview and (not isinstance(expected, dict) or set(expected) != {"left", "top", "right", "bottom"} or any(
                 type(expected.get(k)) is not int or expected[k] < 0 or expected[k] > 16384
-                for k in expected):
+                for k in expected)):
             raise ExecutorError("selector_geometry_invalid", "目标控件区域无效", 422)
         width, height = body["width"], body["height"]
         if type(width) is not int or type(height) is not int or not 1 <= width <= 16384 or not 1 <= height <= 16384:
@@ -277,7 +281,7 @@ class Runtime:
             self.journal, "locator-verify:" + str(uuid4()), target,
             {"id": str(uuid4()), "type": "locator_verify", "xpath": expression,
              "expected_bounds": expected, "width": width, "height": height,
-             "timeout_ms": 20000}, {}, asyncio.Event(), self.settings.adb_binary)
+             "preview_only": preview, "timeout_ms": 20000}, {}, asyncio.Event(), self.settings.adb_binary)
 
     async def automation_status(self, body):
         validation.object_fields(body, {"target"}, {"target"})

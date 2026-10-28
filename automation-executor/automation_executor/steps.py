@@ -109,9 +109,17 @@ def execute(target, step, parameters, artifact_path=None):
                 return {"device_id": target["device_id"], "target_fingerprint": target["target_fingerprint"],
                         "verified": False, "reason": "ambiguous", "bounds": None}
             raise StepFailure(exc.code, exc.message) from None
+        same_size = width == step["width"] and height == step["height"]
+        if step.get("preview_only") is True:
+            # A saved XPath may be previewed without knowing its old bounds;
+            # this proves CURRENT uniqueness only, not business identity.
+            unique = bounds is not None and same_size
+            return {"device_id": target["device_id"], "target_fingerprint": target["target_fingerprint"],
+                    "verified": bool(unique), "reason": "unique_preview" if unique else "snapshot_changed",
+                    "bounds": bounds if unique else None}
         expected = step["expected_bounds"]
         # A different display or moved target requires a new user pick.
-        same = bounds is not None and width == step["width"] and height == step["height"] and all(
+        same = bounds is not None and same_size and all(
             abs(bounds[k] - expected[k]) <= 3 for k in ("left", "top", "right", "bottom"))
         return {"device_id": target["device_id"], "target_fingerprint": target["target_fingerprint"],
                 "verified": bool(same), "reason": "verified" if same else "snapshot_changed",

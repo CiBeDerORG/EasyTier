@@ -169,6 +169,20 @@ class AdvancedExecutionTests(unittest.TestCase):
         self.assertFalse(ambiguous["verified"])
         self.assertEqual(ambiguous["reason"], "ambiguous")
 
+    def test_saved_xpath_preview_is_read_only_and_uses_current_geometry(self):
+        xml = '''<hierarchy><node class="android.widget.FrameLayout" bounds="[0,0][320,640]">
+          <node class="android.widget.TextView" text="唯一锚点" bounds="[0,0][80,40]"/>
+          <node class="android.widget.FrameLayout" content-desc="领淘金币" bounds="[40,80][160,140]"/>
+        </node></hierarchy>'''
+        xpath = "//*[@content-desc='领淘金币']"
+        runner = ActionHarness(hierarchy=xml)
+        preview = runner.run(record("locator_verify", xpath=xpath, width=320, height=640,
+                                    preview_only=True, timeout_ms=20000))
+        self.assertTrue(preview["verified"])
+        self.assertEqual(preview["reason"], "unique_preview")
+        self.assertEqual(preview["bounds"], {"left":40,"top":80,"right":160,"bottom":140})
+        self.assertTrue(all(m in ("count", "dumpWindowHierarchy") for m,_ in runner.calls))
+
     def test_wait_gone_never_sends_an_action(self):
         checks = iter([2, 2, 0])
         runner = ActionHarness(count=lambda s: 1 if s.values.get("className") else next(checks))
