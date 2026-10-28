@@ -139,3 +139,54 @@ async fn t49_invalid_script_update_cannot_advance_revision_or_destroy_original()
     assert_eq!(latest["items"][0]["name"],"valid first");
     assert_eq!(latest["items"][0]["steps"],saved["steps"]);
 }
+
+#[tokio::test]
+async fn t49_foreign_actor_cannot_create_run_or_create_dispatch_rows() {
+    let f=Fixture::new().await;
+    let script=f.create("owner only",json!([valid_step()])).await;
+    let device_id=Uuid::new_v4().to_string();
+    let attempted=f.store.create_run(f.other,f.owner,&json!({
+        "request_id":Uuid::new_v4().to_string(),
+        "script_id":script["id"],"revision":script["revision"],
+        "device_ids":[device_id],"parameters":{},"concurrency":1,
+    })).await;
+    let denied=attempted.unwrap_err();
+    assert_eq!(denied.status,403,"account authorization must run BEFORE device discovery");
+    assert_eq!(denied.code,"automation_access_denied");
+
+    let runs=f.store.list_runs(f.owner).await.unwrap();
+    assert_eq!(runs["items"],json!([]),"a foreign actor must not persist dispatch intent");
+}
+
+#[tokio::test]
+async fn t49_reused_run_request_id_with_changed_body_fails_before_any_device_action() {
+    let f=Fixture::new().await;
+    // Persist an incomplete historical dispatch intent via the genuine
+    // migrated SQL table, without starting an executor or an Android phone.
+    // The request_id collision check happens before target discovery.
+    let request=Uuid::new_v4().to_string();
+    let old_run=Uuid::new_v4().to_string();
+    let now=super::now();
+    let db=f.store.pool.clone();
+    sqlx::query(
+        "INSERT INTO automation_runs(id,actor_user_id,owner_user_id,request_id,request_hash,\
+         name,state,snapshot_json,parameters_json,concurrency,created_at,updated_at) \
+         VALUES(?,?,?,?,?,'old run','dispatch_pending','{}','{}',1,?,?)"
+    )
+    .bind(&old_run).bind(f.owner).bind(f.owner).bind(&request).bind("old-digest")
+    .bind(&now).bind(&now).execute(&db).await.unwrap();
+
+    let attempt=f.store.create_run(f.owner,f.owner,&json!({
+        "request_id":request,
+        "name":"different payload",
+        "steps":[], "device_ids":[Uuid::new_v4().to_string()],
+        "parameters":{},"concurrency":1
+    })).await.unwrap_err();
+    assert_eq!(attempt.status,409);
+    assert_eq!(attempt.code,"idempotency_conflict");
+
+    let identity:String=sqlx::query_scalar(
+        "SELECT request_hash FROM automation_runs WHERE id=?"
+    ).bind(&old_run).fetch_one(&db).await.unwrap();
+    assert_eq!(identity,"old-digest","a conflicting retry must leave the original intent untouched");
+}
