@@ -11,12 +11,16 @@ const props=defineProps<{
     loading: boolean;
     error?: string;
     syncLabel?: string;
+    formalPending?: boolean;
 }>();
 const emit=defineEmits<{
     refresh: [];
     create: [name: string];
     select: [id: string];
     clone: [id: string];
+    publish: [];
+    remove: [id:string];
+    reconcile: [];
 }>();
 const expanded=ref(false);
 const draftName=ref('');
@@ -73,10 +77,24 @@ watch(()=>props.selectedId,(id,old)=>{if(id && id!==old){draftName.value='';expa
                     </button>
                     <button type="button" class="clone-button" :title="`克隆：${script.name}`"
                         :aria-label="`克隆 ${script.name}`" :disabled="busy" @click.stop="clone(script.id)">克隆</button>
+                    <button type="button" class="delete-button" :title="`删除正式脚本：${script.name}`"
+                        :aria-label="`删除正式脚本 ${script.name}`" :disabled="busy || formalPending"
+                        @click.stop="emit('remove',script.id)"><i class="pi pi-trash" aria-hidden="true" /></button>
                 </div>
                 <p v-if="!loading && !scripts.length" class="script-empty">暂无已保存脚本，可以在上方新建。</p>
                 <p v-if="loading" class="script-empty">正在读取脚本列表…</p>
             </div>
+        </div>
+        <div class="script-manage-actions">
+            <button type="button" :disabled="busy || formalPending"
+                :title="selectedId?'将当前已同步草稿更新到正式脚本下一修订':'从当前草稿发布新正式脚本'"
+                @click="emit('publish')">
+                <i class="pi pi-save" aria-hidden="true" />
+                {{ selectedId?'更新正式版本':'发布为正式脚本' }}
+            </button>
+            <button v-if="formalPending" type="button" @click="emit('reconcile')">
+                <i class="pi pi-history" aria-hidden="true" />只读核对旧写入
+            </button>
         </div>
         <p class="script-sync-label" :title="syncLabel || ''">{{ syncLabel }}</p>
         <p v-if="error" class="script-error" role="alert">{{ error }}</p>
@@ -108,8 +126,13 @@ watch(()=>props.selectedId,(id,old)=>{if(id && id!==old){draftName.value='';expa
 .script-option>button[aria-selected=true]{font-weight:600}
 .check{width:11px;flex:0 0 11px}
 .option-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.clone-button{flex:0 0 auto;border:1px solid var(--console-border);border-radius:4px;
+.clone-button,.delete-button{flex:0 0 auto;border:1px solid var(--console-border);border-radius:4px;
     padding:3px 4px;color:inherit;background:transparent;font-size:10px;cursor:pointer}
+.delete-button{color:var(--p-red-500);padding:3px 6px}
+.script-manage-actions{display:flex;gap:6px;flex-wrap:wrap}
+.script-manage-actions button{border:1px solid var(--console-border);border-radius:6px;
+    padding:5px 7px;background:var(--console-panel-raised);color:inherit;font-size:10px;cursor:pointer}
+.script-manage-actions button i{margin-right:4px}
 .script-empty,.script-sync-label,.script-error{margin:0;font-size:10px;line-height:1.4;color:var(--console-muted)}
 .script-error{color:var(--p-red-500)}
 button:disabled{opacity:.55;cursor:default}
