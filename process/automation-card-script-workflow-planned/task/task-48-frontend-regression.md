@@ -1,6 +1,6 @@
 # T48 · 浮窗交互、脚本 CAS 与异常前端回归测试
 
-> 状态：**回执/身份/浮窗堆叠单测已提交，浏览器交互和执行仍待授权**｜计划：P16｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**Node 安全断言、旧路径防回归和真实Chromium组件测试已接线，CI待确认**｜计划：P16｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一负责人/依赖
 - Owner：**QA 前端 Agent**。
@@ -41,3 +41,9 @@
 - 新增 `frontend/tests/automation-floating-scope-t48.test.mjs`：直接覆盖 `automation-floating-contract.ts` 原 PhoneCard owner/device/target fingerprint、脚本 revision、草稿 revision、generation 漂移拒绝，允许离线只改草稿但媒体操作必须保持同一原 session。
 - 上述三个新测试已加入 `frontend/package.json` 的 `test:unit` 清单；此前的批量 UUID/单步冻结测试仍保留。
 - **状态**：仅编写/提交，未执行 Node/Vue/TS 测试、浏览器 E2E、类型检查、构建或手工 CI。FullScreen Teleport、按键/触摸、跨浏览器实际竞争及 CAS 409 仍需补覆盖和 T50 联调。
+## 2026-10-28 · T48 第三批：无手机 Chromium 与旧编辑路径防回退
+- 新增 `tests/fixtures/automation-floating-t48.html` + `automation-floating-t48.fixture.js`，使用生产 `AutomationFloatingPanel.vue/AutomationFloatingDialog.vue` 挂在**单一模拟 PhoneCard fullscreen 容器**，不使用 WebRTC/ADB/UiAutomator2/后端真实账号或手机。
+- 新增 `tests/automation-floating-browser-t48.test.mjs`：Playwright Chromium 测试宿主唯一性、子窗 Teleport 必须在原 fullscreen 容器内、主子浮窗全屏进出持续可用、ESC 脏编辑二次确认与保留输入、两个子窗顶层先处理 ESC、键盘箭头移动浮窗。运行脚本 `test:automation-floating-browser`。
+- 现有 GHCR 工作流 `build_web` 成功编译及 Node 单测后执行无真机 Chromium 回归；须 Playwright 安装 Chromium，错误会阻断本分支镜像发布。新 `automation-legacy-retirement-t48.test.mjs` 防旧 ScriptLibrary 回归，已加入 `test:unit`。
+- 浏览器用例验证的是**生产浮窗组件**在模拟卡片内的交互，不能证明实际媒体码流/双浏览器和真实手机授权。这些属于 T50；不应用“真机已通过”字样。
+- 截至编写本段，未取得本次最新 HEAD 的自动测试最终结论；请以 `feat/automation-center` 最新 SHA 对应 Actions 运行记录为准。
