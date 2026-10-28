@@ -223,6 +223,22 @@ fn fields(text: &str) -> Result<BTreeMap<String, String>, Error> {
                     return Err(Error::Invalid("Duplicate catalog runtime field"));
                 }
             }
+        } else if section == "actions" && indent == 2 {
+            let action = line.trim().trim_end_matches(':');
+            if ["install","update","uninstall"].contains(&action) {
+                map.insert("current_action".to_string(), action.to_string());
+            }
+        } else if section == "actions" && indent == 4 {
+            if let Some(action) = map.get("current_action").cloned() {
+                let key = line.trim().split(':').next().unwrap_or("");
+                if key == "strategy" {
+                    if let Some(value) = scalar(line, key) {
+                        if map.insert(format!("actions.{action}.strategy"), value).is_some() {
+                            return Err(Error::Invalid("Duplicate action strategy"));
+                        }
+                    }
+                }
+            }
         }
     }
     Ok(map)
@@ -335,6 +351,11 @@ fn scan_catalog(root: &Path, revision: &str) -> Result<Vec<CatalogApp>, Error> {
                 "compose_file":get("runtime.compose_file")?,
                 "platforms":values.get("compatibility.platforms").cloned(),
                 "architectures":values.get("compatibility.architectures").cloned(),
+                "actions":{
+                    "install":values.get("actions.install.strategy").cloned(),
+                    "update":values.get("actions.update.strategy").cloned(),
+                    "uninstall":values.get("actions.uninstall.strategy").cloned()
+                },
                 "config":display_items(content, "config",
                     &["key","label","type","target","required"])?,
                 "ports":display_items(content, "ports",
