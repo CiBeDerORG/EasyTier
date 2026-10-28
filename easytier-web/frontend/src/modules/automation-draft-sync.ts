@@ -3,7 +3,7 @@
  * No browser storage: selectors, steps and runtime parameters are never
  * persisted in localStorage/sessionStorage/IndexedDB.
  */
-import { reactive, watch, type WatchStopHandle } from 'vue';
+import { reactive, ref, watch, type WatchStopHandle } from 'vue';
 import { v4 as uuid } from 'uuid';
 import type { AutomationStep, AutomationDraftRecord, AutomationScript } from '../types/automation';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from './automation-api';
@@ -56,6 +56,10 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
     let epoch=0, active=false, destroyed=false, scheduled:ReturnType<typeof setTimeout>|null=null;
     let pending:RequestInFlight|null=null;
     let busy:Promise<void>|null=null;
+    // A normal let is invisible to Vue computed guards. Without this ref,
+    // "已同步" may display while canLeave() is cached as false forever after
+    // a completed request (the exact save/publish/run deadlock in PhoneCard).
+    const writeInFlight=ref(false);
     let confirmed=initialFingerprint;
     let suspended=false;
     let lastIdentity='';
@@ -98,7 +102,7 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
         state.entries=[summary,...state.entries.filter(entry=>entry.id!==record.id)];
     }
     async function load(owner:number) {
-        const e=++epoch;clearTimer();active=false;pending=null;busy=null;
+        const e=++epoch;clearTimer();active=false;pending=null;busy=null;writeInFlight.value=false;
         state.ownerId=owner;state.initialized=false;state.id=null;
         lastIdentity=String(workspace.editingId??'')+':'+String(workspace.revision??'');
         state.revision=null;state.entries=[];state.message='';
@@ -153,7 +157,7 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
     function canLeave(): boolean {
         if(!state.initialized || !active) return false;
         return (state.phase==='idle' || state.phase==='synced') &&
-            currentSnapshot()===confirmed && !busy && !pending;
+            currentSnapshot()===confirmed && !writeInFlight.value && !busy && !pending;
     }
     function scheduleFollowup(owner:number,e:number) {
         // This function re-reads the reactive phase after async completion,
@@ -224,8 +228,9 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
             }
         })();
         busy=task;
+        writeInFlight.value=true;
         await task;
-        if(busy===task)busy=null;
+        if(busy===task){busy=null;writeInFlight.value=false;}
         scheduleFollowup(owner,e);
     }
     async function retry():Promise<void>{
