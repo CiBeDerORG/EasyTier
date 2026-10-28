@@ -117,7 +117,13 @@ test('T52 actual PhoneCard retains its primary video DOM across main/child float
   const page=await setup(t,realCardFixture);
   const original=page.locator('.phone-card video.primary-video');
   assert.equal(await original.count(),1,'production PhoneCard has one original foreground player');
-  await original.evaluate(node=>node.dataset.t52Original='still-owned');
+  const mockedStreamId=await original.evaluate(node=>{
+    node.dataset.t52Original='still-owned';
+    // A local empty MediaStream is enough to catch accidental srcObject
+    // replacement; never negotiates a real WebRTC/ADB session.
+    node.srcObject=new MediaStream();
+    return node.srcObject.id;
+  });
   await page.locator('#open-panel').click();
   await page.locator('#open-step').click();
   const editor=page.getByRole('dialog',{name:/编辑第 1 步/});
@@ -126,12 +132,16 @@ test('T52 actual PhoneCard retains its primary video DOM across main/child float
     'actual step editor must be teleported inside original PhoneCard fullscreen host');
   assert.equal(await original.getAttribute('data-t52-original'),'still-owned',
     'opening main and child floating UI must not replace the original video');
+  assert.equal(await original.evaluate(node=>node.srcObject?.id),mockedStreamId,
+    'opening floating UI must not replace the original MediaStream object');
   assert.equal(await page.locator('.phone-card video.primary-video').count(),1);
   await page.locator('#fullscreen-card').click();
   await page.waitForFunction(()=>document.fullscreenElement?.classList.contains('phone-screen'));
   assert.equal(await editor.isVisible(),true);
   assert.equal(await original.getAttribute('data-t52-original'),'still-owned',
     'entering fullscreen must not remount or swap the original player');
+  assert.equal(await original.evaluate(node=>node.srcObject?.id),mockedStreamId,
+    'fullscreen must keep the same synthetic MediaStream identity');
   await page.keyboard.press('Escape');
 });
 
