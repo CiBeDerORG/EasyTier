@@ -34,7 +34,7 @@ const autoRefreshEnabled = Polling.provideAutoRefresh();
 const router = useRouter();
 const toast = useToast();
 const route = useRoute();
-const manualManagementPage = computed(() => ['deployAgents', 'automationCenter', 'nodeAssets'].includes(String(route.name)));
+const manualManagementPage = computed(() => ['deployAgents', 'deployStore', 'automationCenter', 'nodeAssets'].includes(String(route.name)));
 const navigationAutoRefresh = computed(() => autoRefreshEnabled.value && !manualManagementPage.value);
 const sidebarStorageKey = 'easytier.sidebar.collapsed';
 const sidebarCollapsed = ref((() => {
@@ -211,6 +211,7 @@ const workspaceNavigation = computed<NavItem[]>(() => [
     ...(centralEnabled.value ? [{ key: 'nodeAssets', label: t('assets.page.title'), icon: 'pi pi-desktop', to: { name: 'nodeAssets' } }] : []),
     ...(centralEnabled.value ? [{ key: 'serviceManagement', label: t('web.console.service_management'), icon: 'pi pi-sliders-h', to: { name: 'serviceManagement' } }] : []),
     ...(canManageUsers.value ? [{ key: 'userManagement', label: t('user_admin.title'), icon: 'pi pi-users', to: { name: 'userManagement' } }] : []),
+    ...(centralEnabled.value ? [{ key: 'deployStore', label: '应用商店', icon: 'pi pi-shopping-bag', to: { name: 'deployStore' } }] : []),
     { key: 'deployAgents', label: ui('deployAgents'), icon: 'pi pi-box', to: { name: 'deployAgents' } },
     { key: 'automationCenter', label: ui('automationCenter'), icon: 'pi pi-mobile', to: { name: 'automationCenter' } },
 ]);
