@@ -399,7 +399,20 @@ mod tests {
 
     #[test]
     fn display_lists_never_include_secret_values() {
-        let yaml = "schema_version: 1\\nconfig:\\n  - key: ADMIN_PASS\\n    label: Admin password\\n    type: secret\\n    target: secrets\\n    required: true\\n    default: \\"\\\"\\nports:\\n  - id: web\\n    label: Web interface\\n    host_port_key: PORT\\n    container_port: 9000\\n";
+        let yaml = r#"schema_version: 1
+config:
+  - key: ADMIN_PASS
+    label: Admin password
+    type: secret
+    target: secrets
+    required: true
+    default: ""
+ports:
+  - id: web
+    label: Web interface
+    host_port_key: PORT
+    container_port: 9000
+"#;
         let config = display_items(yaml, "config", &["key","label","type","target","required"]).unwrap();
         assert_eq!(config.len(), 1);
         assert_eq!(config[0]["type"], "secret");
