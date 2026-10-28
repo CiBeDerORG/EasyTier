@@ -19,7 +19,7 @@ type DraftSync = ReturnType<typeof createAutomationDraftSync>;
 export type ScriptGuard = 'clean' | 'loading' | 'unsynced' | 'conflict' | 'editor';
 export interface FormalScriptWriteReceipt {
     owner: number;
-    kind: 'publish' | 'delete';
+    kind: 'publish' | 'create' | 'delete';
     scriptId: string;
     revision: number;
     /** No script text, selector, secret, parameter or HTTP body is persisted. */
@@ -36,9 +36,9 @@ function readFormalReceipt(owner:number):FormalScriptWriteReceipt|null {
     const row:unknown=JSON.parse(value);
     if(!row || typeof row!=='object')throw new Error('脚本写操作凭据损坏，不允许再次发布或删除。');
     const proof=row as Partial<FormalScriptWriteReceipt>;
-    if(proof.owner!==owner || !['publish','delete'].includes(proof.kind??'') ||
+    if(proof.owner!==owner || !['publish','create','delete'].includes(proof.kind??'') ||
         typeof proof.scriptId!=='string' || !Number.isSafeInteger(proof.revision) ||
-        (proof.revision??0)<1 || typeof proof.createdAt!=='string')
+        (proof.revision??-1)<(proof.kind==='create'?0:1) || typeof proof.createdAt!=='string')
         throw new Error('脚本写操作身份不完整，禁止新发请求。');
     return proof as FormalScriptWriteReceipt;
 }
@@ -239,11 +239,11 @@ export function createAutomationScriptWorkspace(
             if (generation === actionGeneration) state.busy = false;
         }
     }
-    function ensureFormalScope(deviceId:string): {owner:number; scriptId:string; revision:number} {
+    function ensureFormalScope(deviceId:string): {owner:number; scriptId?:string; revision?:number} {
         const owner=ownerId.value, scriptId=workspace.editingId,revision=workspace.revision;
-        if(!authorized(deviceId,owner) || !scriptId || !revision ||
-            !Number.isSafeInteger(revision) || revision<1)
-            throw new Error('请先从原手机卡片选中有效的已保存脚本。');
+        if(!authorized(deviceId,owner) || (scriptId && (!revision ||
+            !Number.isSafeInteger(revision) || revision<1)))
+            throw new Error('请选择当前账号有效的正式脚本修订。');
         if(editorDirty.value || guard.value!=='clean'||!draftSync.canLeave())
             throw new Error('正式发布前请完成步骤编辑及服务端工作草稿同步；不能覆盖未保存的修改。');
         if(state.formalPending || readFormalReceipt(owner))
@@ -252,7 +252,7 @@ export function createAutomationScriptWorkspace(
     }
     async function publish(deviceId:string,formalName:string,formalDescription:string):Promise<void> {
         if(state.busy)return;
-        let scope:{owner:number;scriptId:string;revision:number};
+        let scope:{owner:number;scriptId?:string;revision?:number};
         try{scope=ensureFormalScope(deviceId);}
         catch(cause){state.error=automationErrorMessage(cause);return;}
         const {owner,scriptId,revision}=scope;
@@ -272,19 +272,24 @@ export function createAutomationScriptWorkspace(
             const latest=await api.listScripts(owner);
             if(!stillCurrent(owner,deviceId,generation,snapshot)||!draftSync.canLeave())return;
             const source=latest.items.find(s=>s.id===scriptId);
-            if(!source || source.revision!==revision)
+            if(scriptId && (!source || source.revision!==revision))
                 throw new Error('正式脚本已经被其他窗口修改或删除；未发布，请刷新并核对修订。');
-            const payload={name:desiredName,description:formalDescription,steps:cloned,revision};
-            if(source.name===payload.name && source.description===payload.description &&
+            if(!scriptId && latest.items.some(s=>s.name===desiredName))
+                throw new Error('已有同名正式脚本，请选择该脚本或使用不同名称发布。');
+            const payload={name:desiredName,description:formalDescription,steps:cloned};
+            if(source && source.name===payload.name && source.description===payload.description &&
                 JSON.stringify(source.steps)===JSON.stringify(payload.steps)){
                 state.error='当前正式脚本没有需要发布的修改。';return;
             }
-            proof={owner,kind:'publish',scriptId,revision,expectedName:desiredName,
+            proof={owner,kind:scriptId?'publish':'create',scriptId:scriptId??('new:'+uuid()),
+                revision:revision??0,expectedName:desiredName,
                 expectedStepIds:expectedIds,createdAt:new Date().toISOString()};
             reserveFormalReceipt(proof);
             state.formalPending=proof;
-            const saved=await api.saveScript(owner,payload,scriptId);
-            if(saved.id!==scriptId||saved.revision!==revision+1 ||
+            const saved=await api.saveScript(owner,
+                scriptId?{...payload,revision}:payload,scriptId);
+            if((scriptId && saved.id!==scriptId) ||
+                saved.revision!==(scriptId?revision!+1:1) ||
                 saved.steps.length!==expectedIds.length ||
                 saved.steps.some((s,i)=>s.id!==expectedIds[i]))
                 throw new Error('正式脚本写入回执身份/步骤不匹配，不允许再次发布。');
@@ -292,7 +297,7 @@ export function createAutomationScriptWorkspace(
             // result is matched. If the page changed, keep it for read-only recovery.
             if(!stillCurrent(owner,deviceId,generation,snapshot))return;
             clearFormalReceipt(proof);state.formalPending=null;
-            state.items=[saved,...state.items.filter(s=>s.id!==scriptId)];
+            state.items=[saved,...state.items.filter(s=>s.id!==saved.id)];
             if(!draftSync.adoptSavedScript(saved)){
                 state.error='正式脚本已保存，但工作草稿切换未确认。请只读刷新并重新选择。';return;
             }
@@ -371,12 +376,19 @@ export function createAutomationScriptWorkspace(
             if(!proof){state.formalPending=null;return;}
             const received=await api.listScripts(owner);
             if(owner!==ownerId.value)return;
-            const script=received.items.find(item=>item.id===proof.scriptId);
-            // A missing script conclusively fences repeat DELETEs. Publishing
-            // is confirmed only when revision and exact step IDs match.
+            const matches=received.items.filter(item=>proof.kind==='create'
+                ? item.name===proof.expectedName && item.revision===1 &&
+                    item.steps.length===proof.expectedStepIds?.length &&
+                    item.steps.every((s,i)=>s.id===proof.expectedStepIds?.[i])
+                : item.id===proof.scriptId);
+            const script=matches[0];
+            // Never infer a missing POST from list pagination or a stale
+            // revision. Only an unambiguous creation or exact CAS revision
+            // and step-ID set is enough to clear the persisted refusal.
             const confirmed=proof.kind==='delete'
                 ? !script
-                : !!script && script.revision===proof.revision+1 &&
+                : !!script && matches.length===1 &&
+                    script.revision===(proof.kind==='create'?1:proof.revision+1) &&
                     script.name===proof.expectedName &&
                     script.steps.length===proof.expectedStepIds?.length &&
                     script.steps.every((s,i)=>s.id===proof.expectedStepIds?.[i]);
