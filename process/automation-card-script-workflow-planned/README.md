@@ -97,3 +97,10 @@
 ## 2026-10-28 · T50 真机验收准备
 
 已将 FINAL V3 18 条 FF 与原 12 条 AC 建立独立的 [FnOS/Android/双浏览器取证矩阵](task/task-50-acceptance-matrix.md)，定义 SHA、digest、session/run/step/request ID 和录像/失败复测字段。该任务现在**仅完成前置文档**，未开展自动测试、部署、真机操作或双浏览器实测；后续须获明确测试授权并依据实测结果更新。
+## 2026-10-28 · 用户授权的非真机收尾（T46～T49、T51部分）
+
+- T46：`ScriptLibrary.vue` 旧多功能编辑器/旧写入和试跑入口正式退役，只读脚本目录 + 历史未知请求核验保留，原 PhoneCard 浮窗成为唯一业务操作入口。
+- T47：清理弃用事件/Inspector 旧来源与多余参数；不删仍有真正引用的安全 helper、ScriptStepEditor、UiInspectorDialog。防退回测试已接 `test:unit`。
+- T48：生产主/子浮窗 Chromium 全屏/ESC/脏编辑/键盘拖动测试接入 GHCR 关口；Node CAS/批量防重放与白名单测试已就位，CI 待最终日志。
+- T49：Rust 12 项与 Executor 6 项模拟 DB/媒体安全回归；根据失败 GHCR 日志修复 Rust Storage trait 编译阻塞及前端 TS1005，等待新 Actions 的正式结果。
+- T51：更新 [非真机交付追踪](task/acceptance-report.md)；最终签收仍受 T50 30 项 FnOS/两安卓 OEM/双浏览器真机验收阻塞。本轮**不执行任何真实手机控制或 FnOS 部署**。
