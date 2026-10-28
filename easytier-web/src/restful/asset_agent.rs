@@ -9,7 +9,7 @@ use axum::{
     Extension, Json, Router,
     extract::{Path, Query},
     http::StatusCode,
-    routing::{get, post},
+    routing::{get, patch, post},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -103,10 +103,44 @@ async fn pair(
         .map_err(failure)
 }
 
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostSettingsPatch {
+    software_root: String,
+}
+
+async fn host(
+    auth: AuthSession,
+    Extension(config): Extension<ConsoleInfoConfig>,
+    Extension(central): Extension<Arc<CentralNetworkService>>,
+    Extension(manager): Extension<Arc<Manager>>,
+    Path(id): Path<String>,
+    Query(scope): Query<Scope>,
+) -> Outcome<Json<Value>> {
+    let device = checked(&auth, &config, &central, &id, &scope).await?;
+    manager.host(&device).await.map(Json).map_err(failure)
+}
+
+async fn update_host_root(
+    auth: AuthSession,
+    Extension(config): Extension<ConsoleInfoConfig>,
+    Extension(central): Extension<Arc<CentralNetworkService>>,
+    Extension(manager): Extension<Arc<Manager>>,
+    Path(id): Path<String>,
+    Query(scope): Query<Scope>,
+    Json(input): Json<HostSettingsPatch>,
+) -> Outcome<Json<Value>> {
+    let device = checked(&auth, &config, &central, &id, &scope).await?;
+    manager.update_host_root(&device, input.software_root).await.map(Json).map_err(failure)
+}
+
 pub fn router(manager: Arc<Manager>) -> Router<AppStateInner> {
     Router::new()
         .route("/api/v1/assets/devices/{id}/agent/status", get(status))
         .route("/api/v1/assets/devices/{id}/agent/probe", post(probe))
         .route("/api/v1/assets/devices/{id}/agent/pair", post(pair))
+        .route("/api/v1/assets/devices/{id}/agent/host", get(host))
+        .route("/api/v1/assets/devices/{id}/agent/host/settings", patch(update_host_root))
         .layer(Extension(manager))
 }
