@@ -15,7 +15,12 @@ pub(super) async fn create(auth: AuthSession, Extension(service): Service, Exten
     let owner = owner(query)?;
     authorize(&auth,&config,&service,owner).await?;
     let payload = body(input)?;
-    exact_fields(&payload,&["name","description","steps"])?;
+    exact_fields(&payload,&["name","description","steps","request_id"])?;
+    // A script-create POST without a stable UUID cannot be safely retried.
+    let request=payload["request_id"].as_str().ok_or_else(||error(
+        axum::http::StatusCode::UNPROCESSABLE_ENTITY,"script_request_id_required",
+        "正式脚本创建需要 request_id，防止超时后重复创建。"))?;
+    id(request)?;
     Ok(Json(store(&service).save_script(owner,None,&payload).await.map_err(store_error)?))
 }
 
@@ -27,6 +32,19 @@ pub(super) async fn update(auth: AuthSession, Extension(service): Service, Exten
     let payload = body(input)?;
     exact_fields(&payload,&["name","description","steps","revision"])?;
     Ok(Json(store(&service).save_script(owner,Some(&id),&payload).await.map_err(store_error)?))
+}
+
+/// Read-only query for an uncertain create/clone POST. A 404 is NOT proof
+/// that the original request was never accepted by an older deployment.
+pub(super) async fn creation_receipt(
+    auth: AuthSession, Extension(service): Service, Extension(config): Config,
+    query: OwnerInput, Path(raw_request): Path<String>, headers: HeaderMap,
+) -> HttpResult<Json<Value>> {
+    require_origin(&headers,false)?;
+    let owner=owner(query)?;
+    authorize(&auth,&config,&service,owner).await?;
+    let request=id(&raw_request)?;
+    Ok(Json(store(&service).script_creation_receipt(owner,&request).await.map_err(store_error)?))
 }
 
 /// T46: first-party floating UI uses an explicit revision-bearing POST.
