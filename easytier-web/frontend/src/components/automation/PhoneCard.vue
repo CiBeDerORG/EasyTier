@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Button, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
@@ -216,11 +216,6 @@ function updateDetachedTheme(){
         '--p-red-500','--p-green-500'].map(k=>[k,css.getPropertyValue(k)])
             .filter(([,v])=>!!v))};
 }
-watch(isFullscreen,()=>void nextTick(updateDetachedTheme));
-watch([automationPanelOpen,()=>props.inspectorVisible,()=>props.editingStepId],
-    ()=>void nextTick(updateDetachedTheme));
-
-
 /** T24 subwindows Teleport HERE, inside the current phone-screen fullscreen top layer. */
 function getAutomationSubwindowHost() { return automationSubwindowHost.value; }
 const screenDimensions = ref({ width: 0, height: 0 });
@@ -261,6 +256,10 @@ const anchorFraction = ref(0.5);
 const menuOpen = ref(false);
 /** T21/T22: per-card UI only; independent of orb menu, stream and running scripts. */
 const automationPanelOpen = ref(false);
+watch(isFullscreen,()=>void nextTick(updateDetachedTheme));
+watch([automationPanelOpen,()=>props.inspectorVisible,()=>props.editingStepId],
+    ()=>void nextTick(updateDetachedTheme));
+
 /** Permission selection is exclusive to the floating manual-mode button.
  * Opening/closing/editing the script console has no permission side effects. */
 const manualPermissionPending=ref(false);
