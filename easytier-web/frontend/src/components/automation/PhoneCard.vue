@@ -98,7 +98,7 @@ const emit = defineEmits<{
     'step-delete': [deviceId: string, requestedId: string, expectedFingerprint: string, confirmedTargetId: string,
         ownerId: number, scriptId: string | null, scriptRevision: number | null];
     'step-undo': [deviceId: string];
-    'step-close': [deviceId: string]; 'step-save': [deviceId: string, stepId: string, expected: AutomationStep, updated: AutomationStep];
+    'step-close': [deviceId: string,discardConfirmed: boolean]; 'step-save': [deviceId: string, stepId: string, expected: AutomationStep, updated: AutomationStep];
     'step-repick': [deviceId: string, stepId: string]; 'step-dirty': [deviceId: string, dirty: boolean];
     'step-demo': [deviceId: string, stepId: string]; 'demo-clear': [deviceId: string];
     'trial-history': [deviceId: string, runId: string];
