@@ -363,3 +363,13 @@
 - `outcome_unknown` 回修不得直接通过浮窗标题关闭跳过人工确认，仍要求检查手机状态；`CardRepairEntry` 再次试跑还要求 step 与历史快照不同且草稿同步 guard 为 `clean`，防止未保存/有冲突的临时参数被误认成新修订；再次点击 ▶ 产生新的 UUID，旧 run 不变。
 - 主要代码提交：`7b42a61d`（原画面浮窗）、`6b61d839`（修改/保存后人工重试 guard）、`677263b5`（PhoneCard 草稿同步状态接线）。
 - **未实测**失败修复从旧 run 快照到下一修订的全流程、旧 history 跳转/双浏览器/移动端/窗口拖拽层级；旧 RunHistory 独立页面仍保留，先替代后删。调试模式不执行 lint、TS/Rust/Python 编译或单测、构建、手动 Actions、浏览器、FnOS/Android 真机操作。
+
+## 2026-10-28 · P14 / T43～T45 共享批量执行、设备级撤回、原媒体状态（调试模式）
+
+- **实际新增代码**：`frontend/src/modules/automation-batch-receipt.ts`（仅保留批量 UUID/目标的 sessionStorage 保护）、`useFloatingBatchRun.ts`（冻结当前勾选/授权设备的不可变完整脚本、独立且并发准备、唯一 `POST /runs`、未知提交只读查原请求、持续 `GET /runs` 进度和整批/单台请求停止）、`components/automation/FloatingBatchRunPanel.vue`（同原视频脚本主浮窗控制及每机状态）。
+- **新 UI 接线**：`PhoneCard.vue` 的每个卡片浮窗只调用共享父编排器，浮窗里显示同一次批量运行而不创建另一个播放器，原卡片 footer 显示本机状态；`AutomationCenter.vue` 仅以真实选中设备提交、受草稿 `clean` guard 和录制/拾取/编辑限制，进行中不可错误切页、改账号/筛选、关闭已纳入本批的原媒体。选择 0 台、空步骤、目标指纹漂移、不同浏览器占用或任何一台准备失败均不发送整批 POST。
+- **原实时画面**：每个被选中设备只用该 `PhoneCard.getSessionId/getStream`；没有原会话的设备先在自己的卡片内打开唯一媒体，随后 `enterViewOnly` 降权并核对 Rust `active_session.state=view_only`、Executor 的动作租约释放。准备、派发、查询进度、暂停期间均不主动创建副视频或关闭卡片媒体；媒体断流/会话变化只标记该机观看异常，不擅自推断 run 动作失败。
+- **T44 单台停止**：Rust DB `cancel_run_device` 于 `BEGIN IMMEDIATE` 内持久撤回 `withdraw_requested/withdraw_event_id`，外部路由 `POST /runs/{id}/devices/{device_id}/cancel` 调用 Executor 既有设备级 `withdraw_device`。有经过身份/事件/指纹核对的 `never_started` 或运行真结果才更新 cleanup；超时仍保留已请求/结果未知；不触碰同 batch 其它手机。整批停止仍使用原 `cancelRun`。
+- **并发修复**：旧 `automation_runs.concurrency` CHECK 限制 1～3，但 Executor 已支持可配置运行容量。新增前向迁移 `m20261028_000028_automation_run_concurrency` 建立 1:1 扩展表，仅记录 >3 并发数；旧列以 3 保存、旧外键历史不重建，Rust 创建/查询/派发选择原值或扩展值。此为代码级设计，**未做真实 SQLite/SeaORM 迁移验证**。
+- **已知限制**：Rust API 单任务仍限定 1～20 台设备，新的入口明示并拦截，不把一次操作隐式拆成多次。旧 `ScriptLibrary` 预览播放器等仍保留在旧 Tab，计划 T46 在确认新入口全面覆盖后退出。该阶段不是 FINAL V3 整体验收完成。
+- **未执行**任何本地 TS/Rust/Python 编译/单测、E2E、SQLite 迁移、Runner/docker 构建、手工 GitHub Actions、浏览器/多手机真机操作（现行调试模式）。需真实验证：A/B/C独立画面、UiAutomator初始化与流不断、批量并发 >3、单机停止其它继续、整批取消、断网结果未知请求、超时只读恢复、手机重绑、双浏览器争用、历史草稿 ID/步骤快照一致。
