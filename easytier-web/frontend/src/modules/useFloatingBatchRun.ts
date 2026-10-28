@@ -97,9 +97,14 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
         if(!run.id || run.devices.length!==expected.length ||
             expected.some(id=>!run.devices.some(d=>d.device_id===id)))
             throw new Error('服务端返回的运行设备列表与本次冻结目标不一致。');
+        // Rust normalizes/validates step JSON before persisting it, so
+        // comparing full JSON text would reject legitimate accepted runs.
+        // The globally unique request UUID plus immutable ordered step IDs
+        // and exact target set bind this acknowledgement to our one POST.
         if(intent && (run.request_id!==intent.requestId ||
-            JSON.stringify(run.script_snapshot.steps)!==intent.stepHash))
-            throw new Error('运行请求身份或脚本快照不一致，禁止按此回执继续提交。');
+            run.script_snapshot.steps.length!==intent.steps.length ||
+            run.script_snapshot.steps.some((step,i)=>step.id!==intent.steps[i].id)))
+            throw new Error('运行请求身份或步骤列表不一致，禁止按此回执继续提交。');
         state.run=run;
         for(const target of run.devices){
             const old=state.devices[target.device_id];
