@@ -159,6 +159,15 @@ pub(super) async fn unlock(auth: AuthSession, State(manager): State<AppStateInne
     if session["state"]!="active" {
         return Err(error(StatusCode::CONFLICT,"viewer_only","当前原视频处于只读或权限移交中，禁止解锁手机。"));
     }
+    // The manual switch stays ON while a script is executing, but a phone
+    // unlock is still a physical action. Never bypass the script action lease.
+    let run_occupied:bool=sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM automation_run_devices d JOIN automation_sessions s ON s.id=? AND s.owner_user_id=? WHERE (d.device_id=s.device_id OR d.target_key=s.target_key) AND d.cleanup_confirmed=0 AND d.state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending'))"
+    ).bind(&session_id).bind(owner).fetch_one(&service.db.inner()).await
+        .map_err(|_|error(StatusCode::SERVICE_UNAVAILABLE,"permission_unconfirmed","无法确认手机动作独占状态，已拒绝解锁操作。"))?;
+    if run_occupied {
+        return Err(error(StatusCode::CONFLICT,"device_busy","当前手机正在执行自动化脚本，不能同时手动解锁。"));
+    }
     let device_id=id(session["device_id"].as_str().unwrap_or_default())?;
     let service_id=id(session["target"]["adb_service_id"].as_str().unwrap_or_default())?;
     // A session belongs to the executor which created it; never send a secret
