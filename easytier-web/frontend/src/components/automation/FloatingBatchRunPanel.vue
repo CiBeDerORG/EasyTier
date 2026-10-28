@@ -58,7 +58,7 @@ const label=(state:string)=>{
         running:'设备并行执行中',cancel_requested:'已请求停止，等待确认',
         completed:'执行成功',partial_failed:'部分手机失败',failed:'执行失败或准备失败',
         interrupted:'执行中断',unknown:'结果未知，禁止再次提交',
-        queued:'排队中',viewing:'原画面检查',suspending:'只读移交',ready:'已准备',
+        queued:'排队中',viewing:'原画面检查',suspending:'核验手控关闭',ready:'已准备',
         succeeded:'成功',cancelled:'已取消',outcome_unknown:'结果未知',cleanup_pending:'清理待确认',
         restoring_manual:'正在恢复手控',manual_restored:'已恢复手控',manual_restore_failed:'手控恢复失败',
         binding:'核对手机绑定',adb_check:'检查ADB',connecting:'连接ADB',
