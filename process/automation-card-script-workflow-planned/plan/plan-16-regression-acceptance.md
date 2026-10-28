@@ -24,3 +24,10 @@
 
 ## 禁止提前声称完成
 当前仅完成需求与任务拆分；无新增业务功能验收证据时状态必须维持“待开发/待联调”，不把文件创建计作交付。
+
+## 2026-10-28 · T49 Rust + Executor 测试源码完备、尚未执行
+
+- `easytier-web/src/db/automation/tests.rs`（`#[cfg(test)]` 注册）包含 12 项基于真实迁移 SQLite 内存库的正式脚本 CAS、空脚本保存/运行拒绝、跨账号授权、请求 UUID 幂等、二阶段 viewer/action 租约测试。
+- 合法手机环境全部来自 `AssetsStore` 真实资产 API + phone 语义类型 + TCP ADB 服务模拟 DB 记录，不发真实安卓指令。
+- `automation-executor/tests/test_view_only_lease_t49.py` 的 6 项测试使用真实 Runtime/Journal 并模拟媒体边界，关注 Viewer 与 action holder 不抢占、清理失败不被错误确认。
+- 所有条目仍待实际 Rust/Python 运行验证；真实 WebRTC、FnOS、安卓与双浏览器属于后续 T50。完整交接见 [T49 测试矩阵](../task/task-49-test-matrix.md)。
