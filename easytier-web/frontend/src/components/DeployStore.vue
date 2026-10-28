@@ -155,6 +155,12 @@ onBeforeUnmount(() => { disposed = true; ++requestId; });
                 <div><strong>{{ cn ? '模板校验摘要' : 'Manifest SHA-256' }}</strong><span class="mono-value store-hash">{{ selected.manifest_sha256 }}</span></div>
                 <div><strong>{{ cn ? '源代码版本' : 'Source revision' }}</strong><span class="mono-value store-hash">{{ selected.git_revision }}</span></div>
             </div>
+            <div class="store-definition" v-if="selected.detail.actions">
+                <h3>{{ cn ? '部署方式（只读）' : 'Deployment strategies (read-only)' }}</h3>
+                <div v-for="action in ['install', 'update', 'uninstall'] as const" :key="action" class="store-definition-row">
+                    <span>{{ action }}</span><span class="mono-value">{{ selected.detail.actions[action] || '—' }}</span>
+                </div>
+            </div>
             <div v-if="selected.detail.ports?.length" class="store-definition">
                 <h3>{{ cn ? '服务端口' : 'Service ports' }}</h3>
                 <div v-for="port in selected.detail.ports" :key="port.id" class="store-definition-row">
