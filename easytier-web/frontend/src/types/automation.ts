@@ -95,7 +95,7 @@ export interface AutomationMediaSettings {
 export interface AutomationSession {
     id: string; device_id: string; state: string; ice_servers: RTCIceServer[]; expires_at?: string;
 }
-export interface AutomationScriptInput { name: string; description: string; steps: AutomationStep[]; revision?: number }
+export interface AutomationScriptInput { name: string; description: string; steps: AutomationStep[]; revision?: number; request_id?: string }
 export interface AutomationScript extends AutomationScriptInput {
     id: string; revision: number; created_at: string; updated_at: string;
 }
