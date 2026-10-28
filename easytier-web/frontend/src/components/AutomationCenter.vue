@@ -244,7 +244,7 @@ const inspectorDeviceId = ref<string | null>(null);
 const inspectorOpenGeneration = ref(0);
 interface PickerEditScope {
     ownerId: number; stepId: string; stepType: AutomationStepType; targetFingerprint: string;
-    editingId?: string; revision?: number; origin: 'scripts' | 'card';
+    editingId?: string; revision?: number; origin: 'card';
     binding?: PickerBinding; generation?: number; snapshotGeneration?: number;
     /** Detect changes to the original step during the asynchronous hierarchy read. */
     stepSnapshot?: string;
@@ -490,7 +490,7 @@ const repickingStepIds = computed<Record<string,string>>(() => Object.fromEntrie
 const inspectorPickContext = computed(() => {
     const id = inspectorDeviceId.value;
     // Script-library replacement stays independent of any card cursor.
-    if (!id || inspectorEditScope.value?.origin === 'scripts' || tab.value !== 'workbench') return null;
+    if (!id || tab.value !== 'workbench') return null;
     const saved = pickerPoints[id], context = pickerContexts[id], binding = pickerBinding(id);
     const intent: PickerIntent = inspectorEditScope.value?.origin === 'card'
         ? {kind:'replace',stepId:inspectorEditScope.value.stepId,stepType:inspectorEditScope.value.stepType}
