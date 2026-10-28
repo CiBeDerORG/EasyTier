@@ -1,6 +1,6 @@
 # T51 · 最终需求追踪矩阵、问题收敛与交付判定
 
-> 状态：**待开发**｜计划：P16｜复杂度：S-M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**非真机交付追踪已启动，最终签收受 T50 阻塞**｜计划：P16｜复杂度：S-M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一负责人/依赖
 - Owner：**QA/产品经理**。
@@ -22,3 +22,10 @@
 
 ## 本任务当前状态
 只建立任务计划；未修改功能代码，未执行检查、测试、手动 CI 或真机操作。后续执行须遵守 `AGENTS.md` 调试模式。
+## 2026-10-28 · T51 非真机交付准备
+
+- 已核对 T19～T51 索引与主合同；旧 T01～T18 的已知测试结果与本轮新增测试分开，不挪用历史通过率。
+- T46/T47 完成代码级旧脚本编辑器退役：只保留兼容只读目录、历史请求恢复；PhoneCard 原视频浮窗是唯一日常脚本管理/试跑路径。
+- T48 新增 Node 纯模块、旧路径防回退与 Chromium 生产浮窗组件测试。T49 Rust 12 项真实迁移 SQLite DB 和 Executor 6 项 Runtime/Journal 模拟媒体测试均在对应代码文件。
+- 版本、自动验证失败/重试情况汇总在 [测试记录](test-report.md)。最终实际 Git SHA、镜像 digest、FnOS/双 OEM 和双浏览器真实行为仍须 T50 实际采集。
+- **结项规则**：本文件的非真机准备可以完成；T51 的发布签收不能因跳过 T50 而标完成。必须在 FF01～FF18 与 AC01～AC12 的 30 条真机结果均归档以后签收。
