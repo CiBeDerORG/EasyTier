@@ -156,10 +156,10 @@ watch(ownerId,owner=>{
 const draftSyncState=draftSync.state;
 const savingFloatingDraft=ref(false);
 const floatingDraftMessage=ref('');
-const floatingRunMessage=ref('');
+const floatingRunMessages=reactive<Record<string,string>>({});
 /** Do not let an old "saved" notice outlive a subsequent step mutation. */
-watch(()=>draftFingerprint(draftWorkspace),()=>{floatingDraftMessage.value='';floatingRunMessage.value='';});
-watch(ownerId,()=>{floatingDraftMessage.value='';floatingRunMessage.value='';});
+watch(()=>draftFingerprint(draftWorkspace),()=>{floatingDraftMessage.value='';for(const id of Object.keys(floatingRunMessages))delete floatingRunMessages[id];});
+watch(ownerId,()=>{floatingDraftMessage.value='';for(const id of Object.keys(floatingRunMessages))delete floatingRunMessages[id];});
 async function saveFloatingDraft(deviceId:string) {
     floatingDraftMessage.value='';
     const owner=ownerId.value;
@@ -586,40 +586,56 @@ const globalManualBlocked = computed(() => globalTargets.value.some(id => {
 }));
 const recordingName = computed(() => deviceNames.value[recordingId.value ?? ''] ?? '');
 
-/** T43: the selector on ANY phone edits the same shared draft but the
- * batch target is ONLY the current workbench checkbox set, never "all". */
+/** The draft is shared, but execution from a PhoneCard is local-only.
+ * Never derive its run target from selectedIds or other workbench controls. */
 const batchDraftReady=computed(()=>scriptWorkspace.guard.value==='clean' &&
     draftSync.canLeave() && !cardEditorDirty.value && !cardStepEditor.value);
-async function runSelectedBatch(parameters:Record<string,string>,concurrency:number,localDeviceId?:string) {
-    error.value='';floatingRunMessage.value='';
-    const ids=localDeviceId?[localDeviceId]:[...selectedIds.value];
+async function runLocalBatch(id:string,parameters:Record<string,string>){
+    error.value='';floatingRunMessages[id]='';
+    const target=devices.value.find(device=>device.id===id && device.owner_user_id===ownerId.value);
+    if(!target || !cards.has(id)){
+        floatingRunMessages[id]='当前手机卡片已变化，请重新打开该手机实时画面。';
+        error.value=floatingRunMessages[id];return;
+    }
     if(!runnerAvailable.value || !batchDraftReady.value ||
         !!recordingId.value || !!sync.value || !!inspectorDeviceId.value ||
-        ids.some(id=>unlockingIds.value.includes(id))){
+        unlockingIds.value.includes(id)){
         const reason=cardStepEditor.value || cardEditorDirty.value
             ? '请先在步骤编辑浮窗保存参数并关闭编辑窗。'
             : scriptWorkspace.guard.value==='conflict'
                 ? '当前草稿与服务器修订冲突，请先在浮窗中另存新草稿。'
                 : !draftSync.canLeave() ? '当前草稿尚未同步，请先在浮窗点击“保存草稿”。'
-                : '请先结束录制、群控、控件拾取或解锁，再运行脚本。';
-        floatingRunMessage.value=reason;error.value=reason;return;
+                : '请先结束录制、群控、控件拾取或解锁，再运行本机脚本。';
+        floatingRunMessages[id]=reason;error.value=reason;return;
     }
     try{
         const intent=freezeFloatingBatchIntent(
-            ownerId.value,ids,devices.value,draftWorkspace.steps,
-            draftWorkspace.name,parameters,localDeviceId?1:concurrency);
-        await floatingBatch.start(intent,id=>cards.get(id),{...mediaSettings.value},()=>
-            !disposed && tab.value==='workbench' && ownerId.value===intent.owner);
-        if(floatingBatch.state.error){error.value=floatingBatch.state.error;floatingRunMessage.value=error.value;}
-    }catch(cause){error.value=automationErrorMessage(cause);floatingRunMessage.value=error.value;}
+            ownerId.value,[id],devices.value,draftWorkspace.steps,
+            draftWorkspace.name,parameters,1);
+        if(intent.targets.length!==1 || intent.targets[0]?.id!==id || intent.concurrency!==1)
+            throw new Error('本机执行目标验证失败，未提交任何设备动作。');
+        await floatingBatch.start(intent,targetId=>targetId===id?cards.get(id):undefined,
+            {...mediaSettings.value},()=>
+                !disposed && tab.value==='workbench' && ownerId.value===intent.owner &&
+                cards.has(id) && devices.value.some(device=>
+                    device.id===id && device.target_fingerprint===intent.targets[0]?.fingerprint));
+        if(floatingBatch.state.error){
+            error.value=floatingBatch.state.error;
+            floatingRunMessages[id]=error.value;
+        }
+    }catch(cause){error.value=automationErrorMessage(cause);floatingRunMessages[id]=error.value;}
 }
-function runLocalBatch(id:string,parameters:Record<string,string>){
-    void runSelectedBatch(parameters,1,id);
+function batchTargetsLocal(id:string){
+    return floatingBatch.state.owner===ownerId.value && floatingBatch.state.selected.includes(id);
 }
-function refreshBatch(){void floatingBatch.refresh();}
-function reconcileBatch(){void floatingBatch.reconcile(ownerId.value);}
-function stopBatch(){void floatingBatch.cancelAll();}
-function stopBatchDevice(id:string){void floatingBatch.cancelDevice(id);}
+function refreshBatch(id:string){if(batchTargetsLocal(id))void floatingBatch.refresh();}
+function reconcileBatch(id:string){
+    if(batchTargetsLocal(id))void floatingBatch.reconcile(ownerId.value);
+}
+function stopBatchDevice(id:string){
+    if(batchTargetsLocal(id) && floatingBatch.state.run?.devices.some(device=>device.device_id===id))
+        void floatingBatch.cancelDevice(id);
+}
 
 function setCard(id: string, value: unknown) {
     if (value) cards.set(id, value as PhoneHandle); else cards.delete(id);
@@ -1977,7 +1993,6 @@ onBeforeUnmount(() => { stopEvents?.();
                         :scripts-loading="scriptWorkspace.state.loading" :scripts-error="scriptWorkspace.state.error"
                         :script-guard="scriptWorkspace.guard.value"
                         :formal-pending="!!scriptWorkspace.state.formalPending"
-                        :selected-device-count="selectedIds.length"
                         :batch-run-state="floatingBatch.state" :batch-draft-ready="batchDraftReady"
                         :undo-delete-label="deletedStepUndoLabel" :editing-dirty="cardEditorDirty"
                         :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
@@ -1993,7 +2008,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         :demo-loading="locatorDemos[device.id]?.loading ?? false" :demo-error="locatorDemos[device.id]?.error"
                         :draft-save-busy="savingFloatingDraft" :draft-save-message="floatingDraftMessage"
                         :draft-sync-phase="draftSyncState.phase" :draft-sync-message="draftSyncState.message"
-                        :batch-run-message="floatingRunMessage"
+                        :batch-run-message="floatingRunMessages[device.id] ?? ''"
                         @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
                         @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction"
                         @inspector-close="closeInspector" @inspector-add-step="addInspectorStep"
@@ -2002,9 +2017,8 @@ onBeforeUnmount(() => { stopEvents?.();
                         @script-publish="publishFloatingScript" @script-remove="removeFloatingScript"
                         @script-reconcile="reconcileFloatingScript"
                         @draft-save="saveFloatingDraft" @draft-fork="forkFloatingDraft"
-                        @batch-start="runSelectedBatch" @batch-start-local="runLocalBatch" @batch-refresh="refreshBatch"
-                        @batch-stop="stopBatch" @batch-stop-device="stopBatchDevice"
-                        @batch-reconcile="reconcileBatch"
+                        @batch-start-local="runLocalBatch" @batch-refresh="refreshBatch"
+                        @batch-stop-device="stopBatchDevice" @batch-reconcile="reconcileBatch"
                         @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
                         @step-create="createCardDraftStep" @step-branch-add="addCardBranchStep"
                         @step-convert-condition="convertCardCondition"
