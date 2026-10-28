@@ -348,20 +348,21 @@ export function createAutomationScriptWorkspace(
         try{
             const proof=readFormalReceipt(window.sessionStorage,owner);
             if(!proof){state.formalPending=null;return;}
+            // Creation uses the exact owner+UUID tombstone, not name search:
+            // a delayed commit, a deleted script or an unrelated same-name
+            // entry must never be mistaken for the original POST.
+            const creation=proof.kind==='create'
+                ? await api.scriptCreateReceipt(owner,proof.scriptId.slice(4))
+                : null;
             const received=await api.listScripts(owner);
             if(owner!==ownerId.value)return;
-            const matches=received.items.filter(item=>proof.kind==='create'
-                ? item.name===proof.expectedName && item.revision===1 &&
-                    item.steps.length===proof.expectedStepIds?.length &&
-                    item.steps.every((s,i)=>s.id===proof.expectedStepIds?.[i])
-                : item.id===proof.scriptId);
-            const script=matches[0];
-            // Never infer a missing POST from list pagination or a stale
-            // revision. Only an unambiguous creation or exact CAS revision
-            // and step-ID set is enough to clear the persisted refusal.
+            const matches=received.items.filter(item=>item.id===proof.scriptId);
+            const script=proof.kind==='create'?creation:matches[0];
+            // An absent row can only prove a versioned DELETE after its CAS
+            // intent was recorded. Create/clone requires the server receipt.
             const confirmed=proof.kind==='delete'
                 ? !script
-                : !!script && matches.length===1 &&
+                : !!script && (proof.kind==='create'||matches.length===1) &&
                     script.revision===(proof.kind==='create'?1:proof.revision+1) &&
                     script.name===proof.expectedName &&
                     script.steps.length===proof.expectedStepIds?.length &&
