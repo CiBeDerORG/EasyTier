@@ -13,6 +13,8 @@ export interface DeployCatalogApp {
         compose_file: string;
         platforms?: string | null;
         architectures?: string | null;
+        config?: Array<Record<'key' | 'label' | 'type' | 'target' | 'required', string>>;
+        ports?: Array<Record<'id' | 'label' | 'protocol' | 'purpose' | 'host_port_key' | 'container_port' | 'service', string>>;
         install_available: false;
         management_rights: false;
         validation: string;
