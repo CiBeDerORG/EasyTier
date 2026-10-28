@@ -23,6 +23,7 @@ const emit=defineEmits<{
     create: [type:AutomationStepType];
     branch: [conditionId:string,lane:BranchLane,type:AutomationStepType];
     convert: [stepId:string,type:'if_gone'|'if_else'];
+    move: [stepId:string,delta:-1|1];
 }>();
 const projected=computed(()=>projectCardSteps(props.draft));
 const layout=computed(()=>analyzeAutomationFlow(props.draft.steps));
@@ -42,6 +43,16 @@ const selectedAction=computed(()=>props.draft.steps.find(s=>s.id===props.draft.s
 function canAddBranch(id:string,lane:BranchLane):boolean {
     const index=props.draft.steps.findIndex(step=>step.id===id);
     return !blocked.value && canInsertBranchStep(props.draft.steps,layout.value,index,lane);
+}
+function canMove(id:string,delta:-1|1):boolean{
+    if(blocked.value)return false;
+    const at=props.draft.steps.findIndex(step=>step.id===id),next=at+delta;
+    if(at<0||next<0||next>=props.draft.steps.length)return false;
+    const first=props.draft.steps[at],second=props.draft.steps[next];
+    if(['if_gone','if_else'].includes(first.type)||['if_gone','if_else'].includes(second.type))return false;
+    const left=layout.value.entries[at]?.ancestors??[];
+    const right=layout.value.entries[next]?.ancestors??[];
+    return JSON.stringify(left)===JSON.stringify(right);
 }
 </script>
 
@@ -73,6 +84,12 @@ function canAddBranch(id:string,lane:BranchLane):boolean {
                             :progress="trialProgress" />
                     </span>
                 </button>
+                <button type="button" class="step-move" :disabled="!canMove(step.id,-1)"
+                    :aria-label="'上移第 '+step.number+' 步'" title="只在同一条件分支内上移"
+                    @click.stop="emit('move',step.id,-1)"><i class="pi pi-arrow-up" aria-hidden="true" /></button>
+                <button type="button" class="step-move" :disabled="!canMove(step.id,1)"
+                    :aria-label="'下移第 '+step.number+' 步'" title="只在同一条件分支内下移"
+                    @click.stop="emit('move',step.id,1)"><i class="pi pi-arrow-down" aria-hidden="true" /></button>
                 <button type="button" class="step-trial" :aria-label="'试跑第 '+step.number+' 步"
                     title="当前手机单步骤真实试跑"
                     :disabled="trialActive || step.incomplete || step.type === 'if_gone' || step.type === 'if_else'"
@@ -129,7 +146,9 @@ function canAddBranch(id:string,lane:BranchLane):boolean {
 .step-info strong{font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .step-info small{font-size:10px;color:var(--console-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .step-info .branch{color:var(--p-primary-color)}
-.step-trial,.step-edit,.step-delete{flex:0 0 25px;width:25px;padding:0;border:0;border-radius:5px;background:transparent;cursor:pointer;font-size:12px}
+.step-trial,.step-edit,.step-delete,.step-move{flex:0 0 23px;width:23px;padding:0;border:0;border-radius:5px;background:transparent;cursor:pointer;font-size:11px}
+.step-move{color:var(--console-muted)}
+.step-move:disabled{opacity:.35;cursor:not-allowed}
 .step-trial{color:var(--p-green-500)}
 .step-trial:disabled{opacity:.35;cursor:not-allowed}
 .step-edit{color:var(--console-muted)}
