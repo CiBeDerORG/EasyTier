@@ -84,6 +84,10 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
                 <small>{{ label(device.phase || 'queued') }}</small>
                 <small>{{ device.message }}</small>
                 <small v-if="device.sessionId">原视频会话：<code>{{ device.sessionId.slice(0,8) }}</code></small>
+                <small v-if="device.mediaState==='lost'" class="media-alert" role="alert">
+                    {{ device.mediaMessage }}
+                </small>
+                <small v-else-if="device.mediaState==='live'">视频：原画面正常</small>
                 <small v-if="device.stepId">当前步骤：{{ device.stepId }}</small>
                 <small v-if="device.runState && !terminal(device.runState)">尚未确认完成或清理</small>
                 <Button v-if="state.run && state.phase==='running' && device.runState &&
@@ -118,4 +122,5 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
 .batch-device{display:grid;gap:2px;border-top:1px solid var(--console-border);padding-top:5px}
 .batch-device strong{font-size:11px}
 .batch-hint{border-top:1px solid var(--console-border);padding-top:7px}
+.batch-device .media-alert{color:var(--p-red-500)}
 </style>
