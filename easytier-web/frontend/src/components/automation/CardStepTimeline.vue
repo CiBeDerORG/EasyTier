@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
+import type { AutomationStepType } from '../../types/automation';
+import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
 import { projectCardSteps } from '../../modules/card-step-projection';
 import type { InlineStepRunProgress } from '../../modules/useInlineStepRun';
@@ -11,14 +13,36 @@ const props=defineProps<{
     pickerActive?: boolean;
     trialProgress?: InlineStepRunProgress | null;
     trialActive?: boolean;
+    structureLocked?: boolean;
 }>();
 const emit=defineEmits<{
     edit: [stepId: string];
     trial: [stepId: string];
     delete: [stepId: string];
     undo: [];
+    create: [type:AutomationStepType];
+    branch: [conditionId:string,lane:BranchLane,type:AutomationStepType];
+    convert: [stepId:string,type:'if_gone'|'if_else'];
 }>();
 const projected=computed(()=>projectCardSteps(props.draft));
+const layout=computed(()=>analyzeAutomationFlow(props.draft.steps));
+const insertType=ref<AutomationStepType>('key');
+const actions:{value:AutomationStepType;name:string}[]=[
+    {value:'key',name:'导航按键'},{value:'tap',name:'点击'},
+    {value:'long_press',name:'长按'},{value:'swipe',name:'滑动'},
+    {value:'drag',name:'拖拽'},{value:'input_text',name:'输入文字'},
+    {value:'launch_app',name:'启动应用'},{value:'wait_for',name:'等待控件'},
+    {value:'wait_gone',name:'等待消失'},{value:'assert',name:'断言控件'},
+    {value:'assert_property',name:'断言属性'},{value:'scroll_find',name:'滚动查找'},
+    {value:'screenshot',name:'截图检查点'},
+];
+const blocked=computed(()=>!!props.structureLocked||!!props.trialActive||!!layout.value.problem);
+const selectedAction=computed(()=>props.draft.steps.find(s=>s.id===props.draft.selectedStepId &&
+    s.type!=='if_gone' && s.type!=='if_else'));
+function canAddBranch(id:string,lane:BranchLane):boolean {
+    const index=props.draft.steps.findIndex(step=>step.id===id);
+    return !blocked.value && canInsertBranchStep(props.draft.steps,layout.value,index,lane);
+}
 </script>
 
 <template>
@@ -63,16 +87,40 @@ const projected=computed(()=>projectCardSteps(props.draft));
                     title="删除此步骤或其所属条件块" @click.stop="emit('delete',step.id)">
                     <i class="pi pi-trash" aria-hidden="true" />
                 </button>
+                <div v-if="step.type==='if_gone'||step.type==='if_else'" class="branch-tools">
+                    <button type="button" :disabled="!canAddBranch(step.id,'then')"
+                        :aria-label="'向第'+step.number+'步 Then 添加'+insertType"
+                        @click.stop="emit('branch',step.id,'then',insertType)">+ Then</button>
+                    <button v-if="step.type==='if_else'" type="button" :disabled="!canAddBranch(step.id,'else')"
+                        :aria-label="'向第'+step.number+'步 Else 添加'+insertType"
+                        @click.stop="emit('branch',step.id,'else',insertType)">+ Else</button>
+                </div>
             </li>
         </ol>
-        <small class="draft-hint">步骤与所有授权手机共用同一工作草稿。▶ 为真实试跑，定位演示只读。</small>
+        <div class="flow-tools" aria-label="结构编辑工具">
+            <label>插入动作
+                <select v-model="insertType" :disabled="blocked">
+                    <option v-for="item in actions" :key="item.value" :value="item.value">{{ item.name }}</option>
+                </select>
+            </label>
+            <button type="button" :disabled="blocked || draft.steps.length>=100"
+                @click="emit('create',insertType)">+ 新增</button>
+        </div>
+        <div v-if="selectedAction" class="condition-tools">
+            <small>将选中普通步骤转换为条件（会自动创建待完善的分支占位步骤）</small>
+            <button type="button" :disabled="blocked || draft.steps.length+1>100"
+                @click="emit('convert',selectedAction!.id,'if_gone')">转为 If 消失</button>
+            <button type="button" :disabled="blocked || draft.steps.length+2>100"
+                @click="emit('convert',selectedAction!.id,'if_else')">转为 If/Else</button>
+        </div>
+        <small class="draft-hint">授权手机共用唯一草稿，新增步骤须配置完成。▶ 才是真实试跑；定位演示只读。</small>
     </section>
 </template>
 
 <style scoped>
 .card-steps{padding:3px 0 0;min-width:0}
 .timeline{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:3px;max-height:260px;overflow-y:auto;overscroll-behavior:contain}
-.timeline-item{display:flex;align-items:stretch;min-width:0;border:1px solid var(--console-border);border-radius:7px}
+.timeline-item{display:flex;align-items:stretch;flex-wrap:wrap;min-width:0;border:1px solid var(--console-border);border-radius:7px}
 .timeline-item.active{background:var(--console-accent-soft);border-color:var(--p-primary-color)}
 .step-select{display:flex;align-items:center;min-width:0;gap:5px;flex:1;background:transparent;color:inherit;border:0;text-align:left;padding:6px 3px;cursor:pointer}
 .number{display:grid;place-items:center;width:20px;height:20px;flex:0 0 20px;border-radius:50%;border:1px solid var(--console-border);font-size:10px;font-variant-numeric:tabular-nums}
@@ -92,6 +140,16 @@ const projected=computed(()=>projectCardSteps(props.draft));
 .no-steps,.flow-warning{margin:8px 0;font-size:11px;line-height:1.5;color:var(--console-muted)}
 .flow-warning{color:var(--p-orange-500)}
 .draft-hint{display:block;margin-top:6px;font-size:10px;line-height:1.4;color:var(--console-muted)}
+.flow-tools,.condition-tools,.branch-tools{display:flex;gap:5px;align-items:center;flex-wrap:wrap;font-size:10px}
+.flow-tools,.condition-tools{padding:6px 0;border-top:1px solid var(--console-border);margin-top:5px}
+.flow-tools label{display:flex;gap:5px;align-items:center}
+.flow-tools select{min-width:0;max-width:150px;font-size:10px;padding:4px;border:1px solid var(--console-border);
+    background:var(--console-panel-raised);color:inherit;border-radius:5px}
+.flow-tools button,.condition-tools button,.branch-tools button{border:1px solid var(--console-border);
+    border-radius:5px;background:var(--console-panel-raised);color:inherit;font-size:10px;padding:4px 6px;cursor:pointer}
+.flow-tools button:disabled,.condition-tools button:disabled,.branch-tools button:disabled{opacity:.4;cursor:not-allowed}
+.condition-tools small{flex:1 0 100%;color:var(--console-muted)}
+.branch-tools{flex:1 0 100%;padding:2px 7px 5px 28px;justify-content:flex-end}
 .undo-line{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:10px;color:var(--console-muted)}
 .undo-line span{min-width:0;flex:1}
 .undo-line button{white-space:nowrap;border:1px solid var(--console-border);border-radius:5px;padding:3px 5px;background:var(--console-panel-raised);color:inherit;cursor:pointer}
