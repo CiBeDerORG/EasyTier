@@ -28,3 +28,7 @@
 - `frontend/tests/automation-inline-batch-regression.test.mjs` 新增 5 组显式断言：批量 `requestId` 只能保留/清除同一个 ID、账号隔离、旧 UUID 未核实不得产生第二个提交、损坏/缺字段的持久凭据必须拒绝、存储只含请求及设备元数据不含明文参数/步骤、单步冻结源选择器且 owner/device/fingerprint/step 修改使其失效、只有兼容的只读无参数动作才可以自动提交。
 - `frontend/package.json` 将新增文件纳入既有 `test:unit` 测试清单。仅更新脚本列表，不触发运行，也不更改 GitHub Actions 工作流。
 - **未执行** node --test、TypeScript、lint、Vite、Runner/CI、浏览器/Android 或 FnOS 实测，尚不能报告断言通过数量。UI 的拖拽、全屏 Teleport、ESC/dirty、执行历史恢复、动态手机选择仍待后续 T48 用例或真实联调覆盖。
+
+## 2026-10-28 · 第一批断言补充
+- 新增独立批量回执校验反例：错误 UUID 格式、重复/空目标 ID、21 台越界、无效日期均必须在保存前拒绝，存储值保持空；其余冻结单步骤动作与未知提交保护断言详见同日第一批记录。
+- 回执模块因断言设计补充了严格格式与唯一设备约束。所有代码**仅提交、未执行**；后续仍应补前端可交互浮窗、ESC/全屏、CAS 409、读历史未知状态。
