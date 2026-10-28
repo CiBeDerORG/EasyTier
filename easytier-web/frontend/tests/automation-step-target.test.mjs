@@ -74,3 +74,15 @@ test('invalid and stale targets cannot mutate a different step or widen privileg
     {coordinates:{x:1.1,y:.2,width:100,height:200}}),null);
   assert.equal(stepCanPickTarget(make('swipe')),false);
 });
+
+
+test('re-picked selector retains explicit false clickable and rejects strings', () => {
+  const script=[make('tap')];
+  const result=replaceAutomationStepTarget(script,'existing-1','tap',
+    {selector:{description:'领淘金币',clickable:false}});
+  assert.deepEqual(result?.[0].selector,{description:'领淘金币',clickable:false});
+  assert.equal(replaceAutomationStepTarget(script,'existing-1','tap',
+    {selector:{clickable:'false'}}),null);
+  assert.deepEqual(replaceAutomationStepTarget(script,'existing-1','tap',
+    {selector:{clickable:true}})?.[0].selector,{clickable:true});
+});

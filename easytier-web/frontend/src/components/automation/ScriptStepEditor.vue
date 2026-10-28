@@ -114,6 +114,19 @@ function changeSelectorMode(value: string) {
 function selectorValue(field: keyof AutomationSelector, value: string | undefined) {
     update({ selector: { ...props.modelValue.selector, [field]: value ?? '' } });
 }
+function clickableValue(value: string) {
+    if (props.disabled || !props.modelValue.selector) return;
+    const selector = { ...props.modelValue.selector };
+    if (value === 'unset') delete selector.clickable;
+    else if (value === 'true' || value === 'false') selector.clickable = value === 'true';
+    else return;
+    update({ selector });
+}
+const clickableOptions = [
+    { label: '不使用', value: 'unset' },
+    { label: '可点击', value: 'true' },
+    { label: '不可点击', value: 'false' },
+];
 function scrollContainerValue(field: keyof AutomationSelector, value: string | undefined) {
     if (props.disabled) return;
     const scroll_container: AutomationSelector = { ...props.modelValue.scroll_container, [field]: value ?? '' };
@@ -202,7 +215,14 @@ function updateNumber(key: string, value: number | null | undefined) {
                     <span>{{ text('应用包名', 'Package') }}</span>
                     <InputText :id="fieldId('selector-package')" :model-value="modelValue.selector.package" :maxlength="256" :disabled="disabled" @update:model-value="selectorValue('package', $event)" />
                 </label>
-                <small>{{ text('多个非空条件需同时匹配且只命中一个控件；文字输入仅支持组合控件条件。', 'All nonempty fields must uniquely match. Text input supports native fields only.') }}</small>
+                <label class="field" :for="fieldId('selector-clickable')">
+                    <span>{{ text('可点击状态', 'Clickable state') }}</span>
+                    <Select :input-id="fieldId('selector-clickable')"
+                        :model-value="modelValue.selector.clickable === undefined ? 'unset' : modelValue.selector.clickable ? 'true' : 'false'"
+                        :options="clickableOptions" option-label="label" option-value="value"
+                        :disabled="disabled" @update:model-value="clickableValue" />
+                </label>
+                <small>{{ text('多个有效条件需同时匹配且只命中一个控件；可点击和不可点击都可作为条件。', 'All active conditions must uniquely match; clickable true or false may be used.') }}</small>
             </template>
         </fieldset>
 

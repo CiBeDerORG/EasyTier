@@ -224,7 +224,7 @@ const modeOptions = computed(() => {
         { value: 'resource_id', label: 'Resource ID', unique: false },
         { value: 'text', label: '控件文字', unique: false },
         { value: 'description', label: '无障碍描述', unique: false },
-        { value: 'composite', label: '组合条件（候选推荐）', unique: locatorCandidates.value.some(item => item.id.includes('+') && item.unique) },
+        { value: 'composite', label: '组合条件 / 可点击状态（候选推荐）', unique: locatorCandidates.value.some(item => (item.id.includes('+') || item.id === 'clickable') && item.unique) },
         { value: 'xpath', label: 'XPath 1.0（请在脚本编辑器手动配置）', unique: false },
         { value: 'coordinates', label: '画面坐标（手动兜底）', unique: coordinatesAllowed.value },
     ];

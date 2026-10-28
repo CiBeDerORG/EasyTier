@@ -78,6 +78,16 @@ class AdvancedValidationTests(unittest.TestCase):
         ])
         self.assertEqual(len(value), 3)
 
+    def test_clickable_selector_preserves_false_and_rejects_string(self):
+        value = steps([record("wait_for", selector={"description": "领淘金币", "clickable": False},
+                              timeout_ms=500)])
+        self.assertIs(value[0]["selector"]["clickable"], False)
+        self.assertIs(steps([record("assert", selector={"clickable": True}, timeout_ms=500)])[0]
+                      ["selector"]["clickable"], True)
+        for invalid in ("false", "true", 0, 1, None):
+            with self.subTest(value=invalid), self.assertRaises(Exception):
+                steps([record("wait_for", selector={"clickable": invalid}, timeout_ms=500)])
+
     def test_rejects_unbounded_and_ambiguous_operations(self):
         valid_scroll = dict(selector=BUTTON, scroll_container=SCROLLER, direction="down",
                             max_swipes=3, duration_ms=300, timeout_ms=20000)
@@ -97,6 +107,13 @@ class AdvancedValidationTests(unittest.TestCase):
 
 
 class AdvancedExecutionTests(unittest.TestCase):
+    def test_native_clickable_selector_is_forwarded_as_boolean(self):
+        for state in (False, True):
+            runner = ActionHarness()
+            runner.run(record("wait_for", selector={"description": "领淘金币", "clickable": state}, timeout_ms=500))
+            selectors = [params[0].values for method, params in runner.calls if method == "count"]
+            self.assertIn({"description": "领淘金币", "clickable": state}, selectors)
+
     def test_wait_gone_never_sends_an_action(self):
         checks = iter([2, 2, 0])
         runner = ActionHarness(count=lambda s: 1 if s.values.get("className") else next(checks))

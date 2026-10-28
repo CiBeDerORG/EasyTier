@@ -1,5 +1,5 @@
 export type AutomationKey = 'HOME' | 'BACK' | 'RECENT' | 'WAKE';
-export interface AutomationSelector { resource_id?: string; description?: string; text?: string; class_name?: string; package?: string; xpath?: string }
+export interface AutomationSelector { resource_id?: string; description?: string; text?: string; class_name?: string; package?: string; clickable?: boolean; xpath?: string }
 export interface AutomationHierarchyNode {
     id: number; parent_id: number | null; depth: number;
     class_name: string; package: string; resource_id: string; text: string; description: string;

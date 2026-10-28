@@ -73,3 +73,34 @@ test('AUT-10 rejects forbidden fields, empty data and changed snapshots', () => 
         node(2, { resource_id: 'demo:id/save' }),
     ] }, 1, { resource_id: 'demo:id/save' }), false);
 });
+
+
+test('AUT-10 distinguishes duplicate labels with clickable=true and clickable=false', () => {
+    const shot = { truncated: false, nodes: [
+        node(1, { description: '领淘金币', clickable: true }),
+        node(2, { description: '领淘金币', clickable: false }),
+    ] };
+    const clickable = rankLocatorCandidates(shot, 1).find(x => x.id === 'description+clickable');
+    const notClickable = rankLocatorCandidates(shot, 2).find(x => x.id === 'description+clickable');
+    assert.equal(clickable?.unique, true);
+    assert.equal(clickable?.selector.clickable, true);
+    assert.match(clickable?.label ?? '', /可点击/);
+    assert.equal(notClickable?.unique, true);
+    assert.equal(notClickable?.selector.clickable, false);
+    assert.match(notClickable?.label ?? '', /不可点击/);
+    assert.equal(locatorIsUnique(shot, 1, {description:'领淘金币', clickable:true}), true);
+    assert.equal(locatorIsUnique(shot, 2, {description:'领淘金币', clickable:false}), true);
+    assert.equal(locatorIsUnique(shot, 1, {description:'领淘金币', clickable:false}), false);
+    assert.equal(locatorIsUnique(shot, 2, {description:'领淘金币', clickable:'false'}), false);
+});
+
+test('AUT-10 clickable does not bypass uniqueness when duplicate states match', () => {
+    const shot = {truncated:false, nodes:[
+        node(1, { description:'领淘金币', clickable:true }),
+        node(2, { description:'领淘金币', clickable:true }),
+        node(3, { description:'领淘金币', clickable:false }),
+    ]};
+    assert.equal(rankLocatorCandidates(shot, 1).find(x=>x.id==='description+clickable')?.unique,false);
+    assert.equal(rankLocatorCandidates(shot, 3).find(x=>x.id==='description+clickable')?.unique,true);
+    assert.equal(locatorIsUnique(shot,1,{description:'领淘金币',clickable:true}),false);
+});
