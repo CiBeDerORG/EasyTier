@@ -34,7 +34,6 @@ const props = defineProps<{
     anchorName: string;
     verifying: boolean;
     mode: LocatorMode;
-    modeOptions: ModeOption[];
     activeMode: ModeOption | undefined;
     coordinateConfirmed: boolean;
     coordinatesAllowed: boolean;
@@ -56,6 +55,8 @@ const emit = defineEmits<{
     'verify-filter': [];
     'preview-match': [id: number];
     'focus-parent': [id: number];
+    'parent-filter': [nodeId: number,field:import('../../modules/automation-cross-filter').FilterField];
+    'reset-preview': [];
     'start-anchor-pick': [];
     'clear-anchor': [];
     'change-mode': [mode: LocatorMode];
@@ -131,7 +132,9 @@ function title(node: AutomationHierarchyNode) {
                             @toggle="(id,checked) => emit('toggle-filter',id,checked)"
                             @verify="emit('verify-filter')"
                             @preview="id => emit('preview-match',id)"
-                            @focus-parent="id => emit('focus-parent',id)" />
+                            @focus-parent="id => emit('focus-parent',id)"
+                            @parent-filter="(nodeId,field) => emit('parent-filter',nodeId,field)"
+                            @reset-preview="emit('reset-preview')" />
                         <details class="legacy-candidates">
                             <summary>高级：自动关联锚点与快捷定位建议（可选）</summary>
                             <div class="parent-recommendation">
@@ -158,10 +161,18 @@ function title(node: AutomationHierarchyNode) {
                             </div>
 
                         </details>
-                        <label class="locator-label" for="ui-inspector-locator">执行定位方式（默认使用上方的多选条件）</label>
-                        <select id="ui-inspector-locator" :value="mode" class="locator-select" @change="emit('change-mode', ($event.target as HTMLSelectElement).value as LocatorMode)">
-                            <option v-for="option in modeOptions" :key="option.value" :value="option.value" :disabled="!option.unique">{{ option.label }}{{ option.unique ? '' : ' · 不可用或不唯一' }}</option>
-                        </select>
+                        <div class="locator-choice">
+                            <strong>当前执行定位：{{ mode === 'coordinates' ? '屏幕坐标（兜底）'
+                                : confirmedLocator?.xpath ? '已验证的层级条件 XPath'
+                                : confirmedLocator ? '当前交叉过滤属性组合'
+                                : '待确认唯一条件' }}</strong>
+                            <small>以上多选条件是正常定位入口；原来的 Resource ID / 文字 / 描述单选菜单已移除，避免保存错条件。</small>
+                            <Button v-if="mode !== 'coordinates'" label="改用坐标兜底（不保存过滤条件）"
+                                outlined size="small" :disabled="!coordinatesAllowed"
+                                @click="emit('change-mode','coordinates')" />
+                            <Button v-else label="恢复属性交叉过滤" outlined size="small"
+                                @click="emit('change-mode','composite')" />
+                        </div>
                         <div v-if="mode === 'coordinates'" class="coordinate-confirm">
                             <small class="hint">坐标定位依赖当前画面和方向；必须主动确认，不会自动回退。</small>
                             <Button :label="coordinateConfirmed ? '已确认坐标' : '确认使用坐标'"
@@ -224,6 +235,9 @@ function title(node: AutomationHierarchyNode) {
 .ancestry-nodes button{max-width:100%;overflow-wrap:anywhere;border:1px solid var(--console-border);border-radius:6px;padding:4px 6px;font-size:10px;background:var(--console-panel-raised);color:var(--p-text-color);cursor:pointer}
 .ancestry-nodes button.current{border-color:var(--p-primary-color);background:var(--console-accent-soft)}
 .coordinate-confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.locator-choice{display:grid;gap:6px;padding:8px;border:1px solid var(--console-border);border-radius:7px;font-size:11px}
+.locator-choice small{color:var(--console-muted)}
+.locator-choice :deep(.p-button){justify-self:start}
 .parent-recommendation{padding:9px;border:1px solid var(--console-border);border-radius:8px;background:var(--console-accent-soft);display:grid;gap:4px;font-size:11px;line-height:1.6}
 .parent-recommendation :deep(.p-button){justify-self:start}
 .property{display:grid;gap:4px;padding:5px 0;border-bottom:1px solid var(--console-border)}

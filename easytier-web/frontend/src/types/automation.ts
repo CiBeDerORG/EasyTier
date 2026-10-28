@@ -10,6 +10,8 @@ export interface AutomationHierarchyNode {
     clickable: boolean; enabled: boolean; scrollable: boolean; selected: boolean; checked: boolean; password: boolean;
     long_clickable?: boolean | null; focusable?: boolean | null; checkable?: boolean | null;
     bounds: { left: number; top: number; right: number; bottom: number };
+    /** Raw Android XML bounds for exact XPath filters, unlike screen-clamped bounds. */
+    raw_bounds?: string;
 }
 export interface AutomationHierarchy {
     device_id: string; target_fingerprint: string; captured_at: string;

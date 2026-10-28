@@ -387,6 +387,9 @@ interface InspectorAppendScope {
 }
 const inspectorAppendScope = ref<InspectorAppendScope | null>(null);
 let pickerEpoch = 0;
+// Pickers opened by the automation floating console are auto-scoped. A
+// pre-existing manually enabled picker remains active after the console closes.
+const floatingAutoPickers = new Set<string>();
 function pickerBinding(id: string): PickerBinding | null {
     const device = devices.value.find(item => item.id === id);
     const card = cards.get(id);
@@ -402,6 +405,7 @@ function pickerBinding(id: string): PickerBinding | null {
     };
 }
 function stopCardPicking(id: string) {
+    floatingAutoPickers.delete(id);
     delete pickerPoints[id];
     const current = pickerContexts[id];
     if (current && current.phase !== 'off')
@@ -423,6 +427,22 @@ function armCardPicking(id: string, intent: PickerIntent = {kind:'append'}): boo
         pickerContexts[id] = readyPicker(started, started.generation);
     }
     return true;
+}
+function onFloatingAutomationOpen(id:string) {
+    const current=pickerContexts[id],binding=pickerBinding(id);
+    if (!binding || !!sync.value || !!recordingId.value) return;
+    // Preserve an existing manual or replace-step picker; do not invalidate its
+    // generation or change its intent by simply opening the console.
+    if (current?.phase==='on' && pickerMatches(current,binding)) return;
+    if(armCardPicking(id,{kind:'append'})){
+        floatingAutoPickers.add(id);
+        notice.value='自动化浮窗已开启本机右键控件拾取；左键仍可正常操作手机。';
+    }
+}
+function onFloatingAutomationClose(id:string) {
+    // Only stop a picker if THIS console started it. Do not change manual
+    // permission, another phone's picker, or a pre-existing manual picker.
+    if(floatingAutoPickers.has(id))stopCardPicking(id);
 }
 function toggleCardPicking(id: string) {
     const current = pickerContexts[id];
@@ -2037,6 +2057,8 @@ onBeforeUnmount(() => { stopEvents?.();
                         :batch-run-message="floatingRunMessages[device.id] ?? ''"
                         @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
                         @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction"
+                        @automation-panel-open="onFloatingAutomationOpen"
+                        @automation-panel-close="onFloatingAutomationClose"
                         @inspector-close="closeInspector" @inspector-add-step="addInspectorStep"
                         @inspector-replace-target="replaceInspectorTarget" @inspector-edit="editInspectorDraft"
                         @script-refresh="refreshScriptList" @script-action="handleFloatingScriptAction"

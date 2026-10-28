@@ -81,6 +81,7 @@ const emit = defineEmits<{
     input: [id: string, message: AutomationControl]; action: [id: string, message: AutomationControl]; unlock: [id: string];
     text: [id: string]; record: [id: string]; connect: [id: string]; 'toggle-screen': [id: string];
     'toggle-picking': [id: string]; 'pick-action': [id: string, point: PickerVideoPoint, action: PickerMenuAction];
+    'automation-panel-open': [id: string]; 'automation-panel-close': [id: string];
     'script-refresh': [deviceId: string];
     'script-action': [action: AutomationScriptAction];
     'script-publish': [deviceId:string,name:string,description:string];
@@ -309,7 +310,9 @@ function openAutomationPanel() {
     emit('script-refresh',props.device.id);
 }
 function closeAutomationPanel() {
+    if (!automationPanelOpen.value) return;
     automationPanelOpen.value=false;
+    emit('automation-panel-close',props.device.id);
 }
 function toggleAutomationPanel() {
     if(automationPanelOpen.value)closeAutomationPanel();
@@ -514,6 +517,13 @@ const adbConnectionHint = computed(() => {
 const canOpen = computed(() => props.runnerAvailable && props.device.connection.enabled && !props.device.availability_reason && !props.device.active_session && !pending.value && session.state.phase !== 'live' && session.state.phase !== 'cleanup_pending');
 const pickingPhase = computed<PickerPhase>(() => props.pickerPhase ?? 'off');
 const pickAvailable = computed(() => ready.value && props.runnerAvailable && !props.syncRole && !props.recording && !props.unlocking);
+// Opening the automation floating console automatically enables right-click
+// picking on this SAME phone card. Wait for the live stream if it isn't ready.
+// Do not re-arm when unrelated reactive props change or after manual opt-out.
+watch([automationPanelOpen,pickAvailable],([opened,available],[wasOpen,wasAvailable])=>{
+    if(opened && available && (!wasOpen || !wasAvailable))
+        emit('automation-panel-open',props.device.id);
+});
 const pickerToggleAllowed = computed(() => pickingPhase.value !== 'off' || pickAvailable.value);
 const inspectorHint = computed(() => {
     if (pickingPhase.value === 'on') return '退出控件拾取 · 已开启，左键操作手机、右键查看控件';

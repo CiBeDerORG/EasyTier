@@ -7,7 +7,8 @@ const node=(id,parent_id,depth,values={})=>({
   resource_id:'',description:'',text:'',clickable:true,enabled:true,
   long_clickable:false,focusable:false,checkable:false,scrollable:false,
   selected:false,checked:false,password:false,
-  bounds:{left:10,top:id*30,right:150,bottom:id*30+25},...values,
+  bounds:{left:10,top:id*30,right:150,bottom:id*30+25},
+  raw_bounds:`[10,${id*30}][150,${id*30+25}]`,...values,
 });
 function hierarchy(){
   return {truncated:false,nodes:[
@@ -78,4 +79,34 @@ test('LOC-08 XPath text escapes both quote kinds and refuses oversize expression
   const result=buildCrossFilterSelector(many,['self:description','ancestor:1:resource_id','self:bounds']);
   assert.equal(result.selector,null);
   assert.match(result.error,/512/);
+});
+
+test('LOC-08 raw XML bounds match the selector even when visible bounds were clamped',()=>{
+  const shot=hierarchy(),original=shot.nodes[3];
+  original.bounds={left:0,top:90,right:150,bottom:125};
+  original.raw_bounds='[-25,90][150,125]';
+  const opts=buildFilterOptions(shot,4);
+  const bounds=opts.find(o=>o.id==='self:bounds');
+  assert.equal(bounds?.value,'[-25,90][150,125]');
+  const built=buildCrossFilterSelector(opts,['self:description','self:bounds']);
+  assert.match(built.selector.xpath,/\[-25,90\]\[150,125\]/);
+});
+test('LOC-08 parent filtering added from a matching row can reduce two targets to one',()=>{
+  const shot=hierarchy(),opts=buildFilterOptions(shot,4);
+  const parent=opts.find(x=>x.id==='ancestor:1:resource_id');
+  assert.equal(parent?.value,'demo:id/card-a');
+  assert.deepEqual(filterHierarchy(shot,opts,['self:description','ancestor:1:resource_id']).map(x=>x.id),[4]);
+  const other={
+    id:'parent:1:resource_id:demo:id/card-b',scope:'ancestor',distance:1,nodeId:5,
+    field:'resource_id',value:'demo:id/card-b',label:'父级Resource ID',displayValue:'demo:id/card-b'
+  };
+  assert.deepEqual(filterHierarchy(shot,[...opts,other],['self:description',other.id]).map(x=>x.id),[6]);
+  // A foreign row's parent must never silently retarget the originally selected action.
+  assert.notEqual(filterHierarchy(shot,[...opts,other],['self:description',other.id])[0].id,4);
+});
+test('LOC-08 selectors reject missing raw bounds rather than claiming a false unique result',()=>{
+  const shot=hierarchy();delete shot.nodes[3].raw_bounds;
+  const opts=buildFilterOptions(shot,4);
+  assert.equal(opts.some(x=>x.id==='self:bounds'),false);
+  assert.equal(buildCrossFilterSelector(opts,['self:bounds']).selector,null);
 });

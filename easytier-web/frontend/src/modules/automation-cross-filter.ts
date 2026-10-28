@@ -45,7 +45,11 @@ export function boundsText(b:AutomationHierarchyNode['bounds']):string {
   return `[${b.left},${b.top}][${b.right},${b.bottom}]`;
 }
 function getValue(node:AutomationHierarchyNode,key:FilterField):string|boolean|null {
-  if(key==='bounds')return boundsText(node.bounds);
+  if(key==='bounds') {
+    // The executor compares @bounds against original XML, never clamped pixels.
+    return typeof node.raw_bounds === 'string' && /^\[-?\d+,-?\d+\]\[-?\d+,-?\d+\]$/.test(node.raw_bounds)
+      ? node.raw_bounds : null;
+  }
   if((key==='text'||key==='description')&&node.password)return null;
   const value=node[key];
   if(BOOLEAN_FIELDS.has(key))return typeof value==='boolean'?value:null;
@@ -68,6 +72,7 @@ export function buildFilterOptions(shot:FilterSnapshot,selectedId:number):Filter
       const value=getValue(node,field);
       if(value===null)continue;
       const scope=level===0?'self':'ancestor';
+      if(scope==='ancestor' && node.password) continue;
       const caution=field==='bounds'
         ? '区域随布局和分辨率变化，建议只作为最后的限定条件。'
         : (field==='selected'||field==='checked')
@@ -93,6 +98,7 @@ function parentAt(node:AutomationHierarchyNode,depth:number,byId:Map<number,Auto
 }
 export function filterHierarchy(shot:FilterSnapshot,allOptions:FilterOption[],ids:readonly string[]):AutomationHierarchyNode[] {
   if(shot.truncated||shot.nodes.length>2500)return [];
+  if(!ids.length) return shot.nodes;
   const selected=new Map(allOptions.filter(x=>ids.includes(x.id)).map(x=>[x.id,x]));
   if(selected.size!==new Set(ids).size)return [];
   const byId=new Map(shot.nodes.map(n=>[n.id,n]));

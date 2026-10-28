@@ -66,6 +66,8 @@ def parse_hierarchy(xml, width, height):
                         "checked": raw.get("checked") == "true",
                         "password": raw.get("password") == "true",
                         "bounds": {"left": left, "top": top, "right": right, "bottom": bottom},
+                        # XPath uses ORIGINAL bounds, not clamped visible geometry.
+                        "raw_bounds": raw.get("bounds", ""),
                     })
                     parent = node_id
         for child in element:

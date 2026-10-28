@@ -2,7 +2,7 @@
 import {computed,ref,watch} from 'vue';
 import {Button} from 'primevue';
 import type {AutomationHierarchyNode,AutomationSelector} from '../../types/automation';
-import {boundsText,type FilterOption} from '../../modules/automation-cross-filter';
+import {boundsText,type FilterOption,type FilterField} from '../../modules/automation-cross-filter';
 
 const props=defineProps<{
   selectedId:number|null; options:FilterOption[]; activeIds:string[];
@@ -12,9 +12,11 @@ const props=defineProps<{
 }>();
 const emit=defineEmits<{
   toggle:[id:string,checked:boolean];verify:[];preview:[id:number];'focus-parent':[id:number];
+  'parent-filter':[nodeId:number,field:FilterField];'reset-preview':[];
 }>();
 const expanded=ref(false),page=ref(0),parentDetailId=ref<number|null>(null);
 const size=50;
+const previewId=ref<number|null>(null);
 const pages=computed(()=>Math.max(1,Math.ceil(props.matches.length/size)));
 const rows=computed(()=>props.matches.slice(page.value*size,(page.value+1)*size));
 const selfOptions=computed(()=>props.options.filter(x=>x.scope==='self'));
@@ -31,7 +33,7 @@ const nodeMap=computed(()=>new Map(props.nodes.map(x=>[x.id,x])));
 const parentDetail=computed(()=>parentDetailId.value===null?null:nodeMap.value.get(parentDetailId.value)??null);
 watch(()=>props.activeIds.join('|'),()=>{page.value=0;});
 watch(()=>props.matches.length,()=>{page.value=Math.min(page.value,pages.value-1);});
-watch(()=>props.selectedId,()=>{expanded.value=false;page.value=0;parentDetailId.value=null;});
+watch(()=>props.selectedId,()=>{expanded.value=false;page.value=0;parentDetailId.value=null;previewId.value=null;});
 const fields=[
   {key:'id',label:'节点编号'},{key:'parent_id',label:'父级编号'},
   {key:'depth',label:'层级深度'},
@@ -66,9 +68,27 @@ function val(n:AutomationHierarchyNode,key:string):string{
 function label(n:AutomationHierarchyNode){
   return n.password?'敏感控件':n.text||n.description||n.resource_id||n.class_name||'节点';
 }
+const parentFields:Partial<Record<string,FilterField>>={
+  parent_class:'class_name',parent_resource:'resource_id',parent_description:'description',
+  parent_text:'text',parent_clickable:'clickable',
+};
+function isParentField(key:string):boolean{return key in parentFields;}
+function canFilterParent(node:AutomationHierarchyNode,key:string):boolean {
+  const parent=node.parent_id===null?null:nodeMap.value.get(node.parent_id);
+  const field=parentFields[key];
+  if(!parent||!field||parent.password)return false;
+  const value=parent[field];
+  return typeof value==='boolean' || (typeof value==='string'&&!!value.trim());
+}
 function inspectParent(id:number|null){
   parentDetailId.value=id;
   if(id!==null)emit('focus-parent',id);
+}
+function previewNode(id:number){
+  previewId.value=id;emit('preview',id);
+}
+function restoreOriginal(){
+  previewId.value=null;emit('reset-preview');
 }
 </script>
 
@@ -114,17 +134,21 @@ function inspectParent(id:number|null){
   </div>
   <div class="filter-result">
     <button type="button" class="match-toggle" :aria-expanded="expanded" @click="expanded=!expanded">
-      <span>当前命中 <strong>{{matches.length}}</strong> 个目标</span>
+      <span>当前快照预计命中 <strong>{{matches.length}}</strong> 个目标</span>
       <span>{{expanded?'收起列表':'查看目标列表与父级信息'}}</span>
     </button>
     <div v-if="expanded" class="matches">
-      <div class="muted">表头展示已采集的全部控件属性与父级信息；横向滚动查看。
+      <div class="muted">下面是当前控件树的预计匹配结果，复杂层级条件以执行器重新采集的 XML 验证为准；横向滚动查看。
         节点编号、深度只是快照元数据，不作为永久执行条件。</div>
+      <div class="preview-controls">
+        <span>原操作目标：#{{selectedId ?? '—'}}；预览目标：#{{previewId ?? selectedId ?? '—'}}</span>
+        <button type="button" @click="restoreOriginal">恢复高亮原目标</button>
+      </div>
       <div v-if="parentDetail" class="parent-detail">
         <strong>父级 #{{parentDetail.id}}</strong>
         <span>{{label(parentDetail)}}</span>
         <span>{{parentDetail.class_name}} · {{boundsText(parentDetail.bounds)}}</span>
-        <small>如需按原选中目标的父级过滤，请勾选上方“父级 / 祖先节点条件”。</small>
+        <small>可以直接点击下方表格父级属性的“加入过滤”，继续缩小目标集合。</small>
       </div>
       <div class="table-scroll">
         <table class="match-table">
@@ -132,13 +156,19 @@ function inspectParent(id:number|null){
           <tbody>
             <tr v-for="node in rows" :key="node.id" :class="{chosen:node.id===selectedId}">
               <td>
-                <button type="button" class="row-action" @click="emit('preview',node.id)">高亮</button>
+                <button type="button" class="row-action" @click="previewNode(node.id)">高亮</button>
                 <span v-if="node.id===selectedId">原目标</span>
               </td>
               <td v-for="f in fields" :key="f.key" :title="val(node,f.key)">
                 <button v-if="f.key==='parent_id' && node.parent_id!==null"
                         type="button" class="parent-link" @click="inspectParent(node.parent_id)">
                   #{{node.parent_id}} · 查看父级
+                </button>
+                <button v-else-if="isParentField(f.key) && canFilterParent(node,f.key)"
+                        type="button" class="parent-link"
+                        :title="'加入父级过滤：'+f.label+' = '+val(node,f.key)"
+                        @click="emit('parent-filter',node.id,parentFields[f.key]!)">
+                  {{val(node,f.key)}} · 加入过滤
                 </button>
                 <span v-else>{{val(node,f.key)}}</span>
               </td>
@@ -195,7 +225,9 @@ function inspectParent(id:number|null){
 .match-table tr.chosen{background:var(--console-accent-soft)}
 .row-action,.parent-link,.pagination button{background:transparent;border:0;color:var(--p-primary-color);cursor:pointer;font-size:11px}
 .match-table td:first-child{display:flex;gap:6px;align-items:center}
-.parent-detail{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px solid var(--console-border);font-size:11px;border-radius:7px}
+.parent-detail,.preview-controls{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px solid var(--console-border);font-size:11px;border-radius:7px}
+.preview-controls{justify-content:space-between;align-items:center}
+.preview-controls button{color:var(--p-primary-color);border:0;background:transparent;cursor:pointer}
 .parent-detail small{width:100%;color:var(--console-muted)}
 .pagination{display:flex;justify-content:center;gap:12px;align-items:center;font-size:11px}
 .pagination button:disabled{opacity:.35;cursor:not-allowed}
