@@ -1,6 +1,6 @@
 # T47 · 失效事件、样式、兼容路由与前端模块瘦身
 
-> 状态：**第二批无用导入/参数与导航状态已收敛，待联调验收**｜计划：P15｜复杂度：S-M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**第三批失效路由和事件清理代码完成，CI/真机验收待确认**｜计划：P15｜复杂度：S-M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一负责人/依赖
 - Owner：**前端架构/集成负责人**。
@@ -40,3 +40,8 @@
 - **不能删除的旧模块**：`automation-run-handoff.ts` 的 `releaseOwnedTrialPreviews` 虽从新主业务路径移除，但 `frontend/tests/automation-run-safety-t17.test.mjs` 仍直接导入并覆盖设备级安全移交回归；没有重写等价测试前不删除。 `PhoneCard` 的 `dock-left/dock-right` CSS 看似无对应字面 class，实际由 `:class=` 动态生成，故保留。脚本兼容 Tab 仍需 FnOS 和真实 Android 验收后才能退役。
 - **静态阅读范围**：直接阅读关联组件、真实 frontend/tests 安全引用、条件树/共享 helper，未执行自动化扫描、类型检查、lint、编译、CI 或真机。动态样式、外部测试、历史入口不可仅凭字符串检索随意删除。
 - **结果**：小提交已推送 `feat/automation-center`；T47 主体进一步瘦身但仍**待联调**，不勾选验证通过项。
+## 2026-10-28 · T47 第三批：旧入口最终取舍
+- 旧脚本页完全不再持有步骤编辑器实例、正式脚本写操作与试跑视频；`AutomationCenter.vue` 去掉对应失效 `pick-step-target/openScriptInspector`，`PickerEditScope.origin` 只保留正在使用的卡片来源。兼容入口仅保留只读目录和去原卡片导航。
+- 新共享正式写入回执由纯模块管理；批量保护凭据已加入字段白名单，不再序列化可能附带的脚本正文、参数、选择器或密钥。相应 Node 反例断言已编写。
+- 组件级交叉引用复核：`ScriptStepEditor.vue` 仍被 `CardStepEditor.vue` 引用，`UiInspectorDialog.vue` 仍被 `PhoneCard.vue` 使用；`automation-run-handoff.ts` 仍被 T17 安全回归测试使用；`PhoneCard` 动态 dock class 仍需 CSS。**这些不是死代码，不删除。**
+- 代码取舍已完成；浏览器行为、Vue/TS 构建、Rust 与 Executor 测试及旧链接 UI 的通过状态必须使用本轮 CI/真实测试证据，不以静态审查冒充。
