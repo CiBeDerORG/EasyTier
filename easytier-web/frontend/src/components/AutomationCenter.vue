@@ -1484,6 +1484,16 @@ function closeCardStepEditor(deviceId: string, discardConfirmed = false): boolea
 }
 function saveCardStep(deviceId:string,stepId:string,expected:AutomationStep,updated:AutomationStep) {
     const device=devices.value.find(item=>item.id===deviceId);
+    if(updated.business_verification===true){
+        const steps=draftWorkspace.steps,at=steps.findIndex(s=>s.id===stepId);
+        const layout=analyzeAutomationFlow(steps);
+        if(layout.problem || at!==steps.length-1 ||
+            (layout.entries[at]?.ancestors.length??1)>0 ||
+            !['assert','assert_property'].includes(updated.type) ||
+            steps.some(s=>s.id!==stepId&&s.business_verification===true)){
+            error.value='业务成功验证只能标记脚本最后一个无条件断言，且只允许一条。';return;
+        }
+    }
     if (!device || device.owner_user_id!==ownerId.value ||
         cardStepEditor.value?.deviceId!==deviceId ||
         cardStepEditor.value.stepId!==stepId ||
