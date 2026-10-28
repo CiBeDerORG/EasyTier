@@ -22,7 +22,7 @@ import { automationMessages } from './automation/messages';
 import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../modules/automation-flow';
 import { addFlowBranchStep, createFlowCondition } from '../modules/automation-flow-tree';
 import { appendAutomationDraftSteps, appendPickedAutomationStep, emptyAutomationDraft } from '../modules/automation-draft';
-import { createAutomationDraftSync } from '../modules/automation-draft-sync';
+import { createAutomationDraftSync, draftFingerprint } from '../modules/automation-draft-sync';
 import { createAutomationScriptWorkspace, type AutomationScriptAction } from '../modules/automation-script-workspace';
 
 import {
