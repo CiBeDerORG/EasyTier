@@ -3,12 +3,14 @@
 //! No Rust test/build, executor request, ADB or Android device is run in debug mode.
 
 use serde_json::{Value, json};
+use easytier::common::config::{ConfigSource, NetworkConfig};
 use uuid::Uuid;
 
 use super::{AutomationStore, validation};
-use crate::db::Db;
+use crate::db::{Db, DeviceHeartbeatRecord, assets::AssetsStore};
 
 struct Fixture {
+    db: Db,
     store: AutomationStore,
     owner: i32,
     other: i32,
@@ -19,7 +21,55 @@ impl Fixture {
         let db = Db::memory_db().await;
         let owner = db.auto_create_user("t49-script-owner").await.unwrap().id;
         let other = db.auto_create_user("t49-script-other").await.unwrap().id;
-        Self { store: AutomationStore::new(db), owner, other }
+        Self { db:db.clone(),store: AutomationStore::new(db), owner, other }
+    }
+
+    /// A real AssetsStore-created virtual phone, with a current route and
+    /// exactly one TCP ADB service. This never contacts a physical phone.
+    async fn phone(&self) -> String {
+        let node=Uuid::new_v4();
+        let instance=Uuid::new_v4();
+        self.db.upsert_device_heartbeat(DeviceHeartbeatRecord {
+            user_id:self.owner,machine_id:node,
+            hostname:"T49 virtual node".into(),easytier_version:"test".into(),
+            device_os:"{}".into(),client_url:"tcp://192.0.2.11:1001".into(),
+        }).await.unwrap();
+        self.db.insert_or_update_user_network_config(
+            (self.owner,node),instance,
+            NetworkConfig {
+                instance_id:Some(instance.into()),
+                virtual_ipv4:Some("10.89.0.20".into()),
+                dhcp:Some(false),
+                ..Default::default()
+            },ConfigSource::Web,
+        ).await.unwrap();
+        let assets=AssetsStore::new(self.db.clone());
+        let kind=assets.create_type(self.owner,self.owner,json!({
+            "request_id":Uuid::new_v4(),"name":"T49 phone","semantic_kind":"phone"
+        })).await.unwrap();
+        let spec=json!({"mode":"direct_instance","instance_id":instance,"lan_ip":null});
+        let preview=assets.preview_instance_address(
+            self.owner,&node.to_string(),json!({
+                "subject":{"resource_kind":"device","id":null},
+                "address_spec":spec
+            })
+        ).await.unwrap();
+        let device=assets.create_device(self.owner,self.owner,&node.to_string(),json!({
+            "request_id":Uuid::new_v4(),"name":"T49 mobile",
+            "address_spec":spec,"device_type_id":kind["id"],
+            "preview_version":preview["preview_version"],
+        })).await.unwrap();
+        let id=device["id"].as_str().unwrap().to_owned();
+        let adb=assets.create_service(self.owner,self.owner,&node.to_string(),&id,json!({
+            "request_id":Uuid::new_v4(),"name":"T49 ADB",
+            "protocols":["tcp"],"port":37001,
+            "service_type":"adb","connection_mode":"wireless",
+        })).await.unwrap();
+        assert_eq!(adb["service_type"],"adb");
+        let target=self.store.target(self.owner,&id).await.unwrap();
+        assert_eq!(target["device_id"],id);
+        assert!(target["target_fingerprint"].is_string());
+        id
     }
 
     async fn create(&self, name: &str, steps: Value) -> Value {
@@ -189,4 +239,45 @@ async fn t49_reused_run_request_id_with_changed_body_fails_before_any_device_act
         "SELECT request_hash FROM automation_runs WHERE id=?"
     ).bind(&old_run).fetch_one(&db).await.unwrap();
     assert_eq!(identity,"old-digest","a conflicting retry must leave the original intent untouched");
+}
+
+#[tokio::test]
+async fn t49_empty_saved_script_is_rejected_by_real_create_run_even_with_a_valid_phone() {
+    let f=Fixture::new().await;
+    let phone=f.phone().await;
+    let saved=f.create("empty published",json!([])).await;
+    let body=json!({
+        "request_id":Uuid::new_v4(),
+        "script_id":saved["id"],"revision":saved["revision"],
+        "device_ids":[phone],"parameters":{},"concurrency":1,
+    });
+    let rejected=f.store.create_run(f.owner,f.owner,&body).await.unwrap_err();
+    assert_eq!(rejected.status,422,"an empty saved script is not executable");
+    assert!(rejected.field_errors.contains_key("steps"));
+    assert_eq!(f.store.list_runs(f.owner).await.unwrap()["items"],json!([]),
+        "invalid execution must not persist a run or dispatch request");
+}
+
+#[tokio::test]
+async fn t49_run_uuid_is_idempotent_and_revision_is_checked_before_dispatch() {
+    let f=Fixture::new().await;
+    let phone=f.phone().await;
+    let script=f.create("versioned",json!([valid_step()])).await;
+    let body=json!({
+        "request_id":Uuid::new_v4().to_string(),
+        "script_id":script["id"],"revision":1,
+        "device_ids":[phone],"parameters":{},"concurrency":1,
+    });
+    let (initial,created)=f.store.create_run(f.owner,f.owner,&body).await.unwrap();
+    assert!(created);
+    assert_eq!(initial["state"],"dispatch_pending");
+    let (replayed,created)=f.store.create_run(f.owner,f.owner,&body).await.unwrap();
+    assert!(!created,"replaying an identical UUID must not create a second run");
+    assert_eq!(replayed["id"],initial["id"]);
+    let mut different=body.clone();
+    different["concurrency"]=json!(2);
+    let conflict=f.store.create_run(f.owner,f.owner,&different).await.unwrap_err();
+    assert_eq!(conflict.status,409);
+    assert_eq!(conflict.code,"idempotency_conflict");
+    assert_eq!(f.store.list_runs(f.owner).await.unwrap()["items"].as_array().unwrap().len(),1);
 }
