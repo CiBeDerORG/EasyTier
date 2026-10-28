@@ -37,7 +37,13 @@ export function reserveBatchReceipt(storage: Storage, receipt: BatchSubmissionRe
         throw new Error('批量请求凭据无效，不能发送手机动作。');
     if(readBatchReceipt(storage,receipt.ownerId))
         throw new Error('存在尚未人工核对的批量运行请求，禁止产生第二次操作。');
-    storage.setItem(key(receipt.ownerId),JSON.stringify(receipt));
+    // Persist an allowlisted request identity only; runtime callers must
+    // never accidentally serialize step inputs, passwords or selectors.
+    const proof:BatchSubmissionReceipt={
+        ownerId:receipt.ownerId,requestId:receipt.requestId,
+        deviceIds:[...receipt.deviceIds],createdAt:receipt.createdAt,
+    };
+    storage.setItem(key(receipt.ownerId),JSON.stringify(proof));
     if(readBatchReceipt(storage,receipt.ownerId)?.requestId!==receipt.requestId)
         throw new Error('不能确认已保存批量请求身份，禁止提交。');
 }
