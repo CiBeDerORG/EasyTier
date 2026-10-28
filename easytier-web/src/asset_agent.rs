@@ -62,6 +62,8 @@ pub struct Manager {
     // Pairing is infrequent. Serialize binding mutations to prevent parallel
     // one-time code consumption/re-pairs targeting the same Agent identity.
     pair_lock: Mutex<()>,
+    // Do not race two on-demand complete scans for the same historical baseline.
+    docker_scan_lock: Mutex<()>,
 }
 impl Manager {
     pub fn new(db: Db, credentials: Arc<CredentialStore>) -> Self {
@@ -69,6 +71,7 @@ impl Manager {
             db,
             credentials,
             pair_lock: Mutex::new(()),
+            docker_scan_lock: Mutex::new(()),
         }
     }
     fn address(device: &Value, kind: AddressChoice) -> Result<String, Error> {
@@ -514,6 +517,7 @@ impl Manager {
     }
 
     pub async fn docker_inventory(&self, device: &Value) -> Result<Value, Error> {
+        let _scan_lock = self.docker_scan_lock.lock().await;
         let device_id = device["id"].as_str().ok_or(Error::Storage)?;
         let owner = device["owner_user_id"].as_i64().ok_or(Error::Storage)?;
         let agent = self.saved(device_id).await?
@@ -583,17 +587,14 @@ impl Manager {
                 }
             }
         }
-        // Commit the last complete snapshot only after current Agent identity
-        // and inventory structure are verified. Never overwrite it on failure.
+        // The last complete inventory and missing-resource evidence are one
+        // atomic write. No offline, partial, or identity-mismatched result can
+        // advance the absence counter or authorize an asset deletion.
         let stored = inventory.clone();
-        sqlx::query(
-            "INSERT INTO asset_agent_docker_snapshots(asset_device_id,agent_id,snapshot_json,observed_at) VALUES(?,?,?,?) ON CONFLICT(asset_device_id) DO UPDATE SET agent_id=excluded.agent_id,snapshot_json=excluded.snapshot_json,observed_at=excluded.observed_at"
-        )
-        .bind(device_id)
-        .bind(&agent)
-        .bind(stored.to_string())
-        .bind(stored["observed_at"].as_str().ok_or(Error::Remote)?)
-        .execute(&self.db.inner()).await.map_err(|_| Error::Storage)?;
+        let absences = crate::docker_absence::reconcile_and_cache(
+            &self.db, device_id, &agent, &stored,
+        ).await?;
+        inventory["external_absences"] = json!(absences);
         inventory["live_status"] = json!("online");
         inventory["fresh"] = json!(true);
         inventory["snapshot"] = json!(stored);
