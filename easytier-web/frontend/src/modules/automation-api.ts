@@ -117,4 +117,9 @@ export default class AutomationApi {
     getRun(ownerId: number, id: string) { return this.request<AutomationRun>(`/runs/${encodeURIComponent(id)}`, ownerId); }
     refreshRun(ownerId: number, id: string) { return this.request<AutomationRun>(`/runs/${encodeURIComponent(id)}/refresh`, ownerId, 'POST', {}); }
     cancelRun(ownerId: number, id: string) { return this.request<AutomationRun>(`/runs/${encodeURIComponent(id)}/cancel`, ownerId, 'POST', {}); }
+    cancelRunDevice(ownerId: number, runId: string, deviceId: string) {
+        return this.request<AutomationRun>(
+            `/runs/${encodeURIComponent(runId)}/devices/${encodeURIComponent(deviceId)}/cancel`,
+            ownerId, 'POST', {});
+    }
 }
