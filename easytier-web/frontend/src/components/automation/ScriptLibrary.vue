@@ -26,6 +26,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
     'run-created': [run: AutomationRun];
+    'to-card': [deviceId:string];
     'pick-step-target': [stepId: string, stepType: AutomationStepType, deviceId: string];
 }>();
 const api = new AutomationApi();
@@ -54,6 +55,8 @@ const deleteVisible = ref(false);
 const deleteTarget = ref<AutomationScript>();
 const blockedRunReceipts=ref<TrialSubmissionReceipt[]>([]);
 const checkingOldRun=ref(false);
+const targetCard=computed(()=>props.selectedDeviceIds.find(id=>
+    props.pickerDevices.some(device=>device.id===id))??props.pickerDevices[0]?.id??null);
 function checkOldRunReceipts(ids:string[]):boolean {
     try{
         blockedRunReceipts.value=ids.map(id=>readTrialReceipt(window.sessionStorage,props.ownerId,id))
@@ -474,6 +477,12 @@ onBeforeUnmount(() => {
 
 <template>
     <section class="script-library" :aria-label="text('脚本库', 'Script library')">
+        <div class="library-return">
+            <span>脚本编辑、运行与历史修复已迁到手机原画面的唯一脚本浮窗；此页暂为兼容管理入口。</span>
+            <Button v-if="targetCard" label="回手机原画面脚本浮窗" icon="pi pi-mobile" size="small"
+                @click="emit('to-card',targetCard)" />
+            <small v-else>当前暂无授权可用的手机卡片，请先在设备工作台配置手机。</small>
+        </div>
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
         <Button v-if="blockedRunReceipts.length" label="只读查询未确认的执行请求"
             icon="pi pi-history" outlined size="small" :loading="checkingOldRun"
@@ -634,10 +643,13 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .script-library { display: grid; gap: 16px; }
+.library-return{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+    padding:10px 12px;border:1px solid var(--console-border);border-radius:9px;font-size:12px;
+    background:var(--console-panel-raised)}
+.library-return span{flex:1;min-width:160px}
+.library-return small{color:var(--console-muted)}
 
 .library-columns { display: grid; grid-template-columns: minmax(210px, .65fr) minmax(0, 2fr); gap: 20px; align-items: start; }
-.recording-notice { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; padding: 14px 18px; border: 1px solid var(--console-border); border-radius: 12px; background: var(--console-accent-soft); }
-.recording-notice .pi { color: var(--p-red-500); font-size: 10px; margin-right: 8px; }
 .error-message { padding: 12px 14px; border-radius: 8px; color: var(--p-red-600); background: color-mix(in srgb, var(--p-red-500) 8%, transparent); overflow-wrap: anywhere; }
 .notice-message { color: var(--p-primary-color); font-size: 13px; }
 .new-script { padding: 14px; }
