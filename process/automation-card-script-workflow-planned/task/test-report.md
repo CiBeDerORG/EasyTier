@@ -388,3 +388,7 @@
 - **条件功能迁移**：卡片主时间线可创建未配置的动作步骤、将普通步骤转换 If/Else、向 Then/Else 分支新增动作、仅在完全相同条件分支上下移动；全部复用 `automation-flow` 和 `automation-flow-tree` 既有不交叉/最大深度/20分支项/100步结构约束。卡片编辑浮窗支持最后一个无条件 assert/assert_property 的唯一业务成功标记，操作本身不执行 Android 命令。
 - **验证情况**：**未执行** TS/Vue 类型检查、Rust 编译、lint、构建、GitHub Actions 手动触发、单元/集成/E2E、浏览器及 FnOS/Android 真机/全屏/双浏览器回归（延续 AGENTS.md 当前调试模式）。本日志仅记录已推送代码，不宣称编译/功能验收通过。
 - **重点待测风险**：旧客户端 DELETE 与新修订 CAS 并存期、双浏览器同一 revision 发布/删除、未知 HTTP 后刷新恢复、sessionStorage 损坏 fail-closed、从未发布草稿的首次新建、工作草稿 CAS 同步、条件新增后 step ID 和条件计数、断言唯一性、历史设备失联时返回卡片修复、视频不断流、旧脚本兼容编辑页的写入与新卡片共用同一草稿。T46 代码替代尚不等于可退役旧 Tab。
+## 2026-10-28 · T47 第一批旧路由/样式瘦身（调试模式）
+- `ScriptLibrary.vue` 增加旧脚本管理兼容入口到原 PhoneCard 工作台的显式动作，并删除与模板无对应关系的 `.recording-notice` 样式；`AutomationCenter.vue` 验证 owner、ADB 连接开启状态、页签转换及原卡片存在后调用原 `PhoneCard.openAutomationPanel`，不打开第二投屏、不发自动化动作。
+- 源码层静态核对：ScriptLibrary 无 `previewPlayer`、旧 `runVisible` 弹窗、`<video>`；RunHistory 不再发送 `repair-step`，PhoneCard 的两个 video 分别是现有主 video 与共用 session 的 ambient 背景。静态读取不替代 Vue SFC 编译。
+- **未执行** 类型检查、构建、lint、CI 手动触发、实机或浏览器交互（调试模式）。重点后续验证：旧脚本入口可回原卡片并保持视频、账号/筛选切换是否阻挡、旧管理页只读恢复及新正式 CAS 发布删除是否一致、旧代码调用引用和 CSS 编译。
