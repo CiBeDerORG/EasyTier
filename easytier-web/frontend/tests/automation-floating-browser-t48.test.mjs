@@ -201,8 +201,12 @@ test('T53 real PhoneCard offers explicit draft save, formal publish and this-pho
   await local.click();
   assert.deepEqual((await attempts()).at(-1),{type:'local',device:'phone-a',params:{}},
     'local run must submit exactly its own card, not the selected-device group');
-  assert.equal(await card.getByRole('button',{name:'运行已选 0 台'}).isDisabled(),true,
-    'multi-phone batch remains explicitly scoped to workbench checkboxes');
+  assert.equal(await card.getByRole('button',{name:/运行已选/}).count(),0,
+    'other devices cannot be run from the phone automation console');
+  assert.equal(await card.getByRole('spinbutton',{name:'任务并发设备数'}).count(),0,
+    'a local-only console must not expose any multi-device concurrency setting');
+  assert.equal(await card.getByRole('button',{name:'请求停止全部'}).count(),0,
+    'a local-only console must never offer stop-all');
 });
 
 test('T53 saved server draft unblocks the reactive formal-publish / full-run gate',async t=>{
@@ -247,4 +251,24 @@ test('T54 only the floating manual icon may change permission; console open/clos
   assert.equal(await card.locator('video.primary-video').count(),1);
   assert.deepEqual(await page.evaluate(()=>window.t54PermissionRequests),[],
     'neither opening nor closing the automation panel sends a permission RPC');
+});
+
+test('T55 real local console never displays another phone run or its action buttons',async t=>{
+  const page=await setup(t,realCardFixture);
+  await page.locator('#open-panel').click();
+  const card=page.locator('.phone-card');
+  await page.evaluate(()=>window.phoneCardReview.setForeignRun());
+  const panel=card.getByRole('region',{name:'自动化脚本'});
+  assert.equal(await panel.getByText('远端模拟手机').count(),0,
+    'foreign selected device names must not leak into the current card');
+  assert.equal(await panel.getByText('模拟其他设备错误').count(),0,
+    'foreign batch errors must stay in the foreign phone context');
+  assert.equal(await panel.getByRole('button',{name:'停止本机'}).count(),0,
+    'foreign run cannot be stopped from this card');
+  assert.equal(await panel.getByRole('button',{name:'刷新本机状态'}).count(),0,
+    'foreign run controls must not appear in this card');
+  assert.equal(await panel.getByRole('button',{name:'请求停止全部'}).count(),0,
+    'a foreign run must never expose any stop-all action');
+  assert.equal(await panel.getByRole('button',{name:/运行已选/}).count(),0,
+    'no cross-device running control remains');
 });
