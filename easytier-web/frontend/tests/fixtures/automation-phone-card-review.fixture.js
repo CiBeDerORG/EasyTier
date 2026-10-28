@@ -70,6 +70,27 @@ const App={
           message:'浏览器模拟状态',sessionId:'mock-existing-session',
         }};
       },
+      setMixedRun:()=>{
+        batch.owner=owner;
+        batch.phase='running';
+        batch.error='';
+        batch.requestId='mixed-request-uuid';
+        batch.selected=[phone,'phone-b'];
+        batch.devices={
+          [phone]:{name:device.name,phase:'running',message:'本机运行中',
+            sessionId:'local-media',runState:'running'},
+          'phone-b':{name:'远端模拟手机',phase:'running',message:'其他手机运行中',
+            sessionId:'foreign-media',runState:'running'},
+        };
+        batch.run={
+          id:'mixed-run',state:'running',request_id:'mixed-request-uuid',
+          devices:[
+            {device_id:phone,name:device.name,state:'running',steps:[],current_step:null},
+            {device_id:'phone-b',name:'远端模拟手机',state:'running',steps:[],current_step:null},
+          ],
+          script_snapshot:{steps:[...draft.steps]},
+        };
+      },
       setForeignRun:()=>{
         // The shared batch state intentionally belongs to another phone.
         // The current PhoneCard must not render/control its actions or errors.
@@ -117,6 +138,9 @@ const App={
         onStepEdit:(_device,id)=>{editing.value=id;},
         onDraftSave:id=>{attempts.value.push({type:'save',device:id});},
         onBatchStartLocal:(id,params)=>{attempts.value.push({type:'local',device:id,params});},
+        onBatchStopDevice:id=>{attempts.value.push({type:'stop-local',device:id});},
+        onBatchRefresh:id=>{attempts.value.push({type:'refresh-local',device:id});},
+        onBatchReconcile:id=>{attempts.value.push({type:'reconcile-local',device:id});},
         onStepClose:()=>{editing.value=null;},
         onStepDirty:()=>{},
       }),
