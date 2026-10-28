@@ -32,14 +32,20 @@ fn dimension(step:&Value,field:&str)->AutomationResult<()> {
 }
 
 fn selector(value:&Value)->AutomationResult<()> {
-    keys(value,&["resource_id","description","text","class_name","package","xpath"])?;
+    const BOOLEAN_FIELDS:&[&str]=&["clickable","enabled","long_clickable","focusable","checkable","scrollable"];
+    keys(value,&["resource_id","description","text","class_name","package","xpath",
+                 "clickable","enabled","long_clickable","focusable","checkable","scrollable"])?;
     let object=value.as_object().ok_or_else(||AutomationError::field("selector","A selector is required."))?;
     if object.is_empty() {return Err(AutomationError::field("selector","Choose at least one selector field."));}
     if object.contains_key("xpath") && object.len()!=1 {
         return Err(AutomationError::field("selector","XPath cannot be combined with native selector fields."));
     }
     for field in object.keys() {
-        if !value[field].as_str().is_some_and(|s|!s.trim().is_empty()&&s.len()<=512&&!s.contains('\0')) {
+        if BOOLEAN_FIELDS.contains(&field.as_str()) {
+            if !value[field].is_boolean() {
+                return Err(AutomationError::field(field,"Selector boolean must be true or false."));
+            }
+        } else if !value[field].as_str().is_some_and(|s|!s.trim().is_empty()&&s.len()<=512&&!s.contains('\0')) {
             return Err(AutomationError::field(field,"Selector text is empty or exceeds 512 bytes."));
         }
     }
@@ -358,5 +364,36 @@ mod empty_script_persistence_contract_tests {
         assert!(saved_steps(&json!({})).is_err());
         let many=(0..101).map(|_|json!({"id":Uuid::new_v4().to_string(),"type":"key","key":"HOME"})).collect::<Vec<_>>();
         assert!(saved_steps(&json!(many)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod loc08_boolean_selector_regressions {
+    use super::selector;
+    use serde_json::json;
+
+    #[test]
+    fn accepts_true_and_false_without_coercing_or_breaking_old_selectors() {
+        for key in ["clickable","enabled","long_clickable","focusable","checkable","scrollable"] {
+            for value in [true,false] {
+                let mut object=serde_json::Map::new();
+                object.insert("description".into(),json!("领淘金币"));
+                object.insert(key.into(),json!(value));
+                assert!(selector(&serde_json::Value::Object(object)).is_ok(),"{key}={value}");
+            }
+        }
+        assert!(selector(&json!({"resource_id":"demo:id/a"})).is_ok());
+    }
+
+    #[test]
+    fn rejects_stringified_boolean_and_mixed_xpath() {
+        for key in ["clickable","enabled","long_clickable","focusable","checkable","scrollable"] {
+            for invalid in [json!("false"),json!(0),serde_json::Value::Null] {
+                let mut object=serde_json::Map::new();
+                object.insert(key.into(),invalid);
+                assert!(selector(&serde_json::Value::Object(object)).is_err());
+            }
+        }
+        assert!(selector(&json!({"xpath":"//*","enabled":true})).is_err());
     }
 }
