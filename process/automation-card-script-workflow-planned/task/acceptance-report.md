@@ -211,3 +211,8 @@ docker inspect easytier-automation-executor --format 'image={{.Config.Image}} im
 | T51 发布最终签收 | 本节为可追溯的非真机报告，不代替部署 Digest 和实机证据 | **不得结项，等待 T50** |
 
 **先前失败证据**：[GHCR #40616428698](https://github.com/CiBeDerORG/EasyTier/actions/runs/40616428698) 的前端构建在 `CardStepTimeline.vue` 三处 TS1005 失败，Rust 测试在 `automation/tests.rs` 缺少 Storage trait 导入失败；分别已由 `5028480` 和 `bbc6fe7` 修复。修复提交尚不能单独说明最新回归成功，须据相同 SHA 的 Actions 实际结论更新。
+
+## 2026-10-28 · 补充：FINAL V3 非真机自动检查 / 真机验收边界
+- 旧 T18 12 项 AC 仍全部待真实手机与 FnOS 验收，不改变其未测标记。
+- 新 T48/T49 自动检查确实执行：主镜像 [#40622528076](https://github.com/CiBeDerORG/EasyTier/actions/runs/40622528076) Web 157/157、Chromium 浮窗模拟 3/3、Rust 50/50（T49 12/12），amd64 Docker 打包及烟测成功，主镜像发布 digest `sha256:088695b8a3c9926a39beb3d200d42324c5438214cfd451be895bf6e758091975`；执行器 [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092) Python 95/95（T49 6/6）、发布 digest `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`。
+- 提交与镜像验收不能代替 FF01～FF18 / AC01～AC12 的 30 项真实现场验收。未执行 FnOS 部署/安卓控制/真实媒体/双浏览器竞争；生产签收未批准。
