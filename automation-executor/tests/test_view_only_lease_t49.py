@@ -120,6 +120,38 @@ class ViewOnlyLeaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(blocked.exception.code,"cleanup_pending")
         self.runtime.media.close.assert_not_awaited()
 
+    async def test_viewer_close_does_not_release_a_different_script_holder(self):
+        await self.runtime.view_only(self.sid,self.identity())
+        script_holder="run:"+str(uuid4())
+        self.runtime.journal.claim(self.phone,script_holder,"script")
+        closed=await self.runtime.close_session(self.sid)
+        self.assertEqual(closed["state"],"closed")
+        self.assertEqual(self.runtime.journal.control(self.phone)["holder"],
+                         script_holder,
+                         "a viewer teardown must not release the script action lease")
+        with self.assertRaises(ExecutorError) as busy:
+            self.runtime.journal.claim(self.phone,"session:new","manual")
+        self.assertEqual(busy.exception.code,"device_busy")
+        self.runtime.journal.release(script_holder,clean=True)
+
+    async def test_foreign_action_holder_never_allows_a_viewer_takeover(self):
+        foreign_holder="run:"+str(uuid4())
+        self.runtime.journal.claim(self.phone,foreign_holder,"script")
+        with self.assertRaises(ExecutorError) as busy:
+            await self.runtime.view_only(self.sid,self.identity())
+        self.assertEqual(busy.exception.code,"device_busy")
+        self.assertEqual(self.runtime.journal.control(self.phone)["holder"],
+                         foreign_holder)
+        self.assertTrue(self.runtime.sessions[self.sid].view_only,
+                        "a failed migration must not regain manual permission")
+        self.assertFalse(self.runtime.sessions[self.sid].view_only_confirmed)
+        with self.assertRaises(ExecutorError) as rejected:
+            await self.runtime.command(self.sid,{
+                "type":"stop","seq":1,"command_id":str(uuid4())})
+        self.assertEqual(rejected.exception.code,"viewer_only")
+        self.runtime.media.command.assert_not_awaited()
+        self.runtime.journal.release(foreign_holder,clean=True)
+
     async def test_other_executor_generation_cannot_downgrade_or_restore_viewer(self):
         wrong={"expected_executor_id":str(uuid4())}
         with self.assertRaises(ExecutorError) as changed:
