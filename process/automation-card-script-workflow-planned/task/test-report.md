@@ -416,3 +416,10 @@
 - 与断言同步将正式脚本写入凭据抽到无 UI 依赖的新纯模块 `automation-formal-script-receipt.ts`，兼容旧 sessionStorage 键名；加强格式校验、最小字段 allowlist、损坏凭据拒绝重复动作；`automation-script-workspace.ts` 统一调用并捕获无法读取的旧凭据，不把失效存储当作可重新提交的授权。
 - 后端新增 `automation-executor/tests/test_view_only_lease_t49.py`，真实 Runtime/Journal + 模拟 MediaManager，覆盖 view_only 的锁释放、脚本与观看并存、resume_manual 受脚本写锁拦截、cleanup_pending 不误成功、只读观看关闭不释放脚本写锁、错误 executor ID 拒绝。无需 Android 实机即可在授权后单独回归。
 - **未执行** node --test、python unittest、Rust tests、Vue/TypeScript 编译、lint、GitHub Actions 手动触发、浏览器/Android/FnOS 或双浏览器联调。本条不包含通过数量、镜像发布证据。剩余 T48：真实 UI Esc/dirty/fullscreen/拖拽与脚本 CAS 409；剩余 T49：Rust 数据库 owner/revision/零步运行/幂等回归；T50～T51 仍待真实验收。
+## 2026-10-28 · T49 第二批：Rust 实际 DB / 会话写锁 / create_run 回归（调试模式）
+
+- 新增 `easytier-web/src/db/automation/tests.rs` + 注册 `mod tests`：12 个 Rust 测试函数，真实 `Db::memory_db()` 迁移链下测试正式脚本 0 步持久化/运行拒绝、修订号 CAS 更新和删除、非管理员跨账号读写与执行拒绝、请求 UUID 同内容幂等/不同内容 409、未校验步骤拒绝保存、有效设备绑定条件下 `create_run` 拒绝旧脚本修订。
+- 设备前置记录不直接绕过授权：调用 `Db::upsert_device_heartbeat`、`insert_or_update_user_network_config`、`AssetsStore::create_type` / `preview_instance_address` / `create_device` / `create_service`，生成**数据库模拟手机**与单 TCP ADB 服务，随后仍通过 `AutomationStore::target` 复核指纹，绝不连接安卓设备。
+- Rust 原视频许可流基于 `create_session/update_session/begin_session_permission/confirm_session_permission/create_run` 真实事务回归：仅完成 `view_only` 确认才能启动脚本；脚本 `dispatch_pending` 不允许撤销 Viewer 限制或再创同手机视频 Session。
+- 结合先前提交的 Executor `test_view_only_lease_t49.py` 六条场景，统一生成 [未执行测试矩阵](task-49-test-matrix.md)：Rust RS01–RS12 + Executor EX01–EX06（预期与实际分栏，当前全部未执行）。
+- **执行情况：未执行。** 原因：仓库 `AGENTS.md` 的持续调试模式；未运行 Rust/SQLx 编译检查、单测、Python unittest、CI 手工触发、浏览器/FnOS/Android 及双浏览器联调。已提交并不保证编译/测试通过；执行后再更新本报告证据。
