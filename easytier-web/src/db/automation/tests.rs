@@ -4,6 +4,7 @@
 
 use serde_json::{Value, json};
 use easytier::common::config::{ConfigSource, NetworkConfig};
+use easytier_core::management::remote_client::Storage;
 use uuid::Uuid;
 
 use super::{AutomationStore, validation};
