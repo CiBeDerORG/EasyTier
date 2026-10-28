@@ -490,10 +490,14 @@ const currentGeometry = ref({ width: 0, height: 0 });
 // column. Keep the phone's natural width unless the viewport is narrower.
 const cardWidth = computed(() => `${(currentGeometry.value.width > 0 ? currentGeometry.value.width : 360) + 26}px`);
 const ready = computed(() => session.state.phase === 'live' && session.state.controlReady);
+const trialActionProtected = computed(() => !!trialProgress.value &&
+    ['submitting','running','unknown'].includes(trialProgress.value.phase));
 const manualAllowed = computed(() => ready.value && !session.state.viewerOnly
-    && !props.device.run_occupied && !props.syncRole);
+    && !props.device.run_occupied && !batchVideoProtected.value &&
+    !trialActionProtected.value && !props.syncRole);
 const touchAllowed = computed(() => ready.value && !session.state.viewerOnly
-    && !props.device.run_occupied && props.syncRole !== 'follower');
+    && !props.device.run_occupied && !batchVideoProtected.value &&
+    !trialActionProtected.value && props.syncRole !== 'follower');
 // A permission downgrade is not a stream close. Drop local pointer state
 // without sending a last touch.release from the now read-only browser.
 watch(() => session.state.viewerOnly, readOnly => { if (readOnly) resetPointer(); });
