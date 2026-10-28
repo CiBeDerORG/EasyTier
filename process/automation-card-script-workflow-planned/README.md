@@ -67,3 +67,9 @@
 - 可从主浮窗查看每机队列、当前步骤、运行/失败/未知、原媒体中断、执行请求与 runId；支持整批停止与单机停止（Rust 新路由复用 Executor 设备级 withdraw），不会把“已请求停止”当作“清理完成”。
 - 新 SQLite 兼容迁移保存并发 >3 的实际值，不覆盖历史运行表。单次任务可选设备数目前仍受后端 20 台限制；旧 ScriptLibrary 分屏保留到 T46 替代验证后删。
 - **仅代码提交，未进行 CI、浏览器或 FnOS/Android 验收**。查看 [P14任务](plan/plan-14-batch-workflow.md)、[FINAL进度索引](task/final-v3-task-index.md)、[详细测试记录](task/test-report.md)。
+
+## 2026-10-28 · P15 / T46 第二视频及旧试跑重复路径收敛
+- 已删除 `ScriptLibrary.vue` 中与卡片原画面执行重复的旧试跑模态层、独立 video 播放器和前端设备预检/重复运行请求；`AutomationCenter.vue` 不再维护旧脚本页预览 `sessionId` 的关闭/转移路径。
+- 原 `PhoneCard` 唯一可操作主视频、卡片单步骤浮窗、共享批量运行浮窗、T36～T39 的 Viewer/Action Lease、`RunHistory` 和所有持久动作回执安全约束维持不变；批量新入口会识别历史单步骤未知 UUID 并禁止绕开核验重播动作。
+- 旧「脚本」Tab 仍保留正式脚本增改删、分支条件编辑和旧历史修复的兼容能力；这部分完整可用的浮窗替代及旧链接转接需要继续处理，不能现在直接删掉业务页。工作台原卡片已取代旧日常试跑方式。
+- 本次调试模式**未执行**类型检查、测试、构建、CI 手动触发或 FnOS/Android 真机验收。进度详见 [P15计划](plan/plan-15-legacy-consolidation.md)、[T46任务卡](task/task-46-obsolete-ui-removal.md)、[测试记录](task/test-report.md)。
