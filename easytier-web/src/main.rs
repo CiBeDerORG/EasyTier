@@ -34,6 +34,8 @@ mod deploy_agent;
 mod asset_agent;
 mod asset_agent_tls;
 mod docker_absence;
+#[cfg(test)]
+mod docker_discovery_regression;
 mod discovery;
 mod migrator;
 mod restful;
