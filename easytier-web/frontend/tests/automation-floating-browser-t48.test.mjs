@@ -149,3 +149,21 @@ test('T52 original PhoneCard protects the video stop control while batch outcome
   await page.waitForFunction(()=>document.querySelector('.phone-card .adb-port')?.disabled===false);
   assert.equal(await original.getAttribute('data-t52-original'),'untouched');
 });
+
+test('T52 actual PhoneCard shows failed and partial-failed batch outcomes instead of green success',async t=>{
+  const page=await setup(t,realCardFixture);
+  await page.locator('#open-panel').click();
+  await page.evaluate(()=>window.phoneCardReview.setRunOutcome('failed'));
+  await page.getByText('执行失败或准备失败',{exact:true}).waitFor();
+  const failed=page.locator('.batch-head .p-tag');
+  assert.equal((await failed.getAttribute('class')).includes('p-tag-danger'),true,
+    'failed run must be presented with danger severity, not green success');
+  await page.evaluate(()=>window.phoneCardReview.setRunOutcome('partial_failed'));
+  await page.getByText('部分手机失败',{exact:true}).waitFor();
+  assert.equal((await failed.getAttribute('class')).includes('p-tag-success'),false,
+    'partial failure must not be green');
+  await page.evaluate(()=>window.phoneCardReview.setRunOutcome('completed'));
+  await page.getByText('执行成功',{exact:true}).waitFor();
+  assert.equal((await failed.getAttribute('class')).includes('p-tag-success'),true,
+    'only actual successful outcome may be green');
+});
