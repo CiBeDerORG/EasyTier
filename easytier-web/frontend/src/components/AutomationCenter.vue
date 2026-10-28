@@ -179,7 +179,9 @@ async function saveFloatingDraft(deviceId:string) {
     savingFloatingDraft.value=true;
     const before=draftFingerprint(draftWorkspace);
     try{
-        await draftSync.retry();
+        // retry() forces an unsynced phase; calling it on an already
+        // confirmed draft would incorrectly turn a clean draft unsynced.
+        if(!draftSync.canLeave())await draftSync.retry();
         if(owner!==ownerId.value || before!==draftFingerprint(draftWorkspace)) {
             floatingDraftMessage.value='保存期间草稿发生变化；请重新确认当前步骤。';return;
         }
