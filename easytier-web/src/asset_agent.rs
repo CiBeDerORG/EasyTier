@@ -47,6 +47,15 @@ pub enum Error {
     Storage,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdoptionIntentInput {
+    pub resource_id: String,
+    pub application_id: String,
+    pub expected_container_ids: Vec<String>,
+    pub confirm: bool,
+}
+
 pub struct Manager {
     db: Db,
     credentials: Arc<CredentialStore>,
@@ -421,6 +430,213 @@ impl Manager {
         }
         self.fetch_host(device, Some(&root)).await
     }
+
+    // Docker discovery is on-demand only. An Agent-provided resource is never
+    // auto-promoted to a managed Deploy app by its name/image/labels alone.
+    async fn fetch_docker_inventory(&self, device: &Value) -> Result<Value, Error> {
+        let device_id = device["id"].as_str().ok_or(Error::Storage)?;
+        let owner = device["owner_user_id"].as_i64().ok_or(Error::Storage)?;
+        let row = sqlx::query(
+            "SELECT agent_id,spki_sha256,endpoint,token_cipher FROM asset_agent_bindings WHERE asset_device_id=? AND owner_user_id=?"
+        )
+        .bind(device_id)
+        .bind(owner)
+        .fetch_optional(&self.db.inner())
+        .await
+        .map_err(|_| Error::Storage)?
+        .ok_or(Error::Invalid("This server has no paired Agent"))?;
+        let agent: String = row.try_get("agent_id").map_err(|_| Error::Storage)?;
+        let spki: String = row.try_get("spki_sha256").map_err(|_| Error::Storage)?;
+        let endpoint: String = row.try_get("endpoint").map_err(|_| Error::Storage)?;
+        let cipher: String = row.try_get("token_cipher").map_err(|_| Error::Storage)?;
+        let pin = Fingerprint::parse(&spki).map_err(|_| Error::Storage)?;
+        let token = String::from_utf8(
+            self.credentials
+                .open(&format!("asset-agent:{owner}:{device_id}"), &cipher)
+                .map_err(|_| Error::Storage)?,
+        )
+        .map_err(|_| Error::Storage)?;
+        let controller = self.controller_id().await?;
+        let client = pinned_client(&pin).map_err(|_| Error::Remote)?;
+        let response = client
+            .get(format!("{endpoint}/v1/docker/inventory"))
+            .header("X-EHA-Controller-ID", &controller)
+            .header("X-EHA-Agent-ID", &agent)
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|_| Error::Remote)?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(Error::PairRejected);
+        }
+        if !response.status().is_success() {
+            return Err(Error::Remote);
+        }
+        if response
+            .headers()
+            .get("X-EHA-Agent-ID")
+            .and_then(|v| v.to_str().ok())
+            != Some(agent.as_str())
+        {
+            return Err(Error::IdentityChanged);
+        }
+        let bytes = response.bytes().await.map_err(|_| Error::Remote)?;
+        if bytes.len() > 2_097_152 {
+            return Err(Error::Remote);
+        }
+        let inventory: Value = serde_json::from_slice(&bytes).map_err(|_| Error::Remote)?;
+        if inventory["agent_id"].as_str() != Some(agent.as_str())
+            || inventory["complete"].as_bool().is_none()
+            || inventory["resources"].as_array().is_none()
+            || inventory["observed_at"].as_str().is_none()
+        {
+            return Err(Error::IdentityChanged);
+        }
+        Ok(inventory)
+    }
+
+    pub async fn docker_inventory(&self, device: &Value) -> Result<Value, Error> {
+        let device_id = device["id"].as_str().ok_or(Error::Storage)?;
+        let owner = device["owner_user_id"].as_i64().ok_or(Error::Storage)?;
+        let mut inventory = self.fetch_docker_inventory(device).await?;
+        if inventory["complete"] != true || inventory["status"] != "ok" {
+            // A failed scan must not infer deletion or authorize adoption.
+            return Ok(inventory);
+        }
+        let agent = inventory["agent_id"].as_str().ok_or(Error::Remote)?.to_string();
+        let rows = sqlx::query(
+            "SELECT resource_id,application_id,container_ids_json FROM asset_agent_adoption_intents WHERE asset_device_id=? AND owner_user_id=? AND agent_id=?"
+        )
+        .bind(device_id)
+        .bind(owner)
+        .bind(&agent)
+        .fetch_all(&self.db.inner())
+        .await
+        .map_err(|_| Error::Storage)?;
+        let mut intentions = std::collections::HashMap::new();
+        for row in rows {
+            let resource: String = row.try_get("resource_id").map_err(|_| Error::Storage)?;
+            let app: String = row.try_get("application_id").map_err(|_| Error::Storage)?;
+            let ids: String = row.try_get("container_ids_json").map_err(|_| Error::Storage)?;
+            intentions.insert(resource, (app, ids));
+        }
+        if let Some(resources) = inventory["resources"].as_array_mut() {
+            for resource in resources {
+                resource["management_state"] = json!("external");
+                resource["managed"] = json!(false);
+                if let Some(id) = resource["resource_id"].as_str() {
+                    if let Some((app, stored_ids)) = intentions.get(id) {
+                        let ids = Self::container_ids(resource).ok();
+                        let expected: Option<Vec<String>> = serde_json::from_str(stored_ids).ok();
+                        let valid = ids.as_ref().zip(expected.as_ref()).is_some_and(|(found, wanted)| found == wanted);
+                        resource["management_state"] = if valid {
+                            json!("adoption_pending_catalog_validation")
+                        } else {
+                            json!("adoption_needs_revalidation")
+                        };
+                        resource["proposed_application_id"] = json!(app);
+                    }
+                }
+            }
+        }
+        Ok(inventory)
+    }
+
+    fn container_ids(resource: &Value) -> Result<Vec<String>, Error> {
+        let list = resource["containers"]
+            .as_array()
+            .ok_or(Error::Invalid("Docker resource has no containers"))?;
+        if list.is_empty() || list.len() > 100 {
+            return Err(Error::Invalid("Invalid Docker resource size"));
+        }
+        let mut ids = list
+            .iter()
+            .map(|item| item["container_id"].as_str().map(str::to_string))
+            .collect::<Option<Vec<_>>>()
+            .ok_or(Error::Invalid("Docker resource ID is missing"))?;
+        if ids.iter().any(|x| x.is_empty() || x.len() > 128) {
+            return Err(Error::Invalid("Invalid Docker container ID"));
+        }
+        ids.sort();
+        ids.dedup();
+        if ids.len() != list.len() {
+            return Err(Error::Invalid("Duplicate Docker container IDs"));
+        }
+        Ok(ids)
+    }
+
+    // An explicit intent does not change Docker resources or mark them Deploy-
+    // managed. M3 catalog validation + M4 durable Agent ownership must run
+    // before privileges can be elevated to "managed".
+    pub async fn confirm_adoption_intent(&self, device: &Value, input: AdoptionIntentInput) -> Result<Value, Error> {
+        if !input.confirm {
+            return Err(Error::Invalid("Explicit confirmation is required"));
+        }
+        if input.resource_id.is_empty() || input.resource_id.len() > 256 ||
+            !(input.resource_id.starts_with("compose:") || input.resource_id.starts_with("container:")) {
+            return Err(Error::Invalid("Invalid resource identifier"));
+        }
+        if input.application_id.len() < 2 || input.application_id.len() > 100 ||
+            !input.application_id.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"-_.".contains(&c)) {
+            return Err(Error::Invalid("Invalid Deploy application identifier"));
+        }
+        let mut expected = input.expected_container_ids.clone();
+        if expected.is_empty() || expected.len() > 100 {
+            return Err(Error::Invalid("Expected container IDs are required"));
+        }
+        expected.sort();
+        expected.dedup();
+        if expected.len() != input.expected_container_ids.len() {
+            return Err(Error::Invalid("Duplicate expected container IDs"));
+        }
+        let _guard = self.pair_lock.lock().await;
+        let inventory = self.fetch_docker_inventory(device).await?;
+        if inventory["complete"] != true || inventory["status"] != "ok" {
+            return Err(Error::Remote);
+        }
+        let resource = inventory["resources"]
+            .as_array()
+            .and_then(|items| items.iter().find(|item| item["resource_id"].as_str() == Some(&input.resource_id)))
+            .ok_or(Error::Conflict("Resource is absent from a complete Docker inventory"))?;
+        if resource["managed"] == true {
+            return Err(Error::Conflict("Resource is already managed by the Agent"));
+        }
+        let current = Self::container_ids(resource)?;
+        if current != expected {
+            return Err(Error::Conflict("Docker resource members changed; refresh before confirming"));
+        }
+        let device_id = device["id"].as_str().ok_or(Error::Storage)?;
+        let owner = device["owner_user_id"].as_i64().ok_or(Error::Storage)?;
+        let agent = inventory["agent_id"].as_str().ok_or(Error::Remote)?;
+        let ids_json = serde_json::to_string(&current).map_err(|_| Error::Storage)?;
+        let insert = sqlx::query(
+            "INSERT INTO asset_agent_adoption_intents(asset_device_id,owner_user_id,agent_id,resource_id,application_id,container_ids_json,confirmed_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(asset_device_id,resource_id) DO NOTHING"
+        )
+        .bind(device_id).bind(owner).bind(agent).bind(&input.resource_id)
+        .bind(&input.application_id).bind(&ids_json).bind(chrono::Utc::now().to_rfc3339())
+        .execute(&self.db.inner()).await;
+        if insert.is_err() {
+            return Err(Error::Conflict("This application is already linked to another resource on this host"));
+        }
+        let persisted: (String,String,String) = sqlx::query_as(
+            "SELECT agent_id,application_id,container_ids_json FROM asset_agent_adoption_intents WHERE asset_device_id=? AND resource_id=? AND owner_user_id=?"
+        )
+        .bind(device_id).bind(&input.resource_id).bind(owner)
+        .fetch_one(&self.db.inner()).await.map_err(|_| Error::Storage)?;
+        if persisted.0 != agent || persisted.1 != input.application_id || persisted.2 != ids_json {
+            return Err(Error::Conflict("Resource already has a different adoption intent"));
+        }
+        Ok(json!({
+            "resource_id":input.resource_id,
+            "application_id":input.application_id,
+            "agent_id":agent,
+            "management_state":"adoption_pending_catalog_validation",
+            "managed":false,
+            "confirmed":true,
+            "message":"Intent recorded; management rights remain disabled until trusted Deploy catalog validation and durable Agent registration"
+        }))
+    }
+
     pub async fn status(&self, device: &Value) -> Result<Value, Error> {
         let id = device["id"].as_str().ok_or(Error::Storage)?;
         let row=sqlx::query("SELECT agent_id,spki_sha256,endpoint,paired_at,verified_at FROM asset_agent_bindings WHERE asset_device_id=?")
