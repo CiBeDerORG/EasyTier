@@ -9,7 +9,7 @@ use axum::{
     Extension, Json, Router,
     extract::{Path, Query},
     http::StatusCode,
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -161,6 +161,19 @@ async fn confirm_adoption_intent(
     manager.confirm_adoption_intent(&device, input).await.map(Json).map_err(failure)
 }
 
+
+async fn cancel_adoption_intent(
+    auth: AuthSession,
+    Extension(config): Extension<ConsoleInfoConfig>,
+    Extension(central): Extension<Arc<CentralNetworkService>>,
+    Extension(manager): Extension<Arc<Manager>>,
+    Path((id, resource_id)): Path<(String, String)>,
+    Query(scope): Query<Scope>,
+) -> Outcome<Json<Value>> {
+    let device = checked(&auth, &config, &central, &id, &scope).await?;
+    manager.cancel_adoption_intent(&device, resource_id).await.map(Json).map_err(failure)
+}
+
 pub fn router(manager: Arc<Manager>) -> Router<AppStateInner> {
     Router::new()
         .route("/api/v1/assets/devices/{id}/agent/status", get(status))
@@ -170,5 +183,6 @@ pub fn router(manager: Arc<Manager>) -> Router<AppStateInner> {
         .route("/api/v1/assets/devices/{id}/agent/host/settings", patch(update_host_root))
         .route("/api/v1/assets/devices/{id}/agent/docker/inventory", get(docker_inventory))
         .route("/api/v1/assets/devices/{id}/agent/docker/adoption-intents", post(confirm_adoption_intent))
+        .route("/api/v1/assets/devices/{id}/agent/docker/adoption-intents/{resource_id}", delete(cancel_adoption_intent))
         .layer(Extension(manager))
 }
