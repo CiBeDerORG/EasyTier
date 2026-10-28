@@ -35,6 +35,7 @@ import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
 import AutomationConditionDeleteDialog from './AutomationConditionDeleteDialog.vue';
 import type { AutomationStepDeletion } from '../../modules/automation-card-step-delete';
 import { planAutomationStepDeletion } from '../../modules/automation-card-step-delete';
+import { analyzeAutomationFlow } from '../../modules/automation-flow';
 import type { AutomationScript } from '../../types/automation';
 import type { AutomationScriptAction, ScriptGuard, ScriptSwitchDecision } from '../../modules/automation-script-workspace';
 import type { LocatorDemoResult } from '../../modules/automation-locator-demo';
@@ -112,6 +113,15 @@ const emit = defineEmits<{
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
 const editingStep = computed(() => props.draft.steps.find(item => item.id === props.editingStepId));
 const editingStepNumber = computed(() => props.draft.steps.findIndex(item => item.id === props.editingStepId)+1);
+const businessVerificationEligible=computed(()=>{
+    const step=editingStep.value;
+    if(!step||!['assert','assert_property'].includes(step.type))return false;
+    const at=props.draft.steps.findIndex(item=>item.id===step.id);
+    const layout=analyzeAutomationFlow(props.draft.steps);
+    return !layout.problem && at===props.draft.steps.length-1 &&
+        (layout.entries[at]?.ancestors.length??1)===0 &&
+        !props.draft.steps.some(item=>item.id!==step.id&&item.business_verification===true);
+});
 const repairStep = computed(() => props.repairContext?.deviceId === props.device.id
     && props.repairContext.ownerId === props.ownerId
     ? props.draft.steps.find(step => step.id === props.repairContext!.stepId) : undefined);
@@ -908,6 +918,7 @@ onBeforeUnmount(() => {
                 @close="finishEditorClose">
                 <CardStepEditor :key="editingStep.id" floating
                     :step="editingStep" :step-number="editingStepNumber"
+                    :business-verification-eligible="businessVerificationEligible"
                     :repicking="repickingStepId === editingStep.id"
                     :demo-loading="demoLoading" :demo-result="demoResult"
                     :demo-error="demoError" :demo-available="ready && runnerAvailable"
