@@ -479,3 +479,10 @@
 - 浏览器新增 T53 预期回归：真实 `PhoneCard.vue` 上保存草稿/打开正式发布/零勾选下本机运行入口；无 ADB 的假服务端草稿异步确认后，响应式运行/发布门禁从 false 变 true。
 - **未手工执行**：TypeScript、Node、Playwright、Rust、Python、构建/CI、FnOS/Android/ADB、真实视频和手机动作；遵循既有调试模式。分支 push 的自动 GHCR 构建需单独按最终代码 SHA 复核，不把已排队/已开始/旧提交通过等同本轮通过。
 - **部署/真机仍待验收**：自动 CI 完成且部署最新 amd64 镜像后，检查原手机视频、ADB 和 UiAutomator2 状态，逐项执行“步骤保存→服务器草稿同步→正式发布→本机 1 台完整脚本→查看步骤和运行记录”，不得自动重放未知手机动作。
+
+## 2026-10-28 · CI 自动化浏览器回归错误修复（仅测试选择器）
+- 用户反馈自动构建失败。查到 `EasyTier GHCR Image` 运行 [40627299431](https://github.com/CiBeDerORG/EasyTier/actions/runs/40627299431)，源码 `7b4f71eb`，`Build Web and config generator` Job 失败。
+- Job 日志明确表明：前端 Vue/TS 资产构建成功、Node 单测通过，Chromium 第6项 `T52 actual PhoneCard shows failed and partial-failed batch outcomes` 在 `tests/automation-floating-browser-t48.test.mjs:167` 报 Playwright `strict mode violation`：`getByText('执行失败或准备失败',{exact:true})` 匹配两个元素（汇总 Tag 与单机状态列），不是运行器或 TypeScript 编译报错。
+- 修复 `fce565add36ddef86facc3c6e075209953727cbc`：把三种状态的等待/断言约束到真实 `.phone-card .batch-head .p-tag`，保留失败 `danger`、部分失败 `warn`、成功 `success` 的校验，不削弱核心业务验证。
+- 该修复 push 已触发仓库原有自动 Actions [40627840242](https://github.com/CiBeDerORG/EasyTier/actions/runs/40627840242)。查询时仍 pending；**不宣称新的自动构建成功**。旧运行的 Native 构建/回归当时仍在执行，之后状态必须独立确认。
+- **本轮未手工运行**本地 Node/Playwright/TypeScript/Rust/Python、手动构建/触发 GitHub Actions、FnOS、Android、ADB 或部署，继续遵循调试模式。
