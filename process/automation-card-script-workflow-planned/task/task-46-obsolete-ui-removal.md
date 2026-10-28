@@ -1,6 +1,6 @@
 # T46 · 旧双脚本编辑与重复视频展示层清理
 
-> 状态：**旧重复执行入口已删除，独立脚本管理兼容页待替代验收**｜计划：P15｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**浮窗正式CRUD/条件编辑/历史回修已接线，旧兼容页待实机确认后退役**｜计划：P15｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一负责人/依赖
 - Owner：**前端集成负责人**。
@@ -30,3 +30,14 @@
 - 新 `useFloatingBatchRun.ts` 读取旧 `automation-trial-receipt` 每机遗留 UUID：如原试跑结果未知，拒绝新的 batch POST，提示从兼容脚本管理页只读核对历史记录；删除模态不能绕过旧幂等保护。
 - **尚待**：已保存脚本完整编辑/正式保存/删除全迁入浮窗、RunHistory 历史修订入口重定向、UI 新旧功能逐项审查、同页关闭/重开与双浏览器完整回归。不能把本批精简称为 T46 全验收通过。
 - **未执行** TypeScript、lint、Rust/Python 单测或编译、构建、CI 手工触发、浏览器/FnOS/Android 真机操作（当前调试模式）。原验收复选框保持未勾选。
+
+## 2026-10-28 · T46 第二批代码交付：正式脚本管理与条件编辑迁入浮窗
+
+- **发布/修订 CAS**：`automation-script-workspace.ts` 直接复用唯一 owner-level `draftWorkspace/draftSync`，禁止 dirty editor、未同步草稿或版本冲突状态下正式发布。已保存脚本按 revision 进行服务端 CAS 更新，尚未创建正式脚本 ID 时可从当前共享草稿发布新脚本，均不会暗中修改历史运行快照。
+- **正式删除 CAS**：Rust `db/automation/scripts.rs` 增加事务内带修订号的 `delete_script_if_revision`，REST `POST /scripts/{id}/safe-delete`，前端 API `deleteScriptVersioned`。旧无修订 DELETE 保留兼容但第一方新浮窗及 ScriptLibrary 删除入口改用新 CAS；不允许跨浏览器旧修订删除新数据。删除当前正式脚本后保留草稿步骤并解除旧正式 revision 指向。
+- **可移动子窗**：新 `AutomationScriptManageDialog.vue` 通过原 PhoneCard `automationSubwindowHost` 呈现发布说明、脚本名称、确认删除、修订来源与错误；`AutomationScriptSelector` 提供发布、逐脚本删除和只读核验；`PhoneCard` 转发给 `AutomationCenter` 唯一共享 ScriptWorkspace。未新增视频、编辑器或命令执行器。
+- **未知正式写入**：正式发布/删除请求前在 sessionStorage 只保存 owner、scriptId/revision、期望脚本名/stepIds 与类型，不保存定位器、明文、脚本参数。HTTP 不确定时禁止重复写操作；只读核对当前服务端修订及步骤 ID，无法确定原结果则继续阻断。旧 trial UUID 的限制仍然存在。
+- **回修去重**：`RunHistory.vue` 两个失败修复按钮合为“回原手机卡片定位并修复”，仅发 `repair-card`；`AutomationCenter.vue` 调用已有 `onRepairCard` 身份/原历史快照/原修订核验，旧 `repairRequest` 跨 Tab 链删除；`ScriptLibrary.vue` 旧历史临时复制/第二编辑分支删除。
+- **条件编辑迁移**：`CardStepTimeline` 的新增动作、普通步骤→ If/Else 条件、Then/Else 分支新增、同分支步骤上下移均派发到父层唯一共享草稿；沿用 `analyzeAutomationFlow`、`createFlowCondition`、`addFlowBranchStep` 与每步 ID 保留规则，新增占位步骤未配置前不可执行。 `CardStepEditor` 增加末尾无条件断言的业务成功验证勾选，保存时后端前 UI 二次拦截其它标记与错误结构。
+- **保留兼容业务**：旧 ScriptLibrary 独立编辑区目前仍可打开作历史用户兼容（包含条件图与现有正式 CRUD），原新浮窗已接齐核心编辑接口。因为尚无浏览器/多设备验收，**不强行删除旧脚本管理 Tab**。T47 dead-code cleanup 应区分真正无引用的旧 helper 与仍服务于老运行历史恢复的基础逻辑。
+- **未执行** Vue/TypeScript/Rust 编译、类型检查、lint、单测、CI/Runner 构建、FnOS/Android、全屏及双浏览器测试（仓库 AGENTS.md 调试模式）；本任务仍待 T49～T51 联调，验收框不勾选。
