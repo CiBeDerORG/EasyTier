@@ -134,7 +134,7 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
             <Button v-if="unresolved" label="只读查询原请求" icon="pi pi-history"
                 size="small" outlined @click="emit('reconcile')" />
         </div>
-        <small class="batch-hint">停止是请求，不等于动作已结束；不自动重发未知操作。单机停止只撤回对应 run/device，其它手机继续执行；实际停止和清理状态由服务器返回。</small>
+        <small class="batch-hint">真实运行前须在每台目标手机的悬浮 Icon 中手动关闭“手控”，确认显示只读；脚本运行和操作台打开/关闭都不会自动切换开关。停止只是请求，不等于动作已结束；结果由服务器确认。</small>
     </section>
 </template>
 
