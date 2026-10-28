@@ -12,7 +12,8 @@ import type {
     DeviceCreateInput, DeviceType, DeviceTypeInput, GatewayCreateInput, GatewayGroup,
     GatewayGroupUpdateInput, GatewaySubnetsPreviewInput, InstanceCandidate, InstancePreview,
     PagedDevices, ServerAgentEntry, AssetAgentStatus, AssetAgentProbe, AssetAgentProbeInput,
-    AssetAgentPairInput, AgentHostResult, ServicePublicationNetwork, Subject,
+    AssetAgentPairInput, AgentHostResult, AgentDockerInventory, AgentDockerAdoptionInput,
+    AgentDockerAdoptionIntent, AgentDockerAdoptionCancelResult, ServicePublicationNetwork, Subject,
 } from '../types/node-assets';
 
 export interface ValidateConfigResponse {
@@ -423,6 +424,32 @@ export class ApiClient {
         return this.client.patch<unknown, AgentHostResult>(
             `/assets/devices/${encodeURIComponent(id)}/agent/host/settings`,
             { software_root: softwareRoot }, { params: scope },
+        );
+    }
+
+    /** Explicit on-demand scan only. Stale snapshots must never authorize mutation. */
+    public async assetsAgentDockerInventory(scope: AssetScope, id: string): Promise<AgentDockerInventory> {
+        return this.client.get<unknown, AgentDockerInventory>(
+            `/assets/devices/${encodeURIComponent(id)}/agent/docker/inventory`, { params: scope },
+        );
+    }
+
+    /** This only saves an intent; it never makes an external resource managed. */
+    public async assetsAgentDockerAdoptionIntent(
+        scope: AssetScope, id: string, input: AgentDockerAdoptionInput,
+    ): Promise<AgentDockerAdoptionIntent> {
+        return this.client.post<unknown, AgentDockerAdoptionIntent>(
+            `/assets/devices/${encodeURIComponent(id)}/agent/docker/adoption-intents`,
+            input, { params: scope },
+        );
+    }
+
+    public async assetsAgentDockerCancelIntent(
+        scope: AssetScope, id: string, resourceId: string,
+    ): Promise<AgentDockerAdoptionCancelResult> {
+        return this.client.delete<unknown, AgentDockerAdoptionCancelResult>(
+            `/assets/devices/${encodeURIComponent(id)}/agent/docker/adoption-intents/${encodeURIComponent(resourceId)}`,
+            { params: scope },
         );
     }
 
