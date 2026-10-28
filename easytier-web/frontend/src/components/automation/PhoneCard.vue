@@ -766,6 +766,7 @@ const manualPermissionTitle=computed(()=>{
     if(consolePermissionPending.value)return '手控已关闭 · 正在向服务器确认只读权限';
     if(consolePermissionUncertain.value)return '手控保持锁定 · 只读权限结果尚未确认，请查看提示并核对服务器';
     if(resumingManual.value)return '正在向服务器申请恢复手控';
+    if(consoleRestoreQueued.value)return '自动化操作台已关闭 · 等待运行结束并确认清理后恢复手控';
     if(session.state.viewerOnly)return '当前为只读观看 · 点击恢复手控（须先释放所有脚本动作权）';
     return '当前为手动控制 · 点击切换为只读观看';
 });
@@ -1060,11 +1061,14 @@ onBeforeUnmount(() => {
             <div ref="automationSubwindowHost" class="automation-subwindow-host" />
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}<template v-if="session.state.phase === 'live' && session.state.viewerOnly"> · 只读观看，手控已锁定</template></span>
+            <small v-if="consoleRestoreQueued" class="batch-card-status" role="status">
+                · 自动化操作台已关闭，等待安全恢复手控
+            </small>
             <small v-if="batchRunState.selected.includes(device.id) && batchRunState.devices[device.id]"
                 class="batch-card-status" role="status">
                 批量：{{ batchRunState.devices[device.id].phase }}
                 <span v-if="batchRunState.devices[device.id].mediaState==='lost'"> · 视频已断流</span>
-            </small><Button v-if="session.state.phase === 'live' && session.state.viewerOnly" label="恢复手控" size="small" text :loading="resumingManual" :disabled="!!device.run_occupied || resumingManual" @click="resumeManualControl" /><span class="mono-value">{{ device.overlay_ip }}</span></footer>
+            </small><Button v-if="session.state.phase === 'live' && session.state.viewerOnly" label="恢复手控" size="small" text :loading="resumingManual" :disabled="!consoleMayResumeManual() || resumingManual" @click="resumeManualControl" /><span class="mono-value">{{ device.overlay_ip }}</span></footer>
         <!-- T42: failed-step repair uses the same real PhoneCard video and
              its fullscreen subwindow host, never a second preview or footer UI. -->
         <AutomationFloatingDialog :visible="!!repairContext && !!repairStep"
