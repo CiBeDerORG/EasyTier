@@ -437,3 +437,11 @@
 - T49：Rust DB 12 项和 Executor 6 项原版本测试继续存在；新的编译/运行结果须以最新 SHA 的 CI/job logs 确认。
 - T50：**明确排除** FnOS/Android/双 OEM/实际媒体/双浏览器真机操作；未登录、未连接 ADB/UiA、未发送手机控制命令。T51 非真机报告追踪完成，但最终签收仍阻塞于 30 条实际验收。
 - **截至本段写入：最新自动验证结果待确认**。任何后续失败应定位最新 commit、失败任务和真实日志后修复，不能把测试文件数量/提交事实转写为 PASS。
+
+## 2026-10-28 · 接手后核实 GitHub 自动 CI 并修复 T49 虚拟端点测试夹具
+
+- 已从对应工作流**实际日志**核对（非基于源码猜测）：主镜像 GHCR [#40621494291](https://github.com/CiBeDerORG/EasyTier/actions/runs/40621494291)（提交 `b581ccaaafdb6b3af017acda426e671c148298d2`）的 `build_web` 成功，包含前端 Node **157/157** 通过和无实机 Chromium 浮窗交互 **3/3** 通过；Rust `test_native` **50 项中 45 通过、5 失败**，导致主镜像没有发布。不可将此前自动构建失败记为通过。
+- Rust 失败均出现在 T49 `Fixture::phone` 的 `target()`：虚拟手机创建/新增 ADB 服务后，资产真实逻辑会留下 `discovery_endpoint_events.cleanup_json` 待确认；模拟夹具未录入已确认清理证明，所以正确地被生产 `target_cleanup_pending` 防护拒绝。没有发现需要放松正式设备安全检查的证据。
+- 已提交修复 `a82439f`、`9120b25`：只对**测试自身 in-memory 虚拟手机**最新端点事件显式写入 `confirmed`，并断言恰好一行被确认；真实生产目标检查、运行锁和 Executor 不变。新提交依 GitHub push 自动触发 CI；此时**尚无新的最终 PASS**，须后续据最新 SHA 的 jobs 和日志更新。
+- 独立 Executor 自动 CI [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092)（提交 `59bce21e`）实际执行 Python **95/95**，包含 T49 六项观看/写锁模拟测试，成功推送 `ghcr.io/cibederorg/easytier-automation-executor:feat-automation-center`，镜像摘要 `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`；这是该提交对应的独立执行器版本，不代表后续主镜像已经通过。
+- **未进行** FnOS、ADB、UiAutomator2、Android 真机、双浏览器真实生产会话或部署操作。T50 仍排除在本轮范围，T51 的正式发布签收不因模拟测试成功而提前通过。
