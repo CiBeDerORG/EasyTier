@@ -23,6 +23,9 @@ const translations = {
         submit: '确认登记意向', close: '取消选择', cancelled: '已取消接管意向，不影响容器。',
         proposed: '已保存接管意向，等待可信商店模板核验及 Agent 持久登记。',
         warning: '在正式模板验证和受管登记完成前，外部资源仅供查看；此处不会执行启停或安装。',
+        absentTitle: '疑似外部删除 · 仅显示证据', absentPending: '首次缺失，需要再次完整查询',
+        absentConfirmed: '连续完整查询均未发现', absentNoCleanup: '尚无专属归属证明，不会自动删除应用、服务或公网映射',
+        lastSeen: '最后发现于', missingCount: '连续缺失扫描',
         failed: 'Docker 请求失败', notReady: '读取到历史数据时禁止接管。',
     },
     en: {
@@ -39,6 +42,9 @@ const translations = {
         submit: 'Confirm intent', close: 'Cancel selection', cancelled: 'Intent removed; Docker was not changed.',
         proposed: 'Intent saved; trusted catalog and Agent registration still required.',
         warning: 'External resources are read-only until trusted catalog validation and Agent registration. No start/stop/install actions are exposed.',
+        absentTitle: 'Potential external removal · evidence only', absentPending: 'First absence; needs another complete scan',
+        absentConfirmed: 'Missing in consecutive complete scans', absentNoCleanup: 'No exclusive ownership proof; applications, services and public mappings are never auto-deleted',
+        lastSeen: 'Last seen', missingCount: 'Consecutive absent scans',
         failed: 'Docker request failed', notReady: 'Adoption is disabled for historical data.',
     },
 };
@@ -61,6 +67,7 @@ const shown = computed<AgentDockerSnapshot | null>(() => {
     return inventory.value.snapshot ?? null;
 });
 const resources = computed(() => shown.value?.resources ?? []);
+const absent = computed(() => fresh.value ? inventory.value?.external_absences ?? [] : []);
 const canConfirm = computed(() => fresh.value && !busy.value && selectedId.value.length > 0
     && /^[a-z0-9][a-z0-9_.-]{1,99}$/.test(draftAppId.value.trim())
     && acknowledged.value);
@@ -222,6 +229,18 @@ onBeforeUnmount(() => { alive = false; ++requestNumber; });
                 </div>
             </div>
         </div>
+        <section v-if="absent.length > 0" class="absence-list">
+            <strong>{{ t('absentTitle') }}</strong>
+            <p class="muted">{{ t('absentNoCleanup') }}</p>
+            <div v-for="item in absent" :key="item.resource_id" class="absence-item">
+                <div class="resource-title">
+                    <strong>{{ item.last_resource.name || item.resource_id }}</strong>
+                    <Tag severity="warn" :value="item.state === 'confirmed_missing' ? t('absentConfirmed') : t('absentPending')" />
+                </div>
+                <small class="muted">{{ item.resource_id }}</small>
+                <div class="muted">{{ t('lastSeen') }}：{{ item.last_seen_at }} · {{ t('missingCount') }}：{{ item.consecutive_complete_absences }}</div>
+            </div>
+        </section>
         <Message v-if="notice" severity="success" :closable="false">{{ notice }}</Message>
         <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
     </section>
@@ -229,6 +248,9 @@ onBeforeUnmount(() => { alive = false; ++requestNumber; });
 
 <style scoped>
 .agent-docker { display: grid; gap: .7rem; padding-top: .9rem; border-top: 1px solid var(--console-border); }
+.absence-list { display:grid; gap:.55rem; padding:.7rem; border:1px dashed var(--console-border); border-radius:.6rem; }
+.absence-item { display:grid; gap:.3rem; padding:.6rem; border:1px solid var(--console-border); border-radius:.4rem; }
+.absence-item small { overflow-wrap:anywhere; }
 .agent-docker-head { display:flex; justify-content:space-between; align-items:center; gap:.65rem; flex-wrap:wrap; }
 .resource { display:grid; gap:.5rem; padding:.8rem; border:1px solid var(--console-border); border-radius:.6rem; min-width:0; }
 .resource-title { display:flex; justify-content:space-between; flex-wrap:wrap; gap:.5rem; }
