@@ -8,6 +8,8 @@ import AutomationApi, { AutomationApiError, automationErrorMessage } from './aut
 import { draftFingerprint, type createAutomationDraftSync } from './automation-draft-sync';
 import type { AutomationDraftWorkspace } from './automation-draft';
 import { v4 as uuid } from 'uuid';
+import { readFormalReceipt, reserveFormalReceipt, clearFormalReceipt,
+    type FormalScriptWriteReceipt } from './automation-formal-script-receipt';
 
 export type ScriptSwitchDecision = 'save' | 'discard';
 export type AutomationScriptAction =
@@ -17,46 +19,6 @@ export type AutomationScriptAction =
 
 type DraftSync = ReturnType<typeof createAutomationDraftSync>;
 export type ScriptGuard = 'clean' | 'loading' | 'unsynced' | 'conflict' | 'editor';
-export interface FormalScriptWriteReceipt {
-    owner: number;
-    kind: 'publish' | 'create' | 'delete';
-    scriptId: string;
-    revision: number;
-    /** No script text, selector, secret, parameter or HTTP body is persisted. */
-    expectedName?: string;
-    expectedStepIds?: string[];
-    createdAt: string;
-}
-function formalReceiptKey(owner:number):string {
-    return 'easytier.automation.formal-write.v1.'+owner;
-}
-function readFormalReceipt(owner:number):FormalScriptWriteReceipt|null {
-    const value=window.sessionStorage.getItem(formalReceiptKey(owner));
-    if(!value)return null;
-    const row:unknown=JSON.parse(value);
-    if(!row || typeof row!=='object')throw new Error('脚本写操作凭据损坏，不允许再次发布或删除。');
-    const proof=row as Partial<FormalScriptWriteReceipt>;
-    if(proof.owner!==owner || !['publish','create','delete'].includes(proof.kind??'') ||
-        typeof proof.scriptId!=='string' || !Number.isSafeInteger(proof.revision) ||
-        (proof.revision??-1)<(proof.kind==='create'?0:1) || typeof proof.createdAt!=='string')
-        throw new Error('脚本写操作身份不完整，禁止新发请求。');
-    return proof as FormalScriptWriteReceipt;
-}
-function reserveFormalReceipt(proof:FormalScriptWriteReceipt):void {
-    if(readFormalReceipt(proof.owner))throw new Error('有尚未确认的正式脚本写操作，请先只读核验。');
-    window.sessionStorage.setItem(formalReceiptKey(proof.owner),JSON.stringify(proof));
-    const stored=readFormalReceipt(proof.owner);
-    if(!stored || stored.scriptId!==proof.scriptId || stored.revision!==proof.revision)
-        throw new Error('无法确认写操作身份已保存，禁止发送。');
-}
-function clearFormalReceipt(proof:FormalScriptWriteReceipt):void {
-    const current=readFormalReceipt(proof.owner);
-    if(!current || current.scriptId!==proof.scriptId ||
-        current.revision!==proof.revision || current.kind!==proof.kind)
-        throw new Error('正式脚本写操作身份已改变，禁止清除保护。');
-    window.sessionStorage.removeItem(formalReceiptKey(proof.owner));
-}
-
 function copySteps(steps: AutomationStep[], regenerateIds = false): AutomationStep[] {
     return steps.map(step => ({
         ...step,
@@ -96,13 +58,25 @@ export function createAutomationScriptWorkspace(
         ++listGeneration; ++actionGeneration;
         state.items = []; state.loading = false;
         state.error = ''; state.busy = false; uncertainAction = null;
-        try { state.formalPending=readFormalReceipt(ownerId.value); }
+        try { state.formalPending=readFormalReceipt(window.sessionStorage,ownerId.value); }
         catch(cause){state.error='正式脚本历史操作核对失败：'+automationErrorMessage(cause);
             // Fail closed, even if storage content cannot be parsed.
             state.formalPending={owner:ownerId.value,kind:'publish',scriptId:'unknown',
                 revision:1,createdAt:''};}
     }, {immediate:true});
 
+    /** Corrupt or inaccessible recovery metadata fails closed on UI clicks. */
+    function hasPendingFormalWrite(owner:number):boolean {
+        if(state.formalPending)return true;
+        try{return !!readFormalReceipt(window.sessionStorage,owner);}
+        catch(cause){
+            state.formalPending={owner,kind:'publish',scriptId:'unknown',
+                revision:1,createdAt:''};
+            state.error='历史脚本写操作凭据不可读取：'+automationErrorMessage(cause)+
+                '；已阻止写入，禁止重新提交。';
+            return true;
+        }
+    }
     async function refresh(): Promise<boolean> {
         const owner = ownerId.value, generation = ++listGeneration;
         if (!owner) return false;
@@ -144,7 +118,7 @@ export function createAutomationScriptWorkspace(
         if (state.busy) return;
         const owner = ownerId.value;
         // Preserve unknown old formal writes when switching or cloning scripts.
-        if(state.formalPending || readFormalReceipt(owner)){
+        if(hasPendingFormalWrite(owner)){
             state.error='有未核实的正式脚本写操作，请先只读核对，避免重复修改服务器。';return;
         }
         if (!authorized(input.deviceId, owner)) { state.error = '当前手机或账号已变化，请重新打开自动化浮窗。'; return; }
@@ -246,7 +220,7 @@ export function createAutomationScriptWorkspace(
             throw new Error('请选择当前账号有效的正式脚本修订。');
         if(editorDirty.value || guard.value!=='clean'||!draftSync.canLeave())
             throw new Error('正式发布前请完成步骤编辑及服务端工作草稿同步；不能覆盖未保存的修改。');
-        if(state.formalPending || readFormalReceipt(owner))
+        if(hasPendingFormalWrite(owner))
             throw new Error('已有未知结果的正式脚本写操作，请先只读核对。');
         return {owner,scriptId,revision};
     }
@@ -284,7 +258,7 @@ export function createAutomationScriptWorkspace(
             proof={owner,kind:scriptId?'publish':'create',scriptId:scriptId??('new:'+uuid()),
                 revision:revision??0,expectedName:desiredName,
                 expectedStepIds:expectedIds,createdAt:new Date().toISOString()};
-            reserveFormalReceipt(proof);
+            reserveFormalReceipt(window.sessionStorage,proof);
             state.formalPending=proof;
             const saved=await api.saveScript(owner,
                 scriptId?{...payload,revision}:payload,scriptId);
@@ -296,7 +270,7 @@ export function createAutomationScriptWorkspace(
             // Commit has happened; only clear the pending proof if THIS exact
             // result is matched. If the page changed, keep it for read-only recovery.
             if(!stillCurrent(owner,deviceId,generation,snapshot))return;
-            clearFormalReceipt(proof);state.formalPending=null;
+            clearFormalReceipt(window.sessionStorage,proof);state.formalPending=null;
             state.items=[saved,...state.items.filter(s=>s.id!==saved.id)];
             if(!draftSync.adoptSavedScript(saved)){
                 state.error='正式脚本已保存，但工作草稿切换未确认。请只读刷新并重新选择。';return;
@@ -307,7 +281,7 @@ export function createAutomationScriptWorkspace(
             if(proof && cause instanceof AutomationApiError &&
                 [400,401,403,404,409,422].includes(cause.status)){
                 // These are definitive server rejections of this PUT.
-                clearFormalReceipt(proof);state.formalPending=null;
+                clearFormalReceipt(window.sessionStorage,proof);state.formalPending=null;
             }
             state.error=automationErrorMessage(cause)+(state.formalPending
                 ? '；结果可能已提交，已锁定正式脚本写操作，请只读核对，不要重试。':'');
@@ -324,7 +298,7 @@ export function createAutomationScriptWorkspace(
         if(guard.value!=='clean'||!draftSync.canLeave()){
             state.error='有未同步的工作草稿，先保存/解决冲突再删除正式脚本。';return;
         }
-        if(state.formalPending || readFormalReceipt(owner)){
+        if(hasPendingFormalWrite(owner)){
             state.error='旧正式脚本写操作结果尚未知，请先核实再删除。';return;
         }
         const generation=++actionGeneration,snapshot=draftFingerprint(workspace);
@@ -337,12 +311,12 @@ export function createAutomationScriptWorkspace(
             if(!script||script.revision!==revision)
                 throw new Error('准备删除的正式脚本修订已变化，请刷新列表后重新确认。');
             proof={owner,kind:'delete',scriptId,revision,createdAt:new Date().toISOString()};
-            reserveFormalReceipt(proof);state.formalPending=proof;
+            reserveFormalReceipt(window.sessionStorage,proof);state.formalPending=proof;
             const response=await api.deleteScriptVersioned(owner,scriptId,revision);
             if(!response.deleted||response.id!==scriptId||response.revision!==revision)
                 throw new Error('删除回执身份不匹配，请只读核对。');
             if(!stillCurrent(owner,deviceId,generation,snapshot))return;
-            clearFormalReceipt(proof);state.formalPending=null;
+            clearFormalReceipt(window.sessionStorage,proof);state.formalPending=null;
             state.items=state.items.filter(item=>item.id!==scriptId);
             if(workspace.editingId===scriptId){
                 // This is a copy of editable steps, not an overwrite of old
@@ -359,7 +333,7 @@ export function createAutomationScriptWorkspace(
             if(ownerId.value!==owner||generation!==actionGeneration)return;
             if(proof && cause instanceof AutomationApiError &&
                 [400,401,403,404,409,422].includes(cause.status)){
-                clearFormalReceipt(proof);state.formalPending=null;
+                clearFormalReceipt(window.sessionStorage,proof);state.formalPending=null;
             }
             state.error=automationErrorMessage(cause)+(state.formalPending
                 ? '；删除结果未知，保留请求身份；请先只读核对，禁止再次删除。':'');
@@ -372,7 +346,7 @@ export function createAutomationScriptWorkspace(
         const owner=ownerId.value;
         state.busy=true;state.error='';
         try{
-            const proof=readFormalReceipt(owner);
+            const proof=readFormalReceipt(window.sessionStorage,owner);
             if(!proof){state.formalPending=null;return;}
             const received=await api.listScripts(owner);
             if(owner!==ownerId.value)return;
@@ -407,7 +381,7 @@ export function createAutomationScriptWorkspace(
                     description:workspace.description,steps:workspace.steps});
                 onSelected();
             }
-            clearFormalReceipt(proof);state.formalPending=null;
+            clearFormalReceipt(window.sessionStorage,proof);state.formalPending=null;
             state.items=received.items;
             state.error='已只读核对原请求，无新的正式写入；请重新选择当前正式修订。';
             // Reconciliation never silently overwrites locally edited steps.
