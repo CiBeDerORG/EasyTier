@@ -13,6 +13,7 @@ import { buildFilterOptions, filterHierarchy, buildCrossFilterSelector, type Fil
 import InspectorPropertiesPanel from './InspectorPropertiesPanel.vue';
 import type { InspectorAction } from '../../modules/automation-inspector-actions';
 import { matchPickerPoint } from '../../modules/automation-pick-engine';
+import { revalidatePickedNativeTarget } from '../../modules/automation-inspector-revalidation';
 import type { PickerVideoPoint } from '../../modules/automation-picker-state';
 
 const props = defineProps<{
@@ -45,6 +46,7 @@ type LocatorMode = 'resource_id' | 'text' | 'description' | 'composite' | 'xpath
 const mode = ref<LocatorMode>('composite');
 const loading = ref(false);
 const committing = ref(false);
+const validatingSubmission = ref(false);
 function submitStep(step: AutomationStep) {
     if (committing.value) return;
     committing.value = true;
@@ -110,7 +112,7 @@ const confirmedLocator = computed<AutomationSelector | null>(() => {
         const filtered = crossFilterBuild.value.selector;
         if (filtered.xpath) {
             return verifiedXPath.value === filtered.xpath && mode.value === 'xpath'
-                && !verifying.value && snapshotFresh() ? filtered : null;
+                && !verifying.value ? filtered : null;
         }
         return snapshot.value && selectedId.value !== null
             && locatorIsUnique(snapshot.value, selectedId.value, filtered) ? filtered : null;
@@ -119,7 +121,7 @@ const confirmedLocator = computed<AutomationSelector | null>(() => {
     if (!candidate || !snapshot.value || selectedId.value === null) return null;
     if (candidate.selector.xpath) {
         return verifiedXPath.value === candidate.selector.xpath && mode.value === 'xpath'
-            && !verifying.value && snapshotFresh() ? candidate.selector : null;
+            && !verifying.value ? candidate.selector : null;
     }
     return locatorIsUnique(snapshot.value, selectedId.value, candidate.selector) ? candidate.selector : null;
 });
@@ -256,8 +258,8 @@ function toggleFilter(id:string, checked:boolean) {
 }
 async function verifyFilter() {
     const shot=snapshot.value,node=selected.value,selector=crossFilterBuild.value.selector;
-    if (!shot || !node || !selector?.xpath || !crossFilterUnique.value || !snapshotFresh()) {
-        feedback.value='请先将过滤结果缩小至当前选中的唯一控件，并刷新过期快照。';
+    if (!shot || !node || !selector?.xpath || !crossFilterUnique.value) {
+        feedback.value='请先将过滤结果缩小至当前选中的唯一控件。';
         return;
     }
     ++verificationGeneration;const generation=verificationGeneration;
@@ -269,7 +271,7 @@ async function verifyFilter() {
         });
         if(generation!==verificationGeneration || !props.visible || selectedId.value!==node.id
             || crossFilterBuild.value.selector?.xpath!==selector.xpath) return;
-        if(!snapshotFresh() || !result.verified || result.device_id!==props.device.id
+        if(!result.verified || result.device_id!==props.device.id
             || result.target_fingerprint!==props.device.target_fingerprint) {
             feedback.value='验证未命中原目标或页面发生变化；请重新采集后调整过滤条件。';
             return;
@@ -344,13 +346,13 @@ const activeMode = computed(() => ({
         ? coordinatesAllowed.value && coordinateConfirmed.value
         : !!confirmedLocator.value,
 }));
-const canAdd = computed(() => !props.replaceStep && !committing.value && !!selected.value
+const canAdd = computed(() => !props.replaceStep && !committing.value && !validatingSubmission.value && !!selected.value
     && !!snapshot.value && !snapshot.value.truncated
     && response.value?.target_fingerprint === props.device.target_fingerprint
     && (mode.value === 'coordinates' ? coordinatesAllowed.value && coordinateConfirmed.value : !!confirmedLocator.value)
     && props.queuedCount < 100);
 const canReplace = computed(() => {
-    if (!props.replaceStep || !selected.value || !snapshot.value || snapshot.value.truncated
+    if (!props.replaceStep || validatingSubmission.value || !selected.value || !snapshot.value || snapshot.value.truncated
         || (mode.value === 'coordinates' ? !coordinatesAllowed.value || !coordinateConfirmed.value : !confirmedLocator.value)
         || response.value?.target_fingerprint !== props.device.target_fingerprint) return false;
     const type = props.replaceStep.type;
@@ -533,7 +535,7 @@ function clearAnchor() {
 }
 async function chooseCandidate(id: string) {
     const candidate = locatorCandidates.value.find(item => item.id === id && item.unique);
-    if (!candidate || !snapshot.value || selectedId.value === null || !snapshotFresh()) return;
+    if (!candidate || !snapshot.value || selectedId.value === null) return;
     activeFilterIds.value=[];extraFilterOptions.value=[];previewNodeId.value=null;
     const shot = snapshot.value, node = selected.value;
     if (!node) return;
@@ -559,7 +561,7 @@ async function chooseCandidate(id: string) {
         });
         if (generation !== verificationGeneration || !props.visible
             || selectedId.value !== node.id || selectedCandidate.value !== id) return;
-        if (!snapshotFresh() || !result.verified || result.device_id !== props.device.id
+        if (!result.verified || result.device_id !== props.device.id
             || result.target_fingerprint !== props.device.target_fingerprint) {
             feedback.value = '关联定位没有再次匹配选中目标，或页面已变化；请刷新控件树后重新选择。';
             return;
@@ -578,64 +580,119 @@ function locator(): AutomationSelector | null {
     // currently unique candidate. Coordinates are a separate manual fallback.
     return mode.value === 'coordinates' ? null : confirmedLocator.value;
 }
-function replaceTarget() {
-    if (!snapshotFresh()) {
-        feedback.value='原控件树已过期，请刷新并重新选择唯一定位条件。';
-        return;
+/**
+ * Perform a read-only, fresh device validation at submit time. The 20-second
+ * snapshot TTL is for gestures only; spending time configuring filters must
+ * not erase a previously selected business target.
+ */
+async function verifyBeforeCommit(
+    original:AutomationHierarchy,originalNode:AutomationHierarchyNode,
+    selector:AutomationSelector|null,
+):Promise<boolean>{
+    const deviceId=props.device.id,fingerprint=props.device.target_fingerprint;
+    const owner=props.ownerId,commitToken=props.commitToken;
+    const request=requestGeneration,verification=verificationGeneration;
+    const originalMode=mode.value,originalFilters=activeFilterIds.value.join('|');
+    const sameScope=()=>props.visible && props.device.id===deviceId
+        && props.device.target_fingerprint===fingerprint && props.ownerId===owner
+        && props.commitToken===commitToken && requestGeneration===request
+        && verificationGeneration===verification && mode.value===originalMode
+        && activeFilterIds.value.join('|')===originalFilters
+        && selectedId.value===originalNode.id && response.value===original;
+    try{
+        let valid=false;
+        if(selector?.xpath){
+            const result=await api.verifyLocator(owner,deviceId,{
+                xpath:selector.xpath,expected_bounds:originalNode.bounds,
+                width:original.snapshot.width,height:original.snapshot.height,
+            });
+            valid=result.verified && result.device_id===deviceId
+                && result.target_fingerprint===fingerprint;
+        }else{
+            const latest=await api.hierarchy(owner,deviceId);
+            valid=latest.device_id===deviceId && latest.target_fingerprint===fingerprint
+                && revalidatePickedNativeTarget(originalNode,original.snapshot.width,
+                    original.snapshot.height,latest,selector);
+        }
+        if(!sameScope()) {
+            feedback.value='验证期间设备或筛选条件发生变化，请再次确认录入。';
+            return false;
+        }
+        if(!valid){
+            feedback.value='重新读取控件树后无法确认原目标仍然唯一且位置一致。已保留筛选条件，请重新右键拾取目标。';
+            return false;
+        }
+        return true;
+    }catch(cause){
+        if(sameScope()) feedback.value='重新验证控件失败，未录入步骤：'+automationErrorMessage(cause);
+        return false;
     }
-    if (!canReplace.value || !selected.value || !snapshot.value || !props.replaceStep) return;
-    const selector = locator();
-    let target: StepTarget;
-    if (selector) {
-        target = { selector: { ...selector } };
-    } else {
-        if (mode.value !== 'coordinates' || !compatibleVideo.value) return;
-        const bounds = selected.value.bounds;
-        const { width, height } = snapshot.value;
-        target = {
-            coordinates: {
-                x: (bounds.left + bounds.right) / (2 * width),
-                y: (bounds.top + bounds.bottom) / (2 * height),
-                width, height,
-            },
-        };
-    }
-    // The controller checks the owner, script identity and step type again.
-    emit('replace-target', props.replaceStep.id, target);
 }
-function add(type: InspectorAction) {
-    if (!snapshotFresh()) {
-        feedback.value='原控件树已过期，请刷新快照后确认录入。';
-        return;
-    }
-    if (!selected.value || !snapshot.value || !canAdd.value) return;
-    const selector = locator();
-    if (!selector && type !== 'tap' && type !== 'long_press') return;
-    if (type === 'input_text' && selector?.xpath) return;
-    if (type === 'assert_property' && selector?.xpath) return;
-    if (type === 'scroll_find' && (!selector || !scrollContainer.value)) return;
-    const step: AutomationStep = { id: uuid(), type };
-    if (selector) step.selector = selector;
-    else {
-        const bounds = selected.value.bounds, { width, height } = snapshot.value;
-        step.x = (bounds.left + bounds.right) / 2 / width;
-        step.y = (bounds.top + bounds.bottom) / 2 / height;
-        step.width = width; step.height = height;
-    }
-    if (type === 'long_press') step.duration_ms = 800;
-    if (['wait_for', 'wait_gone', 'assert'].includes(type)) step.timeout_ms = 10000;
-    if (type === 'assert_property') { step.property = 'enabled'; step.expected = selected.value.enabled; }
-    if (type === 'scroll_find') {
-        step.scroll_container = scrollContainer.value ?? undefined;
-        step.direction = 'down'; step.max_swipes = 3; step.duration_ms = 350;
-        step.timeout_ms = 20000;
-    }
-    if (type === 'input_text') step.parameter = 'picked_' + uuid().slice(0, 8);
-    submitStep(step);
+async function replaceTarget() {
+    if (!canReplace.value || !selected.value || !response.value || !props.replaceStep
+        || validatingSubmission.value)return;
+    const original=response.value,node=selected.value,stepId=props.replaceStep.id;
+    const selector=locator();
+    const modeAtStart=mode.value;
+    if(modeAtStart!=='coordinates'&&!selector)return;
+    validatingSubmission.value=true;
+    feedback.value='正在重新读取手机控件树，核对原目标后更新步骤……';
+    try{
+        if(!await verifyBeforeCommit(original,node,selector))return;
+        if(!props.replaceStep || props.replaceStep.id!==stepId
+            || mode.value!==modeAtStart || !props.visible)return;
+        let target: StepTarget;
+        if(selector){
+            target={selector:{...selector}};
+        }else{
+            if(modeAtStart!=='coordinates'||!compatibleVideo.value)return;
+            const bounds=node.bounds,{width,height}=original.snapshot;
+            target={coordinates:{
+                x:(bounds.left+bounds.right)/(2*width),
+                y:(bounds.top+bounds.bottom)/(2*height),width,height,
+            }};
+        }
+        emit('replace-target',stepId,target);
+    }finally{validatingSubmission.value=false;}
+}
+async function add(type: InspectorAction) {
+    if(validatingSubmission.value || committing.value || !selected.value
+        || !response.value || !canAdd.value)return;
+    const original=response.value,node=selected.value,selector=locator(),modeAtStart=mode.value;
+    if(!selector && type!=='tap' && type!=='long_press')return;
+    if(selector?.xpath && (type==='input_text'||type==='assert_property'))return;
+    if(type==='scroll_find'&&(!selector||!scrollContainer.value))return;
+    const scroller=scrollContainer.value;
+    validatingSubmission.value=true;
+    feedback.value='正在重新读取手机控件树，核对原目标后录入步骤……';
+    try{
+        if(!await verifyBeforeCommit(original,node,selector))return;
+        if(mode.value!==modeAtStart || !props.visible)return;
+        const step:AutomationStep={id:uuid(),type};
+        if(selector)step.selector={...selector};
+        else{
+            const bounds=node.bounds,{width,height}=original.snapshot;
+            step.x=(bounds.left+bounds.right)/(2*width);
+            step.y=(bounds.top+bounds.bottom)/(2*height);
+            step.width=width;step.height=height;
+        }
+        if(type==='long_press')step.duration_ms=800;
+        if(['wait_for','wait_gone','assert'].includes(type))step.timeout_ms=10000;
+        if(type==='assert_property'){step.property='enabled';step.expected=node.enabled;}
+        if(type==='scroll_find'){
+            if(!scroller)return;
+            step.scroll_container=scroller;
+            step.direction='down';step.max_swipes=3;step.duration_ms=350;
+            step.timeout_ms=20000;
+        }
+        if(type==='input_text')step.parameter='picked_'+uuid().slice(0,8);
+        submitStep(step);
+    }finally{validatingSubmission.value=false;}
 }
 watch([() => props.visible, () => props.device.id, () => props.device.target_fingerprint, () => props.ownerId], async () => {
     ++requestGeneration;
     committing.value = false;
+    validatingSubmission.value=false;
     initialPointUsed = false;
     ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
     anchorPicking.value = false; manualAnchorId.value = null;
