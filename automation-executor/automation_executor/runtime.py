@@ -253,9 +253,12 @@ class Runtime:
 
     async def verify_locator(self, body):
         """Read-only XPath verification for the last manually selected node."""
-        validation.object_fields(body, {"target", "xpath", "expected_bounds", "width", "height", "preview_only"},
+        validation.object_fields(body, {"target", "xpath", "expected_bounds", "width", "height", "preview_only", "diagnose"},
                                  {"target", "xpath", "width", "height"})
         preview = body.get("preview_only", False)
+        diagnose = body.get("diagnose", False)
+        if type(diagnose) is not bool or (diagnose and not preview):
+            raise ExecutorError("selector_invalid", "只能在只读预览中获取控件对比列表", 422)
         if type(preview) is not bool or (preview and "expected_bounds" in body) or (
                 not preview and "expected_bounds" not in body):
             raise ExecutorError("selector_invalid", "预览模式与目标区域参数不匹配", 422)
@@ -281,7 +284,7 @@ class Runtime:
             self.journal, "locator-verify:" + str(uuid4()), target,
             {"id": str(uuid4()), "type": "locator_verify", "xpath": expression,
              "expected_bounds": expected, "width": width, "height": height,
-             "preview_only": preview, "timeout_ms": 20000}, {}, asyncio.Event(), self.settings.adb_binary)
+             "preview_only": preview, "diagnose": diagnose, "timeout_ms": 20000}, {}, asyncio.Event(), self.settings.adb_binary)
 
     async def automation_status(self, body):
         validation.object_fields(body, {"target"}, {"target"})

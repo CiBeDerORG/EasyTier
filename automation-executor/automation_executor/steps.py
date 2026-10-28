@@ -102,6 +102,15 @@ def execute(target, step, parameters, artifact_path=None):
         from .errors import ExecutorError
         width, height = dev.window_size()
         xml = rpc("dumpWindowHierarchy", False, 50, timeout=12)
+        if step.get("diagnose") is True:
+            from .hierarchy import xpath_diagnose
+            report=xpath_diagnose(xml,step["xpath"],width,height)
+            bounds=xpath_match(xml,step["xpath"],width,height) if report["count"]==1 else None
+            return {"device_id":target["device_id"],"target_fingerprint":target["target_fingerprint"],
+                    "verified":report["count"]==1 and bounds is not None,
+                    "reason":"unique_preview" if report["count"]==1 else
+                             "ambiguous" if report["count"]>1 else "selector_not_found",
+                    "bounds":bounds,**report}
         try:
             bounds = xpath_match(xml, step["xpath"], width, height)
         except ExecutorError as exc:

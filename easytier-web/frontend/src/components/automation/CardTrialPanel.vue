@@ -16,7 +16,9 @@ import {
     statelessCompatibility, requiresReuseHierarchy,
     type DeviceCompatibilityReview,
 } from '../../modules/automation-device-compatibility';
-import type { AutomationDevice, AutomationRunInput, AutomationStep } from '../../types/automation';
+import type { AutomationDevice, AutomationHierarchy, AutomationRunInput, AutomationStep } from '../../types/automation';
+import {diagnosticXPath,normalizeTrialDiagnosis,summarizeTrialDiagnosis,
+    type TrialLocatorDiagnosis} from '../../modules/automation-trial-diagnostics';
 import {
     readTrialReceipt, reserveTrialReceipt, clearTrialReceipt, findTrialRun,
     type TrialSubmissionReceipt,
@@ -37,7 +39,8 @@ const props=defineProps<{
 }>();
 const emit=defineEmits<{ close: []; history: [runId: string]; repair: [runId: string, stepId: string];
     progress: [value: InlineStepRunProgress];
-    finished: [value: {phase:'succeeded'|'action_sent'|'failed'|'cancelled';message:string}] }>();
+    finished: [value: {phase:'succeeded'|'action_sent'|'failed'|'cancelled';
+        message:string;diagnosis?:TrialLocatorDiagnosis|null}] }>();
 const api=new AutomationApi();
 const preparation=useCardTrialPreparation(api);
 const result=useCardRunStatus(api);
@@ -51,22 +54,47 @@ type PanelPhase = 'idle' | 'releasing' | 'preparing' | 'ready' | 'submitting' | 
 const phase=ref<PanelPhase>('idle');
 const warning=ref('');
 const compatibilityReview=ref<DeviceCompatibilityReview | null>(null);
-/** The server's raw XML verifier is authoritative for XPath uniqueness. */
+const trialDiagnosis=ref<TrialLocatorDiagnosis|null>(null);
+async function readTrialDiagnosis(
+    owner:number,device:AutomationDevice,step:AutomationStep,
+    hierarchy?:AutomationHierarchy,
+):Promise<TrialLocatorDiagnosis|null>{
+    if(!step.selector)return null;
+    const expression=diagnosticXPath(step.selector);
+    if(!expression)return null;
+    const shot=hierarchy??await api.hierarchy(owner,device.id);
+    const report=await api.verifyLocator(owner,device.id,{
+        xpath:expression,width:shot.snapshot.width,height:shot.snapshot.height,
+        preview_only:true,diagnose:true,
+    });
+    if(report.device_id!==device.id || report.target_fingerprint!==device.target_fingerprint)
+        throw new Error('定位诊断时设备身份已变化，无法使用结果。');
+    return normalizeTrialDiagnosis(step.selector,report,shot.captured_at);
+}
 async function reviewStepOnPhone(owner:number, device:AutomationDevice, step:AutomationStep):Promise<DeviceCompatibilityReview>{
+    trialDiagnosis.value=null;
     if(!requiresReuseHierarchy([step]))return statelessCompatibility(owner,device,[step]);
     const hierarchy=await api.hierarchy(owner,device.id);
     const xpathVerified:Record<string,boolean>={};
-    if(step.selector?.xpath){
-        const response=await api.verifyLocator(owner,device.id,{
-            xpath:step.selector.xpath,width:hierarchy.snapshot.width,
-            height:hierarchy.snapshot.height,preview_only:true,
-        });
-        xpathVerified[step.id]=response.verified && !!response.bounds
-            && response.device_id===device.id
-            && response.target_fingerprint===device.target_fingerprint;
+    if(step.selector){
+        // Read-only analysis of the CURRENT XML supplies both the exact count
+        // and capped full-attribute/parent rows when multiple targets match.
+        const diagnosis=await readTrialDiagnosis(owner,device,step,hierarchy);
+        trialDiagnosis.value=diagnosis;
+        if(step.selector.xpath)xpathVerified[step.id]=diagnosis?.count===1;
     }
-    return reviewAutomationDeviceCompatibility(owner,device,hierarchy,[step],Date.now(),
+    const review=reviewAutomationDeviceCompatibility(owner,device,hierarchy,[step],Date.now(),
         {requireUniqueSelectors:true,xpathVerified});
+    // Native selectors and XPath must both be unique in the SAME live raw
+    // Android XML. A zero-result wait_gone is the one intentional exception.
+    if(step.selector && trialDiagnosis.value &&
+        (trialDiagnosis.value.count>1 ||
+         (trialDiagnosis.value.count===0 && step.type!=='wait_gone'))){
+        review.status='blocked';
+        review.issues.push({stepId:step.id,stepNumber:1,severity:'block',
+            message:summarizeTrialDiagnosis(trialDiagnosis.value)});
+    }
+    return review;
 }
 const parameterValue=ref('');
 const frozen=ref<AutomationStep | null>(null);
@@ -142,7 +170,22 @@ watch(inlineStatus,value=>{
     if(!finishedEmitted && (value.phase==='failed'||value.phase==='cancelled'
         ||value.phase==='succeeded'||value.phase==='action_sent')){
         finishedEmitted=true;
-        emit('finished',{phase:value.phase,message:value.message||value.label});
+        void (async()=>{
+            let diag=trialDiagnosis.value;
+            // If a real run failed after preflight, the Android page could
+            // have changed. Capture diagnostic evidence again without any
+            // device action; never retry the failed POST.
+            if(value.phase==='failed' && runView.value?.phase==='failed'
+                && frozen.value?.selector && (diag===null || diag.count===1)){
+                try{
+                    diag=await readTrialDiagnosis(props.ownerId,props.device,frozen.value);
+                }catch{ /* retain original executor failure details */ }
+            }
+            const message=diag && diag.count!==1 && value.phase==='failed'
+                ? summarizeTrialDiagnosis(diag)+(value.message?'；'+value.message:'')
+                : value.message||value.label;
+            emit('finished',{phase:value.phase,message,diagnosis:value.phase==='failed'?diag:null});
+        })();
     }
 },{immediate:true});
 const preparePhases:Record<CardTrialPhase,string>={
@@ -153,6 +196,7 @@ const preparePhases:Record<CardTrialPhase,string>={
 function clearSecrets(){parameterValue.value='';}
 function resetForOpen(){
     finishedEmitted=false;
+    trialDiagnosis.value=null;
     handedOffSessionId.value=null;
     lockedIntent.value=freezeInlineStepRunIntent(
         props.ownerId,props.device.id,props.device.target_fingerprint??'',props.step,uuid());
@@ -257,7 +301,9 @@ async function prepare(){
             compatibilityReview.value=checked;
             if(checked.status==='blocked'){
                 phase.value='failed';
-                warning.value=checked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '设备安全校验未通过。';
+                warning.value=trialDiagnosis.value && trialDiagnosis.value.count!==1
+                    ? summarizeTrialDiagnosis(trialDiagnosis.value)
+                    : checked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '设备安全校验未通过。';
             }else {
                 phase.value='ready';warning.value='';
                 // One deliberate press of ▶ authorizes this one frozen step.
@@ -316,7 +362,9 @@ async function submit(){
         if(rechecked.status==='blocked'){
             pending.value=null;compatibilityReview.value=rechecked;
             phase.value='failed';
-            warning.value=rechecked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '目标定位未通过实时安全验证。';return;
+            warning.value=trialDiagnosis.value && trialDiagnosis.value.count!==1
+                ? summarizeTrialDiagnosis(trialDiagnosis.value)
+                : rechecked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '目标定位未通过实时安全验证。';return;
         }
         // The just-captured hierarchy and device fingerprint are fresh.
         // A harmless warning difference must not force another risk click.

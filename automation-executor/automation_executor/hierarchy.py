@@ -82,12 +82,8 @@ def parse_hierarchy(xml, width, height):
     return {"width": width, "height": height, "nodes": nodes, "truncated": truncated}
 
 
-def xpath_match(xml, expression, width, height):
-    """Evaluate an XPath 1.0 element selector against one bounded UI snapshot.
-
-    This is read-only; returns a unique on-screen bounds dict or raises a
-    controlled exception. The caller sends a click only after this completes.
-    """
+def _xpath_nodes(xml, expression, width, height):
+    """Parse and evaluate bounded XPath 1.0 once; never execute actions."""
     from lxml import etree
 
     if not isinstance(expression, str) or not 1 <= len(expression.encode("utf-8")) <= 512 or not expression.startswith(("/", "(")):
@@ -114,8 +110,45 @@ def xpath_match(xml, expression, width, height):
     except (etree.XMLSyntaxError, etree.XPathError, ValueError, TypeError):
         raise ExecutorError("xpath_invalid", "控件树或 XPath 表达式无效", 422) from None
 
-    if not isinstance(result, list) or any(not isinstance(node, etree._Element) for node in result):
-        raise ExecutorError("xpath_invalid", "XPath 必须返回控件元素", 422)
+    if not isinstance(result,list) or any(not isinstance(node,etree._Element) for node in result):
+        raise ExecutorError("xpath_invalid","XPath 必须返回控件元素",422)
+    return result
+
+
+def xpath_diagnose(xml,expression,width,height,max_results=80):
+    """Read-only XPath evidence. Never return password values or unbounded XML."""
+    nodes=_xpath_nodes(xml,expression,width,height)
+    count=len(nodes)
+    def safe_attrs(element):
+        if element is None:
+            return {}
+        raw=element.attrib
+        protected=raw.get("password")=="true"
+        # Preserve original Android field names, including index, bounds and
+        # boolean attributes, while hiding password text and sensitive hints.
+        result={}
+        for key,value in raw.items():
+            if protected and key in ("text","content-desc","hint","password-text"):
+                result[key]="（敏感控件，已隐藏）"
+            elif isinstance(value,str):
+                result[key]=value[:256]
+        return result
+    matches=[]
+    for node in nodes[:max_results]:
+        parent=node.getparent()
+        if parent is not None and parent.tag=="hierarchy":
+            parent=None
+        matches.append({
+            "attributes":safe_attrs(node),
+            "parent":safe_attrs(parent),
+            "depth":len(list(node.iterancestors())),
+        })
+    return {"count":count,"limited":count>max_results,"matches":matches}
+
+
+def xpath_match(xml, expression, width, height):
+    """Select exactly one real on-screen node for execution."""
+    result=_xpath_nodes(xml,expression,width,height)
     if len(result) > 1:
         raise ExecutorError("selector_ambiguous", "XPath 匹配多个控件，请缩小条件", 409)
     if not result:

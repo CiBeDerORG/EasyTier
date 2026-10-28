@@ -3,7 +3,7 @@ import unittest
 from uuid import uuid4
 
 from automation_executor.errors import ExecutorError
-from automation_executor.hierarchy import xpath_match
+from automation_executor.hierarchy import xpath_match, xpath_diagnose
 from automation_executor.validation import steps
 
 
@@ -67,6 +67,26 @@ class XPathSelectorTests(unittest.TestCase):
             xpath_match(xml("sign"), "//*[@content-desc='领淘金币']", 320, 640)
         self.assertEqual(error.exception.code, "selector_ambiguous")
         self.assertIsNone(xpath_match(xml("sign"), "//*[@text='已删除任务']/ancestor::*[1]//*[@content-desc='领淘金币']", 320, 640))
+
+    def test_xpath_diagnosis_returns_multiple_all_fields_and_parent(self):
+        report=xpath_diagnose(XML,"//android.widget.Button",320,640)
+        self.assertEqual(report["count"],2)
+        self.assertEqual(len(report["matches"]),2)
+        self.assertEqual(report["matches"][0]["attributes"]["text"],"保存")
+        self.assertEqual(report["matches"][0]["attributes"]["resource-id"],"app:id/save")
+        self.assertEqual(report["matches"][0]["parent"]["class"],"android.widget.FrameLayout")
+        self.assertEqual(xpath_diagnose(XML,"//*[@text='不存在']",320,640)["count"],0)
+        self.assertEqual(xpath_diagnose(XML,"//android.widget.Button",320,640,max_results=1)["limited"],True)
+
+    def test_xpath_diagnosis_masks_password_fields(self):
+        xml='''<hierarchy><node class="android.widget.FrameLayout" bounds="[0,0][320,640]">
+          <node class="android.widget.EditText" password="true" text="secret"
+                content-desc="secret hint" bounds="[0,0][200,80]"/>
+        </node></hierarchy>'''
+        report=xpath_diagnose(xml,"//android.widget.EditText",320,640)
+        self.assertEqual(report["count"],1)
+        self.assertNotIn("secret",str(report["matches"]))
+        self.assertEqual(report["matches"][0]["attributes"]["password"],"true")
 
     def test_invalid_xpath_and_unsafe_xml_are_rejected(self):
         for expression in ("", "just text", "count(//*)", "//android.widget.Button["):

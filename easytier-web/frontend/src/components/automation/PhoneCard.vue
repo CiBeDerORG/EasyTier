@@ -14,6 +14,8 @@ import CardContextMenu from './CardContextMenu.vue';
 import CardStepTimeline from './CardStepTimeline.vue';
 import CardStepEditor from './CardStepEditor.vue';
 import CardTrialPanel from './CardTrialPanel.vue';
+import TrialLocatorCompare from './TrialLocatorCompare.vue';
+import type { TrialLocatorDiagnosis } from '../../modules/automation-trial-diagnostics';
 import CardRepairEntry from './CardRepairEntry.vue';
 import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import type { InlineStepRunProgress } from '../../modules/useInlineStepRun';
@@ -133,6 +135,7 @@ const repairStepNumber = computed(() => repairStep.value
 const trialStepId = ref<string | null>(null);
 const trialProgress = ref<InlineStepRunProgress | null>(null);
 const trialToast = ref<{severity:'success'|'error';message:string}|null>(null);
+const trialCompare=ref<TrialLocatorDiagnosis|null>(null);
 let trialToastTimer:ReturnType<typeof setTimeout>|null=null;
 function showTrialToast(severity:'success'|'error',message:string){
     if(trialToastTimer!==null)clearTimeout(trialToastTimer);
@@ -140,9 +143,12 @@ function showTrialToast(severity:'success'|'error',message:string){
     trialToastTimer=setTimeout(()=>{trialToast.value=null;trialToastTimer=null;},
         severity==='error'?9000:4000);
 }
-function finishCardTrial(value:{phase:'succeeded'|'action_sent'|'failed'|'cancelled';message:string}){
+function finishCardTrial(value:{phase:'succeeded'|'action_sent'|'failed'|'cancelled';
+    message:string;diagnosis?:TrialLocatorDiagnosis|null}){
     showTrialToast(value.phase==='succeeded'||value.phase==='action_sent'?'success':'error',
         value.message || (value.phase==='failed'?'本次试跑失败':'本次试跑已结束'));
+    trialCompare=value.phase==='failed' && (value.diagnosis?.count??0)>1
+        ? value.diagnosis! : null;
     trialStepId.value=null;
 }
 onBeforeUnmount(()=>{if(trialToastTimer!==null)clearTimeout(trialToastTimer);});
@@ -178,6 +184,7 @@ async function openCardTrial(stepId: string, acknowledgedUnknown = false) {
     // T40: the trial window is teleported into the original phone-screen.
     // Never exit fullscreen or replace its WebRTC stream to start one step.
     notifiedUnknownTrial='';
+    trialCompare.value=null;
     trialStepId.value = stepId;
 }
 function getTrialPreviewHandle(): TrialPreviewHandle {
@@ -1058,6 +1065,11 @@ onBeforeUnmount(() => {
             <span>{{trialToast.message}}</span>
             <button type="button" title="关闭提示" aria-label="关闭提示" @click="trialToast=null"><i class="pi pi-times" /></button>
         </div>
+        <AutomationFloatingDialog :visible="trialCompare !== null"
+            :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
+            title="单步骤定位 · 多控件匹配对比" @close="trialCompare=null">
+            <TrialLocatorCompare v-if="trialCompare" :diagnosis="trialCompare" />
+        </AutomationFloatingDialog>
         <CardTrialPanel :visible="trialStepId !== null" :headless="true" :owner-id="ownerId" :device="device"
             :step="trialStep" :preview-handle="getTrialPreviewHandle"
             :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"

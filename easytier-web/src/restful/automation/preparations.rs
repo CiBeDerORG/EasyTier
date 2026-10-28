@@ -90,8 +90,12 @@ pub(super) async fn verify_locator(
     let owner = owner(query)?;
     let did = id(&raw_id)?;
     let payload = body(input)?;
-    exact_fields(&payload, &["xpath", "expected_bounds", "width", "height", "preview_only"])?;
+    exact_fields(&payload, &["xpath", "expected_bounds", "width", "height", "preview_only", "diagnose"])?;
     let preview=payload["preview_only"].as_bool()==Some(true);
+    let diagnose=payload.get("diagnose").and_then(Value::as_bool).unwrap_or(false);
+    if payload.get("diagnose").is_some_and(|v|!v.is_boolean()) || (diagnose && !preview) {
+        return Err(error(StatusCode::UNPROCESSABLE_ENTITY,"selector_invalid","诊断列表仅支持只读验证"));
+    }
     if payload.get("preview_only").is_some_and(|v|!v.is_boolean())
         || (preview && payload.get("expected_bounds").is_some())
         || (!preview && payload.get("expected_bounds").is_none()) {
@@ -113,10 +117,13 @@ pub(super) async fn verify_locator(
         "width":payload["width"], "height":payload["height"],
     });
     if preview { outbound["preview_only"]=json!(true); }
+    if diagnose { outbound["diagnose"]=json!(true); }
     else { outbound["expected_bounds"]=bounds.clone(); }
     let result=runner(&runtime)?.post("automation/locator-verify",&outbound).await?;
     if result["device_id"]!=did || result["target_fingerprint"]!=target["target_fingerprint"]
-        || !result["verified"].is_boolean() {
+        || !result["verified"].is_boolean()
+        || (diagnose && (!result["count"].is_u64() || !result["matches"].is_array()
+            || result["matches"].as_array().is_some_and(|a|a.len()>80))) {
         return Err(error(StatusCode::BAD_GATEWAY,"runner_response_invalid","定位验证的设备身份不一致"));
     }
     Ok(([("Cache-Control","no-store")],Json(result)))

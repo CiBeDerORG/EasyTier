@@ -61,10 +61,12 @@ export default class AutomationApi {
     }
     verifyLocator(ownerId: number, id: string, input: {
         xpath: string; expected_bounds?: AutomationHierarchyNode['bounds']; width: number; height: number;
-        preview_only?: true;
+        preview_only?: true; diagnose?: true;
     }) {
         return this.request<{ device_id: string; target_fingerprint: string; verified: boolean;
-            reason: string; bounds: AutomationHierarchyNode['bounds'] | null }>(
+            reason: string; bounds: AutomationHierarchyNode['bounds'] | null;
+            count?: number; limited?: boolean;
+            matches?: {attributes:Record<string,string>;parent:Record<string,string>;depth:number}[] }>(
             `/devices/${encodeURIComponent(id)}/locator-verify`, ownerId, 'POST', input);
     }
     hierarchy(ownerId: number, id: string) {
