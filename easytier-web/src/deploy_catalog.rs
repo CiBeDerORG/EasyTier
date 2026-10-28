@@ -369,6 +369,45 @@ mod tests {
         assert!(!safe_id("PORTAINER"));
     }
 
+    #[tokio::test]
+    async fn refresh_failure_retains_last_index_and_never_reads_git_on_get() {
+        let db = Db::memory_db().await;
+        let pool = db.inner();
+        let old = "0123456789abcdef0123456789abcdef01234567";
+        sqlx::query("INSERT INTO deploy_catalog_state(singleton,git_revision,fetched_at,app_count) VALUES(1,?,?,1)")
+            .bind(old).bind("2026-10-28T10:00:00Z")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO deploy_catalog_apps(app_id,git_revision,name,summary,category,compose_project,manifest_path,manifest_sha256,detail_json) VALUES(?,?,?,?,?,?,?,?,?)")
+            .bind("portainer").bind(old).bind("Portainer").bind("Management")
+            .bind("infrastructure").bind("portainer").bind("portainer/app.yaml")
+            .bind("a".repeat(64)).bind(json!({"install_available":false}).to_string())
+            .execute(&pool).await.unwrap();
+
+        let root = std::env::temp_dir().join(format!("catalog-fail-{}", Uuid::new_v4()));
+        std::fs::write(&root, "not-a-directory").unwrap();
+        let catalog = Catalog::new(db, root.clone());
+        let before = catalog.list().await.unwrap();
+        assert_eq!(before["items"].as_array().unwrap().len(), 1);
+        assert_eq!(catalog.detail("portainer").await.unwrap()["git_revision"], old);
+        // A valid Git token, permission or network cannot make this refresh
+        // succeed: its local staging directory is deliberately not a folder.
+        assert!(catalog.refresh().await.is_err());
+        let after = catalog.list().await.unwrap();
+        assert_eq!(before, after, "failed refresh must preserve the last revision");
+        std::fs::remove_file(root).unwrap();
+    }
+
+    #[test]
+    fn display_lists_never_include_secret_values() {
+        let yaml = "schema_version: 1\\nconfig:\\n  - key: ADMIN_PASS\\n    label: Admin password\\n    type: secret\\n    target: secrets\\n    required: true\\n    default: \\"\\\"\\nports:\\n  - id: web\\n    label: Web interface\\n    host_port_key: PORT\\n    container_port: 9000\\n";
+        let config = display_items(yaml, "config", &["key","label","type","target","required"]).unwrap();
+        assert_eq!(config.len(), 1);
+        assert_eq!(config[0]["type"], "secret");
+        assert!(config[0].get("default").is_none());
+        let ports = display_items(yaml, "ports", &["id","label","host_port_key","container_port"]).unwrap();
+        assert_eq!(ports[0]["container_port"], "9000");
+    }
+
     #[test]
     fn scan_reads_only_normal_published_manifests_not_contract_fixtures() {
         let dir = std::env::temp_dir().join(format!("t0304-{}", Uuid::new_v4()));
