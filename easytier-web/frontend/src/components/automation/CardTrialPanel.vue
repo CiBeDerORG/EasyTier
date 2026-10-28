@@ -98,7 +98,7 @@ const inlineStatus=computed<InlineStepRunProgress|null>(() => {
     else if(phase.value==='unknown'){status='unknown';text='动作或准备结果尚未确认';}
     else if(phase.value==='failed'){status='failed';text='设备准备或安全检查失败';}
     else if(phase.value==='ready'){status='ready';text='待确认后执行本步骤';}
-    else if(phase.value==='releasing'){text='核对悬浮手控开关和原只读会话';}
+    else if(phase.value==='releasing'){text='核对原实时视频会话';}
     else if(phase.value==='preparing'){text=prepProgress.value?.message||'正在准备控件及ADB';}
     const runDevice=result.run.value?.devices.find(item=>item.device_id===intent.deviceId);
     const actualStep=runDevice?.steps.find(item=>item.step_id===intent.stepId);
@@ -171,8 +171,6 @@ function checkReadyToPrepare(): string | null {
     const handle=props.previewHandle();
     if(!handle.getSessionId() || handle.getState().phase!=='live')
         return '请先打开本机卡片原实时画面。';
-    if(handle.getState().viewerOnly!==true)
-        return '请先在当前手机画面的悬浮 Icon 中关闭“手控”，再准备真实试跑。';
     return null;
 }
 async function prepare(){
@@ -194,24 +192,24 @@ async function prepare(){
         phase.value='releasing';
         const handle=props.previewHandle();
         const sid=handle.getSessionId();
-        if(!sid || handle.getState().phase!=='live' || !handle.getState().viewerOnly)
-            throw new Error('原视频必须处于只读模式；请先通过悬浮 Icon 关闭手控。');
-        // Read-only is now controlled only by the operator's floating icon.
-        // Running a step never silently changes manual permissions.
+        if(!sid || handle.getState().phase!=='live')
+            throw new Error('原视频必须保持实时连接，才能准备脚本。');
+        // Manual permission is solely the user's floating icon setting.
+        // The Executor arbitrates script and manual actions by physical lease.
         const before=(await api.devices(owner)).items.find(item=>item.id===id);
         if(!valid(mine,owner,id,source))return;
         if(!before || before.owner_user_id!==owner || before.target_fingerprint!==targetFingerprint.value ||
             before.run_occupied || before.active_session?.id!==sid ||
-            before.active_session?.state!=='view_only')
-            throw new Error('原会话尚未确认只读或被占用；请先用悬浮 Icon 关闭手控。');
-        warning.value='核对悬浮手控开关已关闭；原实时画面持续播放。';
+            !['active','view_only'].includes(before.active_session.state))
+            throw new Error('原会话权限转换中、已变化或脚本占用未释放，不能准备。');
+        warning.value='正在核对原手机会话与执行器占用；原实时画面持续播放。';
         const fresh=await api.devices(owner);
         if(!valid(mine,owner,id,source))return;
         const row=fresh.items.find(item=>item.id===id);
         if(!row || row.owner_user_id!==owner || row.target_fingerprint!==targetFingerprint.value ||
-            row.run_occupied || row.active_session?.id!==sid || row.active_session.state!=='view_only' ||
-            handle.getSessionId()!==sid || !handle.getState().viewerOnly)
-            throw new Error('悬浮手控开关或服务端只读状态已变化，禁止自动准备脚本。');
+            row.run_occupied || row.active_session?.id!==sid ||
+            !['active','view_only'].includes(row.active_session.state) || handle.getSessionId()!==sid)
+            throw new Error('原手机会话身份或执行器占用在准备前变化，禁止继续。');
         handedOffSessionId.value=sid;
         phase.value='preparing';warning.value='';
         const prepared=await preparation.run({
@@ -294,8 +292,8 @@ async function submit(){
             row.availability_reason || row.target_fingerprint!==targetFingerprint.value ||
             !handedOffSessionId.value || handle.getSessionId()!==handedOffSessionId.value ||
             row.active_session?.id!==handedOffSessionId.value ||
-            row.active_session.state!=='view_only' || row.run_occupied)
-            throw new Error('悬浮手控开关、原视频只读权限或设备绑定已变化，未提交试跑。');
+            !['active','view_only'].includes(row.active_session.state) || row.run_occupied)
+            throw new Error('原视频会话或设备绑定在提交前变化，未提交试跑。');
         const rechecked=requiresReuseHierarchy([frozen.value])
             ? reviewAutomationDeviceCompatibility(owner,row,
                 await api.hierarchy(owner,id),[frozen.value],Date.now(),{requireUniqueSelectors:true})
@@ -402,11 +400,12 @@ async function recheckPreparation(){
     try {
         const sid=handedOffSessionId.value;
         if(!sid || props.previewHandle().getSessionId()!==sid)
-            throw new Error('原手机只读会话已丢失，不能直接恢复准备状态。');
+            throw new Error('原手机实时会话已丢失，不能直接恢复准备状态。');
         const current=(await api.devices(owner)).items.find(item=>item.id===id);
         if(!valid(mine,owner,id,original))return;
-        if(current?.active_session?.id!==sid || current.active_session.state!=='view_only')
-            throw new Error('原手机只读移交尚未确认，禁止继续恢复试跑准备。');
+        if(current?.active_session?.id!==sid ||
+            !['active','view_only'].includes(current.active_session.state))
+            throw new Error('原手机会话不再稳定，禁止继续恢复试跑准备。');
         const state=await preparation.reconcile({
             ownerId:owner,deviceId:id,targetFingerprint:targetFingerprint.value,
             steps:[frozen.value],ownedSessionId:sid,
@@ -511,7 +510,7 @@ onBeforeUnmount(()=>{
             </Message>
             <div class="trial-progress" aria-live="polite">
                 <strong>设备准备</strong>
-                <Tag :value="phase==='ready'?'就绪':phase==='unknown'?'结果未知':phase==='releasing'?'核验手控已关闭':phase==='preparing'?'准备中':phase==='failed'?'失败':'尚未准备'"
+                <Tag :value="phase==='ready'?'就绪':phase==='unknown'?'结果未知':phase==='releasing'?'核验原会话':phase==='preparing'?'准备中':phase==='failed'?'失败':'尚未准备'"
                     :severity="phase==='ready'?'success':phase==='unknown'||phase==='failed'?'warn':'secondary'"/>
                 <p v-if="prepProgress">{{ preparePhases[prepProgress.phase] }} · {{ prepProgress.message }}</p>
                 <p v-else>准备会检查最新账号授权、ADB 连接与所需控件组件。不会自动进行无线 ADB 配对。</p>
