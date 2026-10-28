@@ -73,7 +73,6 @@ const props = defineProps<{
     demoResult?: LocatorDemoResult | null;
     demoLoading?: boolean; demoError?: string;
     repairContext?: CardRepairContext | null;
-    selectedDeviceCount: number;
     batchRunState: FloatingBatchState;
     batchDraftReady: boolean;
 }>();
@@ -108,10 +107,9 @@ const emit = defineEmits<{
     'trial-repair': [deviceId: string, runId: string, stepId: string];
     'repair-repick': [deviceId: string, stepId: string];
     'repair-dismiss': [deviceId: string];
-    'batch-start': [params: Record<string,string>, concurrency: number];
     'batch-start-local': [deviceId:string, params:Record<string,string>];
-    'batch-refresh': []; 'batch-stop': []; 'batch-reconcile': [];
-    'batch-stop-device': [deviceId: string];
+    'batch-refresh': [deviceId:string]; 'batch-reconcile': [deviceId:string];
+    'batch-stop-device': [deviceId:string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -917,8 +915,7 @@ onBeforeUnmount(() => {
                     @save-draft="emit('draft-save',device.id)"
                     @fork-draft="emit('draft-fork',device.id)"
                     @reconcile="emit('script-reconcile')">
-                    <FloatingBatchRunPanel :owner-id="ownerId"
-                        :selected-count="selectedDeviceCount"
+                    <FloatingBatchRunPanel :owner-id="ownerId" :device-id="device.id"
                         :local-name="device.name" :local-available="!!device.connection.enabled && !device.availability_reason"
                         :steps-count="draft.steps.length"
                         :parameter-names="[...new Set(draft.steps.filter(step=>step.type==='input_text' && !!step.parameter).map(step=>step.parameter!.trim()))]"
@@ -930,11 +927,10 @@ onBeforeUnmount(() => {
                             : effectiveScriptGuard==='unsynced' ? '工作草稿未同步，请先点击“保存草稿”。'
                             : effectiveScriptGuard==='loading' ? '工作草稿正在从服务器加载。' : '')"
                         :state="batchRunState"
-                        @start="(params,concurrency)=>emit('batch-start',params,concurrency)"
                         @start-local="params=>emit('batch-start-local',device.id,params)"
-                        @refresh="emit('batch-refresh')" @stop="emit('batch-stop')"
-                        @stop-device="id=>emit('batch-stop-device',id)"
-                        @reconcile="emit('batch-reconcile')" />
+                        @refresh="emit('batch-refresh',device.id)"
+                        @stop-device="id=>{if(id===device.id)emit('batch-stop-device',device.id)}"
+                        @reconcile="emit('batch-reconcile',device.id)" />
                     <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
                         :trial-progress="trialProgress" :trial-active="trialStepId !== null"
                         :structure-locked="!!editingDirty || batchVideoProtected || !!syncRole || recording"
@@ -995,7 +991,7 @@ onBeforeUnmount(() => {
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}<template v-if="session.state.phase === 'live' && session.state.viewerOnly"> · 只读观看，手控已锁定</template></span>
             <small v-if="batchRunState.selected.includes(device.id) && batchRunState.devices[device.id]"
                 class="batch-card-status" role="status">
-                批量：{{ batchRunState.devices[device.id].phase }}
+                本机：{{ batchRunState.devices[device.id].phase }}
                 <span v-if="batchRunState.devices[device.id].mediaState==='lost'"> · 视频已断流</span>
             </small><span class="mono-value">{{ device.overlay_ip }}</span></footer>
         <!-- T42: failed-step repair uses the same real PhoneCard video and
