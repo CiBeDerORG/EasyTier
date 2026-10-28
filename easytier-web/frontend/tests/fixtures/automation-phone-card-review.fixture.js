@@ -3,11 +3,12 @@
  * with the real floating panel/step editor and a fake static account/phone.
  * No WebRTC SDP, ADB or API request is made.
  */
-import { createApp, h, reactive, ref } from 'vue';
+import { createApp, h, computed, nextTick, reactive, ref } from 'vue';
 import PrimeVue from 'primevue/config';
 import { createI18n } from 'vue-i18n';
 import PhoneCard from '../../src/components/automation/PhoneCard.vue';
 import { emptyAutomationDraft } from '../../src/modules/automation-draft.ts';
+import { createAutomationDraftSync } from '../../src/modules/automation-draft-sync.ts';
 
 const owner=42,phone='phone-a';
 const device={
@@ -29,7 +30,35 @@ const App={
       owner,phase:'idle',error:'',requestId:'',selected:[],
       devices:{},run:null,pendingReceipt:null,
     });
+    async function verifySaveUnlock(){
+      // A complete and deterministic fake remote draft POST: the computed
+      // publication/run gate must turn TRUE after the async save finishes.
+      const work=reactive(emptyAutomationDraft(47));
+      let settle;
+      const gate=new Promise(resolve=>{settle=resolve;});
+      const fakeApi={
+        listDrafts:async()=>({items:[]}),
+        saveDraft:async()=>{await gate;return {id:'browser-fake-draft',revision:7};},
+      };
+      const sync=createAutomationDraftSync(fakeApi,work);
+      await new Promise(resolve=>setTimeout(resolve,0));
+      const eligible=computed(()=>sync.canLeave());
+      const initialized=sync.state.initialized;
+      work.name='已确认步骤';
+      work.steps=[{id:'save-step',type:'key',key:'HOME'}];
+      await nextTick();
+      const saving=sync.flush();
+      const before=eligible.value;
+      settle();
+      await saving;
+      await nextTick();
+      const after=eligible.value;
+      const phase=sync.state.phase;
+      sync.dispose();
+      return {initialized,before,after,phase};
+    }
     window.phoneCardReview={
+      verifySaveUnlock,
       open:()=>card.value?.openAutomationPanel(),
       attempts:()=>[...attempts.value],
       close:()=>card.value?.closeAutomationPanel(),
