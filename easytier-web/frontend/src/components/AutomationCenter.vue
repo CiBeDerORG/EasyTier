@@ -563,6 +563,7 @@ function refreshBatch(){void floatingBatch.refresh();}
 function reconcileBatch(){void floatingBatch.reconcile(ownerId.value);}
 function stopBatch(){void floatingBatch.cancelAll();}
 function stopBatchDevice(id:string){void floatingBatch.cancelDevice(id);}
+function restoreBatchManual(id:string){void floatingBatch.restoreManualAfterFailedPreparation(id);}
 
 function setCard(id: string, value: unknown) {
     if (value) cards.set(id, value as PhoneHandle); else cards.delete(id);
@@ -1943,6 +1944,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         @script-reconcile="reconcileFloatingScript"
                         @batch-start="runSelectedBatch" @batch-refresh="refreshBatch"
                         @batch-stop="stopBatch" @batch-stop-device="stopBatchDevice"
+                        @batch-restore-manual="restoreBatchManual"
                         @batch-reconcile="reconcileBatch"
                         @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
                         @step-create="createCardDraftStep" @step-branch-add="addCardBranchStep"
