@@ -23,3 +23,10 @@
 
 ## 本任务当前状态
 只建立任务计划；未修改功能代码，未执行检查、测试、手动 CI 或真机操作。后续执行须遵守 `AGENTS.md` 调试模式。
+
+## 2026-10-28 · T50 测试前置矩阵已创建，未开始真机动作
+
+- 已创建 [T50 实际验收与取证矩阵](task-50-acceptance-matrix.md)：严格引用 FINAL V3 FF-01～FF-18 + 原 AC-01～AC-12，共 30 条，全部标记**未执行**。
+- 按可复现证据定义：完整 Git SHA、FnOS/Android OEM/浏览器版本、主服务与 Executor 镜像 digest、媒体 session ID、脚本 run/step/request ID、owner/设备指纹脱敏标识、录像和失败复测。
+- 按危险度安排先只读后真实动作，未知执行结果只读核对、不重发；用户未明确授权 FnOS/手机真实动作前，不实际开始此任务，也不声称通过。
+- 后端自动验证交接见 [T49 测试矩阵](task-49-test-matrix.md)；目前 Rust/Python 自动用例也未执行。
