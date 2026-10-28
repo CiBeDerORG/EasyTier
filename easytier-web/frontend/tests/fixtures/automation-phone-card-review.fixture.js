@@ -52,7 +52,7 @@ const App={
         control('fullscreen-card','真实卡片画面全屏',()=>document.querySelector('.phone-screen')?.requestFullscreen()),
       ]),
       h(PhoneCard,{
-        ref:card,device,ownerId:owner,selected:true,runnerAvailable:false,
+        ref:card,device,ownerId:owner,selected:true,runnerAvailable:true,
         syncActive:false,recording:false,draft,scriptGuard:'clean',
         scripts:[],selectedDeviceCount:1,batchRunState:batch,
         batchDraftReady:true,editingStepId:editing.value,
