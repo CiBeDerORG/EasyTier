@@ -281,3 +281,68 @@ async fn t49_run_uuid_is_idempotent_and_revision_is_checked_before_dispatch() {
     assert_eq!(conflict.code,"idempotency_conflict");
     assert_eq!(f.store.list_runs(f.owner).await.unwrap()["items"].as_array().unwrap().len(),1);
 }
+
+#[tokio::test]
+async fn t49_rust_media_to_view_only_transition_fences_run_until_confirmed() {
+    let f=Fixture::new().await;
+    let phone=f.phone().await;
+    let script=f.create("viewer trial",json!([valid_step()])).await;
+    let run=json!({
+        "request_id":Uuid::new_v4().to_string(),
+        "script_id":script["id"],"revision":script["revision"],
+        "device_ids":[phone],"parameters":{},"concurrency":1,
+    });
+    let session=f.store.create_session(f.owner,f.owner,
+        run["device_ids"][0].as_str().unwrap(),"wall").await.unwrap();
+    let session_id=session["id"].as_str().unwrap();
+    f.store.update_session(session_id,"active").await.unwrap();
+
+    let rejected=f.store.create_run(f.owner,f.owner,&run).await.unwrap_err();
+    assert_eq!(rejected.status,409,"an active manual session still owns action eligibility");
+    assert_eq!(rejected.code,"device_busy");
+    f.store.begin_session_permission(f.owner,session_id,"view_only").await.unwrap();
+    assert_eq!(f.store.session(f.owner,session_id).await.unwrap()["state"],"suspending");
+    let rejected=f.store.create_run(f.owner,f.owner,&run).await.unwrap_err();
+    assert_eq!(rejected.status,409,"unconfirmed downgrade MUST NOT grant a write lease");
+
+    f.store.confirm_session_permission(f.owner,session_id,"view_only").await.unwrap();
+    assert_eq!(f.store.session(f.owner,session_id).await.unwrap()["state"],"view_only");
+    let (created,new)=f.store.create_run(f.owner,f.owner,&run).await.unwrap();
+    assert!(new);
+    assert_eq!(created["state"],"dispatch_pending");
+    assert_eq!(f.store.session(f.owner,session_id).await.unwrap()["state"],"view_only",
+        "the original media record must survive the run admission");
+}
+
+#[tokio::test]
+async fn t49_rust_run_dispatch_fences_manual_restore_and_new_media_admission() {
+    let f=Fixture::new().await;
+    let phone=f.phone().await;
+    let session=f.store.create_session(f.owner,f.owner,&phone,"wall").await.unwrap();
+    let sid=session["id"].as_str().unwrap();
+    f.store.update_session(sid,"active").await.unwrap();
+    f.store.begin_session_permission(f.owner,sid,"view_only").await.unwrap();
+    f.store.confirm_session_permission(f.owner,sid,"view_only").await.unwrap();
+
+    let script=f.create("hold write",json!([valid_step()])).await;
+    let (run,created)=f.store.create_run(f.owner,f.owner,&json!({
+        "request_id":Uuid::new_v4().to_string(),
+        "script_id":script["id"],"revision":1,
+        "device_ids":[phone],"parameters":{},"concurrency":1
+    })).await.unwrap();
+    assert!(created);
+
+    let before=f.store.begin_session_permission(f.owner,sid,"active").await.unwrap_err();
+    assert_eq!(before.status,409);
+    assert_eq!(before.code,"device_busy");
+    assert_eq!(f.store.session(f.owner,sid).await.unwrap()["state"],"view_only");
+
+    // Closing only the viewer is NOT proof the outstanding executor action
+    // was cleaned up. The DB run lease still fences a new media session.
+    f.store.update_session(sid,"closed").await.unwrap();
+    let denied=f.store.create_session(f.owner,f.owner,&phone,"wall").await.unwrap_err();
+    assert_eq!(denied.status,409);
+    assert_eq!(denied.code,"device_busy");
+    assert_eq!(f.store.run(f.owner,run["id"].as_str().unwrap()).await.unwrap()["state"],
+        "dispatch_pending");
+}
