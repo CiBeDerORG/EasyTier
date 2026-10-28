@@ -17,8 +17,7 @@ export interface BatchPhoneHandle {
     getState(): { phase: string; ready: boolean; viewerOnly?: boolean };
     getSessionId(): string | null;
     getStream(): MediaStream | null;
-    enterViewOnly(): Promise<void>;
-    resumeManual(): Promise<void>;
+
 }
 export interface FrozenBatchTarget { id: string; name: string; fingerprint: string; }
 export interface FrozenBatchIntent {
@@ -266,15 +265,13 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                     if(!valid())return;
                     if(before?.active_session?.id!==sid || before.target_fingerprint!==target.fingerprint)
                         throw new Error(target.name+' 原卡片会话已改变');
-                    if(before.active_session.state!=='view_only'){
-                        progress(target.id,'suspending','只释放手控写权限，不关闭视频',sid);
-                        await card.enterViewOnly();
-                    }
+                    if(before.active_session.state!=='view_only' || !card.getState().viewerOnly)
+                        throw new Error(target.name+'：请先在该手机悬浮 Icon 中关闭手控，然后再运行脚本。');
                     if(!valid())return;
                     const viewer=(await api.devices(intent.owner)).items.find(d=>d.id===target.id);
                     if(!valid())return;
                     if(viewer?.active_session?.id!==sid ||
-                        viewer.active_session.state!=='view_only' ||
+                        viewer.active_session.state!=='view_only' || !card.getState().viewerOnly ||
                         viewer.target_fingerprint!==target.fingerprint || !card.getStream())
                         throw new Error(target.name+' 尚未确认只读移交，禁止准备脚本');
                     progress(target.id,'preparing','检查 ADB / UiAutomator2',sid);
@@ -302,7 +299,8 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                 const card=resolveCard(target.id);
                 if(!dev || dev.owner_user_id!==intent.owner || dev.target_fingerprint!==target.fingerprint ||
                     dev.run_occupied || !sid || dev.active_session?.id!==sid ||
-                    dev.active_session.state!=='view_only' || card?.getSessionId()!==sid || !card?.getStream())
+                    dev.active_session.state!=='view_only' || !card?.getState().viewerOnly ||
+                    card?.getSessionId()!==sid || !card?.getStream())
                     throw new Error(target.name+' 原视频/只读权限或目标指纹在提交前变化，整批取消');
             }
             const body:AutomationRunInput={
