@@ -36,3 +36,6 @@ T46已有实际代码提交；缺乏运行验收证据时仍按待联调处理�
 - RunHistory 重复修复 UI 统一回 PhoneCard 原画面；旧 `ScriptLibrary` 的第二份历史修复计划与跨 Tab 请求已删除。旧草稿与历史 run snapshot 不回写。
 - 卡片脚本时间线补齐动作新增、条件转换、Then/Else 插入、同分支排序和业务验证断言编辑；复用既有 `automation-flow-tree` 和 `ScriptStepEditor`，并继续要求显式配置后才执行。
 - 旧 Tab 仍留给历史用户确认/原有链接，不能因代码提交就声明全面取代。P15 剩余为 T47 真正死代码清理及 T49～T51 构建/设备/多浏览器验收，全部尚未执行。
+
+## 2026-10-28 · T47 首轮兼容入口收敛
+旧脚本管理 Tab 已能根据当前选中或可用授权设备安全返回 workbench 原 `PhoneCard.openAutomationPanel`，不另建立媒体；删除一组无模板引用的旧录制样式。其余 shared helper 不在缺乏引用证据的情况下冒险删除；尚待真实浏览器/设备验证。
