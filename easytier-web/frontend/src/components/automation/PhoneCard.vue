@@ -29,6 +29,7 @@ import AutomationScriptSelector from './AutomationScriptSelector.vue';
 import FloatingBatchRunPanel from './FloatingBatchRunPanel.vue';
 import type { FloatingBatchState } from '../../modules/useFloatingBatchRun';
 import AutomationScriptCloneDialog from './AutomationScriptCloneDialog.vue';
+import AutomationScriptManageDialog from './AutomationScriptManageDialog.vue';
 import AutomationScriptSwitchDialog from './AutomationScriptSwitchDialog.vue';
 import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
 import AutomationConditionDeleteDialog from './AutomationConditionDeleteDialog.vue';
@@ -54,6 +55,7 @@ const props = defineProps<{
     scriptsLoading?: boolean;
     scriptsError?: string;
     scriptGuard?: ScriptGuard;
+    formalPending?: boolean;
     undoDeleteLabel?: string;
     editingDirty?: boolean;
     /** The ONLY Inspector UI, hosted inside this PhoneCard's fullscreen element. */
@@ -79,6 +81,9 @@ const emit = defineEmits<{
     'toggle-picking': [id: string]; 'pick-action': [id: string, point: PickerVideoPoint, action: PickerMenuAction];
     'script-refresh': [deviceId: string];
     'script-action': [action: AutomationScriptAction];
+    'script-publish': [deviceId:string,name:string,description:string];
+    'script-remove': [deviceId:string,scriptId:string,revision:number];
+    'script-reconcile': [];
     'inspector-close': [];
     'inspector-edit': [];
     'inspector-add-step': [step: AutomationStep, token: number, acknowledge: (accepted: boolean) => void];
@@ -239,6 +244,41 @@ function finishEditorClose(reason: 'normal' | 'discard') {
     emit('step-close', props.device.id, reason === 'discard');
 }
 const cloneSource = computed(() => props.scripts?.find(item => item.id === cloneSourceId.value) ?? null);
+const manageScript=ref<{mode:'publish'|'delete';scriptId:string|null}|null>(null);
+const manageWaiting=ref(false);
+const manageSource=computed(()=> {
+    const id=manageScript.value?.scriptId;
+    return id? props.scripts?.find(s=>s.id===id)??null:null;
+});
+function requestFormalPublish(){
+    if(props.scriptsBusy||props.formalPending)return;
+    const id=props.draft.editingId??null;
+    if(id && !props.scripts?.some(item=>item.id===id && item.revision===props.draft.revision)){
+        stepDeleteError.value='当前正式脚本修订与列表尚未一致，请先刷新脚本列表。';return;
+    }
+    manageScript.value={mode:'publish',scriptId:id};
+}
+function requestFormalRemove(id:string){
+    if(props.scriptsBusy||props.formalPending||!props.scripts?.some(item=>item.id===id))return;
+    manageScript.value={mode:'delete',scriptId:id};
+}
+function finishFormalPublish(name:string,description:string){
+    if(props.scriptsBusy||manageWaiting.value)return;
+    manageWaiting.value=true;
+    emit('script-publish',props.device.id,name,description);
+}
+function finishFormalRemove(id:string,revision:number){
+    if(props.scriptsBusy||manageWaiting.value||manageScript.value?.scriptId!==id)return;
+    manageWaiting.value=true;
+    emit('script-remove',props.device.id,id,revision);
+}
+watch(()=>props.scriptsBusy,(busy,old)=>{
+    if(old&&!busy&&manageWaiting.value){
+        manageWaiting.value=false;
+        if(!props.scriptsError)manageScript.value=null;
+    }
+});
+
 const effectiveScriptGuard = computed<ScriptGuard>(() => props.scriptGuard ?? 'loading');
 function openAutomationPanel() {
     automationPanelOpen.value = true;
@@ -283,6 +323,7 @@ watch(() => props.draft.editingId, (next,previous) => {
 watch(() => [props.ownerId, props.device.id], () => {
     automationPanelOpen.value = false;
     cloneSourceId.value=null;
+    manageScript.value=null;manageWaiting.value=false;
     pendingScriptAction.value=null;
     pendingStepDeletion.value=null;
     stepDeleteError.value='';
@@ -800,9 +841,12 @@ onBeforeUnmount(() => {
                     :selected-id="draft.editingId ?? null" :selected-name="draft.name"
                     :count="draft.steps.length" :busy="!!scriptsBusy" :loading="!!scriptsLoading"
                     :error="scriptsError" :sync-label="draftSyncLabel"
+                    :formal-pending="!!formalPending"
                     @refresh="emit('script-refresh',device.id)"
                     @create="name => requestScriptAction({kind:'create',deviceId:device.id,name})"
-                    @select="chooseScript" @clone="openScriptClone">
+                    @select="chooseScript" @clone="openScriptClone"
+                    @publish="requestFormalPublish" @remove="requestFormalRemove"
+                    @reconcile="emit('script-reconcile')">
                     <FloatingBatchRunPanel :owner-id="ownerId"
                         :selected-count="selectedDeviceCount"
                         :steps-count="draft.steps.length"
@@ -823,6 +867,15 @@ onBeforeUnmount(() => {
                     <p v-if="stepDeleteError" class="step-delete-error" role="alert">{{ stepDeleteError }}</p>
                 </AutomationScriptSelector>
             </AutomationFloatingPanel>
+            <AutomationScriptManageDialog v-if="manageScript"
+                :visible="!!manageScript" :mode="manageScript.mode"
+                :source="manageSource" :draft-name="draft.name"
+                :draft-description="draft.description" :step-count="draft.steps.length"
+                :guard="effectiveScriptGuard" :busy="!!scriptsBusy"
+                :error="scriptsError"
+                :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
+                @close="manageScript=null;manageWaiting=false"
+                @publish="finishFormalPublish" @remove="finishFormalRemove" />
             <AutomationScriptCloneDialog :source="cloneSource"
                 :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
                 :busy="!!scriptsBusy" @cancel="cloneSourceId=null" @confirm="confirmScriptClone" />
