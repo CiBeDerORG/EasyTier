@@ -339,6 +339,7 @@ const suggestedXPath = computed(() => {
 });
 const activeMode = computed(() => ({
     value: mode.value,
+    label: mode.value==='coordinates' ? '画面坐标' : mode.value==='xpath' ? '层级 XPath' : '交叉过滤',
     unique: mode.value==='coordinates'
         ? coordinatesAllowed.value && coordinateConfirmed.value
         : !!confirmedLocator.value,
