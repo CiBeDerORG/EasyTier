@@ -130,7 +130,7 @@ const repairStepNumber = computed(() => repairStep.value
 const trialStepId = ref<string | null>(null);
 const trialProgress = ref<InlineStepRunProgress | null>(null);
 const batchVideoProtected=computed(()=>props.batchRunState.selected.includes(props.device.id) &&
-    ['preparing','submitting','running','cancel_requested'].includes(props.batchRunState.phase));
+    ['preparing','submitting','running','cancel_requested','unknown'].includes(props.batchRunState.phase));
 function onTrialProgress(value:InlineStepRunProgress){
     if(value.ownerId===props.ownerId && value.deviceId===props.device.id &&
         value.stepId===trialStepId.value) trialProgress.value=value;
