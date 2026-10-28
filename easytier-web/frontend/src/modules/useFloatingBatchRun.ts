@@ -35,6 +35,7 @@ export type BatchPhase = 'idle' | 'preparing' | 'submitting' | 'running' | 'canc
 export interface BatchDeviceProgress {
     name: string; phase: string; message: string;
     sessionId?: string; runState?: string; stepId?: string;
+    mediaState?: 'live'|'lost'|'unavailable'; mediaMessage?: string;
 }
 export interface FloatingBatchState {
     owner: number; phase: BatchPhase; error: string; requestId: string;
@@ -85,12 +86,28 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
     let version=0;
     let timer:ReturnType<typeof setTimeout>|null=null;
     let disposed=false;
+    let cardResolver:((id:string)=>BatchPhoneHandle|undefined)|null=null;
     const busy=computed(()=>['preparing','submitting','running','cancel_requested'].includes(state.phase));
     function stopTimer(){if(timer!==null){clearTimeout(timer);timer=null;}}
     function still(owner:number,epoch:number){return !disposed&&version===epoch&&state.owner===owner;}
     function progress(id:string,phase:string,message:string,sessionId?:string){
         const row=state.devices[id];if(!row)return;
         state.devices[id]={...row,phase,message,...(sessionId?{sessionId}:{})};
+    }
+    function inspectMedia(){
+        for(const did of state.selected){
+            const row=state.devices[did];if(!row)continue;
+            const card=cardResolver?.(did);
+            if(!card || !row.sessionId) {
+                row.mediaState='unavailable';
+                row.mediaMessage='此页面未持有可核对的原视频会话；请到原手机卡片确认';
+                continue;
+            }
+            const live=card.getSessionId()===row.sessionId &&
+                card.getState().phase==='live' && !!card.getStream();
+            row.mediaState=live?'live':'lost';
+            row.mediaMessage=live?'原实时画面持续播放':'原实时画面已经中断或会话身份发生变化，请检查手机卡片';
+        }
     }
     function acceptRun(run: AutomationRun, intent?: FrozenBatchIntent) {
         const expected=intent?.targets.map(t=>t.id) ?? state.selected;
@@ -112,10 +129,12 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                 name:old?.name??target.name,
                 phase:target.state,message:target.steps.find(s=>s.step_id===target.current_step)?.message??target.state,
                 sessionId:old?.sessionId,runState:target.state,
+                mediaState:old?.mediaState,mediaMessage:old?.mediaMessage,
                 stepId:target.steps.find(step=>step.state==='running')?.step_id ??
                     (typeof target.current_step==='string'?target.current_step:undefined),
             };
         }
+        inspectMedia();
         state.phase=DONE.has(run.state)?'completed'
             :run.state==='outcome_unknown'||run.state==='cleanup_pending'?'unknown'
             :run.state==='cancel_requested'?'cancel_requested':'running';
@@ -179,6 +198,7 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
             return;
         }
         const epoch=++version;
+        cardResolver=resolveCard;
         stopTimer();
         state.owner=intent.owner;state.phase='preparing';state.error='';
         state.requestId=intent.requestId;state.run=null;
@@ -229,6 +249,7 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                         viewer.target_fingerprint!==target.fingerprint || !card.getStream())
                         throw new Error(target.name+' 尚未确认只读移交，禁止准备脚本');
                     progress(target.id,'preparing','检查 ADB / UiAutomator2',sid);
+                    inspectMedia();
                     const p=await preparation.run({
                         ownerId:intent.owner,deviceId:target.id,targetFingerprint:target.fingerprint,
                         steps:intent.steps,ownedSessionId:sid,
@@ -330,10 +351,10 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
         }
     }
     function forgetOwner(){
-        ++version;stopTimer();state.owner=0;state.phase='idle';state.error='';
+        ++version;stopTimer();cardResolver=null;state.owner=0;state.phase='idle';state.error='';
         state.selected=[];state.devices={};state.run=null;state.pendingReceipt=null;
         // Do not delete persistent request proof.
     }
     onBeforeUnmount(()=>{disposed=true;forgetOwner();preparation.dispose();});
-    return {state,busy,start,refresh,reconcile,cancelAll,cancelDevice,forgetOwner};
+    return {state,busy,start,refresh,reconcile,cancelAll,cancelDevice,inspectMedia,forgetOwner};
 }
