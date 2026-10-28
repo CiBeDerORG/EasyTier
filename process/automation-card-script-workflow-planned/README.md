@@ -104,3 +104,8 @@
 - T48：生产主/子浮窗 Chromium 全屏/ESC/脏编辑/键盘拖动测试接入 GHCR 关口；Node CAS/批量防重放与白名单测试已就位，CI 待最终日志。
 - T49：Rust 12 项与 Executor 6 项模拟 DB/媒体安全回归；根据失败 GHCR 日志修复 Rust Storage trait 编译阻塞及前端 TS1005，等待新 Actions 的正式结果。
 - T51：更新 [非真机交付追踪](task/acceptance-report.md)；最终签收仍受 T50 30 项 FnOS/两安卓 OEM/双浏览器真机验收阻塞。本轮**不执行任何真实手机控制或 FnOS 部署**。
+
+## 2026-10-28 · 接手后非真机闭环最终结果
+- CI 最新主镜像版本：[工作流 #40622528076](https://github.com/CiBeDerORG/EasyTier/actions/runs/40622528076)，Web 157/157、Chromium 3/3、Rust 50/50（T49 12/12）、原生 amd64、Docker 烟测、GHCR 发布均成功，代码 SHA `9120b252`，镜像 digest `sha256:088695b8a3c9926a39beb3d200d42324c5438214cfd451be895bf6e758091975`。
+- 独立 Executor：[工作流 #40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092)，Python 95/95（T49 6/6），已发布 digest `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`。
+- 原本 Rust 50 项里 5 项失败来自虚拟手机清理确认夹具，已保留生产资源互斥检查并修复夹具，全部测试最终通过。T46/T47/48/49 与 T51 非真机报告可归档；FnOS/Android/真实媒体/双浏览器 30 项 T50 **按用户要求未执行**。交付状态必须仍标「待真机验收」，不能以镜像发布推断实际部署。
