@@ -491,9 +491,9 @@ const currentGeometry = ref({ width: 0, height: 0 });
 const cardWidth = computed(() => `${(currentGeometry.value.width > 0 ? currentGeometry.value.width : 360) + 26}px`);
 const ready = computed(() => session.state.phase === 'live' && session.state.controlReady);
 const manualAllowed = computed(() => ready.value && !session.state.viewerOnly
-    && !props.device.run_occupied && trialStepId.value===null && !props.syncRole);
+    && !props.device.run_occupied && !props.syncRole);
 const touchAllowed = computed(() => ready.value && !session.state.viewerOnly
-    && !props.device.run_occupied && trialStepId.value===null && props.syncRole !== 'follower');
+    && !props.device.run_occupied && props.syncRole !== 'follower');
 // A permission downgrade is not a stream close. Drop local pointer state
 // without sending a last touch.release from the now read-only browser.
 watch(() => session.state.viewerOnly, readOnly => { if (readOnly) resetPointer(); });
@@ -689,8 +689,8 @@ const manualPermissionTitle=computed(()=>{
     if(session.state.phase!=='live')return '手控不可用 · 请先打开原手机实时画面';
     if(manualPermissionPending.value)return '正在确认手控权限切换';
     if(manualPermissionUncertain.value)return '权限回执未确认 · 请核对服务器后再操作';
-    if(props.device.run_occupied || batchVideoProtected.value || trialStepId.value!==null)
-        return '脚本或准备操作占用手机 · 请等安全释放后再切换手控';
+    if(props.device.run_occupied || batchVideoProtected.value)
+        return '脚本执行占用手机 · 请等安全释放后再切换手控';
     return session.state.viewerOnly
         ? '手控已关闭 · 点击恢复手控'
         : '手控已开启 · 点击关闭手控（只读观看）';
@@ -698,7 +698,7 @@ const manualPermissionTitle=computed(()=>{
 const manualPermissionAllowed=computed(()=>
     ready.value && !manualPermissionPending.value &&
     !props.device.run_occupied && !batchVideoProtected.value &&
-    trialStepId.value===null && !props.syncRole && !props.recording && !props.unlocking);
+    !props.syncRole && !props.recording && !props.unlocking);
 async function toggleManualPermission() {
     if(!manualPermissionAllowed.value)return;
     const originalId=session.getSessionId(),owner=props.ownerId,deviceId=props.device.id;
