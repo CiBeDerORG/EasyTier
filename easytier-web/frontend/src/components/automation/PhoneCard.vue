@@ -109,6 +109,8 @@ const repairStepNumber = computed(() => repairStep.value
     ? props.draft.steps.findIndex(step => step.id === repairStep.value!.id)+1 : 0);
 const trialStepId = ref<string | null>(null);
 const trialProgress = ref<InlineStepRunProgress | null>(null);
+const batchVideoProtected=computed(()=>props.batchRunState.selected.includes(props.device.id) &&
+    ['preparing','submitting','running','cancel_requested'].includes(props.batchRunState.phase));
 function onTrialProgress(value:InlineStepRunProgress){
     if(value.ownerId===props.ownerId && value.deviceId===props.device.id &&
         value.stepId===trialStepId.value) trialProgress.value=value;
@@ -710,7 +712,7 @@ onBeforeUnmount(() => {
                 <span class="card-action-tip" :title="screenActionHint">
                     <button type="button" class="card-icon adb-port"
                         :class="[session.state.phase, { unavailable: !runnerAvailable || !device.connection.enabled }]"
-                        :aria-label="screenActionHint" :disabled="!runnerAvailable || !device.connection.enabled || pending"
+                        :aria-label="screenActionHint" :disabled="!runnerAvailable || !device.connection.enabled || pending || batchVideoProtected"
                         @click="emit('toggle-screen', device.id)">
                         <i class="pi pi-desktop" aria-hidden="true" />
                     </button>
@@ -730,8 +732,8 @@ onBeforeUnmount(() => {
                 <i :class="pending ? 'pi pi-spin pi-spinner' : 'pi pi-mobile'" aria-hidden="true" />
                 <span>{{ t(session.state.phase) }}</span>
                 <Button v-if="canOpen" :label="t('open')" icon="pi pi-play" size="small" @click="emit('toggle-screen', device.id)" />
-                <Button v-if="session.state.phase === 'cleanup_pending'" :label="t('clearResources')" icon="pi pi-refresh" size="small" severity="warn" @click="close().then(() => emit('refresh'))" />
-                <Button v-if="device.active_session && !pending && session.state.phase !== 'cleanup_pending'" :label="t('cleanupSaved')" icon="pi pi-stop" size="small" severity="warn" :loading="cleaningSaved" @click="cleanupSaved" />
+                <Button v-if="session.state.phase === 'cleanup_pending'" :label="t('clearResources')" icon="pi pi-refresh" size="small" severity="warn" :disabled="batchVideoProtected" @click="close().then(() => emit('refresh'))" />
+                <Button v-if="device.active_session && !pending && session.state.phase !== 'cleanup_pending'" :label="t('cleanupSaved')" icon="pi pi-stop" size="small" severity="warn" :loading="cleaningSaved" :disabled="batchVideoProtected" @click="cleanupSaved" />
                 <small v-if="!device.connection.enabled">{{ t('disabled') }}</small>
             </div>
             <CardLocatorDemo :demo="demoResult ?? null" :video-width="currentGeometry.width" :video-height="currentGeometry.height" />
@@ -762,7 +764,7 @@ onBeforeUnmount(() => {
                         <Button icon="pi pi-power-off" rounded :aria-label="t('wake')" :title="t('wake')" :disabled="!manualAllowed" @click="localAction({ type: 'key', key: 'WAKE' })" />
                     </div>
                     <div class="side-actions">
-                        <Button icon="pi pi-stop" rounded severity="danger" :aria-label="t('close')" :title="t('close')" @click="close().then(() => emit('refresh'))" />
+                        <Button icon="pi pi-stop" rounded severity="danger" :aria-label="t('close')" :title="t('close')" :disabled="batchVideoProtected" @click="close().then(() => emit('refresh'))" />
                         <Button icon="pi pi-expand" rounded :aria-label="t('fullscreen')" :title="t('fullscreen')" :disabled="!ready" @click="fullscreen().catch(() => {})" />
                         <Button icon="pi pi-bolt" rounded :severity="automationPanelOpen ? 'primary' : 'secondary'"
                             :aria-label="t('automationScript')" :title="t('automationScript')"
