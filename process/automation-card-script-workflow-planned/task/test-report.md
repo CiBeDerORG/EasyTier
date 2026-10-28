@@ -392,3 +392,13 @@
 - `ScriptLibrary.vue` 增加旧脚本管理兼容入口到原 PhoneCard 工作台的显式动作，并删除与模板无对应关系的 `.recording-notice` 样式；`AutomationCenter.vue` 验证 owner、ADB 连接开启状态、页签转换及原卡片存在后调用原 `PhoneCard.openAutomationPanel`，不打开第二投屏、不发自动化动作。
 - 源码层静态核对：ScriptLibrary 无 `previewPlayer`、旧 `runVisible` 弹窗、`<video>`；RunHistory 不再发送 `repair-step`，PhoneCard 的两个 video 分别是现有主 video 与共用 session 的 ambient 背景。静态读取不替代 Vue SFC 编译。
 - **未执行** 类型检查、构建、lint、CI 手动触发、实机或浏览器交互（调试模式）。重点后续验证：旧脚本入口可回原卡片并保持视频、账号/筛选切换是否阻挡、旧管理页只读恢复及新正式 CAS 发布删除是否一致、旧代码调用引用和 CSS 编译。
+
+## 2026-10-28 · T47 第二批 · 失效引用和旧路径复核（调试模式）
+
+- `useFloatingBatchRun.ts` 删除已无引用的 `requiresAutomationHelper` 导入，完整设备准备仍由 `useCardTrialPreparation` 完成，未改 ADB、UIA 或脚本调用链。
+- `ScriptLibrary.vue` 删除 `deviceNames` 死 prop，并复用现有 `defaultPickerDevice` 选择合法目标，父层同步去掉死参数，不影响群控仍在使用的主组件 `deviceNames`。
+- 修复旧脚本页返回原卡片的隐藏筛选错误：恢复过滤器后 `nextTick`，再查挂载卡片，并重新检查当前 owner/设备状态；旧脚本页定位已有步骤入口同样先恢复卡片并再次确认原设备 fingerprint；历史回修继续用原身份/运行快照门禁。
+- 三条路径统一复用 `revealOriginalAutomationCard`，仅恢复筛选并验证授权，不开启新视频、不触发脚本动作。
+- 正式脚本共享工作区的 owner watcher 增加初始化立即读取持久写入凭据：旧正式操作未知时及时显示保护状态和只读核对入口。
+- 取舍证据：`frontend/tests/automation-run-safety-t17.test.mjs` 仍真实导入 `releaseOwnedTrialPreviews`，所以保留旧 handoff 模块，不错误破坏测试；`PhoneCard` dock 样式通过动态 `:class` 生成，所以不按字面检索误删。
+- **未执行** TypeScript 类型检查、编译、lint、单测、CI/Actions 人工触发、FnOS/Android/双浏览器真机验证。以上仅为静态源代码阅读与实际修改后的提交事实，不声称验收成功。需后续验证：旧脚本页被筛选手机回跳、设备重绑/账号切换竞态、正式写操作回执恢复、多浏览器旧版本阻断、动态侧边栏和全屏行为。
