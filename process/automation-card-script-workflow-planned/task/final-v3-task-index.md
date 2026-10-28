@@ -36,8 +36,8 @@
 | [T45](task-45-batch-original-video.md) | 各机原视频观察 | P14 | 卡片/集成 | W4 | T39,T43,T44 | 每机原画面观察代码已提交，待实测 |
 | [T46](task-46-obsolete-ui-removal.md) | 替代后移除旧 UI | P15 | 集成 | W5 | T29,T32,T35,T42,T45 | 旧双编辑/重复操作界面已退役，仅保留只读兼容目录；CI/真机待验 |
 | [T47](task-47-dead-code-cleanup.md) | 冗余事件样式整理 | P15 | 前端架构 | W5 | T46 | 死事件参数与旧步骤页已收敛；CI/真机待验 |
-| [T48](task-48-frontend-regression.md) | 前端自动回归 | P16 | QA-Web | W3+ | 相关 UI 功能 | Node＋Chromium组件回归已接CI，待新运行结果 |
-| [T49](task-49-backend-regression.md) | 后端租约/空脚本回归 | P16 | QA-后端 | W3+ | T25,T37,T38 | Rust 12例＋Executor 6例，旧失败已修复待新CI |
+| [T48](task-48-frontend-regression.md) | 前端自动回归 | P16 | QA-Web | W3+ | 相关 UI 功能 | 自动CI Web成功：Node 157/157、Chromium 3/3；实际手机媒体及双浏览器仍属T50 |
+| [T49](task-49-backend-regression.md) | 后端租约/空脚本回归 | P16 | QA-后端 | W3+ | T25,T37,T38 | 自动CI Rust 12/12、Executor 6/6 通过，真机/双浏览器待T50 |
 | [T50](task-50-real-device-acceptance.md) | FnOS/安卓/全屏真机 | P16 | QA-真机 | W5 | T48,T49+所有业务 | 30项真机矩阵已准备，按要求本轮不实测 |
 | [T51](task-51-final-acceptance-report.md) | 总体验收追踪与交付 | P16 | QA/产品 | W5 | T50 | 非真机追踪报告完成，最终签收待T50 |
 
@@ -94,3 +94,5 @@
 
 > 2026-10-28 T50 仅准备测试前置材料：[30 条 FF/AC 验收与脱敏取证矩阵](task-50-acceptance-matrix.md) 已提交；未获授权执行 FnOS/Android/双浏览器真实动作，所有条目均未执行，T51 不得提前结项。
 > 2026-10-28 用户授权 T46/T47/T48/T49 非真机收尾：旧脚本双写界面实码退役；新增真实 Chromium 组件回归与防旧界面回退断言，批量凭据白名单；根据前一 GHCR 失败日志修复 TS1005 与 Rust Storage trait 缺失。新 CI 结果待核对，T50 明确未实测，T51 仅完成非真机追踪。
+
+> 2026-10-28 接手后自动CI复核：主镜像 [#40622528076](https://github.com/CiBeDerORG/EasyTier/actions/runs/40622528076) Web 157 Node + 3 Chromium 全通过，Rust 原生 50/50（含 T49 12/12）通过；独立 Executor [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092) Python 95/95（含T49 6/6）通过并已发布。主镜像打包/烟测/发布与真机验收分别记录，真机仍未测。
