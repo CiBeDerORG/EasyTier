@@ -57,6 +57,7 @@ interface PhoneHandle {
     getState(): { phase: string; ready: boolean; viewerOnly?: boolean; width: number; height: number };
     getStream(): MediaStream | null;
     getSessionId(): string | null;
+    openAutomationPanel(): void;
     enterViewOnly(): Promise<void>;
     resumeManual(): Promise<void>;
     cancelPointer(): void;
@@ -1643,6 +1644,29 @@ async function settingsSaved() {
  * Never reuse a newer formal script revision, and never overwrite a current
  * draft just because a saved script happened to share the same name.
  */
+/** T47: safe navigation from a legacy scripts-tab link to the one
+ * shared script panel hosted inside the original PhoneCard.
+ * Navigation does not open a competing WebRTC player or run any script.
+ */
+async function openLegacyScriptOnCard(deviceId:string){
+    const owner=ownerId.value;
+    const device=devices.value.find(d=>d.id===deviceId);
+    if(!device || device.owner_user_id!==owner || !device.connection.enabled){
+        error.value='当前手机授权或ADB服务已变化，请刷新设备后再进入脚本浮窗。';return;
+    }
+    if(tab.value!=='workbench')await changeTab('workbench');
+    if(disposed || ownerId.value!==owner || tab.value!=='workbench')return;
+    await nextTick();
+    const card=cards.get(deviceId);
+    if(!card){error.value='原手机卡片暂不可见，请回到工作台检查筛选条件。';return;}
+    if(!visibleIds.value.has(deviceId)){
+        filters.value={node:'',group:'',type:'',keyword:''};
+        applied.value={...filters.value};
+        await nextTick();
+    }
+    card.openAutomationPanel();
+}
+
 async function onRepairCard(request: AutomationRepairRequest) {
     if (switchingTab.value || request.ownerId !== ownerId.value) return;
     const owner=ownerId.value, mine=++cardRepairEpoch;
@@ -1946,6 +1970,7 @@ onBeforeUnmount(() => { stopEvents?.();
 
                 :picker-devices="devices.filter(device => device.connection.enabled && !!device.target_fingerprint).map(device => ({ id: device.id, name: device.name }))"
                 @pick-step-target="openScriptInspector" @run-created="onRunCreated"
+                @to-card="openLegacyScriptOnCard"
                 />
             <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" @repair-card="onRepairCard" />
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
