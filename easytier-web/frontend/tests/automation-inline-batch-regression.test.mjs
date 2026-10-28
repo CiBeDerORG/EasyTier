@@ -75,9 +75,13 @@ test('T48 invalid new batch proof cannot poison storage or bypass UUID/target ch
 
 test('T48 batch storage persists only request metadata; no steps or private inputs',()=>{
   const storage=memoryStorage();
-  reserveBatchReceipt(storage,receipt());
+  reserveBatchReceipt(storage,{
+    ...receipt(),steps:[{text:'secret value'}],
+    parameters:{password:'secret value'},
+    selector:{resource_id:'secret-selector'},
+  });
   const raw=[...storage.records.values()].join('');
-  for(const disallowed of ['password','selector','steps','parameters','secret value']){
+  for(const disallowed of ['password','selector','steps','parameters','secret value','secret-selector']){
     assert.equal(raw.includes(disallowed),false,disallowed+' must not be persisted');
   }
   assert.equal(raw.includes(id),true);
