@@ -229,7 +229,6 @@ onBeforeRouteLeave(async()=>{
     }
     return true;
 });
-const repairRequest = ref<AutomationRepairRequest | null>(null);
 const cardRepairContext = ref<CardRepairContext | null>(null);
 let cardRepairEpoch=0;
 watch(ownerId, id => Object.assign(draftWorkspace, emptyAutomationDraft(id)), { immediate: true });
@@ -688,7 +687,6 @@ async function changeOwner(id: number) {
         notice.value='批量运行或结果未知期间不能切换账号；请确认停止或只读核实原请求。';return;
     }
     if(!warnBeforeDraftReplacement())return;
-    repairRequest.value = null;
     cardRepairContext.value = null; ++cardRepairEpoch;
     if (gestureConfirmation.value) { notice.value = '请先确认滑动或拖拽，才能切换管理账号。'; return; }
     stopEvents?.(); stopEvents = undefined;
@@ -1542,15 +1540,6 @@ async function settingsSaved() {
     try { context.value = await api.context(); }
     catch (cause) { handleError(cause); }
 }
-async function onRepairStep(request: AutomationRepairRequest) {
-    if (request.ownerId !== ownerId.value || switchingTab.value) return;
-    // Switching away from history must not cause a manual phone action.
-    // The editor independently checks latest saved revisions before changes.
-    repairRequest.value = request;
-    await changeTab('scripts');
-    if (tab.value !== 'scripts') repairRequest.value = null;
-}
-
 /**
  * T15: resolve an immutable historical failure to one authorized phone card.
  * Never reuse a newer formal script revision, and never overwrite a current
@@ -1853,11 +1842,11 @@ onBeforeUnmount(() => { stopEvents?.();
             <p v-if="liveCount" class="manual-release-hint">{{ t('tabReleaseHint') }}</p>
             <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :device-names="deviceNames" :draft="draftWorkspace" :draft-sync-label="draftSyncLabel" :draft-sync-message="draftSyncState.message"
                 :can-replace-workspace="warnBeforeDraftReplacement" :run-device-snapshots="devices"
-                :repair-request="repairRequest"
+
                 :picker-devices="devices.filter(device => device.connection.enabled && !!device.target_fingerprint).map(device => ({ id: device.id, name: device.name }))"
                 @pick-step-target="openScriptInspector" @run-created="onRunCreated"
-                @repair-consumed="id => { if (repairRequest?.requestId === id) repairRequest = null; }" />
-            <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" @repair-step="onRepairStep" @repair-card="onRepairCard" />
+                />
+            <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" @repair-card="onRepairCard" />
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
         <DiscoveryDialog v-if="discoveryGateway" :key="discoveryGateway.id" :gateway="discoveryGateway" :owner-id="ownerId" initial-action="adb" @close="discoveryGateway = null" @changed="loadDevices" />
