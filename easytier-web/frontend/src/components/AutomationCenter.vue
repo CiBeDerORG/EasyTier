@@ -923,6 +923,9 @@ async function openSelected() {
     await Promise.all([worker(), worker()]); connecting.value = false;
 }
 async function toggleDeviceScreen(id: string) {
+    if(floatingBatch.busy.value && floatingBatch.state.selected.includes(id)){
+        notice.value='此手机正执行批量脚本，原实时画面保持，不能停止投屏；请先完成停止和清理。';return;
+    }
     const card = cards.get(id);
     if (!card || !runnerAvailable.value) return;
     const state = card.getState();
