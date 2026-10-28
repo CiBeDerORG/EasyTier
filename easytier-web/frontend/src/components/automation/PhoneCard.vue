@@ -107,7 +107,7 @@ const emit = defineEmits<{
     'repair-dismiss': [deviceId: string];
     'batch-start': [params: Record<string,string>, concurrency: number];
     'batch-refresh': []; 'batch-stop': []; 'batch-reconcile': [];
-    'batch-stop-device': [deviceId: string];
+    'batch-stop-device': [deviceId: string]; 'batch-restore-manual': [deviceId: string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -877,6 +877,7 @@ onBeforeUnmount(() => {
                         @start="(params,concurrency)=>emit('batch-start',params,concurrency)"
                         @refresh="emit('batch-refresh')" @stop="emit('batch-stop')"
                         @stop-device="id=>emit('batch-stop-device',id)"
+                        @restore-manual="id=>emit('batch-restore-manual',id)"
                         @reconcile="emit('batch-reconcile')" />
                     <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
                         :trial-progress="trialProgress" :trial-active="trialStepId !== null"
