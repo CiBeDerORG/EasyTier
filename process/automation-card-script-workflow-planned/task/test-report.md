@@ -460,3 +460,11 @@
 - 已发布主镜像：`ghcr.io/cibederorg/easytier:feat-automation-center`；完整 Git 提交标签 `sha-9120b252fa265fefad3507953145068738f3efa2`；**多架构索引 Digest** `sha256:088695b8a3c9926a39beb3d200d42324c5438214cfd451be895bf6e758091975`（本次仅 amd64）；**amd64 内容 Manifest Digest** `sha256:7b2ac282d7da536238787b558905ab0e69232b87ec9e6b113322ad87652ae925`。发布日志明确拉取验证成功。
 - 独立 Executor 已有成功 GHCR [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092)，Python **95/95**（T49 6/6），`ghcr.io/cibederorg/easytier-automation-executor:feat-automation-center`，digest `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`。
 - **非真机阶段完成范围**：T46/T47 旧业务入口收敛，T48/T49 非真机回归与失败修复，T51 非真机追踪。**未执行范围**：T50 FnOS、真实 Android 设备、ADB/UiAutomator2、真实视频媒体、跨浏览器争用、正式部署/实操。不可将“GHCR 发布成功”标成“FnOS 已部署或最终发布验收通过”。
+
+## 2026-10-28 · 代码评审 P1/P2 六项修复（源码 + 回归测试）
+
+- 评审基线：`9feee9b`，实施详情：`task/review-fixes-2026-10-28.md`。
+- 已提交：批量成功/失败/部分失败区分；结果未知保护原实时画面；旧无 CAS 删除接口拒绝；创建/克隆/首次发布带可持久恢复的 UUID + SQLite 幂等回执；批量准备失败逐机安全恢复；真实 `PhoneCard.vue`（无设备）Chromium 夹具及 Rust 迁移回归。
+- **未手工执行**：Node、TypeScript、Playwright、Rust、Python、构建、GitHub Actions 工作流派发、FnOS、Android/ADB、WebRTC 实际画面、双浏览器抢占。原因：沿用用户调试模式；提交后仓库原有 push 自动流水线可能运行，但不以其开始或取消表示通过。
+- 最新源码自动 CI 状态需以对应 SHA 的最终结果单独确认；之前成功镜像仅覆盖旧源码，不把本轮标为通过。
+- 后续：新迁移的 SQLite 升级、旧客户端协议兼容、真实不同 OEM Android 操作及 T50/T51 签收仍需现场核验。
