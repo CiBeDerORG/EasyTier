@@ -1007,7 +1007,6 @@ onBeforeUnmount(() => {
                         :batch-run="batchRunState.owner===ownerId && batchRunState.selected.includes(device.id)
                             ? batchRunState.run : null" :batch-device-id="device.id"
                         :trial-progress="trialProgress" :trial-active="trialStepId !== null"
-                        :structure-locked="!!editingDirty || batchVideoProtected || !!syncRole || recording"
                         :undo-label="undoDeleteLabel"
                         @edit="emit('step-edit',device.id,$event)"
                         @trial="openCardTrial" @delete="requestStepDeletion"

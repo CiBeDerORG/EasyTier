@@ -15,7 +15,6 @@ const props=defineProps<{
     trialActive?: boolean;
     batchRun?: AutomationRun | null;
     batchDeviceId?: string;
-    structureLocked?: boolean;
 }>();
 const emit=defineEmits<{
     edit: [stepId: string];

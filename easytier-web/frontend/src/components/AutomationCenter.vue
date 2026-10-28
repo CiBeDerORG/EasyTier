@@ -1395,15 +1395,33 @@ function editCardStep(deviceId: string, stepId: string) {
  */
 function cardStructureAllowed(deviceId:string):boolean{
     const device=devices.value.find(d=>d.id===deviceId);
+    // Draft editing is local data, not a phone action. Do not gate it on
+    // live video, script execution, cleanup_unknown, recording, or syncing.
     if(tab.value!=='workbench' ||
-        !canAccessAutomationCard(ownerId.value,deviceId,device,draftWorkspace) ||
-        !!recordingId.value || !!sync.value || !!floatingBatch.busy.value ||
-        !!inspectorDeviceId.value || cardEditorDirty.value ||
-        scriptWorkspace.state.busy || analyzeAutomationFlow(draftWorkspace.steps).problem){
-        error.value='请先结束录制、群控、执行或参数编辑，并修复当前条件结构后再修改脚本。';
+        !canAccessAutomationCard(ownerId.value,deviceId,device,draftWorkspace)){
+        error.value='当前手机或草稿账号已变化，无法修改草稿。';
+        return false;
+    }
+    if(analyzeAutomationFlow(draftWorkspace.steps).problem){
+        error.value='当前草稿的条件分支结构无效，请先修复结构。';
         return false;
     }
     return true;
+}
+const pendingNewDraftEditors=ref<Array<{deviceId:string;stepId:string}>>([]);
+watch(()=>[draftWorkspace.ownerId,draftWorkspace.editingId],()=>{
+    // Never carry pending editor navigation across scripts or accounts.
+    pendingNewDraftEditors.value=[];
+});
+/** Preserve an unsaved step editor while still allowing new draft steps. */
+function openAppendedStepEditor(deviceId:string,stepId:string){
+    if(cardEditorDirty.value && cardStepEditor.value){
+        pendingNewDraftEditors.value.push({deviceId,stepId});
+        notice.value='新步骤已插入草稿；请保存或放弃当前步骤参数，随后自动打开新步骤设置。';
+        return;
+    }
+    if(cardStepEditor.value && !closeCardStepEditor(cardStepEditor.value.deviceId))return;
+    editCardStep(deviceId,stepId);
 }
 function createCardDraftStep(deviceId:string,type:AutomationStepType) {
     if(!cardStructureAllowed(deviceId) || ['if_gone','if_else'].includes(type) ||
@@ -1412,11 +1430,11 @@ function createCardDraftStep(deviceId:string,type:AutomationStepType) {
     const next=[...draftWorkspace.steps,step];
     if(analyzeAutomationFlow(next).problem){error.value='无法在当前条件结构外插入步骤。';return;}
     clearDeletedStepUndo();
-    if(cardStepEditor.value)closeCardStepEditor(cardStepEditor.value.deviceId);
     draftWorkspace.steps=next;
     draftWorkspace.selectedStepId=step.id;
-    editCardStep(deviceId,step.id);
-    notice.value='已向唯一工作草稿新增待配置步骤；保存参数前不能试跑。';
+    openAppendedStepEditor(deviceId,step.id);
+    if(!pendingNewDraftEditors.value.length)
+        notice.value='已添加动作到工作草稿，配置完成前不会执行手机操作。';
 }
 function addCardBranchStep(deviceId:string,conditionId:string,lane:BranchLane,type:AutomationStepType){
     if(!cardStructureAllowed(deviceId)||['if_gone','if_else'].includes(type))return;
@@ -1429,11 +1447,11 @@ function addCardBranchStep(deviceId:string,conditionId:string,lane:BranchLane,ty
     const next=addFlowBranchStep(draftWorkspace.steps,conditionId,lane,step);
     if(!next){error.value='条件树已变化或当前分支范围不可插入。';return;}
     clearDeletedStepUndo();
-    if(cardStepEditor.value)closeCardStepEditor(cardStepEditor.value.deviceId);
     draftWorkspace.steps=next;
     draftWorkspace.selectedStepId=step.id;
-    editCardStep(deviceId,step.id);
-    notice.value='已在 '+(lane==='then'?'Then':'Else')+' 分支新增待配置动作；父条件跨度由校验器自动更新。';
+    openAppendedStepEditor(deviceId,step.id);
+    if(!pendingNewDraftEditors.value.length)
+        notice.value='已在 '+(lane==='then'?'Then':'Else')+' 分支添加动作；条件跨度自动更新。';
 }
 function moveCardDraftStep(deviceId:string,stepId:string,delta:-1|1){
     if(!cardStructureAllowed(deviceId))return;
@@ -1448,7 +1466,8 @@ function moveCardDraftStep(deviceId:string,stepId:string,delta:-1|1){
         error.value='步骤只能在同一条件分支内调整顺序。';return;
     }
     clearDeletedStepUndo();
-    if(cardStepEditor.value)closeCardStepEditor(cardStepEditor.value.deviceId);
+    if(cardStepEditor.value && !cardEditorDirty.value)
+        closeCardStepEditor(cardStepEditor.value.deviceId);
     const revised=[...steps];
     [revised[at],revised[next]]=[revised[next],revised[at]];
     if(analyzeAutomationFlow(revised).problem){
@@ -1460,6 +1479,9 @@ function moveCardDraftStep(deviceId:string,stepId:string,delta:-1|1){
 }
 function convertCardCondition(deviceId:string,stepId:string,type:'if_gone'|'if_else') {
     if(!cardStructureAllowed(deviceId))return;
+    if(cardEditorDirty.value && cardStepEditor.value?.stepId===stepId){
+        error.value='请先保存该步骤正在编辑的参数，再转换它的动作类型。';return;
+    }
     const old=draftWorkspace.steps.find(step=>step.id===stepId);
     if(!old||old.type==='if_gone'||old.type==='if_else')return;
     const replacement:AutomationStep={
@@ -1469,11 +1491,11 @@ function convertCardCondition(deviceId:string,stepId:string,type:'if_gone'|'if_e
     const next=createFlowCondition(draftWorkspace.steps,stepId,replacement,empty);
     if(!next){error.value='无法转换条件：请检查分支嵌套深度、跨度或100步上限。';return;}
     clearDeletedStepUndo();
-    if(cardStepEditor.value)closeCardStepEditor(cardStepEditor.value.deviceId);
     draftWorkspace.steps=next;
     draftWorkspace.selectedStepId=stepId;
-    editCardStep(deviceId,stepId);
-    notice.value='已转换成条件节点，原步骤 ID 保留；Then/Else 占位动作必须单独完善才能执行。';
+    openAppendedStepEditor(deviceId,stepId);
+    if(!pendingNewDraftEditors.value.length)
+        notice.value='步骤已转换为条件节点；可继续配置 Then/Else 动作。';
 }
 
 /** Only one shared draft mutation path, regardless of which phone requests it. */
@@ -1583,6 +1605,14 @@ function closeCardStepEditor(deviceId: string, discardConfirmed = false): boolea
     const picker=pickerContexts[deviceId];
     if (picker?.phase === 'on' && picker.intent.kind === 'replace')
         pickerContexts[deviceId]=setPickerIntent(picker,{kind:'append'},++pickerEpoch);
+    // Queued actions remain in the shared draft; open them in insertion
+    // order as the operator saves each previous unsaved step.
+    const pending=pendingNewDraftEditors.value[0];
+    if(pending && pending.deviceId===deviceId){
+        pendingNewDraftEditors.value.shift();
+        if(draftWorkspace.steps.some(step=>step.id===pending.stepId))
+            editCardStep(pending.deviceId,pending.stepId);
+    }
     return true;
 }
 function saveCardStep(deviceId:string,stepId:string,expected:AutomationStep,updated:AutomationStep) {
