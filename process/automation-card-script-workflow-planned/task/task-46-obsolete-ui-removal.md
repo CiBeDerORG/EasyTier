@@ -1,6 +1,6 @@
 # T46 · 旧双脚本编辑与重复视频展示层清理
 
-> 状态：**浮窗正式CRUD/条件编辑/历史回修已接线，旧兼容页待实机确认后退役**｜计划：P15｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**旧双重编辑/试跑界面代码已退役，兼容目录只读；自动验收中、真机待测**｜计划：P15｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一负责人/依赖
 - Owner：**前端集成负责人**。
@@ -41,3 +41,8 @@
 - **条件编辑迁移**：`CardStepTimeline` 的新增动作、普通步骤→ If/Else 条件、Then/Else 分支新增、同分支步骤上下移均派发到父层唯一共享草稿；沿用 `analyzeAutomationFlow`、`createFlowCondition`、`addFlowBranchStep` 与每步 ID 保留规则，新增占位步骤未配置前不可执行。 `CardStepEditor` 增加末尾无条件断言的业务成功验证勾选，保存时后端前 UI 二次拦截其它标记与错误结构。
 - **保留兼容业务**：旧 ScriptLibrary 独立编辑区目前仍可打开作历史用户兼容（包含条件图与现有正式 CRUD），原新浮窗已接齐核心编辑接口。因为尚无浏览器/多设备验收，**不强行删除旧脚本管理 Tab**。T47 dead-code cleanup 应区分真正无引用的旧 helper 与仍服务于老运行历史恢复的基础逻辑。
 - **未执行** Vue/TypeScript/Rust 编译、类型检查、lint、单测、CI/Runner 构建、FnOS/Android、全屏及双浏览器测试（仓库 AGENTS.md 调试模式）；本任务仍待 T49～T51 联调，验收框不勾选。
+## 2026-10-28 · T46 第三批：实际移除旧脚本双编辑入口
+- `ScriptLibrary.vue` 由原约 46KB 多功能编辑/正式 CRUD/条件步骤页面收敛为约 8KB 的**只读兼容目录**：只保留脚本列表、原手机跳转、旧试跑未知 UUID 的服务端历史只读核对。移除旧 ScriptStepEditor 引用、该页的正式保存/删除、条件编辑和所有旧步骤事件。
+- `AutomationCenter.vue` 的兼容选中脚本只能调用已有 `PhoneCard.openAutomationPanel` 和单份 owner-level `scriptWorkspace.perform({kind:'select'})`，保留修订 CAS、同步草稿阻断和设备授权。已删除整个不再存在调用方的 `openScriptInspector` 及旧 `pick-step-target` 接线。
+- 功能没有“删无替代”：新卡片提供脚本选择/克隆/正式发布/删除/条件增删编辑、运行与修复浮窗；旧历史请求继续在兼容页只读核对。共享 `ScriptStepEditor` 仍被 `CardStepEditor` 真正使用，`UiInspectorDialog` 仍由 `PhoneCard` 使用，故不误删。
+- 新增 `automation-legacy-retirement-t48.test.mjs` 防回退断言，阻止旧页再次创建独立保存/删除/运行/视频/第二编辑器；加入 `test:unit`。**代码退役完成，仍需前端 CI/无手机浏览器及最终 T50 实测证实业务行为。**
