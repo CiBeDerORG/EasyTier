@@ -36,8 +36,8 @@
 | [T45](task-45-batch-original-video.md) | 各机原视频观察 | P14 | 卡片/集成 | W4 | T39,T43,T44 | 每机原画面观察代码已提交，待实测 |
 | [T46](task-46-obsolete-ui-removal.md) | 替代后移除旧 UI | P15 | 集成 | W5 | T29,T32,T35,T42,T45 | 主浮窗正式CRUD/条件编辑/历史回修已接线，旧页待验收后退役 |
 | [T47](task-47-dead-code-cleanup.md) | 冗余事件样式整理 | P15 | 前端架构 | W5 | T46 | 旧链接转主浮窗/死CSS首批提交，待联调 |
-| [T48](task-48-frontend-regression.md) | 前端自动回归 | P16 | QA-Web | W3+ | 相关 UI 功能 | 待开发 |
-| [T49](task-49-backend-regression.md) | 后端租约/空脚本回归 | P16 | QA-后端 | W3+ | T25,T37,T38 | 待开发 |
+| [T48](task-48-frontend-regression.md) | 前端自动回归 | P16 | QA-Web | W3+ | 相关 UI 功能 | 纯逻辑回归已编写，UI/E2E/执行待验收 |
+| [T49](task-49-backend-regression.md) | 后端租约/空脚本回归 | P16 | QA-后端 | W3+ | T25,T37,T38 | Runtime/Journal写锁测试已编写，Rust/执行待验收 |
 | [T50](task-50-real-device-acceptance.md) | FnOS/安卓/全屏真机 | P16 | QA-真机 | W5 | T48,T49+所有业务 | 待开发 |
 | [T51](task-51-final-acceptance-report.md) | 总体验收追踪与交付 | P16 | QA/产品 | W5 | T50 | 待开发 |
 
@@ -88,3 +88,5 @@
 > 2026-10-28 T47 第二批：清理批量编排器无引用 import、ScriptLibrary 死 prop/重复目标计算；修复旧脚本/控件定位中被筛选手机无法返回原卡片的问题；统一三个调用点的原卡片恢复函数，持久正式写入身份在工作区初始化即恢复。旧 handoff 保留，因为 T17 安全回归测试仍引用。未执行编译、CI 或真机回归。
 
 > 2026-10-28 T48 首批：新增批量 UUID/设备/时间戳保留与异常不重发、单步冻结意图/只读自动提交的 Node 回归断言，并进入 `test:unit` 清单；**未运行**，不标通过。
+
+> 2026-10-28 T48 第二批：新增子浮窗排序、原PhoneCard身份/媒体范围、正式脚本CAS回执严格存储三组单测（已加入 test:unit）；测试未执行。T49 第一批：新增真实 Runtime + SQLite Journal 与模拟媒体边界的只读观看/写锁/清理异常用例，未运行。后续 T48 交互 E2E、T49 Rust 以及 T50/51 真实设备验收仍未完成。
