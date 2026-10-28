@@ -559,16 +559,13 @@ watch([automationPanelOpen,pickAvailable],([opened,available],[wasOpen,wasAvaila
     if(opened && available && (!wasOpen || !wasAvailable))
         emit('automation-panel-open',props.device.id);
 });
-const pickerToggleAllowed = computed(() => pickingPhase.value !== 'off' || pickAvailable.value);
-const inspectorHint = computed(() => {
-    if (pickingPhase.value === 'on') return '退出控件拾取 · 已开启，左键操作手机、右键查看控件';
-    if (pickingPhase.value === 'preparing') return '取消控件拾取 · 正在准备';
-    if (pickingPhase.value === 'error') return props.pickerError || '控件拾取遇到错误，点击退出';
-    if (!props.runnerAvailable) return '控件拾取 · 执行器不可用';
-    if (props.syncRole) return '控件拾取 · 请先结束群控同步';
-    if (props.recording) return '控件拾取 · 请先结束脚本录制';
-    return ready.value ? '开启控件拾取 · 在当前手机画面右键选择控件' : '控件拾取 · 请先打开手机实时画面并等待控制就绪';
-});
+// Right-click picking remains available inside the automation floating console.
+ // The card header has a dedicated ADB connection action instead.
+const connectActionHint = computed(() =>
+    (props.phoneConnection === 'connected' ? '重新连接 ADB' : '连接 ADB') +
+    ' · ' + adbConnectionHint.value +
+    ' · 端口 ' + (props.device.connection.adb_port || '未配置')
+);
 const screenActionHint = computed(() => {
     const port = props.device.connection.adb_port || '未设置';
     const prefix = `ADB 端口：${port} · ${adbConnectionHint.value}`;
@@ -838,24 +835,27 @@ onBeforeUnmount(() => {
     <article ref="card" class="phone-card" :class="{ selected, master: syncRole === 'master' }" :style="{ width: cardWidth }">
         <header>
             <div class="device-heading">
-                <label class="device-selection" :title="device.name"><input type="checkbox" :checked="selected" :aria-label="device.name" @change="emit('selection', device.id, ($event.target as HTMLInputElement).checked)"><span class="device-name">{{ device.name }}</span></label>
-                <button type="button" class="adb-status" :class="phoneConnection || 'unknown'"
-                    :disabled="!runnerAvailable || !device.connection.enabled || phoneConnection === 'connecting'"
-                    :aria-label="'ADB：' + adbConnectionHint" :title="adbConnectionHint"
-                    @click="emit('connect', device.id)">
-                    <span class="adb-status-dot" aria-hidden="true" /><span class="sr-only">{{ t(phoneConnection === 'connected' ? 'phoneConnected' : phoneConnection === 'failed' ? 'phoneConnectionFailed' : phoneConnection === 'connecting' ? 'phoneConnecting' : 'phoneNotConnected') }}</span>
-                </button>
+                <label class="device-selection" :title="device.name">
+                    <input type="checkbox" :checked="selected" :aria-label="device.name"
+                        @change="emit('selection', device.id, ($event.target as HTMLInputElement).checked)">
+                    <span class="device-name">{{ device.name }}</span>
+                    <span v-if="device.gateway_name" class="gateway-name"
+                        :title="'所属网关：' + device.gateway_name">{{ device.gateway_name }}</span>
+                </label>
+                <span class="adb-status" :class="phoneConnection || 'unknown'"
+                    role="status" :aria-label="'ADB：' + adbConnectionHint" :title="adbConnectionHint">
+                    <span class="adb-status-dot" aria-hidden="true" />
+                </span>
             </div>
             <div class="card-header-actions">
                 <PhoneAutomationPanel :device="device" :owner-id="ownerId" :runner-available="runnerAvailable" :observed-status="componentStatus" />
-                <span class="card-action-tip" :title="inspectorHint">
-                    <button type="button" class="card-icon inspector-icon"
-                        :class="{ active: pickingPhase === 'on', pending: pickingPhase === 'preparing',
-                            blocked: pickingPhase === 'off' && (!!syncRole || recording), failed: pickingPhase === 'error' }"
-                        :aria-pressed="pickingPhase === 'on'" :aria-label="inspectorHint"
-                        :disabled="!pickerToggleAllowed"
-                        @click="emit('toggle-picking', device.id)">
-                        <i :class="pickingPhase === 'preparing' ? 'pi pi-spin pi-spinner' : 'pi pi-search'" aria-hidden="true" />
+                <span class="card-action-tip" :title="connectActionHint">
+                    <button type="button" class="card-icon connect-icon"
+                        :class="{ connected: phoneConnection === 'connected', connecting: phoneConnection === 'connecting' }"
+                        :aria-label="connectActionHint"
+                        :disabled="!runnerAvailable || !device.connection.enabled || phoneConnection === 'connecting'"
+                        @click="emit('connect', device.id)">
+                        <i :class="phoneConnection === 'connecting' ? 'pi pi-spin pi-spinner' : 'pi pi-link'" aria-hidden="true" />
                     </button>
                 </span>
                 <span class="card-action-tip" :title="screenActionHint">
@@ -871,9 +871,6 @@ onBeforeUnmount(() => {
                     :disabled="pending || session.state.phase === 'live'" @click="emit('configure', device)" />
             </div>
         </header>
-        <div class="device-meta">
-            <span class="node-name" :title="device.gateway_name || t('ungrouped')">{{ device.gateway_name || t('ungrouped') }}</span>
-        </div>
         <div ref="screen" class="phone-screen" :style="currentGeometry.width && currentGeometry.height ? { aspectRatio: `${currentGeometry.width} / ${currentGeometry.height}` } : undefined" @keydown.esc="menuOpen = false; closePickerMenu()">
             <video v-if="isFullscreen && session.state.phase === 'live'" ref="ambientVideo" class="ambient-video" autoplay muted playsinline aria-hidden="true" tabindex="-1" />
             <video ref="video" class="primary-video" autoplay muted playsinline tabindex="0" :class="{ interactive: touchAllowed }" :aria-label="device.name" @loadedmetadata="onGeometry" @loadeddata="videoReady" @resize="onGeometry" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="cancelPointer" @lostpointercapture="cancelPointer" @contextmenu="contextPick" @keydown="keyboardContextPick" />
@@ -1041,7 +1038,9 @@ onBeforeUnmount(() => {
                 class="batch-card-status" role="status">
                 本机：{{ batchRunState.devices[device.id].phase }}
                 <span v-if="batchRunState.devices[device.id].mediaState==='lost'"> · 视频已断流</span>
-            </small><span class="mono-value">{{ device.overlay_ip }}</span></footer>
+            </small><span class="mono-value" :title="'ADB：' + adbConnectionHint">
+                {{ device.overlay_ip }}<template v-if="device.connection.adb_port > 0">:{{ device.connection.adb_port }}</template>
+            </span></footer>
         <!-- T42: failed-step repair uses the same real PhoneCard video and
              its fullscreen subwindow host, never a second preview or footer UI. -->
         <AutomationFloatingDialog :visible="!!repairContext && !!repairStep"
@@ -1100,10 +1099,12 @@ onBeforeUnmount(() => {
 .phone-card{min-width:0;max-width:100%;flex:0 1 auto;border:1px solid var(--console-border);border-radius:14px;background:var(--console-panel);overflow:hidden;box-shadow:var(--console-shadow)}
 .phone-card.selected{border-color:var(--p-primary-color);box-shadow:0 0 0 1px color-mix(in srgb,var(--p-primary-color) 20%,transparent)}
 .phone-card.master{box-shadow:0 0 0 2px var(--p-primary-color)}
-header{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 0 14px;gap:6px}
+header{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 10px 14px;gap:6px}
 .device-heading{display:flex;align-items:center;gap:4px;min-width:0;flex:1 1 auto}
 .device-selection{display:flex;align-items:center;gap:8px;min-width:0;flex:0 1 auto;font-weight:600}
 .device-selection .device-name{display:block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.device-selection .gateway-name{display:block;min-width:0;flex:0 1 auto;max-width:116px;overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:400;color:var(--console-muted)}
 .device-selection input{accent-color:var(--p-primary-color);width:16px;height:16px;flex-shrink:0}
 .card-header-actions{display:flex;align-items:center;justify-content:flex-end;flex:0 0 auto;gap:3px}
 .card-action-tip{display:inline-flex;align-items:center;justify-content:center;flex:0 0 28px}
@@ -1111,19 +1112,14 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .card-icon:hover:not(:disabled){background:var(--console-accent-soft)}
 .card-icon:focus-visible{outline:2px solid var(--p-primary-color);outline-offset:2px}
 .card-icon:disabled{cursor:default;opacity:.7}
-.inspector-icon.active,.adb-port.live{color:var(--p-green-500)}
-.inspector-icon.active{background:color-mix(in srgb,var(--p-green-500) 16%,transparent);box-shadow:inset 0 0 0 1px var(--p-green-500)}
-.inspector-icon.failed{color:var(--p-red-500)}
-.inspector-icon.pending,.adb-port.opening,.adb-port.connecting{color:var(--p-primary-color)}
-.inspector-icon.blocked,.adb-port{color:var(--p-orange-500)}
-.inspector-icon.blocked{color:var(--p-orange-500)}
+.connect-icon.connected,.adb-port.live{color:var(--p-green-500)}
+.connect-icon.connecting,.adb-port.opening,.adb-port.connecting{color:var(--p-primary-color)}
+.adb-port{color:var(--p-orange-500)}
 .adb-port.failed,.adb-port.cleanup_pending{color:var(--p-red-500)}
 .adb-port.unavailable{color:var(--console-muted)}
 .card-header-actions :deep(.card-settings){width:28px;height:28px;min-width:28px;padding:0;flex-shrink:0}
-.device-meta{display:flex;align-items:center;font-size:11px;color:var(--console-muted);padding:1px 14px 10px}
-.device-meta .node-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.adb-status{border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;padding:0;cursor:pointer;flex-shrink:0;border-radius:50%}
-.adb-status:hover:not(:disabled){background:var(--console-accent-soft)}.adb-status:disabled{cursor:default;opacity:.6}
+.adb-status{display:inline-flex;align-items:center;justify-content:center;width:20px;height:23px;
+    padding:0;flex-shrink:0;border-radius:50%}
 .adb-status-dot{width:9px;height:9px;border-radius:50%;background:var(--console-muted);box-shadow:0 0 0 2px color-mix(in srgb,var(--console-muted) 20%,transparent)}
 .adb-status.connected .adb-status-dot{background:var(--p-green-500);box-shadow:0 0 0 2px color-mix(in srgb,var(--p-green-500) 22%,transparent)}
 .adb-status.failed .adb-status-dot,.adb-status.query_failed .adb-status-dot,.adb-status.disconnected .adb-status-dot,.adb-status.offline .adb-status-dot{background:var(--p-red-500)}.adb-status.unauthorized .adb-status-dot,.adb-status.unavailable .adb-status-dot{background:var(--p-orange-500)}.adb-status.connecting .adb-status-dot,.adb-status.checking .adb-status-dot{background:var(--p-blue-500);animation:adb-pulse 1s ease-in-out infinite}
