@@ -1,7 +1,7 @@
 # T02-06 — 外部删除安全判定与证据隔离
 
 > 2026-10-28；基准分支 `feat/automation-center`。
-> 当前状态：**IN_PROGRESS：连续完整扫描缺失证据与安全 UI 已提交，Rust/Web CI 待下次开发开始核验；M4 的排他资源归属/实际服务及公网映射清理暂未实现，不得虚报“外部删除自动清理已完成”**。
+> 当前状态：**IN_PROGRESS：连续完整扫描缺失证据与安全 UI 的 Rust/Web/镜像 CI #40662950752 已通过；M4 的排他资源归属/实际服务及公网映射清理暂未实现，不得虚报“外部删除自动清理已完成”**。
 
 ## 完成的代码
 
@@ -32,7 +32,7 @@
 
 - [x] 已提交单元测试，证明 `complete=false`、非同一 Agent、重复资源 ID 不构成完整扫描证据。
 - [x] 已提交 SQLite 迁移 + 数据库回归测试，覆盖首轮缺失、第二次确认、被停止的旧容器保留、资源恢复撤销误报、Agent UUID 更换隔离。
-- [ ] Rust 编译/测试与 Vue 构建最新 CI 尚待下轮开始核验；本轮不等构建。
+- [x] Rust 编译/部分已有原生回归与 Vue 构建：[EasyTier CI #40662950752](https://github.com/CiBeDerORG/EasyTier/actions/runs/40662950752) 通过。T02-07 已将新的 `docker_absence` / `docker_discovery_regression` 套件纳入 CI 必跑集合，最新结果待核验。
 - [ ] 真实 FnOS 上 Compose、Docker daemon 异常、外部容器删除/恢复及端口发布回归，归 T02-07。
 - [ ] 真正清理属于当前 T02-06 的未完成验收项，并与 M4 受管实例登记、M5 服务生命周期收尾；不能把 T02-06 标为 DONE。
 
