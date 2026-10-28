@@ -565,19 +565,24 @@ impl Manager {
         Ok(ids)
     }
 
-    // An explicit intent does not change Docker resources or mark them Deploy-
-    // managed. M3 catalog validation + M4 durable Agent ownership must run
-    // before privileges can be elevated to "managed".
-    pub async fn confirm_adoption_intent(&self, device: &Value, input: AdoptionIntentInput) -> Result<Value, Error> {
+    fn validate_adoption_intent(input: &AdoptionIntentInput) -> Result<Vec<String>, Error> {
         if !input.confirm {
             return Err(Error::Invalid("Explicit confirmation is required"));
         }
-        if input.resource_id.is_empty() || input.resource_id.len() > 256 ||
-            !(input.resource_id.starts_with("compose:") || input.resource_id.starts_with("container:")) {
+        if input.resource_id.is_empty()
+            || input.resource_id.len() > 256
+            || !(input.resource_id.starts_with("compose:")
+                || input.resource_id.starts_with("container:"))
+        {
             return Err(Error::Invalid("Invalid resource identifier"));
         }
-        if input.application_id.len() < 2 || input.application_id.len() > 100 ||
-            !input.application_id.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"-_.".contains(&c)) {
+        if input.application_id.len() < 2
+            || input.application_id.len() > 100
+            || !input
+                .application_id
+                .bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"-_.".contains(&c))
+        {
             return Err(Error::Invalid("Invalid Deploy application identifier"));
         }
         let mut expected = input.expected_container_ids.clone();
@@ -589,6 +594,14 @@ impl Manager {
         if expected.len() != input.expected_container_ids.len() {
             return Err(Error::Invalid("Duplicate expected container IDs"));
         }
+        Ok(expected)
+    }
+
+    // An explicit intent does not change Docker resources or mark them Deploy-
+    // managed. M3 catalog validation + M4 durable Agent ownership must run
+    // before privileges can be elevated to "managed".
+    pub async fn confirm_adoption_intent(&self, device: &Value, input: AdoptionIntentInput) -> Result<Value, Error> {
+        let expected = Self::validate_adoption_intent(&input)?;
         let _guard = self.pair_lock.lock().await;
         let inventory = self.fetch_docker_inventory(device).await?;
         if inventory["complete"] != true || inventory["status"] != "ok" {
@@ -656,6 +669,41 @@ impl Manager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn adoption_intent_rejects_unconfirmed_and_ambiguous_requests() {
+        let mut input = AdoptionIntentInput {
+            resource_id: "compose:sub2api".into(),
+            application_id: "sub2api".into(),
+            expected_container_ids: vec!["b-db".into(), "a-api".into()],
+            confirm: false,
+        };
+        assert!(Manager::validate_adoption_intent(&input).is_err());
+        input.confirm = true;
+        assert_eq!(
+            Manager::validate_adoption_intent(&input).unwrap(),
+            vec!["a-api".to_string(), "b-db".to_string()],
+        );
+        input.expected_container_ids.push("b-db".into());
+        assert!(Manager::validate_adoption_intent(&input).is_err());
+        input.expected_container_ids.pop();
+        input.resource_id = "https://127.0.0.1:2375".into();
+        assert!(Manager::validate_adoption_intent(&input).is_err());
+        input.resource_id = "compose:sub2api".into();
+        input.application_id = "../../bad".into();
+        assert!(Manager::validate_adoption_intent(&input).is_err());
+    }
+
+    #[test]
+    fn adoption_resource_membership_requires_stable_nonempty_ids() {
+        let resource = json!({"containers":[
+            {"container_id":"web"},{"container_id":"db"}
+        ]});
+        assert_eq!(Manager::container_ids(&resource).unwrap(), vec!["db", "web"]);
+        assert!(Manager::container_ids(&json!({"containers":[]})).is_err());
+        assert!(Manager::container_ids(&json!({"containers":[
+            {"container_id":"web"},{"container_id":"web"}]})).is_err());
+    }
+
     #[test]
     fn endpoints_accept_only_safe_ip_literals() {
         let device = json!({"overlay_ip":"10.0.0.5","lan_ip":"192.168.1.7"});
