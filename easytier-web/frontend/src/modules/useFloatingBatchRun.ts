@@ -18,6 +18,7 @@ export interface BatchPhoneHandle {
     getSessionId(): string | null;
     getStream(): MediaStream | null;
     enterViewOnly(): Promise<void>;
+    resumeManual(): Promise<void>;
 }
 export interface FrozenBatchTarget { id: string; name: string; fingerprint: string; }
 export interface FrozenBatchIntent {
@@ -34,7 +35,7 @@ export type BatchPhase = 'idle' | 'preparing' | 'submitting' | 'running' | 'canc
     'completed' | 'failed' | 'unknown';
 export interface BatchDeviceProgress {
     name: string; phase: string; message: string;
-    sessionId?: string; runState?: string; stepId?: string;
+    sessionId?: string; fingerprint?: string; runState?: string; stepId?: string;
     mediaState?: 'live'|'lost'|'unavailable'; mediaMessage?: string;
 }
 export interface FloatingBatchState {
@@ -144,7 +145,7 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
         for(const target of run.devices){
             const old=state.devices[target.device_id];
             state.devices[target.device_id]={
-                name:old?.name??target.name,
+                name:old?.name??target.name, fingerprint:old?.fingerprint,
                 phase:target.state,message:target.steps.find(s=>s.step_id===target.current_step)?.message??target.state,
                 sessionId:old?.sessionId,runState:target.state,
                 mediaState:old?.mediaState,mediaMessage:old?.mediaMessage,
@@ -232,7 +233,7 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
         state.requestId=intent.requestId;state.run=null;
         state.selected=intent.targets.map(t=>t.id);
         state.devices=Object.fromEntries(intent.targets.map(t=>[t.id,{
-            name:t.name,phase:'queued',message:'排队等待当前手机原画面',
+            name:t.name,fingerprint:t.fingerprint,phase:'queued',message:'排队等待当前手机原画面',
         }]));
         const valid=()=>still(intent.owner,epoch)&&allow();
         try {
@@ -339,6 +340,48 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                 : '；本次未提交完整脚本动作。');
         }
     }
+    /**
+     * After a PRE-SUBMISSION failure the server has no batch run. Return one
+     * viewer to manual eligibility only after fresh owner/target/session
+     * checks and both Rust/Executor action-lease gates acknowledge release.
+     * A submitted or unknown run must never use this recovery shortcut.
+     */
+    async function restoreManualAfterFailedPreparation(deviceId:string):Promise<void>{
+        const owner=state.owner,epoch=version;
+        const row=state.devices[deviceId];
+        if(!row || state.phase!=='failed' || state.run || state.pendingReceipt ||
+            !row.sessionId || !row.fingerprint ||
+            ['restoring_manual','manual_restored'].includes(row.phase))return;
+        const card=cardResolver?.(deviceId),sid=row.sessionId;
+        if(!card || card.getSessionId()!==sid || card.getState().phase!=='live'){
+            progress(deviceId,'manual_restore_failed','原视频会话已变化，请检查当前手机卡片。');return;
+        }
+        progress(deviceId,'restoring_manual','核对服务器脚本占用与原只读会话');
+        try {
+            const devices=await api.devices(owner);
+            if(!still(owner,epoch))return;
+            const current=devices.items.find(d=>d.id===deviceId);
+            if(!current || current.owner_user_id!==owner ||
+                current.target_fingerprint!==row.fingerprint || current.run_occupied ||
+                current.active_session?.id!==sid ||
+                current.active_session.state!=='view_only' ||card.getSessionId()!==sid)
+                throw new Error('手机授权、脚本占用或原只读观看身份已改变，禁止恢复。');
+            await card.resumeManual();
+            if(!still(owner,epoch))return;
+            const confirmed=(await api.devices(owner)).items.find(d=>d.id===deviceId);
+            if(!still(owner,epoch))return;
+            if(!confirmed || confirmed.target_fingerprint!==row.fingerprint ||
+                confirmed.run_occupied || confirmed.active_session?.id!==sid ||
+                confirmed.active_session.state!=='active' || card.getSessionId()!==sid ||
+                card.getState().viewerOnly!==false)
+                throw new Error('恢复手控的服务端确认不完整，请保持只读保护。');
+            progress(deviceId,'manual_restored','脚本未提交；服务器已确认原视频恢复手动控制',sid);
+        }catch(error){
+            if(still(owner,epoch))
+                progress(deviceId,'manual_restore_failed',
+                    '未恢复手动控制：'+automationErrorMessage(error),sid);
+        }
+    }
     async function cancelDevice(deviceId:string){
         const run=state.run;
         const old=state.devices[deviceId];
@@ -384,5 +427,5 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
         // Do not delete persistent request proof.
     }
     onBeforeUnmount(()=>{disposed=true;forgetOwner();preparation.dispose();});
-    return {state,busy,start,refresh,reconcile,cancelAll,cancelDevice,inspectMedia,forgetOwner};
+    return {state,busy,start,refresh,reconcile,cancelAll,cancelDevice,restoreManualAfterFailedPreparation,inspectMedia,forgetOwner};
 }
