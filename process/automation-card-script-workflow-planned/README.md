@@ -78,3 +78,5 @@
 - 执行历史失败步骤不再进入 ScriptLibrary 复制一套回修工作区，而是统一使用 `onRepairCard` 返回原设备，验证 runId/stepId/设备授权及历史快照；未执行自动重放。
 - 卡片时间线支持无手机动作的新增步骤、条件节点转换、Then/Else 分支插入、同分支上移/下移及唯一末尾业务断言勾选。原 Inspector、卡片视频与草稿均维持单一来源。
 - 旧 ScriptLibrary 兼容管理页仍保留，不能在未通过编译和 FnOS/Android/双浏览器联调前删除；详见 [T46任务卡](task/task-46-obsolete-ui-removal.md) 与 [测试记录](task/test-report.md)。
+## 2026-10-28 · T47 第一批导航兼容与冗余样式清理
+旧脚本管理页已增加安全返回原工作台手机脚本浮窗的入口，不再诱导进入第二个试跑媒体流程，并清理确认无模板对应关系的失效样式；其余安全共享 helper 与旧链接保留至真实替代验收。详见 [T47](task/task-47-dead-code-cleanup.md)、[测试记录](task/test-report.md)。
