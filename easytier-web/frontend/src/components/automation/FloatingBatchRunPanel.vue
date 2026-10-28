@@ -14,7 +14,7 @@ const props=defineProps<{
 }>();
 const emit=defineEmits<{
     start:[parameters:Record<string,string>,concurrency:number];
-    refresh:[]; stop:[]; reconcile:[]; stopDevice:[deviceId:string];
+    refresh:[]; stop:[]; reconcile:[]; stopDevice:[deviceId:string]; restoreManual:[deviceId:string];
 }>();
 const concurrency=ref(3);
 const values=reactive<Record<string,string>>({});
@@ -47,6 +47,7 @@ const label=(state:string)=>{
         interrupted:'执行中断',unknown:'结果未知，禁止再次提交',
         queued:'排队中',viewing:'原画面检查',suspending:'只读移交',ready:'已准备',
         succeeded:'成功',cancelled:'已取消',outcome_unknown:'结果未知',cleanup_pending:'清理待确认',
+        restoring_manual:'正在恢复手控',manual_restored:'已恢复手控',manual_restore_failed:'手控恢复失败',
         binding:'核对手机绑定',adb_check:'检查ADB',connecting:'连接ADB',
         helper_check:'检查控件组件',helper_start:'启动UiAutomator2',
         helper_wait:'初始化控件中',failed_preparation:'初始化失败',
@@ -100,6 +101,10 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
                 <small v-else-if="device.mediaState==='live'">视频：原画面正常</small>
                 <small v-if="device.stepId">当前步骤：{{ device.stepId }}</small>
                 <small v-if="device.runState && !terminal(device.runState)">尚未确认完成或清理</small>
+                <Button v-if="state.phase==='failed' && !state.run && device.sessionId &&
+                    device.phase!=='manual_restored' && device.phase!=='restoring_manual'"
+                    label="安全恢复手控" size="small" outlined icon="pi pi-lock-open"
+                    @click="emit('restoreManual',device.id)" />
                 <Button v-if="state.run && state.phase==='running' && device.runState &&
                     ['dispatch_pending','queued','accepted','starting','running'].includes(device.runState) &&
                     device.phase!=='cancel_requested'"
