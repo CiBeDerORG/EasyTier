@@ -163,19 +163,23 @@ test('T52 original PhoneCard protects the video stop control while batch outcome
 test('T52 actual PhoneCard shows failed and partial-failed batch outcomes instead of green success',async t=>{
   const page=await setup(t,realCardFixture);
   await page.locator('#open-panel').click();
-  await page.evaluate(()=>window.phoneCardReview.setRunOutcome('failed'));
-  await page.getByText('执行失败或准备失败',{exact:true}).waitFor();
-  const failed=page.locator('.batch-head .p-tag');
-  assert.equal((await failed.getAttribute('class')).includes('p-tag-danger'),true,
-    'failed run must be presented with danger severity, not green success');
-  await page.evaluate(()=>window.phoneCardReview.setRunOutcome('partial_failed'));
-  await page.getByText('部分手机失败',{exact:true}).waitFor();
-  assert.equal((await failed.getAttribute('class')).includes('p-tag-success'),false,
-    'partial failure must not be green');
-  await page.evaluate(()=>window.phoneCardReview.setRunOutcome('completed'));
-  await page.getByText('执行成功',{exact:true}).waitFor();
-  assert.equal((await failed.getAttribute('class')).includes('p-tag-success'),true,
-    'only actual successful outcome may be green');
+  // A row-level device status can use the same text as the aggregate Tag.
+  // Scope each assertion to the *aggregate* badge, not a global text search.
+  const badge=page.locator('.phone-card .batch-head .p-tag');
+  async function verifyOutcome(outcome,label,severity){
+    await page.evaluate(value=>window.phoneCardReview.setRunOutcome(value),outcome);
+    await page.waitForFunction(expected=>
+      document.querySelector('.phone-card .batch-head .p-tag')?.textContent?.trim()===expected,
+    label);
+    const classes=await badge.getAttribute('class');
+    assert.equal(classes?.includes('p-tag-'+severity),true,
+      outcome+' must show aggregate '+severity+' severity');
+    if(outcome!=='completed')assert.equal(classes?.includes('p-tag-success'),false,
+      outcome+' must not appear green');
+  }
+  await verifyOutcome('failed','执行失败或准备失败','danger');
+  await verifyOutcome('partial_failed','部分手机失败','warn');
+  await verifyOutcome('completed','执行成功','success');
 });
 
 test('T53 real PhoneCard offers explicit draft save, formal publish and this-phone-only full run',async t=>{
