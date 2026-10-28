@@ -1140,48 +1140,6 @@ function openInspector(id: string) {
     // No Inspector MediaStream attachment: it only consumes this card's
     // current native video dimensions and draws on its original main video.
 }
-/** Legacy script-tab request: return to the ORIGINAL phone card for repicking.
- * It must not open a second video, create a control lease or select stale pixels. */
-async function openScriptInspector(stepId: string, stepType: AutomationStepType, deviceId: string) {
-    const owner=ownerId.value, scriptId=draftWorkspace.editingId, revision=draftWorkspace.revision;
-    const step=draftWorkspace.steps.find(item=>item.id===stepId);
-    const device=devices.value.find(item=>item.id===deviceId);
-    if (tab.value!=='scripts' || !step || step.type!==stepType ||
-        !stepCanPickTarget(step) || !device || device.owner_user_id!==owner ||
-        !device.connection.enabled || !device.target_fingerprint || sync.value || recordingId.value) {
-        error.value='脚本、设备或授权信息不匹配，不能定位旧控件。';return;
-    }
-    await changeTab('workbench');
-    if (tab.value!=='workbench' || ownerId.value!==owner ||
-        draftWorkspace.editingId!==scriptId || draftWorkspace.revision!==revision ||
-        !draftWorkspace.steps.some(item=>item.id===stepId && item.type===stepType)) return;
-    // Legacy script-step navigation must first make its original PhoneCard
-    // visible; otherwise cards.get(id) is null when a workbench filter hid it.
-    if(!revealOriginalAutomationCard(deviceId)){
-        error.value='目标手机已不在授权列表，不能从旧脚本页重新拾取。';return;
-    }
-    await nextTick();
-    const latest=devices.value.find(item=>item.id===deviceId);
-    if(disposed || ownerId.value!==owner ||
-        !latest || latest.owner_user_id!==owner ||
-        latest.target_fingerprint!==device.target_fingerprint ||
-        !latest.connection.enabled || tab.value!=='workbench'){
-        error.value='脚本旧控件定位在切页时设备授权或目标指纹已变化，已取消。';
-        return;
-    }
-    const card=cards.get(deviceId);
-    if(!card?.getState().ready || !card.getStream()) {
-        notice.value='已返回自动化中心：请打开目标手机卡片的原实时画面，再编辑步骤并重新拾取。';
-        return;
-    }
-    editCardStep(deviceId,stepId);
-    if(cardStepEditor.value?.deviceId!==deviceId || cardStepEditor.value.stepId!==stepId) return;
-    if(!armCardPicking(deviceId,{kind:'replace',stepId,stepType})) {
-        error.value='无法启动这台手机的原画面拾取，当前设备会话或授权已变化。';return;
-    }
-    card.openAutomationPanel();
-    notice.value='已切换到原手机实时画面与步骤浮窗，请在该画面右键选择需要重新定位的控件。';
-}
 function closeInspector() {
     const id = inspectorDeviceId.value;
     const previous = inspectorEditScope.value;
@@ -1669,7 +1627,7 @@ function revealOriginalAutomationCard(deviceId:string):boolean {
  * shared script panel hosted inside the original PhoneCard.
  * Navigation does not open a competing WebRTC player or run any script.
  */
-async function openLegacyScriptOnCard(deviceId:string){
+async function openLegacyScriptOnCard(deviceId:string,scriptId?:string,revision?:number){
     const owner=ownerId.value;
     const device=devices.value.find(d=>d.id===deviceId);
     if(!device || device.owner_user_id!==owner || !device.connection.enabled){
@@ -1692,6 +1650,14 @@ async function openLegacyScriptOnCard(deviceId:string){
     const card=cards.get(deviceId);
     if(!card){error.value='原手机卡片暂不可见，请在工作台确认筛选与卡片加载状态。';return;}
     card.openAutomationPanel();
+    if(scriptId!==undefined){
+        if(!revision||!Number.isSafeInteger(revision)||revision<1){
+            error.value='旧脚本入口修订号无效；已保留当前共享草稿。';return;
+        }
+        // The owner-level workspace validates revision and dirty-state CAS.
+        // This legacy route never creates another editor, stream or write path.
+        await scriptWorkspace.perform({kind:'select',deviceId,scriptId,revision});
+    }
 }
 
 /**
@@ -1994,13 +1960,12 @@ onBeforeUnmount(() => { stopEvents?.();
                 </div>
             </div>
             <p v-if="liveCount" class="manual-release-hint">{{ t('tabReleaseHint') }}</p>
-            <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId" :owner-id="ownerId" :selected-device-ids="selectedIds" :draft="draftWorkspace" :draft-sync-label="draftSyncLabel" :draft-sync-message="draftSyncState.message"
-                :can-replace-workspace="warnBeforeDraftReplacement" :run-device-snapshots="devices"
-
+            <ScriptLibrary v-if="tab === 'scripts' && ownerId" :key="ownerId"
+                :owner-id="ownerId" :selected-device-ids="selectedIds" :draft="draftWorkspace"
+                :draft-sync-label="draftSyncLabel" :draft-sync-message="draftSyncState.message"
+                :run-device-snapshots="devices"
                 :picker-devices="devices.filter(device => device.connection.enabled && !!device.target_fingerprint).map(device => ({ id: device.id, name: device.name }))"
-                @pick-step-target="openScriptInspector" @run-created="onRunCreated"
-                @to-card="openLegacyScriptOnCard"
-                />
+                @run-created="onRunCreated" @to-card="openLegacyScriptOnCard" />
             <RunHistory v-else-if="tab === 'history' && ownerId" :key="`${ownerId}:${historyKey}`" :owner-id="ownerId" :focus-run-id="focusRunId" @repair-card="onRepairCard" />
             <ExecutorSettings v-if="settingsVisited && context.can_manage_settings" v-show="tab === 'settings'" :live-count="liveCount" @saved="settingsSaved" @close-screens="closeAll" />
         </template>
