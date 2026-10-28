@@ -16,6 +16,7 @@ const catalog = ref<DeployCatalogIndex | null>(null);
 const selected = ref<DeployCatalogApp | null>(null);
 const query = ref('');
 const category = ref('all');
+const actionNames = ['install', 'update', 'uninstall'] as const;
 const working = ref(false);
 const error = ref('');
 const notice = ref('');
@@ -157,7 +158,7 @@ onBeforeUnmount(() => { disposed = true; ++requestId; });
             </div>
             <div class="store-definition" v-if="selected.detail.actions">
                 <h3>{{ cn ? '部署方式（只读）' : 'Deployment strategies (read-only)' }}</h3>
-                <div v-for="action in ['install', 'update', 'uninstall'] as const" :key="action" class="store-definition-row">
+                <div v-for="action in actionNames" :key="action" class="store-definition-row">
                     <span>{{ action }}</span><span class="mono-value">{{ selected.detail.actions[action] || '—' }}</span>
                 </div>
             </div>
