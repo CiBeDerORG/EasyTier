@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import type { AutomationScript } from '../../types/automation';
+import type { ScriptGuard } from '../../modules/automation-script-workspace';
 
 const props=defineProps<{
     scripts: readonly AutomationScript[];
@@ -10,7 +11,8 @@ const props=defineProps<{
     busy: boolean;
     loading: boolean;
     error?: string;
-    syncLabel?: string;
+    syncLabel?: string; syncMessage?: string;
+    guard?: ScriptGuard; saveBusy?: boolean; saveMessage?: string;
     formalPending?: boolean;
 }>();
 const emit=defineEmits<{
@@ -19,6 +21,7 @@ const emit=defineEmits<{
     select: [id: string];
     clone: [id: string];
     publish: [];
+    saveDraft: []; forkDraft: [];
     remove: [id:string];
     reconcile: [];
 }>();
@@ -85,18 +88,39 @@ watch(()=>props.selectedId,(id,old)=>{if(id && id!==old){draftName.value='';expa
                 <p v-if="loading" class="script-empty">正在读取脚本列表…</p>
             </div>
         </div>
-        <div class="script-manage-actions">
-            <button type="button" :disabled="busy || formalPending"
-                :title="selectedId?'将当前已同步草稿更新到正式脚本下一修订':'从当前草稿发布新正式脚本'"
+        <div class="script-manage-actions" role="group" aria-label="工作草稿和正式脚本保存">
+            <button type="button" class="draft-save" :disabled="busy || saveBusy || guard==='loading' || guard==='editor' || guard==='conflict'"
+                title="立即保存当前已确认的步骤到服务器工作草稿；不会直接发布正式版本"
+                @click="emit('saveDraft')">
+                <i :class="saveBusy?'pi pi-spin pi-spinner':'pi pi-save'" aria-hidden="true" />
+                {{ saveBusy?'正在保存草稿':'保存草稿' }}
+            </button>
+            <button type="button" class="formal-publish" :disabled="busy || formalPending || saveBusy"
+                :title="selectedId?'更新当前正式脚本的下一修订，必须先保存工作草稿':'从当前工作草稿发布新正式脚本，必须先保存草稿'"
                 @click="emit('publish')">
-                <i class="pi pi-save" aria-hidden="true" />
-                {{ selectedId?'更新正式版本':'发布为正式脚本' }}
+                <i class="pi pi-check-circle" aria-hidden="true" />
+                {{ selectedId?'保存正式版本':'发布正式版本' }}
+            </button>
+            <button v-if="guard==='conflict'" type="button" :disabled="busy || saveBusy"
+                title="保留旧服务端草稿，建立新独立草稿身份后保存当前步骤" @click="emit('forkDraft')">
+                <i class="pi pi-copy" aria-hidden="true" />另存新草稿
             </button>
             <button v-if="formalPending" type="button" @click="emit('reconcile')">
                 <i class="pi pi-history" aria-hidden="true" />只读核对旧写入
             </button>
         </div>
         <p class="script-sync-label" :title="syncLabel || ''">{{ syncLabel }}</p>
+        <p v-if="guard==='editor'" class="script-action-hint" role="status">
+            当前有步骤编辑窗口尚未确认，请先在步骤浮窗点击“保存”并关闭，再保存草稿。
+        </p>
+        <p v-else-if="guard==='conflict'" class="script-action-hint" role="alert">
+            工作草稿版本冲突；点击“另存新草稿”保留当前步骤，不会覆盖其它页面的修订。
+        </p>
+        <p v-else-if="guard==='unsynced'" class="script-action-hint" role="status">
+            步骤还没有得到服务器保存确认；先点击“保存草稿”，确认后再发布正式版本或运行。
+        </p>
+        <p v-if="syncMessage" class="script-action-hint" role="status">{{ syncMessage }}</p>
+        <p v-if="saveMessage" class="script-action-hint" role="status">{{ saveMessage }}</p>
         <p v-if="error" class="script-error" role="alert">{{ error }}</p>
         <slot v-if="!collapsed" />
     </div>
@@ -133,6 +157,9 @@ watch(()=>props.selectedId,(id,old)=>{if(id && id!==old){draftName.value='';expa
 .script-manage-actions button{border:1px solid var(--console-border);border-radius:6px;
     padding:5px 7px;background:var(--console-panel-raised);color:inherit;font-size:10px;cursor:pointer}
 .script-manage-actions button i{margin-right:4px}
+.script-manage-actions .draft-save{border-color:var(--p-primary-color);color:var(--p-primary-color)}
+.script-manage-actions .formal-publish{font-weight:600}
+.script-action-hint{margin:0;font-size:10px;line-height:1.55;color:var(--console-muted);overflow-wrap:anywhere}
 .script-empty,.script-sync-label,.script-error{margin:0;font-size:10px;line-height:1.4;color:var(--console-muted)}
 .script-error{color:var(--p-red-500)}
 button:disabled{opacity:.55;cursor:default}
