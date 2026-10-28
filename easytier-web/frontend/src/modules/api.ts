@@ -12,7 +12,7 @@ import type {
     DeviceCreateInput, DeviceType, DeviceTypeInput, GatewayCreateInput, GatewayGroup,
     GatewayGroupUpdateInput, GatewaySubnetsPreviewInput, InstanceCandidate, InstancePreview,
     PagedDevices, ServerAgentEntry, AssetAgentStatus, AssetAgentProbe, AssetAgentProbeInput,
-    AssetAgentPairInput, ServicePublicationNetwork, Subject,
+    AssetAgentPairInput, AgentHostResult, ServicePublicationNetwork, Subject,
 } from '../types/node-assets';
 
 export interface ValidateConfigResponse {
@@ -409,6 +409,20 @@ export class ApiClient {
     public async assetsAgentPair(scope: AssetScope, id: string, input: AssetAgentPairInput): Promise<AssetAgentProbe> {
         return this.client.post<unknown, AssetAgentProbe>(
             `/assets/devices/${encodeURIComponent(id)}/agent/pair`, input, { params: scope },
+        );
+    }
+
+    /** Calls the pinned Agent on demand. Offline results contain only the last saved snapshot. */
+    public async assetsAgentHost(scope: AssetScope, id: string): Promise<AgentHostResult> {
+        return this.client.get<unknown, AgentHostResult>(
+            `/assets/devices/${encodeURIComponent(id)}/agent/host`, { params: scope },
+        );
+    }
+    /** Software directory is a host-scoped setting, never a browser-to-Agent URL. */
+    public async assetsAgentSetRoot(scope: AssetScope, id: string, softwareRoot: string): Promise<AgentHostResult> {
+        return this.client.patch<unknown, AgentHostResult>(
+            `/assets/devices/${encodeURIComponent(id)}/agent/host/settings`,
+            { software_root: softwareRoot }, { params: scope },
         );
     }
 
