@@ -55,6 +55,7 @@ pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner>
         .route("/api/v1/automation/drafts/{id}", get(drafts::get_one).put(drafts::update).delete(drafts::discard))
         .route("/api/v1/automation/scripts", get(scripts::list).post(scripts::create))
         .route("/api/v1/automation/scripts/{id}", put(scripts::update).delete(scripts::remove))
+        .route("/api/v1/automation/scripts/{id}/safe-delete", post(scripts::safe_remove))
         .route("/api/v1/automation/runs", get(runs::list).post(runs::create))
         .route("/api/v1/automation/runs/{id}", get(runs::get_one))
         .route("/api/v1/automation/runs/{id}/refresh", post(runs::refresh))
