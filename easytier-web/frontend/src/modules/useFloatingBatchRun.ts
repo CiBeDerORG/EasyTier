@@ -9,7 +9,6 @@ import type { AutomationDevice, AutomationMediaSettings, AutomationRun, Automati
 import AutomationApi, { AutomationApiError, automationErrorMessage } from './automation-api';
 import { analyzeAutomationFlow } from './automation-flow';
 import { useCardTrialPreparation } from './useCardTrialPreparation';
-import { requiresAutomationHelper } from './automation-preflight';
 import { readBatchReceipt, reserveBatchReceipt, clearBatchReceipt, type BatchSubmissionReceipt } from './automation-batch-receipt';
 import { readTrialReceipt } from './automation-trial-receipt';
 
