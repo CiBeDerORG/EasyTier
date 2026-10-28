@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, toRef, watch } from 'vue';
-import { Button, Checkbox, Dialog, InputNumber, InputText, Select, Tag, Textarea } from 'primevue';
+import { computed, onBeforeUnmount, ref, toRef, watch } from 'vue';
+import { Button, Checkbox, Dialog, InputText, Select, Tag, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
-import type { AutomationDevice, AutomationRun, AutomationRunInput, AutomationScript, AutomationStep, AutomationStepType } from '../../types/automation';
-import { readTrialReceipt, reserveTrialReceipt, clearTrialReceipt, findTrialRun,
+import type { AutomationDevice, AutomationRun, AutomationScript, AutomationStep, AutomationStepType } from '../../types/automation';
+import { readTrialReceipt, clearTrialReceipt, findTrialRun,
     type TrialSubmissionReceipt } from '../../modules/automation-trial-receipt';
 import ScriptStepEditor from './ScriptStepEditor.vue';
 import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
@@ -13,19 +13,10 @@ import { addFlowBranchStep, createFlowCondition, removeFlowBlock } from '../../m
 import { emptyAutomationDraft, type AutomationDraftWorkspace } from '../../modules/automation-draft';
 import { stepCanPickTarget } from '../../modules/automation-step-target';
 import { businessCheckStepId } from '../../modules/automation-business-verification';
-import { stepTrialSafety, isolateAutomationStep, makeSingleStepRun } from '../../modules/automation-single-step';
 import {
     planAutomationRepair, cloneRepairSteps,
     type AutomationRepairRequest, type AutomationRepairPlan,
 } from '../../modules/automation-run-repair';
-import {
-    initPreflightRow, probePreflightRow, requiresAutomationHelper, selectedReadyIds, type PreflightRow,
-} from '../../modules/automation-preflight';
-import {
-    reviewAutomationDeviceCompatibility, statelessCompatibility, requiresReuseHierarchy,
-    compatibilityStillCurrent, type DeviceCompatibilityReview,
-} from '../../modules/automation-device-compatibility';
-
 const props = defineProps<{
     ownerId: number;
     selectedDeviceIds: string[];
@@ -37,10 +28,6 @@ const props = defineProps<{
     pickerDevices: { id: string; name: string }[];
     runDeviceSnapshots: AutomationDevice[];
     repairRequest?: AutomationRepairRequest | null;
-    prepareRunDevice: (id: string, needsHelper: boolean, preview: boolean,
-        progress: (message: string) => void, current: () => boolean) =>
-        Promise<{ sessionId?: string; stream?: MediaStream | null }>;
-    releaseRunPreviews: (ids: string[], progress: (message: string) => void) => Promise<void>;
 }>();
 const emit = defineEmits<{
     'run-created': [run: AutomationRun];
@@ -74,24 +61,6 @@ const repairOrigin = ref<{ runId: string; deviceId: string; revision?: number; i
 let repairGeneration = 0;
 const deleteVisible = ref(false);
 const deleteTarget = ref<AutomationScript>();
-const runVisible = ref(false);
-const runSubmitting = ref(false);
-const runError = ref('');
-const runMode = ref<'saved' | 'draft' | 'step'>('saved');
-const stepTrialSource = ref<{ id: string; index: number; type: AutomationStepType } | null>(null);
-const stepTrialConsent = ref(false);
-const trialRequiresConsent = computed(() => runMode.value === 'step' && runSteps.value.length === 1
-    && stepTrialSafety(runSteps.value[0]) === 'confirm_required');
-const runName = ref('');
-const runScriptId = ref<string>();
-const runRevision = ref<number>();
-const runSteps = ref<AutomationStep[]>([]);
-const runDevices = ref<string[]>([]);
-const runTrialDevice = ref<string>();
-const runConcurrency = ref<number | null>(1);
-const runParameters = ref<Record<string, string>>(Object.create(null));
-const pendingRun = ref<AutomationRunInput>();
-const uncertainRun = ref(false);
 const blockedRunReceipts=ref<TrialSubmissionReceipt[]>([]);
 const checkingOldRun=ref(false);
 function checkOldRunReceipts(ids:string[]):boolean {
@@ -133,25 +102,11 @@ async function recoverOldRunReceipts(){
     }finally{checkingOldRun.value=false;}
 }
 
-const preflightRows = ref<PreflightRow[]>([]);
-const deviceReuseReviews = ref<Record<string,DeviceCompatibilityReview>>({});
-const reuseConsent = ref(false);
-const selectedReuseIssues = computed(() => eligibleRunDevices.value.flatMap(id =>
-    deviceReuseReviews.value[id]?.issues.filter(issue=>issue.severity==='confirm')
-        .map(issue=>({deviceId:id,...issue})) ?? []));
-const preflightRunning = ref(false);
-const preflightError = ref('');
-const previewId = ref<string | null>(null);
-const previewStream = shallowRef<MediaStream | null>(null);
-const previewPlayer = ref<HTMLVideoElement | null>(null);
-watch(previewStream, stream => { if (previewPlayer.value) previewPlayer.value.srcObject = stream; },{flush:'post'});
-const runFingerprints = ref<Record<string, string | null>>({});
-let preflightGeneration = 0;
 let scopeRevision = 0;
 let listRequest = 0;
 let disposed = false;
 
-const busy = computed(() => saving.value || deleting.value || runSubmitting.value);
+const busy = computed(() => saving.value || deleting.value);
 const selectedStep = computed(() => steps.value.find(step => step.id === selectedStepId.value));
 const businessCheckId = computed(() => businessCheckStepId(steps.value));
 const selectedIsFinalAssertion = computed(() => {
@@ -187,155 +142,6 @@ function pickExistingStep() {
 }
 const draftJson = () => JSON.stringify({ name: name.value, description: description.value, steps: steps.value });
 const dirty = computed(() => draftJson() !== baseline.value);
-const parameterNames = computed(() => [...new Set(runSteps.value
-    .filter(step => step.type === 'input_text' && step.parameter !== undefined)
-    .map(step => step.parameter!.trim()))]);
-const runDeviceOptions = computed(() => runDevices.value.map(id => ({ value: id, label: props.deviceNames?.[id] || id })));
-const shownRunDevices = computed(() => runMode.value !== 'saved'
-    ? runDevices.value.filter(id => id === runTrialDevice.value) : runDevices.value);
-const eligibleRunDevices = computed(() => selectedReadyIds(preflightRows.value));
-const preflightFinished = computed(() => !preflightRunning.value && !preflightError.value
-    && preflightRows.value.length === shownRunDevices.value.length
-    && preflightRows.value.length > 0
-    && preflightRows.value.every(row => row.state !== 'checking'));
-const preflightLabels = computed<Record<PreflightRow['state'], string>>(() => ({
-    checking: text('检查中', 'Checking'),
-    ready: text('可执行', 'Ready'),
-    needs_preparation: text('需要准备', 'Needs preparation'),
-    unavailable: text('不可用', 'Unavailable'),
-    query_failed: text('查询失败', 'Check failed'),
-}));
-function preflightSeverity(state: PreflightRow['state']): 'success' | 'warn' | 'danger' | 'secondary' {
-    return state === 'ready' ? 'success'
-        : state === 'needs_preparation' ? 'warn'
-        : state === 'checking' ? 'secondary' : 'danger';
-}
-function selectPreflightDevice(id: string, checked: boolean) {
-    if (pendingRun.value || runSubmitting.value || preflightRunning.value) return;
-    const row = preflightRows.value.find(item => item.id === id);
-    if (row?.state === 'ready') row.selected = checked;
-}
-async function checkRunPreflight() {
-    if (!runVisible.value || pendingRun.value) return;
-    const generation = ++preflightGeneration;
-    deviceReuseReviews.value={};reuseConsent.value=false;
-    const owner = props.ownerId, scope = scopeRevision;
-    const ids = [...shownRunDevices.value];
-    if (!ids.length) {
-        preflightRows.value = []; preflightRunning.value = false;
-        preflightError.value = text('请选择试跑设备。', 'Select a trial device.');
-        return;
-    }
-    const initialDevices = new Map(props.runDeviceSnapshots.map(device => [device.id, device]));
-    previewId.value = null; previewStream.value = null;
-    preflightRows.value = ids.map(id => ({
-        ...initPreflightRow(initialDevices.get(id), id),
-        state: 'checking' as const, message: text('等待最新设备状态', 'Awaiting fresh device state'), selected: false,
-    }));
-    preflightError.value = '';
-    preflightRunning.value = true;
-    const valid = () => !disposed && generation === preflightGeneration && scope === scopeRevision
-        && owner === props.ownerId && runVisible.value && !pendingRun.value
-        && ids.join('\u0000') === shownRunDevices.value.join('\u0000');
-    try {
-        // The trial dialog is an explicit user request to connect and prepare.
-        // Keep each phone independent, and surface slow stages immediately.
-        const fresh = await api.devices(owner);
-        if (!valid()) return;
-        const latest = new Map(fresh.items.map(device => [device.id, device]));
-        const queue = [...ids];
-        const update = (row: PreflightRow) => {
-            if (!valid()) return;
-            const index = preflightRows.value.findIndex(item => item.id === row.id);
-            if (index >= 0) preflightRows.value[index] = row;
-        };
-        const worker = async () => {
-            while (queue.length && valid()) {
-                const id = queue.shift()!;
-                const device = latest.get(id);
-                const base = initPreflightRow(device ? {...device,active_session:null} : undefined,id);
-                if (base.state !== 'checking' || base.targetFingerprint !== runFingerprints.value[id]) {
-                    update(base.targetFingerprint !== runFingerprints.value[id] && base.state === 'checking'
-                        ? {...base,state:'unavailable',message:'设备绑定已改变，请重新选择机器。'} : base);
-                    continue;
-                }
-                try {
-                    const progress = (message: string) => update({...base,state:'checking',message,selected:false});
-                    const own = await props.prepareRunDevice(id,requiresAutomationHelper(runSteps.value),
-                        id === ids[0],progress,valid);
-                    if (!valid()) return;
-                    const latestDevice = (await api.devices(owner)).items.find(item=>item.id===id);
-                    if (!valid()) return;
-                    const row = initPreflightRow(latestDevice,id,own.sessionId);
-                    if (row.targetFingerprint !== runFingerprints.value[id]) {
-                        update({...row,state:'unavailable',selected:false,message:'设备绑定已变化，请重新打开试跑对话框。'});
-                        continue;
-                    }
-                    const probed=row.state==='checking'
-                        ? await probePreflightRow(row,owner,requiresAutomationHelper(runSteps.value),api) : row;
-                    if(!valid())return;
-                    if(probed.state==='ready' && latestDevice){
-                        try {
-                            const review=requiresReuseHierarchy(runSteps.value)
-                                ? reviewAutomationDeviceCompatibility(owner,latestDevice,
-                                    await api.hierarchy(owner,id),runSteps.value)
-                                : statelessCompatibility(owner,latestDevice,runSteps.value);
-                            if(!valid())return;
-                            if(review.status==='blocked'){
-                                update({...probed,state:'unavailable',selected:false,
-                                    message:'目标画面与脚本坐标不匹配：'+review.issues
-                                        .filter(item=>item.severity==='block')
-                                        .map(item=>'第'+item.stepNumber+'步').join('、')+'，请重新拾取。'});
-                                continue;
-                            }
-                            deviceReuseReviews.value={...deviceReuseReviews.value,[id]:review};
-                            update({...probed,message:review.status==='confirm'
-                                ? '连接就绪；定位与坐标需人工确认（详见下方）' : '连接与当前设备的只读核验通过'});
-                        }catch(cause){
-                            if(valid())update({...probed,state:'unavailable',selected:false,
-                                message:'跨机只读核验未通过：'+automationErrorMessage(cause)});
-                            continue;
-                        }
-                    }else update(probed);
-                    if (id===ids[0] && own.stream) {
-                        previewId.value=id; previewStream.value=own.stream;
-                    }
-                } catch (cause) {
-                    if (valid()) update({...base,state:'unavailable',selected:false,message:automationErrorMessage(cause)});
-                }
-            }
-        };
-        await Promise.all([worker(),worker()]);
-    } catch (cause) {
-        if (!valid()) return;
-        preflightError.value = automationErrorMessage(cause);
-        preflightRows.value = ids.map(id => ({
-            ...initPreflightRow(initialDevices.get(id), id),
-            state: 'query_failed', selected: false, message: text('设备准备或查询失败。', 'Device preparation or check failed.'),
-        }));
-    } finally {
-        if (valid()) preflightRunning.value = false;
-    }
-}
-watch(runTrialDevice, (next, previous) => {
-    // Side-effect acknowledgement is scoped to the selected phone. Moving
-    // to another target always requires a fresh explicit confirmation.
-    if (runVisible.value && runMode.value === 'step' && next !== previous)
-        stepTrialConsent.value = false;
-    if(next!==previous)reuseConsent.value=false;
-});
-watch([runVisible, runTrialDevice], ([visible], [wasVisible]) => {
-    if (!visible) {
-        preflightGeneration++;
-        preflightRows.value = []; preflightRunning.value = false; preflightError.value = '';
-        deviceReuseReviews.value={};reuseConsent.value=false;
-        previewId.value = null; previewStream.value = null;
-        void props.releaseRunPreviews([],()=>{}).catch(()=>{ /* next submission still checks server cleanup */ });
-        return;
-    }
-    if (!pendingRun.value && (runMode.value !== 'saved' || !wasVisible))
-        void checkRunPreflight();
-});
 const stepTitles = computed<Record<AutomationStepType, string>>(() => ({
     key: text('导航按键', 'Navigation key'), tap: text('点击', 'Tap'),
     long_press: text('长按', 'Long press'), swipe: text('滑动', 'Swipe'), drag: text('拖拽', 'Drag'),
@@ -723,218 +529,28 @@ async function deleteScript() {
         if (!disposed && scope === scopeRevision) deleting.value = false;
     }
 }
-function prepareSingleStep() {
-    if (busy.value || !selectedStep.value) return;
-    if (pendingRun.value && uncertainRun.value) { runVisible.value = true; return; }
-    const index = steps.value.findIndex(step => step.id === selectedStepId.value);
-    const step = index >= 0 ? isolateAutomationStep(normalizeSteps()[index]) : null;
-    if (!step) {
-        error.value = text('条件分支必须随脚本执行，不能脱离上下文单步试跑。',
-            'Conditional branches cannot be safely run without their complete script.');
-        return;
-    }
-    const invalid = validationError([step], true);
-    if (invalid) { error.value = invalid; return; }
-    const ids = [...new Set(props.pickerDevices.map(device => device.id))];
-    if (!ids.length) {
-        error.value = text('没有可用的手机。请先在设备工作台配置 ADB 服务。',
-            'No available phones. Configure ADB on the device workbench first.');
-        return;
-    }
-    if(!checkOldRunReceipts([defaultPickerDevice.value??ids[0]]))return;
-    runFingerprints.value = Object.fromEntries(ids.map(id => [
-        id, props.runDeviceSnapshots.find(device => device.id === id)?.target_fingerprint ?? null,
-    ]));
-    const preferred = defaultPickerDevice.value;
-    runMode.value = 'step';
-    runName.value = text('单步骤诊断', 'Single-step diagnostic');
-    runSteps.value = [step]; // fixed snapshot; later editor changes are isolated
-    stepTrialSource.value = { id: step.id, index, type: step.type };
-    stepTrialConsent.value = false;
-    runDevices.value = ids;
-    runTrialDevice.value = preferred && ids.includes(preferred) ? preferred : ids[0];
-    runScriptId.value = undefined; runRevision.value = undefined;
-    runConcurrency.value = 1;
-    runParameters.value = Object.create(null);
-    pendingRun.value = undefined; uncertainRun.value = false;
-    runError.value = ''; runVisible.value = true;
-}
-function prepareRun(mode: 'saved' | 'draft') {
-    if (busy.value) return;
-    if (pendingRun.value && uncertainRun.value) { runVisible.value = true; return; }
-    const invalid = validationError();
-    if (invalid) { error.value = invalid; return; }
-    if (mode === 'saved' && (!editingId.value || dirty.value)) {
-        error.value = text('请先保存当前草稿，再批量运行。', 'Save the current draft before a batch run.'); return;
-    }
-    const ids = [...new Set(props.selectedDeviceIds)];
-    if (!ids.length) { error.value = text('请先在设备工作台选择目标手机。', 'Select target phones in the device workspace first.'); return; }
-    if (ids.length > 20) { error.value = text('一次最多运行 20 台手机，请先缩小工作台选择。', 'A run supports at most 20 devices. Reduce the selection first.'); return; }
-    if(!checkOldRunReceipts(ids))return;
-    runFingerprints.value = Object.fromEntries(ids.map(id => [
-        id, props.runDeviceSnapshots.find(device => device.id === id)?.target_fingerprint ?? null,
-    ]));
-    runMode.value = mode;
-    stepTrialSource.value = null; stepTrialConsent.value = false;
-    runName.value = name.value.trim();
-    runSteps.value = normalizeSteps();
-    runDevices.value = ids;
-    runTrialDevice.value = ids[0];
-    runScriptId.value = mode === 'saved' ? editingId.value : undefined;
-    runRevision.value = mode === 'saved' ? revision.value : undefined;
-    runConcurrency.value = Math.min(3, ids.length);
-    runParameters.value = Object.create(null);
-    pendingRun.value = undefined; uncertainRun.value = false;
-    runError.value = ''; runVisible.value = true;
-}
-async function submitRun() {
-    if (runSubmitting.value || preflightRunning.value) return;
-    if (!pendingRun.value) {
-        if (!preflightFinished.value) {
-            runError.value = text('请先完成设备预检。', 'Complete device preflight first.');
-            return;
-        }
-        const ids = eligibleRunDevices.value;
-        const stale=ids.find(id=>{
-            const device=props.runDeviceSnapshots.find(item=>item.id===id);
-            return !device || !compatibilityStillCurrent(
-                deviceReuseReviews.value[id]??null,props.ownerId,device,runSteps.value);
-        });
-        if(stale){
-            runError.value='设备核验已过期、步骤或绑定已改变，请重新检查：'+(props.deviceNames?.[stale]??stale);
-            return;
-        }
-        if(selectedReuseIssues.value.length && !reuseConsent.value){
-            runError.value='当前脚本存在跨机定位或坐标风险，请在执行前明确勾选确认。';return;
-        }
-        if (runMode.value === 'step' && ids.length !== 1) {
-            runError.value = text('单步骤试跑必须且只能选择一台通过预检的手机。',
-                'Single-step trials require exactly one ready device.');
-            return;
-        }
-        if (!ids.length) {
-            runError.value = text('没有选中可执行的设备；请重新预检或先到工作台准备设备。',
-                'No ready device selected. Recheck or prepare devices on the workbench.');
-            return;
-        }
-        if (parameterNames.value.some(key => typeof runParameters.value[key] !== 'string' || new TextEncoder().encode(runParameters.value[key]).length > 2000)) {
-            runError.value = text('请填写全部运行参数，每项最多 2000 字节。', 'Fill every run parameter, at most 2000 bytes each.'); return;
-        }
-        if (runMode.value === 'step') {
-            const one = runSteps.value[0];
-            const payload = one && makeSingleStepRun(one, ids[0], uuid(), runParameters.value,
-                stepTrialConsent.value);
-            if (!payload) {
-                runError.value = text('此步骤需要您明确确认可能产生的副作用。',
-                    'Explicit confirmation of this step’s possible side effects is required.');
-                return;
-            }
-            pendingRun.value = payload;
-        } else {
-            pendingRun.value = {
-                request_id: uuid(), device_ids: [...ids], parameters: { ...runParameters.value },
-                concurrency: Math.max(1, Math.min(ids.length, Math.floor(runConcurrency.value ?? 1))),
-                ...(runMode.value === 'saved'
-                    ? { script_id: runScriptId.value, revision: runRevision.value }
-                    : { name: runName.value, steps: cloneSteps(runSteps.value) }),
-            };
-        }
-    }
-    const scope = scopeRevision;
-    const owner = props.ownerId;
-    const payload = pendingRun.value;
-    if (!payload) return;
-    runSubmitting.value = true; runError.value = '';
-    let dispatched = false;
-    const reservedReceipts:TrialSubmissionReceipt[]=[];
-    const newlyReserved:TrialSubmissionReceipt[]=[];
-    try {
-        // The browser preview is not allowed to execute a script. Close and
-        // verify its cleanup BEFORE the normal exclusive run admission.
-        await props.releaseRunPreviews([...payload.device_ids],message=>{ if (!disposed && scope===scopeRevision) runError.value=message; });
-        if (disposed || scope !== scopeRevision) return;
-        const confirmed = await api.devices(owner);
-        if (disposed || scope !== scopeRevision) return;
-        for (const id of payload.device_ids) {
-            const device = confirmed.items.find(item=>item.id===id);
-            if (!device || device.target_fingerprint !== runFingerprints.value[id] ||
-                device.availability_reason || device.active_session || device.run_occupied)
-                throw new Error('设备会话尚未移交或绑定状态已改变，请重新检查该手机：'+(device?.name || id));
-            const review=requiresReuseHierarchy(runSteps.value)
-                ? reviewAutomationDeviceCompatibility(owner,device,
-                    await api.hierarchy(owner,id),runSteps.value)
-                : statelessCompatibility(owner,device,runSteps.value);
-            if(review.status==='blocked' ||
-                JSON.stringify(review.issues)!==JSON.stringify(deviceReuseReviews.value[id]?.issues))
-                throw new Error('手机定位/画面兼容性已改变，请重新核对后试跑：'+(device?.name||id));
-            if(review.status==='confirm' && !reuseConsent.value)
-                throw new Error('尚未确认跨手机定位风险：'+(device?.name||id));
-        }
-        previewId.value=null; previewStream.value=null;
-        runError.value='';
-        // The same POST UUID is reserved for EACH selected device before
-        // the first network request. Do not persist the script or parameters.
-        for(const id of payload.device_ids){
-            const previous=readTrialReceipt(window.sessionStorage,owner,id);
-            const proof:TrialSubmissionReceipt=previous??{
-                ownerId:owner,deviceId:id,stepId:runSteps.value[0]?.id??'',
-                requestId:payload.request_id,createdAt:new Date().toISOString(),
-            };
-            reserveTrialReceipt(window.sessionStorage,proof);
-            reservedReceipts.push(proof);
-            if(!previous)newlyReserved.push(proof);
-        }
-        dispatched = true;
-        const run = await api.createRun(owner, payload);
-        if (disposed || scope !== scopeRevision) return;
-        if(!run.id || !payload.device_ids.every(id=>run.devices.some(d=>d.device_id===id)))
-            throw new Error('服务器运行回执没有全部目标设备，不能证明此次请求未发生。');
-        for(const proof of reservedReceipts)clearTrialReceipt(window.sessionStorage,proof);
-        blockedRunReceipts.value=[];
-        runVisible.value = false; pendingRun.value = undefined; uncertainRun.value = false;
-        runParameters.value = Object.create(null);
-        notice.value = text('任务已登记，请在执行记录查看逐台结果。', 'Run registered. See individual results in execution history.');
-        emit('run-created', run);
-    } catch (cause) {
-        if (disposed || scope !== scopeRevision) return;
-        runError.value = automationErrorMessage(cause);
-        // A 401/403/409 may follow an earlier accepted request. Keep its UUID
-        // unless the server proves a deterministic input validation failure.
-        const definitive=dispatched && cause instanceof AutomationApiError &&
-            [400,422].includes(cause.status);
-        if(!dispatched || definitive){
-            for(const proof of definitive?reservedReceipts:newlyReserved)
-                try{clearTrialReceipt(window.sessionStorage,proof);}catch{/* preserve on failure */}
-        }
-        uncertainRun.value=dispatched && !definitive;
-        if(!uncertainRun.value)pendingRun.value=undefined;
-        else runError.value+=text(' 原请求身份已保留；请先核对执行历史，不得用新的请求编号重放动作。',
-            ' Original request ID retained; inspect history before creating any new request.');
-    } finally {
-        if (!disposed && scope === scopeRevision) runSubmitting.value = false;
-    }
-}
-
 watch(() => props.ownerId, () => {
     scopeRevision++; listRequest++; repairGeneration++;
     pendingRepairPlan.value = null; repairOrigin.value = null;
     scripts.value = []; loading.value = false; saving.value = false; deleting.value = false;
-    runVisible.value = false; deleteVisible.value = false; runSubmitting.value = false;
-    runParameters.value = Object.create(null); pendingRun.value = undefined; uncertainRun.value = false;
+    deleteVisible.value = false;
     blockedRunReceipts.value=[];checkingOldRun.value=false;
-    runSteps.value = []; runDevices.value = []; runName.value = ''; deleteTarget.value = undefined;
-    stepTrialSource.value = null; stepTrialConsent.value = false;
-    preflightGeneration++; preflightRows.value = []; preflightRunning.value = false; preflightError.value = '';
-    runFingerprints.value = {};
-    deviceReuseReviews.value={};reuseConsent.value=false;
+    deleteTarget.value = undefined;
     if (props.draft.ownerId !== props.ownerId) {
         Object.assign(props.draft, emptyAutomationDraft(props.ownerId));
     }
-    if (props.ownerId > 0) void loadScripts();
+    if (props.ownerId > 0) {
+        void loadScripts();
+        // T46: retain recovery for legacy unknown requests after removing the
+        // redundant modal. Discovery is read-only; never resubmit.
+        checkOldRunReceipts(props.runDeviceSnapshots.map(device=>device.id));
+    }
 }, { immediate: true });
+watch(()=>props.runDeviceSnapshots.map(device=>device.id).join(','),()=>{
+    if(props.ownerId>0)checkOldRunReceipts(props.runDeviceSnapshots.map(device=>device.id));
+});
 onBeforeUnmount(() => {
-    disposed = true; scopeRevision++; listRequest++; preflightGeneration++; repairGeneration++;
-    runParameters.value = Object.create(null); pendingRun.value = undefined;
+    disposed = true; scopeRevision++; listRequest++; repairGeneration++;
 });
 watch(() => props.repairRequest, request => {
     if (request) void receiveRepairRequest(request);
@@ -986,8 +602,7 @@ watch(() => props.repairRequest, request => {
                         <small v-if="draftSyncMessage" class="draft-sync-error">{{ draftSyncMessage }}</small>
                     </div>
                     <div class="button-row">
-                        <Button :label="text('单机试跑', 'Trial run')" icon="pi pi-play" severity="secondary" outlined size="small" :disabled="busy || !steps.length" @click="prepareRun('draft')" />
-                        <Button :label="text('保存正式脚本', 'Publish script')" icon="pi pi-save" size="small" :loading="saving" :disabled="deleting || runSubmitting" @click="save" />
+                        <Button :label="text('保存正式脚本', 'Publish script')" icon="pi pi-save" size="small" :loading="saving" :disabled="deleting" @click="save" />
                     </div>
                 </div>
                 <div class="draft-meta">
@@ -1085,19 +700,14 @@ watch(() => props.repairRequest, request => {
                             </small>
                         </div>
                         <ScriptStepEditor v-if="selectedStep" :model-value="selectedStep" :disabled="busy" @update:model-value="updateStep" />
-                        <div v-if="selectedStep" class="single-step-action">
-                            <Button :label="text('单独试跑此步骤', 'Trial this step')" icon="pi pi-play" size="small" outlined
-                                :disabled="busy || ['if_gone','if_else'].includes(selectedStep.type)"
-                                @click="prepareSingleStep" />
-                            <small v-if="['if_gone','if_else'].includes(selectedStep.type)">
-                                {{ text('条件分支必须完整执行，不能单独试跑分支节点。', 'Conditions must run within the full script and cannot be tested in isolation.') }}
-                            </small>
-                            <small v-else>{{ text('只发起一个步骤、选择一台设备，依旧遵守执行器独占与授权。', 'Runs one step on one phone through the normal authorized executor.') }}</small>
-                        </div>
+                        <p v-if="selectedStep" class="muted" role="status">
+                            {{ text('单步 ▶ 请在工作台原手机卡片的脚本浮窗中执行；不会另外打开视频或切换页面。',
+                                'Use the original phone card script window for a one-step trial. No secondary video is opened.') }}
+                        </p>
                         <div v-else class="console-empty-state"><i class="pi pi-list" aria-hidden="true" /><h2>{{ text('从第一个步骤开始', 'Add the first step') }}</h2><p>{{ text('选择有限操作，填写目标与条件。运行前可先在一台手机试跑。', 'Choose an action and its target conditions. Try the draft on one phone before a batch run.') }}</p></div>
                     </div>
                 </div>
-                <div class="draft-footer"><span class="muted">{{ text(`工作台已选 ${selectedDeviceIds.length} 台设备`, `${selectedDeviceIds.length} devices selected in the workspace`) }}</span><Button :label="text('运行已保存脚本', 'Run saved script')" icon="pi pi-play-circle" :disabled="busy || !editingId || dirty" @click="prepareRun('saved')" /></div>
+                <div class="draft-footer"><span class="muted">{{ text(`工作台已选 ${selectedDeviceIds.length} 台设备`, `${selectedDeviceIds.length} devices selected in the workspace`) }}</span><span class="muted">{{ text('完整脚本执行已迁移到工作台手机原画面的脚本浮窗；此页仅编辑、保存及管理历史脚本。', 'Run full scripts in the phone card floating window; this page manages saved scripts.') }}</span></div>
             </div>
         </div>
 
@@ -1118,88 +728,6 @@ watch(() => props.repairRequest, request => {
             <template #footer><Button :label="text('取消', 'Cancel')" text :disabled="deleting" @click="deleteVisible = false" /><Button :label="text('删除', 'Delete')" severity="danger" :loading="deleting" @click="deleteScript" /></template>
         </Dialog>
 
-        <Dialog v-model:visible="runVisible" modal :header="runMode === 'step' ? text('确认单步骤试跑', 'Confirm single-step trial') : runMode === 'draft' ? text('确认单机试跑', 'Confirm trial run') : text('确认批量运行', 'Confirm batch run')" :style="{ width: '620px', maxWidth: 'calc(100vw - 24px)' }" :closable="!runSubmitting" :close-on-escape="!runSubmitting">
-            <div class="run-form">
-                <p><strong>{{ runName }}</strong> · {{ text(`${runSteps.length} 步`, `${runSteps.length} steps`) }} <Tag :value="runMode === 'draft' ? text('当前草稿快照', 'Current draft snapshot') : text(`修订 ${runRevision}`, `Revision ${runRevision}`)" severity="info" />
-                    <Tag :value="businessCheckStepId(runSteps) ? text('启用业务成功断言', 'Business check enabled') : text('业务未配置验证', 'No business check')" :severity="businessCheckStepId(runSteps) ? 'success' : 'secondary'" /></p>
-                <p class="muted">{{ text('本次目标和步骤已固定。后续修改草稿或工作台选择，不会改变本次运行。某台失败只停止该台，其余继续。', 'Targets and steps are fixed for this run. Later edits or selections do not change it. A device failure stops that device; the others continue.') }}</p>
-                <div v-if="runMode === 'step' && stepTrialSource && runSteps[0]" class="single-step-preview" role="status">
-                    <strong>{{ text('仅执行第', 'Run only step') }} {{ stepTrialSource.index + 1 }} {{ text('步', '') }}
-                        · {{ stepTitles[stepTrialSource.type] }}</strong>
-                    <small>{{ text('原步骤 ID', 'Original step ID') }} · {{ stepTrialSource.id }}</small>
-                    <Tag :value="trialRequiresConsent ? text('可能改变设备 / 保存截图', 'Side effects / stored screenshot') : text('只读控件检查', 'Read-only UI check')"
-                         :severity="trialRequiresConsent ? 'warn' : 'success'" />
-                    <p>{{ text('不会执行前面的登录/导航或后面的断言；如果此步骤依赖前置页面状态，请先手工准备测试手机。',
-                        'No preceding setup actions or following assertions run. Prepare the phone manually if this step needs earlier page state.') }}</p>
-                    <label v-if="trialRequiresConsent" class="single-step-consent">
-                        <Checkbox :model-value="stepTrialConsent" binary :disabled="runSubmitting || !!pendingRun"
-                            @update:model-value="stepTrialConsent = !!$event" />
-                        <strong>{{ text('我确认仅在授权的测试设备上执行此动作，并已检查可能产生的副作用。',
-                            'I confirm this action is authorized on the test phone and understand its side effects.') }}</strong>
-                    </label>
-                    <small v-if="trialRequiresConsent">{{ text('输入、点击或启动应用可能产生不可撤销的影响。截图可能保留敏感画面；动作结果未知时不会自动重发。',
-                        'Typing, tapping or launching an app can be irreversible. Screenshots may retain sensitive content. Unknown outcomes are never automatically replayed.') }}</small>
-                </div>
-                <label v-if="runMode !== 'saved'" class="field" for="automation-trial-device"><span>{{ text('试跑设备', 'Trial device') }}</span><Select input-id="automation-trial-device" v-model="runTrialDevice" :options="runDeviceOptions" option-label="label" option-value="value" :disabled="runSubmitting || !!pendingRun" /></label>
-                <div class="run-preflight" aria-live="polite">
-                    <div class="run-preflight-heading">
-                        <strong>{{ text('执行前设备预检', 'Device preflight') }}</strong>
-                        <Button :label="text('重新检查', 'Recheck')" icon="pi pi-refresh" outlined size="small"
-                            :loading="preflightRunning" :disabled="runSubmitting || !!pendingRun"
-                            @click="checkRunPreflight" />
-                    </div>
-                    <p class="muted">{{ text('选择机器后自动连接 ADB、按需初始化 UiAutomator2 并打开预览；进度逐台显示。不会自动无线配对。确认运行前将先关闭本页预览并核实清理完成。',
-                        'Selecting a phone connects ADB, prepares UI automation when needed and opens a preview. Progress is shown per device. No automatic wireless pairing; preview closes before run.') }}</p>
-                    <div v-if="previewStream && previewId" class="trial-preview">
-                        <strong>{{ text('实时画面预览', 'Live phone preview') }} · {{ deviceNames?.[previewId] || previewId }}</strong>
-                        <video ref="previewPlayer" :key="previewId" autoplay muted playsinline />
-                        <small>{{ text('此画面将在确认运行时关闭，完成控制权移交后才执行步骤。', 'Preview closes before exclusive execution begins.') }}</small>
-                    </div>
-                    <p v-if="preflightError" class="error-message" role="alert">{{ preflightError }}</p>
-                    <ul class="preflight-list">
-                        <li v-for="row in preflightRows" :key="row.id" class="preflight-device">
-                            <Checkbox :model-value="row.selected" binary
-                                :disabled="runSubmitting || !!pendingRun || preflightRunning || row.state !== 'ready'"
-                                :input-id="`automation-preflight-${row.id}`"
-                                @update:model-value="selectPreflightDevice(row.id, !!$event)" />
-                            <div class="preflight-device-detail">
-                                <label :for="`automation-preflight-${row.id}`"><strong>{{ row.name }}</strong></label>
-                                <small v-if="row.name !== row.id">{{ row.id }}</small>
-                                <small>{{ row.message }}</small>
-                            </div>
-                            <Tag :value="preflightLabels[row.state]" :severity="preflightSeverity(row.state)" />
-                        </li>
-                    </ul>
-                    <p v-if="selectedReuseIssues.length" class="muted" role="status">
-                        {{ text('跨手机复用存在需要核对的定位/坐标条件：',
-                            'Cross-device reuse needs explicit locator/coordinate review:') }}
-                        <span v-for="item in selectedReuseIssues.slice(0,8)" :key="item.deviceId+item.stepId+item.message">
-                            {{ deviceNames?.[item.deviceId]||item.deviceId }} · {{ item.stepNumber }}：{{ item.message }}
-                        </span>
-                    </p>
-                    <label v-if="selectedReuseIssues.length" class="single-step-consent">
-                        <Checkbox v-model="reuseConsent" binary :disabled="runSubmitting || !!pendingRun"/>
-                        <strong>{{ text('我已人工核对所选手机的定位和画面布局；此确认仅针对本次执行。',
-                            'I reviewed the target phone layouts and locators. Approval applies to this run only.') }}</strong>
-                    </label>
-                    <p class="muted">
-                        {{ text(`已选 ${eligibleRunDevices.length} 台可执行设备 / ${preflightRows.length} 台目标设备`,
-                            `${eligibleRunDevices.length} ready devices selected / ${preflightRows.length} targets`) }}
-                        · {{ preflightRunning ? text('正在查询…', 'Checking…') : text('预检为即时快照，开始执行时服务端仍会二次验证。', 'This is a snapshot. The server rechecks before execution.') }}
-                    </p>
-                </div>
-                <label v-if="runMode === 'saved'" class="field" for="automation-run-concurrency"><span>{{ text('同时执行设备数', 'Concurrent devices') }}</span><InputNumber input-id="automation-run-concurrency" v-model="runConcurrency" :min="1"  :use-grouping="false" :disabled="runSubmitting || !!pendingRun" /></label>
-                <label v-for="parameter in parameterNames" :key="parameter" class="field" :for="`automation-param-${parameter}`"><span>{{ text('参数', 'Parameter') }} · {{ parameter }}</span><InputText :id="`automation-param-${parameter}`" v-model="runParameters[parameter]" type="password" autocomplete="new-password" :maxlength="2000" :disabled="runSubmitting || !!pendingRun" /></label>
-                <p v-if="parameterNames.length" class="muted">{{ text('参数仅提交给本次运行；不会写回脚本草稿。', 'Parameters apply to this run and are not written back to the script draft.') }}</p>
-                <p class="muted">{{ text('关闭页面不会取消已提交的任务。需要停止时，请在执行记录中取消；已经发生的手机操作无法撤回。', 'Closing this page does not cancel a submitted run. Cancel in execution history to stop subsequent steps; completed phone actions cannot be undone.') }}</p>
-                <p v-if="runError" class="error-message" role="alert">{{ runError }}</p>
-            </div>
-            <template #footer><Button :label="text('关闭', 'Close')" text :disabled="runSubmitting" @click="runVisible = false" /><Button :label="uncertainRun ? text('重试同一请求', 'Retry same request') : text('确认运行', 'Start run')" icon="pi pi-play" :loading="runSubmitting"
-                :disabled="!pendingRun && (!preflightFinished || !eligibleRunDevices.length ||
-                    (trialRequiresConsent && !stepTrialConsent) ||
-                    (selectedReuseIssues.length>0 && !reuseConsent))"
-                @click="submitRun" /></template>
-        </Dialog>
     </section>
 </template>
 
