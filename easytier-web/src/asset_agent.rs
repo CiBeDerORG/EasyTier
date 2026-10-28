@@ -596,7 +596,7 @@ impl Manager {
         }
         let resource = inventory["resources"]
             .as_array()
-            .and_then(|items| items.iter().find(|item| item["resource_id"].as_str() == Some(&input.resource_id)))
+            .and_then(|items| items.iter().find(|item| item["resource_id"].as_str() == Some(input.resource_id.as_str())))
             .ok_or(Error::Conflict("Resource is absent from a complete Docker inventory"))?;
         if resource["managed"] == true {
             return Err(Error::Conflict("Resource is already managed by the Agent"));
