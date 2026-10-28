@@ -95,6 +95,28 @@ def execute(target, step, parameters, artifact_path=None):
                 raise StepFailure("selector_not_found", "在规定时间内未找到控件")
             time.sleep(min(.2, max(0, deadline - time.monotonic())))
 
+    if kind == "locator_verify":
+        # Strictly read-only: recapture the hierarchy and match exactly one
+        # element against the user's ORIGINAL selected screen bounds.
+        from .hierarchy import xpath_match
+        from .errors import ExecutorError
+        width, height = dev.window_size()
+        xml = rpc("dumpWindowHierarchy", False, 50, timeout=12)
+        try:
+            bounds = xpath_match(xml, step["xpath"], width, height)
+        except ExecutorError as exc:
+            if exc.code == "selector_ambiguous":
+                return {"device_id": target["device_id"], "target_fingerprint": target["target_fingerprint"],
+                        "verified": False, "reason": "ambiguous", "bounds": None}
+            raise StepFailure(exc.code, exc.message) from None
+        expected = step["expected_bounds"]
+        # A different display or moved target requires a new user pick.
+        same = bounds is not None and width == step["width"] and height == step["height"] and all(
+            abs(bounds[k] - expected[k]) <= 3 for k in ("left", "top", "right", "bottom"))
+        return {"device_id": target["device_id"], "target_fingerprint": target["target_fingerprint"],
+                "verified": bool(same), "reason": "verified" if same else "snapshot_changed",
+                "bounds": bounds if same else None}
+
     if kind == "hierarchy":
         # Internal read-only snapshot: rejected by public script validation.
         from .hierarchy import parse_hierarchy

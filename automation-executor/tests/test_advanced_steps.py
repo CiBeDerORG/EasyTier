@@ -32,8 +32,9 @@ class FakeDevice:
 
 
 class ActionHarness:
-    def __init__(self, count=None, info=None, on_swipe=None):
+    def __init__(self, count=None, info=None, on_swipe=None, hierarchy=None):
         self.calls = []
+        self.hierarchy = hierarchy
         self.count = count or (lambda sel: 1)
         self.info = info or (lambda sel: {})
         self.on_swipe = on_swipe
@@ -45,6 +46,8 @@ class ActionHarness:
             return self.count(params[0])
         if method == "objInfo":
             return self.info(params[0])
+        if method == "dumpWindowHierarchy":
+            return self.hierarchy
         if method in ("swipe", "click", "drag"):
             return self.on_swipe() if self.on_swipe else True
         raise AssertionError("Unexpected method: " + method)
@@ -134,6 +137,36 @@ class AdvancedExecutionTests(unittest.TestCase):
                                   timeout_ms=500))
                 selectors = [params[0].values for method, params in runner.calls if method == "count"]
                 self.assertIn({"description": "领淘金币", native: state}, selectors)
+
+
+    def test_relational_verification_is_read_only_and_checks_original_bounds(self):
+        xml = '''<hierarchy>
+          <node class="android.widget.FrameLayout" bounds="[0,0][320,640]">
+           <node class="android.widget.FrameLayout" bounds="[0,100][320,250]">
+            <node class="android.widget.TextView" text="每日签到" bounds="[0,110][100,140]"/>
+            <node class="android.widget.FrameLayout" content-desc="领淘金币" bounds="[180,160][300,230]"/>
+           </node>
+           <node class="android.widget.FrameLayout" bounds="[0,260][320,420]">
+            <node class="android.widget.TextView" text="浏览商品" bounds="[0,270][100,310]"/>
+            <node class="android.widget.FrameLayout" content-desc="领淘金币" bounds="[180,330][300,400]"/>
+           </node>
+          </node></hierarchy>'''
+        xpath = "//*[@text='浏览商品']/ancestor::*[1]//*[@content-desc='领淘金币']"
+        expected = {"left": 180, "top": 330, "right": 300, "bottom": 400}
+        args = dict(xpath=xpath, expected_bounds=expected, width=320, height=640, timeout_ms=20000)
+        runner = ActionHarness(hierarchy=xml)
+        result = runner.run(record("locator_verify", **args))
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["bounds"], expected)
+        self.assertNotIn("click", [m for m,_ in runner.calls])
+        self.assertNotIn("setText", [m for m,_ in runner.calls])
+        changed = ActionHarness(hierarchy=xml).run(record("locator_verify",
+            **{**args, "expected_bounds": {**expected, "top": 140}}))
+        self.assertFalse(changed["verified"])
+        ambiguous = ActionHarness(hierarchy=xml).run(record("locator_verify",
+            **{**args, "xpath": "//*[@content-desc='领淘金币']"}))
+        self.assertFalse(ambiguous["verified"])
+        self.assertEqual(ambiguous["reason"], "ambiguous")
 
     def test_wait_gone_never_sends_an_action(self):
         checks = iter([2, 2, 0])

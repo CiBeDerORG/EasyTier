@@ -80,6 +80,39 @@ pub(super) async fn hierarchy(
     Ok(([("Cache-Control", "no-store")], Json(result)))
 }
 
+/// Authenticated and read-only; never clicks or executes the script.
+pub(super) async fn verify_locator(
+    auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service,
+    Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput,
+    Path(raw_id): Path<String>, headers: HeaderMap, input: Body,
+) -> HttpResult<([(&'static str, &'static str); 1], Json<Value>)> {
+    require_origin(&headers, false)?;
+    let owner = owner(query)?;
+    let did = id(&raw_id)?;
+    let payload = body(input)?;
+    exact_fields(&payload, &["xpath", "expected_bounds", "width", "height"])?;
+    let expression = payload["xpath"].as_str().filter(|s| (1..=512).contains(&s.len())
+        && (s.starts_with('/') || s.starts_with('(')))
+        .ok_or_else(||error(StatusCode::UNPROCESSABLE_ENTITY,"xpath_invalid","关联定位表达式无效"))?;
+    let bounds=&payload["expected_bounds"];
+    exact_fields(bounds, &["left","top","right","bottom"])?;
+    if ["left","top","right","bottom"].iter().any(|k|bounds[*k].as_u64().is_none_or(|n|n>16384))
+        || payload["width"].as_u64().is_none_or(|n|!(1..=16384).contains(&n))
+        || payload["height"].as_u64().is_none_or(|n|!(1..=16384).contains(&n)) {
+        return Err(error(StatusCode::UNPROCESSABLE_ENTITY,"selector_geometry_invalid","控件区域或屏幕尺寸无效"));
+    }
+    let target=observed(&auth,&manager,&service,&config,owner,&did).await?;
+    let result=runner(&runtime)?.post("automation/locator-verify",&json!({
+        "target":wire_target(&target), "xpath":expression,
+        "expected_bounds":bounds, "width":payload["width"], "height":payload["height"],
+    })).await?;
+    if result["device_id"]!=did || result["target_fingerprint"]!=target["target_fingerprint"]
+        || !result["verified"].is_boolean() {
+        return Err(error(StatusCode::BAD_GATEWAY,"runner_response_invalid","定位验证的设备身份不一致"));
+    }
+    Ok(([("Cache-Control","no-store")],Json(result)))
+}
+
 pub(super) async fn adb_status(
     auth: AuthSession, State(manager): State<AppStateInner>, Extension(service): Service,
     Extension(config): Config, Extension(runtime): Runtime, query: OwnerInput,

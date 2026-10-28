@@ -43,6 +43,31 @@ class XPathSelectorTests(unittest.TestCase):
             xpath_match(XML, "//android.widget.Button", 320, 640)
         self.assertEqual(raised.exception.code, "selector_ambiguous")
 
+
+    def test_semantic_anchor_survives_reordered_task_cards(self):
+        def xml(first):
+            tasks = {
+                "sign": '<node class="android.widget.FrameLayout" bounds="[0,100][320,240]">'
+                        '<node class="android.widget.TextView" text="每日签到" bounds="[10,100][150,135]"/>'
+                        '<node class="android.widget.FrameLayout" content-desc="领淘金币" bounds="[180,145][300,220]"/>'
+                        '</node>',
+                "browse": '<node class="android.widget.FrameLayout" bounds="[0,260][320,400]">'
+                          '<node class="android.widget.TextView" text="浏览商品" bounds="[10,270][150,305]"/>'
+                          '<node class="android.widget.FrameLayout" content-desc="领淘金币" bounds="[180,315][300,390]"/>'
+                          '</node>',
+            }
+            return '<hierarchy><node class="android.widget.FrameLayout" bounds="[0,0][320,640]">' + (
+                tasks[first] + tasks["browse" if first == "sign" else "sign"]
+            ) + '</node></hierarchy>'
+        expr = "//*[@text='浏览商品']/ancestor::*[1]//*[@content-desc='领淘金币']"
+        self.assertEqual(xpath_match(xml("sign"), expr, 320, 640)["top"], 315)
+        # Dynamic list reordering changes node numbering but not target identity.
+        self.assertEqual(xpath_match(xml("browse"), expr, 320, 640)["top"], 315)
+        with self.assertRaises(ExecutorError) as error:
+            xpath_match(xml("sign"), "//*[@content-desc='领淘金币']", 320, 640)
+        self.assertEqual(error.exception.code, "selector_ambiguous")
+        self.assertIsNone(xpath_match(xml("sign"), "//*[@text='已删除任务']/ancestor::*[1]//*[@content-desc='领淘金币']", 320, 640))
+
     def test_invalid_xpath_and_unsafe_xml_are_rejected(self):
         for expression in ("", "just text", "count(//*)", "//android.widget.Button["):
             with self.subTest(expression=expression), self.assertRaises(ExecutorError):

@@ -143,6 +143,11 @@ async def automation_hierarchy(request: Request, body: dict):
     return await request.app.state.runtime.hierarchy(body)
 
 
+@app.post("/internal/v1/automation/locator-verify")
+async def locator_verify(request: Request, body: dict):
+    return await request.app.state.runtime.verify_locator(body)
+
+
 @app.post("/internal/v1/sessions")
 async def create_session(request: Request, body: dict):
     return await request.app.state.runtime.create_session(body)

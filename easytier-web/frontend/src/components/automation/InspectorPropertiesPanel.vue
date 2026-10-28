@@ -21,6 +21,9 @@ const props = defineProps<{
     clickableParent: AutomationHierarchyNode | null;
     locatorCandidates: LocatorCandidate[];
     selectedCandidate: string | null;
+    anchorPicking: boolean;
+    anchorName: string;
+    verifying: boolean;
     mode: LocatorMode;
     modeOptions: ModeOption[];
     activeMode: ModeOption | undefined;
@@ -40,6 +43,8 @@ const emit = defineEmits<{
     'toggle-branch': [id: number];
     'select-node': [id: number];
     'choose-candidate': [id: string];
+    'start-anchor-pick': [];
+    'clear-anchor': [];
     'change-mode': [mode: LocatorMode];
     'confirm-coordinates': [];
     'replace-target': [];
@@ -105,15 +110,25 @@ function title(node: AutomationHierarchyNode) {
                         <div class="property"><span>状态</span><code>已启用：{{ selected.enabled ? "是" : "否" }} / 可滚动：{{ selected.scrollable ? "是" : "否" }}</code></div>
                         <div class="property"><span>扩展状态</span><code>支持长按：{{ selected.long_clickable == null ? "未知" : selected.long_clickable ? "是" : "否" }} / 可聚焦：{{ selected.focusable == null ? "未知" : selected.focusable ? "是" : "否" }} / 可勾选：{{ selected.checkable == null ? "未知" : selected.checkable ? "是" : "否" }}</code></div>
                         <div class="property"><span>范围</span><code>{{ selected.bounds.left }}, {{ selected.bounds.top }} → {{ selected.bounds.right }}, {{ selected.bounds.bottom }}</code></div>
+                        <div class="parent-recommendation">
+                            <span>关联锚点：{{ anchorName || '自动查找' }}。手动选取时原操作目标保持不变。</span>
+                            <Button :label="anchorPicking ? '请在画面或树中选择锚点' : '手动指定关联控件'"
+                                text size="small" :disabled="loading || snapshotTruncated || anchorPicking"
+                                @click="emit('start-anchor-pick')" />
+                            <Button v-if="anchorName || anchorPicking" label="清除关联锚点" text size="small"
+                                @click="emit('clear-anchor')" />
+                        </div>
                         <div class="locator-recommendations" aria-label="候选控件定位">
                             <strong>候选定位条件（需人工确认）</strong>
                             <small v-if="snapshotTruncated">控件树已截断，无法验证唯一性，请刷新。</small>
                             <small v-else-if="!locatorCandidates.length">没有安全候选，可改选其他控件。</small>
                             <button v-for="item in locatorCandidates.slice(0, 8)" :key="item.id" type="button"
                                 class="candidate-row" :class="{ chosen: selectedCandidate === item.id }"
-                                :disabled="!item.unique" @click="emit('choose-candidate', item.id)">
+                                :disabled="!item.unique || verifying" @click="emit('choose-candidate', item.id)">
                                 <span>{{ item.label }} · {{ item.unique ? '唯一' : '匹配 ' + item.matches + ' 个' }}</span>
-                                <small>{{ selectedCandidate === item.id ? '已确认' : item.unique ? '选择' : '不可用' }}</small>
+                                <small>{{ selectedCandidate === item.id
+                                    ? verifying ? '正在验证' : confirmedLocator ? '已验证' : '未通过验证'
+                                    : item.unique ? item.selector.xpath ? '选择并验证' : '选择' : '不可用' }}</small>
                             </button>
                             <small>请点选上方唯一候选进行确认。仅验证当前快照；不使用 instance 序号。界面变化后请刷新。</small>
                         </div>
@@ -127,7 +142,7 @@ function title(node: AutomationHierarchyNode) {
                                 outlined size="small" :disabled="!coordinatesAllowed || coordinateConfirmed" @click="emit('confirm-coordinates')" />
                         </div>
                         <p v-else-if="mode === 'composite'" class="hint">已确认的唯一组合条件：{{ JSON.stringify(confirmedLocator ?? {}) }}</p>
-                        <p v-else-if="mode === 'xpath'" class="hint"><code>{{ suggestedXpath }}</code></p>
+                        <p v-else-if="mode === 'xpath'" class="hint"><code>{{ confirmedLocator?.xpath || suggestedXpath }}</code></p>
                         <div v-if="replaceStep" class="step-actions">
                             <Button label="更新当前步骤控件" icon="pi pi-check" size="small"
                                 :disabled="!canReplace" @click="emit('replace-target')" />

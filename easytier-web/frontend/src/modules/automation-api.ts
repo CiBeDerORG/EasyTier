@@ -4,7 +4,7 @@ import type {
     AutomationRun, AutomationRunInput, AutomationScript, AutomationScriptInput, AutomationSession,
     AutomationRunnerSettings, AutomationRunnerSettingsInput, AutomationRunnerCheck,
     AutomationExecutorCapacity, AutomationExecutorCapacityInput, AutomationMediaSettings,
-    AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog, AutomationAdbStatus, AutomationHierarchy,
+    AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog, AutomationAdbStatus, AutomationHierarchy, AutomationHierarchyNode,
     AutomationDraftRecord, AutomationDraftWrite, AutomationDraftInput, AutomationDraftReceipt,
 } from '../types/automation';
 
@@ -58,6 +58,13 @@ export default class AutomationApi {
     }
     componentStatus(ownerId: number, id: string) {
         return this.request<AutomationComponentStatus>(`/devices/${encodeURIComponent(id)}/automation-status`,ownerId);
+    }
+    verifyLocator(ownerId: number, id: string, input: {
+        xpath: string; expected_bounds: AutomationHierarchyNode['bounds']; width: number; height: number;
+    }) {
+        return this.request<{ device_id: string; target_fingerprint: string; verified: boolean;
+            reason: string; bounds: AutomationHierarchyNode['bounds'] | null }>(
+            `/devices/${encodeURIComponent(id)}/locator-verify`, ownerId, 'POST', input);
     }
     hierarchy(ownerId: number, id: string) {
         return this.request<AutomationHierarchy>(`/devices/${encodeURIComponent(id)}/hierarchy`, ownerId);

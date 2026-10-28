@@ -8,6 +8,7 @@ import AutomationApi, { automationErrorMessage } from '../../modules/automation-
 import type { AutomationDevice, AutomationHierarchy, AutomationHierarchyNode, AutomationSelector, AutomationStep } from '../../types/automation';
 import type { StepTarget } from '../../modules/automation-step-target';
 import { locatorIsUnique, rankLocatorCandidates } from '../../modules/automation-locator-candidates';
+import { rankRelationalCandidates } from '../../modules/automation-relational-locator';
 import InspectorPropertiesPanel from './InspectorPropertiesPanel.vue';
 import type { InspectorAction } from '../../modules/automation-inspector-actions';
 import { matchPickerPoint } from '../../modules/automation-pick-engine';
@@ -71,14 +72,33 @@ const nodeIndex = computed(() => new Map((snapshot.value?.nodes ?? []).map(node 
 const parentIds = computed(() => new Set((snapshot.value?.nodes ?? [])
     .map(node => node.parent_id).filter((value): value is number => value !== null)));
 const selected = computed(() => selectedId.value === null ? null : nodeIndex.value.get(selectedId.value) ?? null);
-const locatorCandidates = computed(() => snapshot.value && selectedId.value !== null ? rankLocatorCandidates(snapshot.value, selectedId.value) : []);
+const manualAnchorId = ref<number | null>(null);
+const anchorPicking = ref(false);
+const verifiedXPath = ref<string | null>(null);
+const verifying = ref(false);
+let verificationGeneration = 0;
+const manualAnchorName = computed(() => {
+    const node = manualAnchorId.value === null ? null : nodeIndex.value.get(manualAnchorId.value);
+    return node ? (node.password ? '' : node.text || node.description || node.resource_id || node.class_name) : '';
+});
+const locatorCandidates = computed(() => {
+    if (!snapshot.value || selectedId.value === null) return [];
+    const native = rankLocatorCandidates(snapshot.value, selectedId.value);
+    const relational = rankRelationalCandidates(snapshot.value, selectedId.value, manualAnchorId.value);
+    return [...native, ...relational].sort((a,b) =>
+        Number(b.unique)-Number(a.unique) || b.score-a.score || a.id.localeCompare(b.id));
+});
 const selectedCandidate = ref<string | null>(null);
 // Coordinates are a deliberate, separately confirmed fallback, never a default.
 const coordinateConfirmed = ref(false);
 const confirmedLocator = computed(() => {
     const candidate = locatorCandidates.value.find(item => item.id === selectedCandidate.value && item.unique);
-    return candidate && snapshot.value && selectedId.value !== null
-        && locatorIsUnique(snapshot.value, selectedId.value, candidate.selector) ? candidate.selector : null;
+    if (!candidate || !snapshot.value || selectedId.value === null) return null;
+    if (candidate.selector.xpath) {
+        return verifiedXPath.value === candidate.selector.xpath && mode.value === 'xpath'
+            && !verifying.value && snapshotFresh() ? candidate.selector : null;
+    }
+    return locatorIsUnique(snapshot.value, selectedId.value, candidate.selector) ? candidate.selector : null;
 });
 const lineage = computed(() => {
     const chain: AutomationHierarchyNode[] = [];
@@ -164,6 +184,7 @@ function confirmCoordinates() {
     feedback.value = '已手动确认使用坐标定位；画面旋转、控件变更或刷新控件树后需要重新确认。';
 }
 function onLocatorModeChange() {
+    ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
     selectedCandidate.value = null;
     coordinateConfirmed.value = false;
 }
@@ -225,8 +246,8 @@ const modeOptions = computed(() => {
         { value: 'text', label: '控件文字', unique: false },
         { value: 'description', label: '无障碍描述', unique: false },
         { value: 'composite', label: '组合条件（候选推荐）', unique: locatorCandidates.value.some(item =>
-            item.unique && (item.id.includes('+') || !['resource_id', 'text', 'description'].includes(item.id))) },
-        { value: 'xpath', label: 'XPath 1.0（请在脚本编辑器手动配置）', unique: false },
+            item.unique && !item.selector.xpath && (item.id.includes('+') || !['resource_id', 'text', 'description'].includes(item.id))) },
+        { value: 'xpath', label: '关联 XPath（执行器验证后使用）', unique: !!verifiedXPath.value },
         { value: 'coordinates', label: '画面坐标（手动兜底）', unique: coordinatesAllowed.value },
     ];
     for (const choice of choices) {
@@ -265,7 +286,19 @@ watch(nodeHighlight, value => emit('highlight', value), { immediate: true });
 watch(dragPickMode, value => emit('drag-mode', value), { immediate: true });
 watch(dragGuide, value => emit('drag-guide', value), { immediate: true });
 function selectNode(id: number) {
-    selectedId.value = id; selectedCandidate.value = null; coordinateConfirmed.value = false; feedback.value = '';
+    if (anchorPicking.value) {
+        if (id === selectedId.value) { feedback.value = '关联锚点必须与操作目标不同。'; return; }
+        if (!nodeIndex.value.has(id) || nodeIndex.value.get(id)?.password) {
+            feedback.value = '不能使用无效节点或敏感输入框作为关联锚点。'; return;
+        }
+        manualAnchorId.value = id; anchorPicking.value = false;
+        onLocatorModeChange();
+        feedback.value = '已指定关联锚点，操作目标保持不变。请选择自动生成的关联定位候选。';
+        return;
+    }
+    manualAnchorId.value = null;
+    onLocatorModeChange();
+    selectedId.value = id; feedback.value = '';
     const expanded = new Set(collapsedIds.value);
     const visited = new Set<number>();
     let parent = nodeIndex.value.get(id)?.parent_id ?? null;
@@ -287,6 +320,8 @@ async function refresh() {
     const generation = ++requestGeneration;
     const pointHint = !initialPointUsed ? props.initialPoint : null;
     initialPointUsed = true;
+    ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
+    manualAnchorId.value = null; anchorPicking.value = false;
     response.value = null; selectedId.value = null; selectedCandidate.value = null; coordinateConfirmed.value = false; collapsedIds.value = [];
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = ''; loading.value = true;
@@ -381,27 +416,75 @@ function pickFromOriginal(point: InspectorCardScreenPoint) {
         x:point.x,y:point.y,width:point.width,height:point.height,
     },{targetFingerprint:props.device.target_fingerprint??''});
     if(match.status==='matched' && match.nodeId!==null) {
-        selectNode(match.nodeId); feedback.value=match.message;
-    } else {selectedId.value=null;feedback.value=match.message;}
+        selectNode(match.nodeId);
+        if (!anchorPicking.value && manualAnchorId.value === null) feedback.value=match.message;
+    } else {
+        if (!anchorPicking.value) selectedId.value=null;
+        feedback.value=match.message;
+    }
 }
 watch(()=>props.screenPoint, point=>{if(point && props.visible)pickFromOriginal(point);});
 watch(selected, node => {
     if (!node) return;
     coordinateConfirmed.value = false;
+    verifiedXPath.value = null;
     selectedCandidate.value = null;
     // Never automatically fall back to screen coordinates when all selectors are ambiguous.
     mode.value = (['resource_id', 'description', 'text', 'composite'] as const)
         .find(key => modeOptions.value.some(option => option.value === key && option.unique)) ?? 'resource_id';
 });
-function chooseCandidate(id: string) {
+function startAnchorPick() {
+    if (!selected.value || !snapshotFresh()) {
+        feedback.value = '请先选择操作目标，并刷新过期的控件树。'; return;
+    }
+    anchorPicking.value = true;
+    feedback.value = '请在原实时画面或控件树中选择一个业务标题/标签作为关联锚点。原操作目标不会改变。';
+}
+function clearAnchor() {
+    anchorPicking.value = false; manualAnchorId.value = null;
+    onLocatorModeChange();
+    feedback.value = '已清除手动锚点，恢复自动寻找关联定位。';
+}
+async function chooseCandidate(id: string) {
     const candidate = locatorCandidates.value.find(item => item.id === id && item.unique);
-    if (!candidate || !snapshot.value || selectedId.value === null
-        || !locatorIsUnique(snapshot.value, selectedId.value, candidate.selector)) return;
-    const keys = Object.keys(candidate.selector);
+    if (!candidate || !snapshot.value || selectedId.value === null || !snapshotFresh()) return;
+    const shot = snapshot.value, node = selected.value;
+    if (!node) return;
+    ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
+    const generation = verificationGeneration;
     coordinateConfirmed.value = false;
-    mode.value = keys.length === 1 && ['resource_id', 'text', 'description'].includes(keys[0])
-        ? keys[0] as LocatorMode : 'composite';
     selectedCandidate.value = id;
+    if (!candidate.selector.xpath) {
+        if (!locatorIsUnique(shot, node.id, candidate.selector)) {selectedCandidate.value=null;return;}
+        const keys = Object.keys(candidate.selector);
+        mode.value = keys.length === 1 && ['resource_id', 'text', 'description'].includes(keys[0])
+            ? keys[0] as LocatorMode : 'composite';
+        return;
+    }
+    // Verify the generated relation on fresh RAW XML, not merely on the
+    // simplified frontend tree. No device action is sent.
+    mode.value = 'xpath'; verifying.value = true;
+    feedback.value = '正在只读复核关联定位，不会操作手机……';
+    try {
+        const result = await api.verifyLocator(props.ownerId, props.device.id, {
+            xpath: candidate.selector.xpath, expected_bounds: node.bounds,
+            width: shot.width, height: shot.height,
+        });
+        if (generation !== verificationGeneration || !props.visible
+            || selectedId.value !== node.id || selectedCandidate.value !== id) return;
+        if (!snapshotFresh() || !result.verified || result.device_id !== props.device.id
+            || result.target_fingerprint !== props.device.target_fingerprint) {
+            feedback.value = '关联定位没有再次匹配选中目标，或页面已变化；请刷新控件树后重新选择。';
+            return;
+        }
+        verifiedXPath.value = candidate.selector.xpath;
+        feedback.value = '关联 XPath 已通过执行器只读验证：仅命中原选中的控件，可以录入。';
+    } catch (cause) {
+        if (generation === verificationGeneration)
+            feedback.value = '关联定位验证失败：' + automationErrorMessage(cause);
+    } finally {
+        if (generation === verificationGeneration) verifying.value = false;
+    }
 }
 function locator(): AutomationSelector | null {
     // AUT-10: native locators are only provided by the explicitly confirmed,
@@ -467,6 +550,8 @@ watch([() => props.visible, () => props.device.id, () => props.device.target_fin
     ++requestGeneration;
     committing.value = false;
     initialPointUsed = false;
+    ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
+    anchorPicking.value = false; manualAnchorId.value = null;
     response.value = null; selectedId.value = null; selectedCandidate.value = null;
     coordinateConfirmed.value = false; collapsedIds.value = []; loading.value = false;
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
@@ -475,6 +560,8 @@ watch([() => props.visible, () => props.device.id, () => props.device.target_fin
 }, { immediate: true });
 watch([() => props.screenWidth, () => props.screenHeight], () => {
     coordinateConfirmed.value=false;
+    ++verificationGeneration; verifiedXPath.value=null; verifying.value=false;
+    anchorPicking.value=false; manualAnchorId.value=null;
     dragPickMode.value=false;dragStart.value=null;dragEnd.value=null;
     selectedId.value=null;selectedCandidate.value=null;
     response.value=null; ++requestGeneration; loading.value=false;
@@ -484,8 +571,7 @@ watch([() => props.screenWidth, () => props.screenHeight], () => {
     }
 });
 watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
-    selectedCandidate.value = null;
-    coordinateConfirmed.value = false;
+    onLocatorModeChange();
 });
 </script>
 
@@ -529,6 +615,7 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                     :collapsed-ids="collapsedIds" :search="search" :loading="loading"
                     :lineage="lineage" :clickable-parent="clickableParent"
                     :locator-candidates="locatorCandidates" :selected-candidate="selectedCandidate"
+                    :anchor-picking="anchorPicking" :anchor-name="manualAnchorName" :verifying="verifying"
                     :mode="mode" :mode-options="modeOptions" :active-mode="activeMode"
                     :coordinate-confirmed="coordinateConfirmed" :coordinates-allowed="coordinatesAllowed"
                     :confirmed-locator="confirmedLocator" :suggested-xpath="suggestedXPath"
@@ -537,6 +624,7 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                     :preferred-action="preferredAction"
                     @update-search="search = $event" @toggle-branch="toggleBranch"
                     @select-node="selectNode" @choose-candidate="chooseCandidate"
+                    @start-anchor-pick="startAnchorPick" @clear-anchor="clearAnchor"
                     @change-mode="changeLocatorMode" @confirm-coordinates="confirmCoordinates"
                     @replace-target="replaceTarget" @add-step="add"
                 />
