@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { Button, Message } from 'primevue';
+import { Button, Checkbox, Message } from 'primevue';
 import type { AutomationStep } from '../../types/automation';
 import { stepCanPickTarget } from '../../modules/automation-step-target';
 import type { LocatorDemoResult } from '../../modules/automation-locator-demo';
@@ -11,6 +11,7 @@ const props = defineProps<{
     demoLoading?: boolean; demoResult?: LocatorDemoResult | null; demoError?: string;
     demoAvailable?: boolean;
     floating?: boolean;
+    businessVerificationEligible?: boolean;
 }>();
 const emit = defineEmits<{
     save: [stepId: string, previous: AutomationStep, next: AutomationStep];
@@ -68,6 +69,18 @@ function repick() {
         <Message v-if="conflict" severity="warn" :closable="false">步骤在编辑期间已变化。当前修改不会自动覆盖新的草稿内容。</Message>
         <div class="edit-fields">
             <ScriptStepEditor :model-value="edited" lock-action-type @update:model-value="updateDraft"/>
+            <label v-if="businessVerificationEligible || original.business_verification===true ||
+                edited.business_verification===true" class="business-check">
+                <Checkbox :model-value="edited.business_verification===true" binary
+                    :disabled="conflict || (!businessVerificationEligible && edited.business_verification!==true)"
+                    @update:model-value="updateDraft({...edited,
+                        business_verification:$event?true:undefined})" />
+                <span>将末尾无条件断言作为业务成功验证
+                    <small v-if="!businessVerificationEligible">
+                        当前步骤已不满足末尾/分支条件。请取消旧标记后保存。
+                    </small>
+                </span>
+            </label>
         </div>
         <Message v-if="demoError" severity="warn" :closable="false">{{ demoError }}</Message>
         <Message v-if="demoResult" :severity="demoResult.status === 'one' ? 'success' : demoResult.status === 'none' || demoResult.status === 'many' ? 'warn' : 'info'" :closable="false">
@@ -102,6 +115,10 @@ header small,.tip{color:var(--console-muted);font-size:11px;line-height:1.5}
 .edit-fields :deep(.step-editor){gap:10px}
 .edit-fields :deep(.field){font-size:12px}
 .edit-fields :deep(.selector-fields){padding:8px;gap:8px}
+.business-check{display:flex;gap:8px;align-items:flex-start;font-size:11px;line-height:1.5;
+    margin:8px 2px 3px;padding:7px;border:1px solid var(--console-border);border-radius:6px}
+.business-check span{display:grid;gap:3px}
+.business-check small{color:var(--p-orange-500)}
 .actions{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap}
 .actions :deep(.p-button){font-size:11px;padding:7px}
 .tip{margin:0}
