@@ -51,6 +51,8 @@ const props = defineProps<{
     /** Single account-scoped draft. Card reads it, never stores a copy. */
     draft: AutomationDraftWorkspace;
     draftSyncLabel?: string;
+    draftSyncPhase?: string; draftSyncMessage?: string;
+    draftSaveBusy?: boolean; draftSaveMessage?: string; batchRunMessage?: string;
     scripts?: AutomationScript[];
     scriptsBusy?: boolean;
     scriptsLoading?: boolean;
@@ -83,6 +85,7 @@ const emit = defineEmits<{
     'script-refresh': [deviceId: string];
     'script-action': [action: AutomationScriptAction];
     'script-publish': [deviceId:string,name:string,description:string];
+    'draft-save': [deviceId:string]; 'draft-fork': [deviceId:string];
     'script-remove': [deviceId:string,scriptId:string,revision:number];
     'script-reconcile': [];
     'inspector-close': [];
@@ -106,6 +109,7 @@ const emit = defineEmits<{
     'repair-repick': [deviceId: string, stepId: string];
     'repair-dismiss': [deviceId: string];
     'batch-start': [params: Record<string,string>, concurrency: number];
+    'batch-start-local': [deviceId:string, params:Record<string,string>];
     'batch-refresh': []; 'batch-stop': []; 'batch-reconcile': [];
     'batch-stop-device': [deviceId: string]; 'batch-restore-manual': [deviceId: string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
@@ -861,20 +865,31 @@ onBeforeUnmount(() => {
                     :selected-id="draft.editingId ?? null" :selected-name="draft.name"
                     :count="draft.steps.length" :busy="!!scriptsBusy" :loading="!!scriptsLoading"
                     :error="scriptsError" :sync-label="draftSyncLabel"
+                    :sync-message="draftSyncMessage" :guard="effectiveScriptGuard"
+                    :save-busy="!!draftSaveBusy" :save-message="draftSaveMessage"
                     :formal-pending="!!formalPending"
                     @refresh="emit('script-refresh',device.id)"
                     @create="name => requestScriptAction({kind:'create',deviceId:device.id,name})"
                     @select="chooseScript" @clone="openScriptClone"
                     @publish="requestFormalPublish" @remove="requestFormalRemove"
+                    @save-draft="emit('draft-save',device.id)"
+                    @fork-draft="emit('draft-fork',device.id)"
                     @reconcile="emit('script-reconcile')">
                     <FloatingBatchRunPanel :owner-id="ownerId"
                         :selected-count="selectedDeviceCount"
+                        :local-name="device.name" :local-available="!!device.connection.enabled && !device.availability_reason"
                         :steps-count="draft.steps.length"
                         :parameter-names="[...new Set(draft.steps.filter(step=>step.type==='input_text' && !!step.parameter).map(step=>step.parameter!.trim()))]"
                         :runner-available="runnerAvailable"
                         :draft-ready="batchDraftReady && !editingDirty"
+                        :block-reason="batchRunMessage || (editingStepId || editingDirty
+                            ? '步骤正在编辑，请先在步骤浮窗保存并关闭。'
+                            : effectiveScriptGuard==='conflict' ? '服务器草稿出现版本冲突，请先另存新草稿。'
+                            : effectiveScriptGuard==='unsynced' ? '工作草稿未同步，请先点击“保存草稿”。'
+                            : effectiveScriptGuard==='loading' ? '工作草稿正在从服务器加载。' : '')"
                         :state="batchRunState"
                         @start="(params,concurrency)=>emit('batch-start',params,concurrency)"
+                        @start-local="params=>emit('batch-start-local',device.id,params)"
                         @refresh="emit('batch-refresh')" @stop="emit('batch-stop')"
                         @stop-device="id=>emit('batch-stop-device',id)"
                         @restore-manual="id=>emit('batch-restore-manual',id)"
@@ -898,9 +913,11 @@ onBeforeUnmount(() => {
                 :source="manageSource" :draft-name="draft.name"
                 :draft-description="draft.description" :step-count="draft.steps.length"
                 :guard="effectiveScriptGuard" :busy="!!scriptsBusy"
+                :save-busy="!!draftSaveBusy" :save-message="draftSaveMessage"
                 :error="scriptsError"
                 :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
                 @close="manageScript=null;manageWaiting=false"
+                @save-draft="emit('draft-save',device.id)"
                 @publish="finishFormalPublish" @remove="finishFormalRemove" />
             <AutomationScriptCloneDialog :source="cloneSource"
                 :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
