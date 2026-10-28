@@ -170,6 +170,7 @@ watch(inlineStatus,value=>{
     if(!finishedEmitted && (value.phase==='failed'||value.phase==='cancelled'
         ||value.phase==='succeeded'||value.phase==='action_sent')){
         finishedEmitted=true;
+        const terminalPhase=value.phase;
         void (async()=>{
             let diag=trialDiagnosis.value;
             // If a real run failed after preflight, the Android page could
@@ -184,7 +185,7 @@ watch(inlineStatus,value=>{
             const message=diag && diag.count!==1 && value.phase==='failed'
                 ? summarizeTrialDiagnosis(diag)+(value.message?'；'+value.message:'')
                 : value.message||value.label;
-            emit('finished',{phase:value.phase,message,diagnosis:value.phase==='failed'?diag:null});
+            emit('finished',{phase:terminalPhase,message,diagnosis:terminalPhase==='failed'?diag:null});
         })();
     }
 },{immediate:true});

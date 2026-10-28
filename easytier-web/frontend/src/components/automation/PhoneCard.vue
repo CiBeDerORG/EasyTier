@@ -147,7 +147,7 @@ function finishCardTrial(value:{phase:'succeeded'|'action_sent'|'failed'|'cancel
     message:string;diagnosis?:TrialLocatorDiagnosis|null}){
     showTrialToast(value.phase==='succeeded'||value.phase==='action_sent'?'success':'error',
         value.message || (value.phase==='failed'?'本次试跑失败':'本次试跑已结束'));
-    trialCompare=value.phase==='failed' && (value.diagnosis?.count??0)>1
+    trialCompare.value=value.phase==='failed' && (value.diagnosis?.count??0)>1
         ? value.diagnosis! : null;
     trialStepId.value=null;
 }
