@@ -59,6 +59,20 @@ test('T48 invalid owner, missing target and damaged persisted JSON fail closed',
   assert.equal(storage.records.has(key),true,'invalid proof is never silently discarded');
 });
 
+test('T48 invalid new batch proof cannot poison storage or bypass UUID/target checks',()=>{
+  const storage=memoryStorage();
+  for(const bad of [
+    {...receipt(),requestId:'123e4567-e89b-42d3-zzzz-426614174000'},
+    {...receipt(),deviceIds:['phone-a','phone-a']},
+    {...receipt(),deviceIds:['phone-a','']},
+    {...receipt(),deviceIds:Array.from({length:21},(_,n)=>'phone-'+n)},
+    {...receipt(),createdAt:'not-a-date'},
+  ]){
+    assert.throws(()=>reserveBatchReceipt(storage,bad),/无效/);
+    assert.equal(storage.records.size,0,'invalid proof must not be stored');
+  }
+});
+
 test('T48 batch storage persists only request metadata; no steps or private inputs',()=>{
   const storage=memoryStorage();
   reserveBatchReceipt(storage,receipt());
