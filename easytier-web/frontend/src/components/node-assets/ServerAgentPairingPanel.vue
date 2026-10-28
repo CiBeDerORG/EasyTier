@@ -6,6 +6,7 @@ import type ApiClient from '../../modules/api';
 import type { AgentAddressChoice, AssetAgentProbe, AssetAgentStatus, AssetScope, ServerAgentEntry } from '../../types/node-assets';
 import { serverAgentPairingMessages } from '../../modules/server-agent-pairing-messages';
 import ServerAgentHostPanel from './ServerAgentHostPanel.vue';
+import ServerAgentDockerPanel from './ServerAgentDockerPanel.vue';
 
 const props = defineProps<{ api: ApiClient; scope: AssetScope; entry: ServerAgentEntry }>();
 const { t } = useI18n({ useScope: 'local', messages: serverAgentPairingMessages });
@@ -130,6 +131,7 @@ onBeforeUnmount(() => { alive = false; ++requestNumber; pairingCode.value = ''; 
         <Message v-if="message" severity="info" :closable="false">{{ message }}</Message>
         <p class="muted">{{ t('manual') }}</p>
         <ServerAgentHostPanel :api="api" :scope="scope" :entry="entry" :bound="status?.bound === true" />
+        <ServerAgentDockerPanel :api="api" :scope="scope" :entry="entry" :bound="status?.bound === true" />
     </section>
 </template>
 
