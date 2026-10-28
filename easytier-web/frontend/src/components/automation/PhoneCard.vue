@@ -278,6 +278,11 @@ watch(()=>props.scriptsBusy,(busy,old)=>{
         if(!props.scriptsError)manageScript.value=null;
     }
 });
+watch(()=>props.scriptsError,error=>{
+    // Scope/preflight failures can return before setting busy. Never leave
+    // the management dialog stuck in a locally "submitted" state.
+    if(error && manageWaiting.value)manageWaiting.value=false;
+});
 
 const effectiveScriptGuard = computed<ScriptGuard>(() => props.scriptGuard ?? 'loading');
 function openAutomationPanel() {
