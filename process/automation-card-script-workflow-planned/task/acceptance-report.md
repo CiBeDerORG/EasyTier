@@ -197,3 +197,17 @@ docker inspect easytier-automation-executor --format 'image={{.Config.Image}} im
 ## 7. 本次交接决策
 
 当前文档已具备逐项执行与证据归档标准。真实 FnOS、两台已授权 Android 和浏览器账号状态尚无经本轮确认的实际连接/操作权限，因此 **12/12 项仍未执行**。不得以 T17 单元测试成功代替此处的实机成功。
+## 8. 2026-10-28 · FINAL V3 非真机交付追踪（T46～T49）
+
+| 检查阶段 | 已提交的实际代码/用例 | 实测结论 |
+|---|---|---|
+| T46 旧编辑器退役 | `ScriptLibrary.vue` 仅只读目录+历史未知恢复，`AutomationCenter` 旧脚本选择回唯一 PhoneCard 工作区 | 代码已提交，原手机 UI 待真机 |
+| T47 旧路由与参数清理 | 移除 `openScriptInspector`/旧拾取 emit、共享状态回主卡片，保留真实安全引用 | 已静态收敛，CI 待确认 |
+| T48 前端 Node | 请求 UUID 防重放、正式 CAS/批量保护元数据白名单、浮窗堆叠、卡片范围、旧页面防回归 | 用例已提交，最新 CI 待确认 |
+| T48 Chromium | 生产主子浮窗在**模拟原视频 DOM 宿主**中的全屏/ESC/脏编辑/层级/键盘移动测试 | 用例已接 GHCR，最新 CI 待确认 |
+| T49 Rust | 12 项 SQLite 迁移与 `AutomationStore` CAS/空脚本/权限/写锁回归 | 用例已提交，需新 CI 通过证据 |
+| T49 Executor | 6 项 Runtime/Journal 与模拟媒体的观看/动作互斥及清理失败安全用例 | 需新 CI 通过证据 |
+| T50 FnOS + 两OEM + 两浏览器 | [30 项 FF/AC 真机矩阵](task-50-acceptance-matrix.md) | **未执行，按用户要求本轮排除** |
+| T51 发布最终签收 | 本节为可追溯的非真机报告，不代替部署 Digest 和实机证据 | **不得结项，等待 T50** |
+
+**先前失败证据**：[GHCR #40616428698](https://github.com/CiBeDerORG/EasyTier/actions/runs/40616428698) 的前端构建在 `CardStepTimeline.vue` 三处 TS1005 失败，Rust 测试在 `automation/tests.rs` 缺少 Storage trait 导入失败；分别已由 `5028480` 和 `bbc6fe7` 修复。修复提交尚不能单独说明最新回归成功，须据相同 SHA 的 Actions 实际结论更新。
