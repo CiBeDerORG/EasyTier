@@ -394,3 +394,33 @@ async fn t49_saved_run_rejects_stale_revision_before_persisting_any_action() {
     assert_eq!(admitted["state"],"dispatch_pending");
 }
 
+
+#[tokio::test]
+async fn review_create_uuid_replay_returns_same_formal_script_and_refuses_different_body() {
+    let f=Fixture::new().await;
+    let request=Uuid::new_v4().to_string();
+    let step=valid_step();
+    let body=json!({"request_id":request,"name":"only once",
+        "description":"create idempotency regression","steps":[step]});
+    let created=f.store.save_script(f.owner,None,&body).await.unwrap();
+    let replay=f.store.save_script(f.owner,None,&body).await.unwrap();
+    assert_eq!(created,replay,"same UUID and payload must return same durable response");
+    assert_eq!(f.store.list_scripts(f.owner).await.unwrap()["items"].as_array().unwrap().len(),1);
+
+    let different=json!({"request_id":request,"name":"should be refused",
+        "description":"create idempotency regression","steps":body["steps"]});
+    let conflict=f.store.save_script(f.owner,None,&different).await.unwrap_err();
+    assert_eq!(conflict.status,409);
+    assert_eq!(conflict.code,"idempotency_conflict");
+
+    let foreign=f.store.script_creation_receipt(f.other,&request).await;
+    assert_eq!(status(foreign),404,"another owner cannot fetch this create receipt");
+    let recovered=f.store.script_creation_receipt(f.owner,&request).await.unwrap();
+    assert_eq!(recovered,created);
+
+    // Delete never removes the UUID tombstone. A later retry cannot recreate.
+    f.store.delete_script_if_revision(f.owner,created["id"].as_str().unwrap(),1).await.unwrap();
+    let deleted_replay=f.store.save_script(f.owner,None,&body).await.unwrap();
+    assert_eq!(deleted_replay,created,"do not recreate a script deleted after the original POST");
+    assert_eq!(f.store.list_scripts(f.owner).await.unwrap()["items"],json!([]));
+}
