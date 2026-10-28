@@ -96,3 +96,5 @@
 > 2026-10-28 用户授权 T46/T47/T48/T49 非真机收尾：旧脚本双写界面实码退役；新增真实 Chromium 组件回归与防旧界面回退断言，批量凭据白名单；根据前一 GHCR 失败日志修复 TS1005 与 Rust Storage trait 缺失。新 CI 结果待核对，T50 明确未实测，T51 仅完成非真机追踪。
 
 > 2026-10-28 接手后自动CI复核：主镜像 [#40622528076](https://github.com/CiBeDerORG/EasyTier/actions/runs/40622528076) Web 157 Node + 3 Chromium 全通过，Rust 原生 50/50（含 T49 12/12）通过；独立 Executor [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092) Python 95/95（含T49 6/6）通过并已发布。主镜像打包/烟测/发布与真机验收分别记录，真机仍未测。
+
+> **2026-10-28 非真机交付确认**：T48 前端 Node 157/157 + Chromium 3/3、T49 Rust 12/12（整套原生 50/50）+ Executor 6/6（整套 95/95）真实自动 CI 通过；主镜像 [#40622528076](https://github.com/CiBeDerORG/EasyTier/actions/runs/40622528076) 五个 Job 全绿且 `amd64` 镜像已发布，Digest `sha256:088695b8a3c9926a39beb3d200d42324c5438214cfd451be895bf6e758091975`。独立执行器 [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092) 发布成功，Digest `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`。T50 30 项真实 FnOS/Android/双浏览器现场验收按用户要求仍未测，T51 最终发布签收不能标完成。
