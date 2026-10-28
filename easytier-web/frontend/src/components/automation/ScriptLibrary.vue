@@ -733,9 +733,6 @@ watch(() => props.repairRequest, request => {
 
 <style scoped>
 .script-library { display: grid; gap: 16px; }
-.trial-preview{display:flex;flex-direction:column;align-items:center;gap:6px;border:1px solid var(--console-border);padding:10px;border-radius:10px}
-.trial-preview strong,.trial-preview small{align-self:flex-start}
-.trial-preview video{width:auto;max-width:100%;height:auto;max-height:240px;background:#141414;border-radius:8px}
 .repair-origin-banner{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 18px;border-bottom:1px solid var(--console-border);font-size:12px;overflow-wrap:anywhere}
 .repair-origin-banner span{flex:1;min-width:200px}
 .repair-origin-banner small{width:100%;color:var(--console-muted)}
@@ -756,12 +753,6 @@ watch(() => props.repairRequest, request => {
 .sidebar-empty { padding: 6px 18px 24px; line-height: 1.7; }
 .draft-heading { flex-wrap: wrap; }
 .step-pick-controls{display:grid;gap:8px;padding:12px;border-bottom:1px solid var(--console-border)}
-.single-step-action{padding:12px;display:grid;gap:8px;border-top:1px solid var(--console-border)}
-.single-step-action small{font-size:12px;color:var(--console-muted)}
-.single-step-preview{border:1px solid var(--console-border);border-radius:8px;padding:12px;display:grid;gap:8px}
-.single-step-preview small{font-size:12px;color:var(--console-muted);overflow-wrap:anywhere}
-.single-step-preview p{font-size:12px;line-height:1.6;margin:0}
-.single-step-consent{display:flex;align-items:flex-start;gap:9px;font-size:13px;line-height:1.5;cursor:pointer}
 .step-pick-controls strong{font-size:13px}
 .step-pick-controls .button-row{align-items:center}
 .step-pick-controls .hint{font-size:12px;color:var(--console-muted)}
@@ -777,7 +768,6 @@ watch(() => props.repairRequest, request => {
 .business-check-editor small{font-size:11px;line-height:1.6;color:var(--console-muted)}
 .field { display: grid; gap: 7px; min-width: 0; font-size: 13px; }
 .field > span { font-weight: 550; }
-.field :deep(.p-inputnumber-input) { width: 100%; }
 .step-columns { display: grid; grid-template-columns: minmax(175px, .8fr) minmax(0, 1.4fr); min-height: 340px; }
 .steps-navigation { padding: 12px 10px; border-right: 1px solid var(--console-border); background: var(--console-panel-raised); }
 .steps-title { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 0 6px 10px; }
@@ -804,20 +794,6 @@ watch(() => props.repairRequest, request => {
 .step-actions :deep(.p-button) { width: 26px; height: 26px; }
 .step-detail { padding: 20px; min-width: 0; }
 .draft-footer { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--console-border); font-size: 12px; }
-.run-form { display: grid; gap: 16px; font-size: 13px; }
-.run-preflight{display:grid;gap:10px}
-.run-preflight-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.preflight-list{display:grid;gap:0;max-height:230px;overflow:auto;border:1px solid var(--console-border);border-radius:8px}
-.preflight-device{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--console-border);min-width:0}
-.preflight-device:last-child{border-bottom:0}
-.preflight-device-detail{display:grid;gap:3px;flex:1;min-width:0;overflow-wrap:anywhere}
-.preflight-device-detail strong{font-size:12px}
-.preflight-device-detail small{font-size:11px;color:var(--console-muted);line-height:1.5}
-.preflight-device :deep(.p-tag){flex-shrink:0;font-size:11px}
-.run-targets ul { max-height: 180px; overflow: auto; margin-top: 8px; border: 1px solid var(--console-border); border-radius: 8px; }
-.run-targets li { display: grid; gap: 3px; padding: 8px 12px; border-bottom: 1px solid var(--console-border); overflow-wrap: anywhere; }
-.run-targets li:last-child { border: 0; }
-.run-targets small { color: var(--console-muted); }
 button:disabled { cursor: default; opacity: .6; }
 @media (max-width: 1100px) { .library-columns { grid-template-columns: 1fr; }.script-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .step-columns { grid-template-columns: 1fr; }.steps-navigation { border-right: 0; border-bottom: 1px solid var(--console-border); }.script-list { grid-template-columns: 1fr; }.step-detail { padding: 16px; } }
