@@ -28,6 +28,7 @@ mod m20261025_000024_device_type_semantic_kinds;
 mod m20261027_000025_automation_drafts;
 mod m20261027_000026_automation_draft_script_link;
 mod m20261027_000027_asset_agent_bindings;
+mod m20261028_000028_automation_run_concurrency;
 
 #[cfg(test)]
 mod merge_upgrade_tests;
@@ -65,6 +66,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261027_000025_automation_drafts::Migration),
             Box::new(m20261027_000026_automation_draft_script_link::Migration),
             Box::new(m20261027_000027_asset_agent_bindings::Migration),
+            Box::new(m20261028_000028_automation_run_concurrency::Migration),
         ]
     }
 }
