@@ -93,3 +93,7 @@
 ## 2026-10-28 · T49 Rust / Executor 数据库安全回归源码成型
 
 已增加 Rust `automation/tests.rs`（注册于 mod.rs），基于真实迁移链与正式资产 API 的纯内存数据库，覆盖正式脚本创建、CAS 修订/删除、跨用户授权、零步骤不可运行、请求 UUID 幂等和原视频与脚本写锁二阶段移交；加上 Executor 已编写的六条观看/写锁清理异常场景。完整用例见 [T49 测试矩阵](task/task-49-test-matrix.md)。**均尚未执行测试/构建、未做 FnOS 或 Android 真机验收**。下阶段仍需真实执行通过后进入 T50/T51。
+
+## 2026-10-28 · T50 真机验收准备
+
+已将 FINAL V3 18 条 FF 与原 12 条 AC 建立独立的 [FnOS/Android/双浏览器取证矩阵](task/task-50-acceptance-matrix.md)，定义 SHA、digest、session/run/step/request ID 和录像/失败复测字段。该任务现在**仅完成前置文档**，未开展自动测试、部署、真机操作或双浏览器实测；后续须获明确测试授权并依据实测结果更新。
