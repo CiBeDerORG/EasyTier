@@ -128,8 +128,8 @@ test('T52 actual PhoneCard retains its primary video DOM across main/child float
   await page.locator('#open-step').click();
   const editor=page.getByRole('dialog',{name:/编辑第 1 步/});
   await editor.waitFor();
-  assert.equal(await editor.evaluate(node=>!!node.closest('.phone-screen')),true,
-    'actual step editor must be teleported inside original PhoneCard fullscreen host');
+  assert.equal(await editor.evaluate(node=>!!node.closest('.automation-subwindow-host.detached-subwindows')),true,
+    'normal-page editor must escape PhoneCard without remounting original video');
   assert.equal(await original.getAttribute('data-t52-original'),'still-owned',
     'opening main and child floating UI must not replace the original video');
   assert.equal(await original.evaluate(node=>node.srcObject?.id),mockedStreamId,
@@ -138,6 +138,8 @@ test('T52 actual PhoneCard retains its primary video DOM across main/child float
   await page.locator('#fullscreen-card').click();
   await page.waitForFunction(()=>document.fullscreenElement?.classList.contains('phone-screen'));
   assert.equal(await editor.isVisible(),true);
+  assert.equal(await editor.evaluate(node=>!!node.closest('.phone-screen')),true,
+    'fullscreen moves the original child editor into PhoneCard top layer');
   assert.equal(await original.getAttribute('data-t52-original'),'still-owned',
     'entering fullscreen must not remount or swap the original player');
   assert.equal(await original.evaluate(node=>node.srcObject?.id),mockedStreamId,
@@ -165,11 +167,11 @@ test('T52 actual PhoneCard shows failed and partial-failed batch outcomes instea
   await page.locator('#open-panel').click();
   // A row-level device status can use the same text as the aggregate Tag.
   // Scope each assertion to the *aggregate* badge, not a global text search.
-  const badge=page.locator('.phone-card .batch-head .p-tag');
+  const badge=page.locator('body > .automation-floating-host .batch-head .p-tag');
   async function verifyOutcome(outcome,label,severity){
     await page.evaluate(value=>window.phoneCardReview.setRunOutcome(value),outcome);
     await page.waitForFunction(expected=>
-      document.querySelector('.phone-card .batch-head .p-tag')?.textContent?.trim()===expected,
+      document.querySelector('body > .automation-floating-host .batch-head .p-tag')?.textContent?.trim()===expected,
     label);
     const classes=await badge.getAttribute('class');
     assert.equal(classes?.includes('p-tag-'+severity),true,
@@ -185,7 +187,7 @@ test('T52 actual PhoneCard shows failed and partial-failed batch outcomes instea
 test('T53 real PhoneCard offers explicit draft save, formal publish and this-phone-only full run',async t=>{
   const page=await setup(t,realCardFixture);
   await page.locator('#open-panel').click();
-  const card=page.locator('.phone-card');
+  const card=page.locator('body > .automation-floating-host');
   await card.getByRole('button',{name:'保存草稿'}).click();
   const attempts=()=>page.evaluate(()=>window.phoneCardReview.attempts());
   assert.deepEqual(await attempts(),[{type:'save',device:'phone-a'}],
@@ -245,7 +247,7 @@ test('T54 only the floating manual icon may change permission; console open/clos
     'footer must not contain another manual switch');
   const original=card.locator('video.primary-video');
   await original.evaluate(node=>node.dataset.t54Original='preserved');
-  await card.getByRole('button',{name:'关闭自动化脚本窗口'}).click();
+  await page.locator('body > .automation-floating-host').getByRole('button',{name:'关闭自动化脚本窗口'}).click();
   await page.waitForTimeout(40);
   assert.equal(await original.getAttribute('data-t54-original'),'preserved');
   assert.equal(await card.locator('video.primary-video').count(),1);
@@ -258,7 +260,7 @@ test('T55 real local console never displays another phone run or its action butt
   await page.locator('#open-panel').click();
   const card=page.locator('.phone-card');
   await page.evaluate(()=>window.phoneCardReview.setForeignRun());
-  const panel=card.getByRole('region',{name:'自动化脚本'});
+  const panel=page.getByRole('region',{name:'自动化脚本'});
   assert.equal(await panel.getByText('远端模拟手机').count(),0,
     'foreign selected device names must not leak into the current card');
   assert.equal(await panel.getByText('模拟其他设备错误').count(),0,
@@ -277,7 +279,7 @@ test('T56 legacy mixed run is shown only as local status; stop uses own device I
   const page=await setup(t,realCardFixture);
   await page.locator('#open-panel').click();
   await page.evaluate(()=>window.phoneCardReview.setMixedRun());
-  const panel=page.locator('.phone-card').getByRole('region',{name:'自动化脚本'});
+  const panel=page.getByRole('region',{name:'自动化脚本'});
   assert.equal(await panel.getByText('远端模拟手机').count(),0,
     'even legacy multi-device receipts must not expose another phone in this console');
   assert.equal(await panel.getByText('其他手机运行中').count(),0);
