@@ -10,6 +10,7 @@ const props=defineProps<{
     localName?:string;
     localAvailable?:boolean;
     blockReason?:string;
+    localMessage?:string;
     stepsCount:number;
     parameterNames:string[];
     runnerAvailable:boolean;
@@ -33,7 +34,7 @@ const canRun=computed(()=>props.runnerAvailable && props.draftReady && props.ste
 const localAllowed=computed(()=>canRun.value && !!props.localAvailable);
 const missingParameters=computed(()=>props.parameterNames.some(name=>!values[name]));
 const localRow=computed(()=>mine.value ? props.state.devices[props.deviceId] : undefined);
-const localError=computed(()=>mine.value ? props.state.error : '');
+const localError=computed(()=>props.localMessage || (mine.value ? props.state.error : ''));
 const runOutcome=computed(()=>!mine.value?'idle':props.state.phase==='completed'
     ? (props.state.run?.devices.find(device=>device.device_id===props.deviceId)?.state ?? 'outcome_unknown')
     : props.state.phase);
@@ -102,6 +103,9 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
             执行器未配置或不可用，请先到自动化中心设置页检查执行器。
         </Message>
         <Message v-if="localError" severity="warn" :closable="false">{{ localError }}</Message>
+        <Message v-if="!mine && active" severity="secondary" :closable="false">
+            当前工作台已有未完成任务，本机暂不能提交新的执行请求。
+        </Message>
         <div v-if="mine && state.requestId" class="batch-receipt">
             <small>本机请求：<code>{{ state.requestId }}</code></small>
             <small v-if="state.run">运行：<code>{{ state.run.id }}</code></small>
