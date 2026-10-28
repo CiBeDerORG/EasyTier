@@ -31,3 +31,7 @@
 - 合法手机环境全部来自 `AssetsStore` 真实资产 API + phone 语义类型 + TCP ADB 服务模拟 DB 记录，不发真实安卓指令。
 - `automation-executor/tests/test_view_only_lease_t49.py` 的 6 项测试使用真实 Runtime/Journal 并模拟媒体边界，关注 Viewer 与 action holder 不抢占、清理失败不被错误确认。
 - 所有条目仍待实际 Rust/Python 运行验证；真实 WebRTC、FnOS、安卓与双浏览器属于后续 T50。完整交接见 [T49 测试矩阵](../task/task-49-test-matrix.md)。
+
+## 2026-10-28 · T50 真实验收前置材料
+
+已准备 [T50 30 项验收与取证矩阵](../task/task-50-acceptance-matrix.md)，分别对应 18 项 FINAL V3 FF 与 12 项历史 AC，附 FnOS + 双 OEM + 双浏览器、镜像 digest、run/step/request/session ID、脱敏日志及中止规则。**尚未获得真机测试授权，未执行**；P16 整体仍处于待联调/待验收。
