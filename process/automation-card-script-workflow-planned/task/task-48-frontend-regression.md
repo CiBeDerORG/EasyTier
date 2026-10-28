@@ -1,6 +1,6 @@
 # T48 · 浮窗交互、脚本 CAS 与异常前端回归测试
 
-> 状态：**Node 安全断言、旧路径防回归和真实Chromium组件测试已接线，CI待确认**｜计划：P16｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**Node 安全断言、旧路径防回归和真实Chromium组件测试已接线，GitHub自动CI前端157/157与Chromium3/3通过，真实媒体/真机仍待验证**｜计划：P16｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一负责人/依赖
 - Owner：**QA 前端 Agent**。
@@ -47,3 +47,8 @@
 - 现有 GHCR 工作流 `build_web` 成功编译及 Node 单测后执行无真机 Chromium 回归；须 Playwright 安装 Chromium，错误会阻断本分支镜像发布。新 `automation-legacy-retirement-t48.test.mjs` 防旧 ScriptLibrary 回归，已加入 `test:unit`。
 - 浏览器用例验证的是**生产浮窗组件**在模拟卡片内的交互，不能证明实际媒体码流/双浏览器和真实手机授权。这些属于 T50；不应用“真机已通过”字样。
 - 截至编写本段，未取得本次最新 HEAD 的自动测试最终结论；请以 `feat/automation-center` 最新 SHA 对应 Actions 运行记录为准。
+
+## 2026-10-28 · 可复核的 CI 成果（接手后确认）
+- GHCR [#40622528076](https://github.com/CiBeDerORG/EasyTier/actions/runs/40622528076) Web job 成功；`pnpm test:unit` 输出 **157 tests、157 pass、0 fail**；生产浮窗 Chromium 组件夹具 `test:automation-floating-browser` 输出 **3 tests、3 pass、0 fail**。前次 [#40621494291](https://github.com/CiBeDerORG/EasyTier/actions/runs/40621494291) 也得到同样 Web 结果。
+- Chromium 包含原视频容器宿主与全屏 Teleport、Esc 脏编辑、顶层子窗拦截、键盘移动。只代表无手机模拟容器，不代表真实手机视频、触摸拖拽、双浏览器设备竞争已经验收；这些场景保留 T50。
+- 本次没有手动触发 CI、FnOS 部署或 Android 操作，CI 由该分支代码 push 自动触发。
