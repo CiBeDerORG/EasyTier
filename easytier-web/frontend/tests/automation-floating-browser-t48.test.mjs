@@ -177,3 +177,26 @@ test('T52 actual PhoneCard shows failed and partial-failed batch outcomes instea
   assert.equal((await failed.getAttribute('class')).includes('p-tag-success'),true,
     'only actual successful outcome may be green');
 });
+
+test('T53 real PhoneCard offers explicit draft save, formal publish and this-phone-only full run',async t=>{
+  const page=await setup(t,realCardFixture);
+  await page.locator('#open-panel').click();
+  const card=page.locator('.phone-card');
+  await card.getByRole('button',{name:'保存草稿'}).click();
+  const attempts=()=>page.evaluate(()=>window.phoneCardReview.attempts());
+  assert.deepEqual(await attempts(),[{type:'save',device:'phone-a'}],
+    'manual save must stay bound to the original card identity');
+  const formal=card.getByRole('button',{name:'发布正式版本'});
+  assert.equal(await formal.isVisible(),true,'formal publication must be an explicit control');
+  await formal.click();
+  await page.getByRole('dialog',{name:'发布新的正式脚本'}).waitFor();
+  await page.getByRole('button',{name:'取消'}).last().click();
+  const local=card.getByRole('button',{name:'▶ 本机运行全流程'});
+  assert.equal(await local.isEnabled(),true,
+    'local full-script run should not require any workbench checkbox');
+  await local.click();
+  assert.deepEqual((await attempts()).at(-1),{type:'local',device:'phone-a',params:{}},
+    'local run must submit exactly its own card, not the selected-device group');
+  assert.equal(await card.getByRole('button',{name:'运行已选 0 台'}).isDisabled(),true,
+    'multi-phone batch remains explicitly scoped to workbench checkboxes');
+});
