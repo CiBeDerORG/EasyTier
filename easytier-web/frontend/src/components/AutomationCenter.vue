@@ -1332,6 +1332,29 @@ function addCardBranchStep(deviceId:string,conditionId:string,lane:BranchLane,ty
     editCardStep(deviceId,step.id);
     notice.value='已在 '+(lane==='then'?'Then':'Else')+' 分支新增待配置动作；父条件跨度由校验器自动更新。';
 }
+function moveCardDraftStep(deviceId:string,stepId:string,delta:-1|1){
+    if(!cardStructureAllowed(deviceId))return;
+    const at=draftWorkspace.steps.findIndex(step=>step.id===stepId),next=at+delta;
+    if(at<0||next<0||next>=draftWorkspace.steps.length)return;
+    const steps=draftWorkspace.steps;
+    if(['if_gone','if_else'].includes(steps[at].type) ||
+        ['if_gone','if_else'].includes(steps[next].type))return;
+    const layout=analyzeAutomationFlow(steps);
+    if(JSON.stringify(layout.entries[at]?.ancestors)!==
+        JSON.stringify(layout.entries[next]?.ancestors)) {
+        error.value='步骤只能在同一条件分支内调整顺序。';return;
+    }
+    clearDeletedStepUndo();
+    if(cardStepEditor.value)closeCardStepEditor(cardStepEditor.value.deviceId);
+    const revised=[...steps];
+    [revised[at],revised[next]]=[revised[next],revised[at]];
+    if(analyzeAutomationFlow(revised).problem){
+        error.value='条件块边界可能跨越，步骤顺序没有修改。';return;
+    }
+    draftWorkspace.steps=revised;
+    draftWorkspace.selectedStepId=stepId;
+    notice.value='已调整步骤顺序，并保持原步骤 ID；当前草稿将同步到服务端。';
+}
 function convertCardCondition(deviceId:string,stepId:string,type:'if_gone'|'if_else') {
     if(!cardStructureAllowed(deviceId))return;
     const old=draftWorkspace.steps.find(step=>step.id===stepId);
@@ -1895,6 +1918,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
                         @step-create="createCardDraftStep" @step-branch-add="addCardBranchStep"
                         @step-convert-condition="convertCardCondition"
+                        @step-move="moveCardDraftStep"
                         @step-undo="undoCardDraftStepDeletion"
                         @trial-history="onCardTrialHistory" @trial-repair="onCardTrialRepair" @repair-repick="repickCardRepairStep" @repair-dismiss="dismissCardRepair" @step-close="closeCardStepEditor"
                         @step-save="saveCardStep" @step-repick="repickCardStep" @step-dirty="markCardStepDirty"
