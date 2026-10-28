@@ -14,7 +14,7 @@ const props=defineProps<{
 }>();
 const emit=defineEmits<{
     start:[parameters:Record<string,string>,concurrency:number];
-    refresh:[]; stop:[]; reconcile:[];
+    refresh:[]; stop:[]; reconcile:[]; stopDevice:[deviceId:string];
 }>();
 const concurrency=ref(3);
 const values=reactive<Record<string,string>>({});
@@ -86,6 +86,11 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
                 <small v-if="device.sessionId">原视频会话：<code>{{ device.sessionId.slice(0,8) }}</code></small>
                 <small v-if="device.stepId">当前步骤：{{ device.stepId }}</small>
                 <small v-if="device.runState && !terminal(device.runState)">尚未确认完成或清理</small>
+                <Button v-if="state.run && state.phase==='running' && device.runState &&
+                    ['dispatch_pending','queued','accepted','starting','running'].includes(device.runState) &&
+                    device.phase!=='cancel_requested'"
+                    label="停止此手机" icon="pi pi-stop" severity="danger" outlined size="small"
+                    @click="emit('stopDevice',device.id)" />
             </div>
         </div>
         <div class="batch-footer" v-if="state.run || unresolved">
@@ -96,7 +101,7 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
             <Button v-if="unresolved" label="只读查询原请求" icon="pi pi-history"
                 size="small" outlined @click="emit('reconcile')" />
         </div>
-        <small class="batch-hint">停止是请求，不等于动作已结束；不自动重发未知操作。单机停止需后端独立接口，当前不提供虚假的单机停止按钮。</small>
+        <small class="batch-hint">停止是请求，不等于动作已结束；不自动重发未知操作。单机停止只撤回对应 run/device，其它手机继续执行；实际停止和清理状态由服务器返回。</small>
     </section>
 </template>
 
