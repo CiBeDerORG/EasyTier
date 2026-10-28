@@ -1639,11 +1639,6 @@ async function settingsSaved() {
     try { context.value = await api.context(); }
     catch (cause) { handleError(cause); }
 }
-/**
- * T15: resolve an immutable historical failure to one authorized phone card.
- * Never reuse a newer formal script revision, and never overwrite a current
- * draft just because a saved script happened to share the same name.
- */
 /** T47: safe navigation from a legacy scripts-tab link to the one
  * shared script panel hosted inside the original PhoneCard.
  * Navigation does not open a competing WebRTC player or run any script.
@@ -1657,16 +1652,27 @@ async function openLegacyScriptOnCard(deviceId:string){
     if(tab.value!=='workbench')await changeTab('workbench');
     if(disposed || ownerId.value!==owner || tab.value!=='workbench')return;
     await nextTick();
-    const card=cards.get(deviceId);
-    if(!card){error.value='原手机卡片暂不可见，请回到工作台检查筛选条件。';return;}
+    // A filtered-out card has no mounted component ref yet. Clear the
+    // filter before resolving the original PhoneCard, never open a new video.
     if(!visibleIds.value.has(deviceId)){
         filters.value={node:'',group:'',type:'',keyword:''};
         applied.value={...filters.value};
         await nextTick();
     }
+    if(disposed || ownerId.value!==owner || tab.value!=='workbench')return;
+    const current=devices.value.find(d=>d.id===deviceId);
+    if(!current || current.owner_user_id!==owner || !current.connection.enabled){
+        error.value='原手机授权在页面切换后发生变化；不能打开脚本浮窗。';return;
+    }
+    const card=cards.get(deviceId);
+    if(!card){error.value='原手机卡片暂不可见，请在工作台确认筛选与卡片加载状态。';return;}
     card.openAutomationPanel();
 }
 
+/**
+ * T15: resolve a historical failed step only to its authorized original
+ * PhoneCard. Never overwrite a newer formal script revision.
+ */
 async function onRepairCard(request: AutomationRepairRequest) {
     if (switchingTab.value || request.ownerId !== ownerId.value) return;
     const owner=ownerId.value, mine=++cardRepairEpoch;
