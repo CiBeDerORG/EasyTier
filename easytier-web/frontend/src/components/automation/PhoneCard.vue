@@ -214,6 +214,7 @@ const consolePermissionPending=ref(false);
 const consolePermissionUncertain=ref(false);
 const consoleRestoreQueued=ref(false);
 let consolePermissionEpoch=0;
+let consoleExitSessionId:string|null=null;
 let consoleHandoff:Promise<void>|null=null;
 const cloneSourceId = ref<string | null>(null);
 const pendingScriptAction = ref<AutomationScriptAction | null>(null);
@@ -362,6 +363,7 @@ async function restoreAfterConsoleClose(epoch:number,owner:number,device:string,
 function openAutomationPanel() {
     ++consolePermissionEpoch;
     consoleRestoreQueued.value=false;
+    consoleExitSessionId=null;
     if(!automationPanelOpen.value){
         automationPanelOpen.value=true;
         void switchConsoleToReadOnly();
@@ -373,7 +375,10 @@ function closeAutomationPanel() {
     automationPanelOpen.value=false;
     const epoch=++consolePermissionEpoch;
     consoleRestoreQueued.value=true;
-    void restoreAfterConsoleClose(epoch,props.ownerId,props.device.id,session.getSessionId());
+    // Only the exact original viewer may regain manual rights. If the
+    // stream reconnects or a new browser takes over, discard this exit.
+    consoleExitSessionId=session.getSessionId();
+    void restoreAfterConsoleClose(epoch,props.ownerId,props.device.id,consoleExitSessionId);
 }
 function toggleAutomationPanel() {
     if(automationPanelOpen.value) closeAutomationPanel();
@@ -395,7 +400,7 @@ watch([
     () => props.recording,()=>props.unlocking,
 ],()=>{
     if(consoleRestoreQueued.value && !automationPanelOpen.value)
-        void restoreAfterConsoleClose(consolePermissionEpoch,props.ownerId,props.device.id,session.getSessionId());
+        void restoreAfterConsoleClose(consolePermissionEpoch,props.ownerId,props.device.id,consoleExitSessionId);
 });
 function requestScriptAction(action:AutomationScriptAction) {
     if(props.scriptsBusy)return;
@@ -431,6 +436,7 @@ watch(() => props.draft.editingId, (next,previous) => {
 watch(() => [props.ownerId, props.device.id], () => {
     ++consolePermissionEpoch;
     consoleRestoreQueued.value=false;
+    consoleExitSessionId=null;
     consolePermissionUncertain.value=false;
     automationPanelOpen.value = false;
     cloneSourceId.value=null;
