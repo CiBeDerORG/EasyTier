@@ -70,6 +70,24 @@ const App={
           message:'浏览器模拟状态',sessionId:'mock-existing-session',
         }};
       },
+      setForeignRun:()=>{
+        // The shared batch state intentionally belongs to another phone.
+        // The current PhoneCard must not render/control its actions or errors.
+        batch.owner=owner;
+        batch.phase='running';
+        batch.error='模拟其他设备错误';
+        batch.requestId='foreign-request-uuid';
+        batch.selected=['phone-b'];
+        batch.devices={'phone-b':{
+          name:'远端模拟手机',phase:'running',message:'远端任务运行中',
+          sessionId:'foreign-media-session',runState:'running',
+        }};
+        batch.run={
+          id:'foreign-run-id',state:'running',request_id:'foreign-request-uuid',
+          devices:[{device_id:'phone-b',name:'远端模拟手机',state:'running',steps:[],current_step:null}],
+          script_snapshot:{steps:[...draft.steps]},
+        };
+      },
       setRunOutcome:outcome=>{
         batch.phase='completed';batch.selected=[phone];
         batch.run={id:'simulated-run',state:outcome,request_id:'simulated-request',
