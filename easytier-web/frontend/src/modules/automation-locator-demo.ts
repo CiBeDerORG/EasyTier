@@ -24,8 +24,12 @@ export interface LocatorDemoOptions {
     nowMs?: number;
     maxAgeMs?: number;
 }
-const fields = ['resource_id','text','description','class_name','package','clickable'] as const;
+const fields = [
+    'resource_id','text','description','class_name','package',
+    'clickable','enabled','long_clickable','focusable','checkable','scrollable',
+] as const;
 type NativeField = typeof fields[number];
+const boolFields: ReadonlySet<string> = new Set(['clickable','enabled','long_clickable','focusable','checkable','scrollable']);
 const fail = (status: Exclude<LocatorDemoStatus,'one'|'many'>, message:string): LocatorDemoResult =>
     ({status,count:0,message,capturedAt:null,sourceWidth:0,sourceHeight:0,bounds:null});
 const finite = (n:number) => Number.isFinite(n);
@@ -37,7 +41,7 @@ function validBounds(b:AutomationHierarchyNode['bounds'],w:number,h:number) {
 function nativeSelector(selector:AutomationSelector): [NativeField,string|boolean][] | null {
     const entries=Object.entries(selector);
     if (!entries.length || entries.some(([key,value]) =>
-        !fields.includes(key as NativeField) || (key === 'clickable'
+        !fields.includes(key as NativeField) || (boolFields.has(key)
             ? typeof value !== 'boolean'
             : typeof value !== 'string' || !value.trim() || new TextEncoder().encode(value).length>256))) return null;
     return entries as [NativeField,string|boolean][];

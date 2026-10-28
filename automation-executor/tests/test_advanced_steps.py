@@ -88,6 +88,16 @@ class AdvancedValidationTests(unittest.TestCase):
             with self.subTest(value=invalid), self.assertRaises(Exception):
                 steps([record("wait_for", selector={"clickable": invalid}, timeout_ms=500)])
 
+    def test_extended_boolean_selectors_accept_only_real_booleans(self):
+        for field in ("enabled", "long_clickable", "focusable", "checkable", "scrollable"):
+            for state in (True, False):
+                item = steps([record("wait_for", selector={"description": "领淘金币", field: state},
+                                     timeout_ms=500)])[0]
+                self.assertIs(item["selector"][field], state)
+            for bad in ("true", "false", 0, 1, None):
+                with self.subTest(field=field, value=bad), self.assertRaises(Exception):
+                    steps([record("wait_for", selector={field: bad}, timeout_ms=500)])
+
     def test_rejects_unbounded_and_ambiguous_operations(self):
         valid_scroll = dict(selector=BUTTON, scroll_container=SCROLLER, direction="down",
                             max_swipes=3, duration_ms=300, timeout_ms=20000)
@@ -113,6 +123,17 @@ class AdvancedExecutionTests(unittest.TestCase):
             runner.run(record("wait_for", selector={"description": "领淘金币", "clickable": state}, timeout_ms=500))
             selectors = [params[0].values for method, params in runner.calls if method == "count"]
             self.assertIn({"description": "领淘金币", "clickable": state}, selectors)
+
+    def test_extended_boolean_selectors_are_forwarded_to_native_uiautomator(self):
+        names = {"enabled": "enabled", "long_clickable": "longClickable",
+                 "focusable": "focusable", "checkable": "checkable", "scrollable": "scrollable"}
+        for field, native in names.items():
+            for state in (True, False):
+                runner = ActionHarness()
+                runner.run(record("wait_for", selector={"description": "领淘金币", field: state},
+                                  timeout_ms=500))
+                selectors = [params[0].values for method, params in runner.calls if method == "count"]
+                self.assertIn({"description": "领淘金币", native: state}, selectors)
 
     def test_wait_gone_never_sends_an_action(self):
         checks = iter([2, 2, 0])

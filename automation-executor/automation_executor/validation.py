@@ -79,7 +79,8 @@ def digest(value):
 
 
 def selector(value):
-    object_fields(value, {"resource_id", "description", "text", "class_name", "package", "clickable", "xpath"})
+    boolean_fields = {"clickable", "enabled", "long_clickable", "focusable", "checkable", "scrollable"}
+    object_fields(value, {"resource_id", "description", "text", "class_name", "package", "xpath"} | boolean_fields)
     if not value or ("xpath" in value and len(value) != 1):
         raise invalid("XPath 与普通控件条件不能混用")
     if "xpath" in value:
@@ -89,9 +90,9 @@ def selector(value):
         return {"xpath": expression}
     result = {}
     for key, item in value.items():
-        if key == "clickable":
+        if key in boolean_fields:
             if type(item) is not bool:
-                raise invalid("可点击定位条件必须是 true 或 false")
+                raise invalid("布尔定位条件必须是 true 或 false")
             result[key] = item
         else:
             result[key] = text(item, 512)

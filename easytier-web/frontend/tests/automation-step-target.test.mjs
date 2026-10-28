@@ -86,3 +86,13 @@ test('re-picked selector retains explicit false clickable and rejects strings', 
   assert.deepEqual(replaceAutomationStepTarget(script,'existing-1','tap',
     {selector:{clickable:true}})?.[0].selector,{clickable:true});
 });
+
+test('LOC-01..05 target replacement preserves boolean combinations without coercion', () => {
+  const script=[make('tap')];
+  for (const field of ['enabled','long_clickable','focusable','checkable','scrollable']) {
+    const target={selector:{description:'领淘金币',[field]:false}};
+    assert.deepEqual(replaceAutomationStepTarget(script,'existing-1','tap',target)?.[0].selector,target.selector);
+    assert.equal(replaceAutomationStepTarget(script,'existing-1','tap',
+      {selector:{[field]:'false'}}),null);
+  }
+});

@@ -16,14 +16,16 @@ export function stepCanPickTarget(step: AutomationStep): boolean {
 function validSelector(raw: AutomationSelector, type: AutomationStep['type']): boolean {
     const entries = Object.entries(raw);
     if (!entries.length) return false;
-    const keys = new Set(['resource_id', 'text', 'description', 'class_name', 'package', 'clickable']);
+    const keys = new Set(['resource_id', 'text', 'description', 'class_name', 'package',
+        'clickable', 'enabled', 'long_clickable', 'focusable', 'checkable', 'scrollable']);
+    const booleanKeys = new Set(['clickable', 'enabled', 'long_clickable', 'focusable', 'checkable', 'scrollable']);
     const xpath = raw.xpath;
     if (xpath !== undefined) {
         return entries.length === 1 && type !== 'input_text' && type !== 'assert_property'
             && typeof xpath === 'string' && !!xpath.trim()
             && new TextEncoder().encode(xpath).length <= 512;
     }
-    return entries.every(([key, value]) => keys.has(key) && (key === 'clickable'
+    return entries.every(([key, value]) => keys.has(key) && (booleanKeys.has(key)
         ? typeof value === 'boolean'
         : typeof value === 'string' && !!value.trim()
             && new TextEncoder().encode(value).length <= 256));

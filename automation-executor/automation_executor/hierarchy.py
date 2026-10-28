@@ -58,6 +58,10 @@ def parse_hierarchy(xml, width, height):
                         "clickable": raw.get("clickable") == "true",
                         "enabled": raw.get("enabled") == "true",
                         "scrollable": raw.get("scrollable") == "true",
+                        # Missing XML attributes are unknown, not implicitly False.
+                        "long_clickable": raw.get("long-clickable") == "true" if "long-clickable" in raw else None,
+                        "focusable": raw.get("focusable") == "true" if "focusable" in raw else None,
+                        "checkable": raw.get("checkable") == "true" if "checkable" in raw else None,
                         "selected": raw.get("selected") == "true",
                         "checked": raw.get("checked") == "true",
                         "password": raw.get("password") == "true",

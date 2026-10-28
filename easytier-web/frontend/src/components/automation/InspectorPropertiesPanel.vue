@@ -102,6 +102,8 @@ function title(node: AutomationHierarchyNode) {
                         <div class="property"><span>Resource ID</span><code>{{ selected.resource_id || '—' }}</code></div>
                         <div class="property"><span>文字</span><code>{{ selected.password ? '敏感输入框（已隐藏）' : selected.text || '—' }}</code></div>
                         <div class="property"><span>描述</span><code>{{ selected.password ? '敏感输入框（已隐藏）' : selected.description || '—' }}</code></div>
+                        <div class="property"><span>状态</span><code>已启用：{{ selected.enabled ? "是" : "否" }} / 可滚动：{{ selected.scrollable ? "是" : "否" }}</code></div>
+                        <div class="property"><span>扩展状态</span><code>支持长按：{{ selected.long_clickable == null ? "未知" : selected.long_clickable ? "是" : "否" }} / 可聚焦：{{ selected.focusable == null ? "未知" : selected.focusable ? "是" : "否" }} / 可勾选：{{ selected.checkable == null ? "未知" : selected.checkable ? "是" : "否" }}</code></div>
                         <div class="property"><span>范围</span><code>{{ selected.bounds.left }}, {{ selected.bounds.top }} → {{ selected.bounds.right }}, {{ selected.bounds.bottom }}</code></div>
                         <div class="locator-recommendations" aria-label="候选控件定位">
                             <strong>候选定位条件（需人工确认）</strong>

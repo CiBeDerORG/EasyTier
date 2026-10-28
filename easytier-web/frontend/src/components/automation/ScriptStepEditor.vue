@@ -127,6 +127,26 @@ const clickableOptions = [
     { label: '可点击', value: 'true' },
     { label: '不可点击', value: 'false' },
 ];
+const booleanFields: { key: 'enabled' | 'long_clickable' | 'focusable' | 'checkable' | 'scrollable'; label: string }[] = [
+    { key: 'enabled', label: '是否启用' },
+    { key: 'long_clickable', label: '是否支持长按' },
+    { key: 'focusable', label: '是否可聚焦' },
+    { key: 'checkable', label: '是否可勾选' },
+    { key: 'scrollable', label: '是否可滚动' },
+];
+const booleanOptions = [
+    { label: '不使用', value: 'unset' },
+    { label: '是', value: 'true' },
+    { label: '否', value: 'false' },
+];
+function booleanValue(field: typeof booleanFields[number]['key'], value: string) {
+    if (props.disabled || !props.modelValue.selector) return;
+    const selector = { ...props.modelValue.selector };
+    if (value === 'unset') delete selector[field];
+    else if (value === 'true' || value === 'false') selector[field] = value === 'true';
+    else return;
+    update({ selector });
+}
 function scrollContainerValue(field: keyof AutomationSelector, value: string | undefined) {
     if (props.disabled) return;
     const scroll_container: AutomationSelector = { ...props.modelValue.scroll_container, [field]: value ?? '' };
@@ -222,7 +242,14 @@ function updateNumber(key: string, value: number | null | undefined) {
                         :options="clickableOptions" option-label="label" option-value="value"
                         :disabled="disabled" @update:model-value="clickableValue" />
                 </label>
-                <small>{{ text('多个有效条件需同时匹配且只命中一个控件；可点击和不可点击都可作为条件。', 'All active conditions must uniquely match; clickable true or false may be used.') }}</small>
+                <label v-for="field in booleanFields" :key="field.key" class="field" :for="fieldId('selector-' + field.key)">
+                    <span>{{ field.label }}</span>
+                    <Select :input-id="fieldId('selector-' + field.key)"
+                        :model-value="modelValue.selector[field.key] === undefined ? 'unset' : modelValue.selector[field.key] ? 'true' : 'false'"
+                        :options="booleanOptions" option-label="label" option-value="value"
+                        :disabled="disabled" @update:model-value="booleanValue(field.key, $event)" />
+                </label>
+                <small>{{ text('布尔条件支持“是 / 否”并可与其他属性组合；执行时仍必须匹配唯一控件。', 'Boolean conditions support true / false in combinations; runtime match must still be unique.') }}</small>
             </template>
         </fieldset>
 

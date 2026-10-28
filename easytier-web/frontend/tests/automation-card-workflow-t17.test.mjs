@@ -148,3 +148,18 @@ test('AC12 disconnect/switching viewed phone never deletes confirmed in-memory s
   assert.equal(draft.ownerId,owner);
   assert.equal(projectCardSteps(draft).steps[0].id,firstId);
 });
+
+test('LOC-01..05 read-only preview matches boolean combinations and still rejects duplicates',()=>{
+  const opts={deviceId:phoneId,targetFingerprint:fingerprint,
+    videoWidth:540,videoHeight:1200,nowMs:now};
+  for(const field of ['enabled','long_clickable','focusable','checkable','scrollable']) {
+    const shot=tree([
+      node(1,{description:'领淘金币',[field]:true}),
+      node(2,{description:'领淘金币',[field]:false}),
+    ]);
+    assert.equal(locateReadOnlyStep(shot,{type:'tap',selector:{description:'领淘金币',[field]:true}},opts).status,'one');
+    assert.equal(locateReadOnlyStep(shot,{type:'tap',selector:{description:'领淘金币',[field]:false}},opts).status,'one');
+    assert.equal(locateReadOnlyStep(shot,{type:'tap',selector:{description:'领淘金币',[field]:'false'}},opts).status,'unsupported');
+    assert.equal(locateReadOnlyStep(shot,{type:'tap',selector:{description:'领淘金币'}},opts).status,'many');
+  }
+});

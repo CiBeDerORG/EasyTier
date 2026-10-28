@@ -66,7 +66,9 @@ def execute(target, step, parameters, artifact_path=None):
 
     def find(raw, timeout_ms=0):
         translated = {"resource_id": "resourceId", "description": "description", "text": "text",
-                      "class_name": "className", "package": "packageName", "clickable": "clickable"}
+                      "class_name": "className", "package": "packageName", "clickable": "clickable",
+                      "enabled": "enabled", "long_clickable": "longClickable",
+                      "focusable": "focusable", "checkable": "checkable", "scrollable": "scrollable"}
         selected = None if "xpath" in raw else Selector(**{translated[key]: value for key, value in raw.items()})
         deadline = time.monotonic() + timeout_ms / 1000
         while True:

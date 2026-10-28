@@ -11,19 +11,31 @@ export type LocatorCandidate = {
 };
 
 type Snapshot = { truncated: boolean; nodes: AutomationHierarchyNode[] };
-const fields = ['resource_id', 'description', 'text', 'class_name', 'package', 'clickable'] as const;
+const fields = [
+    'resource_id', 'description', 'text', 'class_name', 'package',
+    'clickable', 'enabled', 'long_clickable', 'focusable', 'checkable', 'scrollable',
+] as const;
 type Field = typeof fields[number];
 const labels: Record<Field, string> = {
     resource_id: 'Resource ID', description: '无障碍描述', text: '文字',
     class_name: '类名', package: '应用包名', clickable: '可点击状态',
+    enabled: '启用状态', long_clickable: '长按状态', focusable: '聚焦能力',
+    checkable: '勾选能力', scrollable: '滚动能力',
 };
 const weights: Record<Field, number> = {
-    resource_id: 100, description: 80, text: 65, class_name: 25, package: 15, clickable: 10,
+    resource_id: 100, description: 80, text: 65, class_name: 25, package: 15,
+    clickable: 10, enabled: 9, long_clickable: 8, focusable: 8, checkable: 8, scrollable: 7,
 };
 const bytes = (value: string) => new TextEncoder().encode(value).length;
 const valid = (value: unknown): value is string => typeof value === 'string' && !!value.trim() && bytes(value) <= 256;
+const booleanLabels = {
+    clickable: ['可点击', '不可点击'], enabled: ['已启用', '未启用'],
+    long_clickable: ['支持长按', '不支持长按'], focusable: ['可聚焦', '不可聚焦'],
+    checkable: ['可勾选', '不可勾选'], scrollable: ['可滚动', '不可滚动'],
+} as const;
+const isBooleanField = (field: Field): field is keyof typeof booleanLabels => field in booleanLabels;
 const validField = (field: Field, value: unknown): boolean =>
-    field === 'clickable' ? typeof value === 'boolean' : valid(value);
+    isBooleanField(field) ? typeof value === 'boolean' : valid(value);
 
 /**
  * AUT-10: purely local suggestions based on the CURRENT hierarchy. The list is
@@ -44,8 +56,8 @@ export function rankLocatorCandidates(snapshot: Snapshot, selectedId: number): L
         const score = (unique ? 1000 : 0) + keys.reduce((sum, key) => sum + weights[key], 0)
             - (keys.length - 1) * 65;
         candidates.push({
-            id: keys.join('+'), label: keys.map(key => key === 'clickable'
-                ? (selected.clickable ? '可点击' : '不可点击') : labels[key]).join(' + '),
+            id: keys.join('+'), label: keys.map(key => isBooleanField(key)
+                ? booleanLabels[key][selected[key] === true ? 0 : 1] : labels[key]).join(' + '),
             selector, matches, unique, score,
             warning: unique ? undefined : `当前快照匹配 ${matches} 个控件，禁止直接使用`,
         });

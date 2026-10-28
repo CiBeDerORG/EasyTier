@@ -1,9 +1,14 @@
 export type AutomationKey = 'HOME' | 'BACK' | 'RECENT' | 'WAKE';
-export interface AutomationSelector { resource_id?: string; description?: string; text?: string; class_name?: string; package?: string; clickable?: boolean; xpath?: string }
+export interface AutomationSelector {
+    resource_id?: string; description?: string; text?: string; class_name?: string; package?: string;
+    clickable?: boolean; enabled?: boolean; long_clickable?: boolean; focusable?: boolean;
+    checkable?: boolean; scrollable?: boolean; xpath?: string;
+}
 export interface AutomationHierarchyNode {
     id: number; parent_id: number | null; depth: number;
     class_name: string; package: string; resource_id: string; text: string; description: string;
     clickable: boolean; enabled: boolean; scrollable: boolean; selected: boolean; checked: boolean; password: boolean;
+    long_clickable?: boolean | null; focusable?: boolean | null; checkable?: boolean | null;
     bounds: { left: number; top: number; right: number; bottom: number };
 }
 export interface AutomationHierarchy {

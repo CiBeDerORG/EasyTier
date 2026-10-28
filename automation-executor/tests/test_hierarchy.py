@@ -26,6 +26,16 @@ class HierarchyTests(unittest.TestCase):
         self.assertEqual(password["parent_id"], 0)
         self.assertEqual(result["nodes"][2]["text"], "确定")
 
+    def test_extended_boolean_attributes_preserve_true_false_and_missing(self):
+        xml = ('<hierarchy>'
+               '<node bounds="[0,0][20,20]" long-clickable="true" focusable="false" checkable="true"/>'
+               '<node bounds="[20,20][40,40]" long-clickable="false" focusable="true" checkable="false"/>'
+               '<node bounds="[40,40][60,60]"/>'
+               '</hierarchy>')
+        nodes = parse_hierarchy(xml, 100, 100)["nodes"]
+        self.assertEqual([(n["long_clickable"], n["focusable"], n["checkable"]) for n in nodes],
+                         [(True, False, True), (False, True, False), (None, None, None)])
+
     def test_rejects_entities_and_oversized_snapshot(self):
         for xml in ('<!DOCTYPE a [<!ENTITY x "hello">]><hierarchy/>', "<hierarchy>" + "a" * (512 * 1024) + "</hierarchy>"):
             with self.assertRaises(ExecutorError):

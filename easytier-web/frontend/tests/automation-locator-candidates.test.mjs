@@ -6,6 +6,7 @@ const node = (id, overrides = {}) => ({
     id, parent_id: null, depth: 0, class_name: 'android.widget.Button', package: 'demo.app',
     resource_id: '', text: '', description: '', clickable: true, enabled: true,
     scrollable: false, selected: false, checked: false, password: false,
+    long_clickable: null, focusable: null, checkable: null,
     bounds: { left: 0, top: 0, right: 100, bottom: 50 }, ...overrides,
 });
 test('AUT-10 ranks unique resource ID first and explicitly validates uniqueness', () => {
@@ -103,4 +104,45 @@ test('AUT-10 clickable does not bypass uniqueness when duplicate states match', 
     assert.equal(rankLocatorCandidates(shot, 1).find(x=>x.id==='description+clickable')?.unique,false);
     assert.equal(rankLocatorCandidates(shot, 3).find(x=>x.id==='description+clickable')?.unique,true);
     assert.equal(locatorIsUnique(shot,1,{description:'领淘金币',clickable:true}),false);
+});
+
+test('LOC-01..05: each new boolean state distinguishes repeated labels in combinations', () => {
+    const fields=['enabled','long_clickable','focusable','checkable','scrollable'];
+    for (const field of fields) {
+        const shot={truncated:false,nodes:[
+            node(1,{description:'领淘金币',[field]:true}),
+            node(2,{description:'领淘金币',[field]:false}),
+        ]};
+        for (const [id,value] of [[1,true],[2,false]]) {
+            const candidate=rankLocatorCandidates(shot,id).find(x=>x.id===`description+${field}`);
+            assert.equal(candidate?.unique,true, `${field}=${value} should be unique`);
+            assert.equal(candidate?.selector[field],value);
+            assert.equal(locatorIsUnique(shot,id,{description:'领淘金币',[field]:value}),true);
+            assert.equal(locatorIsUnique(shot,id,{description:'领淘金币',[field]:!value}),false);
+            assert.equal(locatorIsUnique(shot,id,{description:'领淘金币',[field]:String(value)}),false);
+        }
+        assert.equal(locatorIsUnique({truncated:true,nodes:shot.nodes},1,
+            {description:'领淘金币',[field]:true}),false);
+    }
+});
+
+test('LOC-02..04: missing boolean XML properties cannot be treated as false', () => {
+    const shot={truncated:false,nodes:[
+        node(1,{description:'领淘金币',long_clickable:null,focusable:null,checkable:null}),
+        node(2,{description:'领淘金币',long_clickable:true,focusable:true,checkable:true}),
+    ]};
+    for(const field of ['long_clickable','focusable','checkable']) {
+        assert.ok(!rankLocatorCandidates(shot,1).some(x=>field in x.selector));
+        assert.equal(locatorIsUnique(shot,1,{description:'领淘金币',[field]:false}),false);
+        assert.equal(locatorIsUnique(shot,2,{description:'领淘金币',[field]:true}),true);
+    }
+});
+
+test('LOC-01..05: identical boolean conditions remain ambiguous', () => {
+    const shot={truncated:false,nodes:[
+        node(1,{description:'领淘金币',enabled:true,scrollable:false,long_clickable:false,focusable:false,checkable:false}),
+        node(2,{description:'领淘金币',enabled:true,scrollable:false,long_clickable:false,focusable:false,checkable:false}),
+    ]};
+    assert.equal(locatorIsUnique(shot,1,{description:'领淘金币',enabled:true,scrollable:false}),false);
+    assert.equal(rankLocatorCandidates(shot,1).some(x=>x.unique),false);
 });
