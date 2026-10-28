@@ -511,7 +511,7 @@ onBeforeUnmount(()=>{
             </Message>
             <div class="trial-progress" aria-live="polite">
                 <strong>设备准备</strong>
-                <Tag :value="phase==='ready'?'就绪':phase==='unknown'?'结果未知':phase==='releasing'?'释放控制中':phase==='preparing'?'准备中':phase==='failed'?'失败':'尚未准备'"
+                <Tag :value="phase==='ready'?'就绪':phase==='unknown'?'结果未知':phase==='releasing'?'核验手控已关闭':phase==='preparing'?'准备中':phase==='failed'?'失败':'尚未准备'"
                     :severity="phase==='ready'?'success':phase==='unknown'||phase==='failed'?'warn':'secondary'"/>
                 <p v-if="prepProgress">{{ preparePhases[prepProgress.phase] }} · {{ prepProgress.message }}</p>
                 <p v-else>准备会检查最新账号授权、ADB 连接与所需控件组件。不会自动进行无线 ADB 配对。</p>
