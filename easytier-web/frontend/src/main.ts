@@ -18,6 +18,7 @@ import DeviceList from './components/DeviceList.vue'
 import NodeAssetsPage from './components/NodeAssetsPage.vue'
 import DeviceManagement from './components/DeviceManagement.vue'
 import Dashboard from './components/Dashboard.vue'
+import DeployStore from './components/DeployStore.vue'
 import NetworkList from './components/NetworkList.vue'
 import NetworkDetail from './components/NetworkDetail.vue'
 import UserManagement from './components/UserManagement.vue'
@@ -53,6 +54,11 @@ const routes = [
                 path: 'applications',
                 name: 'deployAgents',
                 component: () => import('./components/DeployAgents.vue'),
+            },
+            {
+                path: 'store',
+                name: 'deployStore',
+                component: DeployStore,
             },
             {
                 path: 'services',
