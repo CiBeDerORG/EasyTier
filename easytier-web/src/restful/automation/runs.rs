@@ -122,6 +122,56 @@ pub(super) async fn cancel(auth: AuthSession, Extension(service): Service, Exten
     }
 }
 
+/// T44: stop only one run/device. The DB fences actions BEFORE any remote
+/// request. Executor already exposes a durable per-device withdraw endpoint.
+pub(super) async fn cancel_device(
+    auth: AuthSession, Extension(service): Service, Extension(config): Config,
+    Extension(runtime): Runtime, query: OwnerInput,
+    Path((raw_id,raw_device)): Path<(String,String)>, headers: HeaderMap,
+) -> HttpResult<Json<Value>> {
+    require_origin(&headers,false)?;
+    let owner=owner(query)?;
+    authorize(&auth,&config,&service,owner).await?;
+    let run_id=id(&raw_id)?;
+    let device_id=id(&raw_device)?;
+    let store=store(&service);
+    let (pending,grant)=store.cancel_run_device(owner,&run_id,&device_id).await.map_err(store_error)?;
+    let Some(grant)=grant else {return Ok(Json(pending));};
+    let Some(executor_id)=grant["executor_id"].as_str() else {return Ok(Json(pending));};
+    let runner=match runner(&runtime){Ok(value)=>value,Err(_)=>return Ok(Json(pending))};
+    let response=runner.post(
+        &format!("runs/{run_id}/devices/{device_id}/withdraw"),
+        &json!({
+            "event_id":grant["event_id"],"expected_executor_id":executor_id,
+            "old_target_fingerprint":grant["old_target_fingerprint"],
+        }),
+    ).await;
+    match response {
+        Ok(result) if result["id"]==run_id && result["device_id"]==device_id
+            && result["executor_id"]==executor_id && result["event_id"]==grant["event_id"]
+            && result["old_target_fingerprint"]==grant["old_target_fingerprint"]
+            && result["fenced"]==true && result["never_started"]==true
+            && result["cleanup_confirmed"]==true => {
+                let fingerprint=grant["old_target_fingerprint"].as_str().unwrap_or_default();
+                store.confirm_device_never_started(owner,&run_id,&device_id,executor_id,fingerprint)
+                    .await.map_err(store_error)?;
+                Ok(Json(store.run(owner,&run_id).await.map_err(store_error)?))
+            },
+        Ok(result) if result["id"]==run_id
+            && result["devices"].as_array().is_some_and(|devices|
+                devices.len()==pending["devices"].as_array().map_or(0,Vec::len)
+                && devices.iter().any(|device|device["device_id"]==device_id)) => {
+                // Persist only the Executor's authoritative action/cleanup
+                // result. Another device remains scheduled and observable.
+                Ok(Json(store.apply_run_result(
+                    &Uuid::new_v4().to_string(),&run_id,&result,
+                ).await.map_err(store_error)?))
+            },
+        // Errors, unknown timeouts or partial responses cannot prove stop.
+        _ => Ok(Json(pending)),
+    }
+}
+
 pub(super) async fn internal_authorize(State(manager): State<AppStateInner>, Extension(service): Service, Extension(config): Config, Extension(runtime): Runtime, headers: HeaderMap, input: Body) -> HttpResult<Json<Value>> {
     available(&config)?;
     runner(&runtime)?.authenticate(&headers)?;
