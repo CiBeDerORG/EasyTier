@@ -59,8 +59,7 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
     <section class="batch-box" aria-label="选中手机完整脚本运行">
         <div class="batch-head">
             <strong>运行全流程</strong>
-            <Tag :value="label(state.phase)" :severity="state.phase==='completed'?'success':
-                state.phase==='unknown'||state.phase==='failed'?'warn':'secondary'" />
+            <Tag :value="label(runOutcome)" :severity="outcomeSeverity" />
         </div>
         <small>只向工作台勾选的 {{ selectedCount }} 台手机提交。每机继续观看各自卡片原实时画面；无第二条投屏。</small>
         <div class="batch-actions">
