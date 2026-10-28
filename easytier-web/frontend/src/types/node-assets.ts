@@ -329,6 +329,30 @@ export interface AssetAgentProbe {
         protocol_version: number;
     };
 }
+export interface AgentHostSnapshot {
+    agent_id: string;
+    observed_at: string;
+    hostname: string;
+    platform: string;
+    arch: string;
+    cpu: { logical_cores: number; usage_percent?: number };
+    memory: { total_bytes: number; used_bytes: number };
+    disks: Array<{ mount: string; total_bytes: number; available_bytes: number }>;
+    docker: {
+        available: boolean;
+        engine_version?: string;
+        compose_available: boolean;
+        compose_version?: string;
+        error?: string;
+    };
+    software_root: string;
+}
+export interface AgentHostResult {
+    live_status: 'online' | 'offline';
+    fresh: boolean;
+    snapshot: AgentHostSnapshot | null;
+    message?: string;
+}
 export interface AssetAgentProbeInput {
     address: AgentAddressChoice;
     trusted_spki_sha256: string;
