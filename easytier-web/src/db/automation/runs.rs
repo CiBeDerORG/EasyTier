@@ -74,6 +74,10 @@ async fn read_run(conn:&mut SqliteConnection,owner:i32,id:&str)->AutomationResul
     let row=sqlx::query("SELECT * FROM automation_runs WHERE id=? AND owner_user_id=?").bind(id).bind(owner).fetch_optional(&mut *conn).await?.ok_or_else(not_found)?;
     let rows=sqlx::query("SELECT * FROM automation_run_devices WHERE run_id=? ORDER BY ordinal").bind(id).fetch_all(&mut *conn).await?;
     let snapshot=parse_json(&row.try_get::<String,_>("snapshot_json")?)?;
+    let concurrency=sqlx::query_scalar::<_,i64>(
+        "SELECT concurrency FROM automation_run_concurrency_overrides WHERE run_id=?"
+    ).bind(id).fetch_optional(&mut *conn).await?
+        .unwrap_or(row.try_get::<i64,_>("concurrency")?);
     let check=business_check_id(&snapshot);
     let mut business_states=Vec::with_capacity(rows.len());
     let mut devices=Vec::with_capacity(rows.len());
@@ -107,7 +111,7 @@ async fn read_run(conn:&mut SqliteConnection,owner:i32,id:&str)->AutomationResul
         "script_snapshot":snapshot,
         "business_verification":business_state,
         "parameter_names":parse_json(&row.try_get::<String,_>("parameters_json")?)?,
-        "concurrency":row.try_get::<i64,_>("concurrency")?,"cancel_requested":row.try_get::<bool,_>("cancel_requested")?,"devices":devices}))
+        "concurrency":concurrency,"cancel_requested":row.try_get::<bool,_>("cancel_requested")?,"devices":devices}))
 }
 
 fn safe_error(input:&Value)->AutomationResult<Value> {
@@ -266,7 +270,11 @@ impl AutomationStore {
         }
         let id=Uuid::new_v4().to_string();let timestamp=now();
         sqlx::query("INSERT INTO automation_runs(id,actor_user_id,owner_user_id,request_id,request_hash,name,state,snapshot_json,parameters_json,concurrency,created_at,updated_at) VALUES(?,?,?,?,?,?,'dispatch_pending',?,?,?,?,?)")
-            .bind(&id).bind(actor).bind(owner).bind(request_id).bind(request_hash).bind(snapshot["name"].as_str()).bind(snapshot.to_string()).bind(parameter_names.to_string()).bind(concurrency).bind(&timestamp).bind(&timestamp).execute(&mut *tx).await?;
+            .bind(&id).bind(actor).bind(owner).bind(request_id).bind(request_hash).bind(snapshot["name"].as_str()).bind(snapshot.to_string()).bind(parameter_names.to_string()).bind(concurrency.min(3)).bind(&timestamp).bind(&timestamp).execute(&mut *tx).await?;
+        if concurrency>3 {
+            sqlx::query("INSERT INTO automation_run_concurrency_overrides(run_id,concurrency) VALUES(?,?)")
+                .bind(&id).bind(concurrency).execute(&mut *tx).await?;
+        }
         for (ordinal,target) in targets.iter().enumerate() {
             sqlx::query("INSERT INTO automation_run_devices(run_id,device_id,ordinal,name,target_key,target_fingerprint,target_json,state,steps_json,updated_at) VALUES(?,?,?,?,?,?,?,'dispatch_pending','[]',?)")
                 .bind(&id).bind(target["device_id"].as_str()).bind(ordinal as i64).bind(target["name"].as_str()).bind(target_key(target)?).bind(target["target_fingerprint"].as_str()).bind(target.to_string()).bind(&timestamp).execute(&mut *tx).await?;
@@ -328,8 +336,12 @@ impl AutomationStore {
         let target_rows:Vec<String>=sqlx::query_scalar("SELECT target_json FROM automation_run_devices WHERE run_id=? ORDER BY ordinal").bind(id).fetch_all(&mut *conn).await?;
         let targets=target_rows.iter().map(|raw|parse_json(raw)).collect::<AutomationResult<Vec<_>>>()?;
         let executor_steps=executable_steps(&snapshot);
+        let concurrency=sqlx::query_scalar::<_,i64>(
+            "SELECT concurrency FROM automation_run_concurrency_overrides WHERE run_id=?"
+        ).bind(id).fetch_optional(&mut *conn).await?
+            .unwrap_or(row.try_get::<i64,_>("concurrency")?);
         Ok(json!({"id":id,"owner_user_id":owner,"actor_user_id":row.try_get::<i32,_>("actor_user_id")?,"name":row.try_get::<String,_>("name")?,
-            "steps":executor_steps,"parameters":{},"concurrency":row.try_get::<i64,_>("concurrency")?,"targets":targets}))
+            "steps":executor_steps,"parameters":{},"concurrency":concurrency,"targets":targets}))
     }
 
     pub(crate) async fn set_run_dispatch_unknown(&self,owner:i32,id:&str)->AutomationResult<()> {
