@@ -112,7 +112,8 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                 name:old?.name??target.name,
                 phase:target.state,message:target.steps.find(s=>s.step_id===target.current_step)?.message??target.state,
                 sessionId:old?.sessionId,runState:target.state,
-                stepId:typeof target.current_step==='string'?target.current_step:undefined,
+                stepId:target.steps.find(step=>step.state==='running')?.step_id ??
+                    (typeof target.current_step==='string'?target.current_step:undefined),
             };
         }
         state.phase=DONE.has(run.state)?'completed'
@@ -289,6 +290,28 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                 : '；本次未提交完整脚本动作。');
         }
     }
+    async function cancelDevice(deviceId:string){
+        const run=state.run;
+        const old=state.devices[deviceId];
+        if(!run || !old || !['running','cancel_requested'].includes(state.phase) ||
+            !run.devices.some(device=>device.device_id===deviceId) ||
+            ['cancel_requested','cancelled','completed','succeeded','failed','interrupted'].includes(old.phase))
+            return;
+        const owner=state.owner,epoch=version;
+        progress(deviceId,'cancel_requested','已请求停止此手机；等待执行器清理和真实结果');
+        try {
+            const result=await api.cancelRunDevice(owner,run.id,deviceId);
+            if(!still(owner,epoch))return;
+            acceptRun(result);
+            if(state.phase==='running'||state.phase==='cancel_requested')void refresh();
+        }catch(error){
+            if(!still(owner,epoch))return;
+            // Never automatically retry a possibly accepted stop action.
+            progress(deviceId,'outcome_unknown','单机停止回执未知；请仅查询执行历史');
+            state.error='单机停止结果未确认，请勿重复请求：'+automationErrorMessage(error);
+            if(state.phase==='running'||state.phase==='cancel_requested')void refresh();
+        }
+    }
     async function cancelAll(){
         const run=state.run;
         if(!run || !['running','cancel_requested'].includes(state.phase))return;
@@ -312,5 +335,5 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
         // Do not delete persistent request proof.
     }
     onBeforeUnmount(()=>{disposed=true;forgetOwner();preparation.dispose();});
-    return {state,busy,start,refresh,reconcile,cancelAll,forgetOwner};
+    return {state,busy,start,refresh,reconcile,cancelAll,cancelDevice,forgetOwner};
 }
