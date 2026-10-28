@@ -134,7 +134,7 @@ const booleanFields: { key: 'enabled' | 'long_clickable' | 'focusable' | 'checka
     { key: 'checkable', label: '是否可勾选' },
     { key: 'scrollable', label: '是否可滚动' },
 ];
-const booleanOptions = [
+const selectorBooleanOptions = [
     { label: '不使用', value: 'unset' },
     { label: '是', value: 'true' },
     { label: '否', value: 'false' },
@@ -246,7 +246,7 @@ function updateNumber(key: string, value: number | null | undefined) {
                     <span>{{ field.label }}</span>
                     <Select :input-id="fieldId('selector-' + field.key)"
                         :model-value="modelValue.selector[field.key] === undefined ? 'unset' : modelValue.selector[field.key] ? 'true' : 'false'"
-                        :options="booleanOptions" option-label="label" option-value="value"
+                        :options="selectorBooleanOptions" option-label="label" option-value="value"
                         :disabled="disabled" @update:model-value="booleanValue(field.key, $event)" />
                 </label>
                 <small>{{ text('布尔条件支持“是 / 否”并可与其他属性组合；执行时仍必须匹配唯一控件。', 'Boolean conditions support true / false in combinations; runtime match must still be unique.') }}</small>
