@@ -11,6 +11,7 @@ import { analyzeAutomationFlow } from './automation-flow';
 import { useCardTrialPreparation } from './useCardTrialPreparation';
 import { requiresAutomationHelper } from './automation-preflight';
 import { readBatchReceipt, reserveBatchReceipt, clearBatchReceipt, type BatchSubmissionReceipt } from './automation-batch-receipt';
+import { readTrialReceipt } from './automation-trial-receipt';
 
 export interface BatchPhoneHandle {
     open(quality: 'wall' | 'focus', settings: AutomationMediaSettings): Promise<void>;
@@ -202,6 +203,16 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
         allow:()=>boolean,
     ):Promise<void>{
         if(busy.value || state.pendingReceipt)throw new Error('存在运行中或结果未核实的批量任务。');
+        // T46 backward compatibility: obsolete ScriptLibrary used per-device
+        // sessionStorage receipts. Removing its modal must not allow the new
+        // batch surface to re-execute an old unknown action.
+        for(const target of intent.targets){
+            const legacy=readTrialReceipt(window.sessionStorage,intent.owner,target.id);
+            if(legacy)throw new Error(
+                target.name+' 有旧试跑请求结果尚未确认（'+legacy.requestId+
+                '）。请先从脚本管理页只读核对历史请求；禁止再次操作。'
+            );
+        }
         // Never re-POST a previous ambiguous action after page refresh.
         const old=readBatchReceipt(window.sessionStorage,intent.owner);
         if(old){
