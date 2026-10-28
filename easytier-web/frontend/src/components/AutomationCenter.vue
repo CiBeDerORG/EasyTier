@@ -15,6 +15,7 @@ import PhoneCard from './automation/PhoneCard.vue';
 import { menuToInspectorAction } from '../modules/automation-inspector-actions';
 import ConnectionDialog from './automation/ConnectionDialog.vue';
 import ScriptLibrary from './automation/ScriptLibrary.vue';
+import { useFloatingBatchRun, freezeFloatingBatchIntent } from '../modules/useFloatingBatchRun';
 import RunHistory from './automation/RunHistory.vue';
 import ExecutorSettings from './automation/ExecutorSettings.vue';
 import { automationMessages } from './automation/messages';
@@ -55,6 +56,8 @@ interface PhoneHandle {
     getState(): { phase: string; ready: boolean; viewerOnly?: boolean; width: number; height: number };
     getStream(): MediaStream | null;
     getSessionId(): string | null;
+    enterViewOnly(): Promise<void>;
+    resumeManual(): Promise<void>;
     cancelPointer(): void;
     resetPointer(): void;
 }
@@ -144,6 +147,12 @@ const sync = ref<SyncSession | null>(null);
 const recordingId = ref<string | null>(null); const recordingPaused = ref(false); const recordedSteps = ref<AutomationStep[]>([]);
 const draftWorkspace = reactive(emptyAutomationDraft(0));
 const draftSync = createAutomationDraftSync(api,draftWorkspace);
+const floatingBatch = useFloatingBatchRun(api);
+// A reload may have an unknown POST; reconcile by GET before a new submit.
+watch(ownerId,owner=>{
+    floatingBatch.forgetOwner();
+    if(owner>0)void floatingBatch.reconcile(owner);
+});
 const draftSyncState=draftSync.state;
 const draftSyncLabel=computed(()=>{
     const state=draftSyncState;
@@ -625,6 +634,30 @@ const globalManualBlocked = computed(() => globalTargets.value.some(id => {
 }));
 const recordingName = computed(() => deviceNames.value[recordingId.value ?? ''] ?? '');
 
+/** T43: the selector on ANY phone edits the same shared draft but the
+ * batch target is ONLY the current workbench checkbox set, never "all". */
+const batchDraftReady=computed(()=>scriptWorkspace.guard.value==='clean' &&
+    draftSync.canLeave() && !cardEditorDirty.value);
+async function runSelectedBatch(parameters:Record<string,string>,concurrency:number) {
+    error.value='';
+    if(!runnerAvailable.value || !batchDraftReady.value ||
+        !!recordingId.value || !!sync.value || !!cardStepEditor.value ||
+        !!inspectorDeviceId.value || selectedIds.value.some(id=>unlockingIds.value.includes(id))){
+        error.value='批量执行前请保存草稿并结束录制、群控、编辑、控件拾取和解锁操作。';return;
+    }
+    try{
+        const intent=freezeFloatingBatchIntent(
+            ownerId.value,selectedIds.value,devices.value,draftWorkspace.steps,
+            draftWorkspace.name,parameters,concurrency);
+        await floatingBatch.start(intent,id=>cards.get(id),{...mediaSettings.value},()=>
+            !disposed && tab.value==='workbench' && ownerId.value===intent.owner);
+        if(floatingBatch.state.error)error.value=floatingBatch.state.error;
+    }catch(cause){error.value=automationErrorMessage(cause);}
+}
+function refreshBatch(){void floatingBatch.refresh();}
+function reconcileBatch(){void floatingBatch.reconcile(ownerId.value);}
+function stopBatch(){void floatingBatch.cancelAll();}
+
 function setCard(id: string, value: unknown) {
     if (value) cards.set(id, value as PhoneHandle); else cards.delete(id);
 }
@@ -735,6 +768,9 @@ function queryVisibleDeviceStatuses() {
     }
 }
 async function query() {
+    if(floatingBatch.busy.value){
+        notice.value='批量脚本正在原画面运行，请先结束任务再切换筛选（避免误关视频）。';return;
+    }
     applied.value = { ...filters.value };
     await loadDevices();
     queryVisibleDeviceStatuses();
@@ -743,6 +779,9 @@ async function query() {
 }
 async function changeOwner(id: number) {
     if (id === ownerId.value || busy.value || connecting.value || switchingTab.value) return;
+    if(floatingBatch.busy.value || floatingBatch.state.phase==='unknown'){
+        notice.value='批量运行或结果未知期间不能切换账号；请确认停止或只读核实原请求。';return;
+    }
     if(!warnBeforeDraftReplacement())return;
     repairRequest.value = null;
     cardRepairContext.value = null; ++cardRepairEpoch;
@@ -901,6 +940,9 @@ async function toggleDeviceScreen(id: string) {
 }
 async function closeSelected() {
     const targets = [...selectedIds.value];
+    if(floatingBatch.busy.value && targets.some(id=>floatingBatch.state.selected.includes(id))){
+        notice.value='批量任务运行中，不能关闭选中设备原实时画面；请先请求停止并确认清理。';return;
+    }
     if (sync.value && targets.some(id => sync.value!.deviceIds.includes(id))) await stopSync();
     if (recordingId.value && targets.includes(recordingId.value)) finishRecording(false);
     await Promise.all(targets.map(id => cards.get(id)?.close()));
@@ -1552,6 +1594,9 @@ function finishRecording(edit: boolean) {
 }
 async function changeTab(next: typeof tab.value) {
     if (next === tab.value || switchingTab.value || connecting.value || sendingText.value) return;
+    if(next!=='workbench' && (floatingBatch.busy.value || floatingBatch.state.phase==='unknown')){
+        notice.value='批量准备或执行期间保留工作台各机原视频。结果未知请先只读核实。';return;
+    }
     if (tab.value === 'workbench' && cardEditorDirty.value &&
         !window.confirm('当前卡片步骤存在未保存的参数修改，确定切换页面并放弃这些修改吗？')) return;
     if (gestureConfirmation.value && tab.value === 'workbench') {
@@ -1858,6 +1903,8 @@ onBeforeUnmount(() => { stopEvents?.();
                         :scripts="scriptWorkspace.state.items" :scripts-busy="scriptWorkspace.state.busy"
                         :scripts-loading="scriptWorkspace.state.loading" :scripts-error="scriptWorkspace.state.error"
                         :script-guard="scriptWorkspace.guard.value"
+                        :selected-device-count="selectedIds.length"
+                        :batch-run-state="floatingBatch.state" :batch-draft-ready="batchDraftReady"
                         :undo-delete-label="deletedStepUndoLabel" :editing-dirty="cardEditorDirty"
                         :editing-step-id="cardStepEditor?.deviceId === device.id ? cardStepEditor.stepId : undefined"
                         :repicking-step-id="repickingStepIds[device.id]"
@@ -1875,6 +1922,8 @@ onBeforeUnmount(() => { stopEvents?.();
                         @inspector-close="closeInspector" @inspector-add-step="addInspectorStep"
                         @inspector-replace-target="replaceInspectorTarget" @inspector-edit="editInspectorDraft"
                         @script-refresh="refreshScriptList" @script-action="handleFloatingScriptAction"
+                        @batch-start="runSelectedBatch" @batch-refresh="refreshBatch"
+                        @batch-stop="stopBatch" @batch-reconcile="reconcileBatch"
                         @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
                         @step-undo="undoCardDraftStepDeletion"
                         @trial-history="onCardTrialHistory" @trial-repair="onCardTrialRepair" @repair-repick="repickCardRepairStep" @repair-dismiss="dismissCardRepair" @step-close="closeCardStepEditor"
