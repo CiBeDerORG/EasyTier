@@ -43,7 +43,8 @@ const label=(state:string)=>{
     const texts:Record<string,string>={
         idle:'未运行',preparing:'独立准备中',submitting:'提交整批任务中',
         running:'设备并行执行中',cancel_requested:'已请求停止，等待确认',
-        completed:'执行已结束',failed:'准备/提交失败',unknown:'结果未知，禁止再次提交',
+        completed:'执行成功',partial_failed:'部分手机失败',failed:'执行失败或准备失败',
+        interrupted:'执行中断',unknown:'结果未知，禁止再次提交',
         queued:'排队中',viewing:'原画面检查',suspending:'只读移交',ready:'已准备',
         succeeded:'成功',cancelled:'已取消',outcome_unknown:'结果未知',cleanup_pending:'清理待确认',
         binding:'核对手机绑定',adb_check:'检查ADB',connecting:'连接ADB',
