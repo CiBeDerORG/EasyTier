@@ -381,8 +381,10 @@ function toggleAutomationPanel() {
 }
 // If the primary video finishes connecting AFTER the panel is opened,
 // transfer the same session into view-only then; do not open another viewer.
-watch([()=>automationPanelOpen.value,()=>session.state.phase,()=>session.state.controlReady],
-    ([open])=>{if(open)void switchConsoleToReadOnly();});
+watch([
+    ()=>automationPanelOpen.value,()=>session.state.phase,
+    ()=>session.state.controlReady,()=>consolePermissionPending.value,
+],([open])=>{if(open)void switchConsoleToReadOnly();});
 // Never restore a viewer while a step trial, batch run or unknown cleanup
 // still holds phone action rights. A queued close gets one safe attempt when
 // the observed owner/runner occupancy becomes eligible for manual control.
