@@ -183,6 +183,18 @@ class AdvancedExecutionTests(unittest.TestCase):
         self.assertEqual(preview["bounds"], {"left":40,"top":80,"right":160,"bottom":140})
         self.assertTrue(all(m in ("count", "dumpWindowHierarchy") for m,_ in runner.calls))
 
+    def test_xpath_preview_uniqueness_ignores_stale_recorded_dimensions(self):
+        # Read-only XPath preview uses LIVE XML geometry, not a source-phone
+        # coordinate recording. The selector is reusable on different screens.
+        xml = '<hierarchy><node class="android.widget.FrameLayout" bounds="[0,0][320,640]"><node class="android.widget.FrameLayout" content-desc="领淘金币" bounds="[40,80][160,140]"/></node></hierarchy>'
+        runner = ActionHarness(hierarchy=xml)
+        preview = runner.run(record("locator_verify", xpath="//*[@content-desc='领淘金币']",
+                                    width=1080, height=2340, preview_only=True,
+                                    timeout_ms=20000))
+        self.assertTrue(preview["verified"])
+        self.assertEqual(preview["reason"], "unique_preview")
+        self.assertEqual(preview["bounds"]["left"], 40)
+
     def test_wait_gone_never_sends_an_action(self):
         checks = iter([2, 2, 0])
         runner = ActionHarness(count=lambda s: 1 if s.values.get("className") else next(checks))

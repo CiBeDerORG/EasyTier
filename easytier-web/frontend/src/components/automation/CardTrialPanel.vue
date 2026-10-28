@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** T14: one selected step on this phone; reuse T12/T13 and the ordinary /runs API. */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import { Button, Checkbox, InputText, Message, Tag } from 'primevue';
+import { Button, InputText, Message, Tag } from 'primevue';
 import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
@@ -9,10 +9,10 @@ import { useCardTrialPreparation, type CardTrialPhase } from '../../modules/useC
 import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import { useCardRunStatus } from '../../modules/useCardRunStatus';
 import { makeSingleStepRun, stepTrialSafety } from '../../modules/automation-single-step';
-import { freezeInlineStepRunIntent, inlineStepIntentStillCurrent, inlineStepMayAutoSubmit, type InlineStepRunIntent, type InlineStepRunProgress } from '../../modules/useInlineStepRun';
+import { freezeInlineStepRunIntent, inlineStepIntentStillCurrent, type InlineStepRunIntent, type InlineStepRunProgress } from '../../modules/useInlineStepRun';
 import { cardStepLabels } from '../../modules/card-step-projection';
 import {
-    reviewAutomationDeviceCompatibility, compatibilityStillCurrent,
+    reviewAutomationDeviceCompatibility,
     statelessCompatibility, requiresReuseHierarchy,
     type DeviceCompatibilityReview,
 } from '../../modules/automation-device-compatibility';
@@ -32,9 +32,12 @@ const props=defineProps<{
     previewHandle: () => TrialPreviewHandle;
     runnerAvailable: boolean;
     blocked?: boolean;
+    /** Run directly from the card's play button without a risk modal. */
+    headless?: boolean;
 }>();
 const emit=defineEmits<{ close: []; history: [runId: string]; repair: [runId: string, stepId: string];
-    progress: [value: InlineStepRunProgress] }>();
+    progress: [value: InlineStepRunProgress];
+    finished: [value: {phase:'succeeded'|'action_sent'|'failed'|'cancelled';message:string}] }>();
 const api=new AutomationApi();
 const preparation=useCardTrialPreparation(api);
 const result=useCardRunStatus(api);
@@ -47,8 +50,24 @@ const repairableRun=computed(()=>!!currentRun.value && !!runView.value &&
 type PanelPhase = 'idle' | 'releasing' | 'preparing' | 'ready' | 'submitting' | 'observing' | 'failed' | 'unknown';
 const phase=ref<PanelPhase>('idle');
 const warning=ref('');
-const consent=ref(false);
 const compatibilityReview=ref<DeviceCompatibilityReview | null>(null);
+/** The server's raw XML verifier is authoritative for XPath uniqueness. */
+async function reviewStepOnPhone(owner:number, device:AutomationDevice, step:AutomationStep):Promise<DeviceCompatibilityReview>{
+    if(!requiresReuseHierarchy([step]))return statelessCompatibility(owner,device,[step]);
+    const hierarchy=await api.hierarchy(owner,device.id);
+    const xpathVerified:Record<string,boolean>={};
+    if(step.selector?.xpath){
+        const response=await api.verifyLocator(owner,device.id,{
+            xpath:step.selector.xpath,width:hierarchy.snapshot.width,
+            height:hierarchy.snapshot.height,preview_only:true,
+        });
+        xpathVerified[step.id]=response.verified && !!response.bounds
+            && response.device_id===device.id
+            && response.target_fingerprint===device.target_fingerprint;
+    }
+    return reviewAutomationDeviceCompatibility(owner,device,hierarchy,[step],Date.now(),
+        {requireUniqueSelectors:true,xpathVerified});
+}
 const parameterValue=ref('');
 const frozen=ref<AutomationStep | null>(null);
 const lockedIntent=ref<InlineStepRunIntent | null>(null);
@@ -116,7 +135,16 @@ const inlineStatus=computed<InlineStepRunProgress|null>(() => {
         message:run?.detail || warning.value || undefined,
     };
 });
-watch(inlineStatus,value=>{if(value)emit('progress',value);},{immediate:true});
+let finishedEmitted=false;
+watch(inlineStatus,value=>{
+    if(!value)return;
+    emit('progress',value);
+    if(!finishedEmitted && (value.phase==='failed'||value.phase==='cancelled'
+        ||value.phase==='succeeded'||value.phase==='action_sent')){
+        finishedEmitted=true;
+        emit('finished',{phase:value.phase,message:value.message||value.label});
+    }
+},{immediate:true});
 const preparePhases:Record<CardTrialPhase,string>={
     queued:'准备排队中',binding:'核对设备绑定',adb_check:'查询 ADB',connecting:'连接 ADB',
     helper_check:'检查控件组件',helper_start:'提交控件初始化',helper_wait:'初始化控件中',
@@ -124,13 +152,14 @@ const preparePhases:Record<CardTrialPhase,string>={
 };
 function clearSecrets(){parameterValue.value='';}
 function resetForOpen(){
+    finishedEmitted=false;
     handedOffSessionId.value=null;
     lockedIntent.value=freezeInlineStepRunIntent(
         props.ownerId,props.device.id,props.device.target_fingerprint??'',props.step,uuid());
     loadReceipt();
     if(receiptFailure.value || unresolvedReceipt.value) {
         result.reset();
-        pending.value=null;uncertain.value=true;consent.value=false;
+        pending.value=null;uncertain.value=true;
         compatibilityReview.value=null;
         clearSecrets();phase.value='unknown';
         frozen.value=lockedIntent.value?.step??null;
@@ -148,7 +177,7 @@ function resetForOpen(){
             : '其他步骤的试跑请求结果仍未确认。请返回原步骤核实记录，不能在这里重新执行。';
         return;
     }
-    result.reset();pending.value=null;uncertain.value=false;consent.value=false;
+    result.reset();pending.value=null;uncertain.value=false;
     compatibilityReview.value=null;
     clearSecrets();phase.value='idle';warning.value='';
     frozen.value=lockedIntent.value?.step??null;
@@ -182,11 +211,11 @@ async function prepare(){
     }
     if(busy.value || pending.value || result.run.value)return;
     const problem=checkReadyToPrepare();
-    if(problem){warning.value=problem;return;}
+    if(problem){phase.value='failed';warning.value=problem;return;}
     const mine=++epoch,owner=props.ownerId,id=props.device.id;
     const source=JSON.stringify(props.step);
     const chosen=frozen.value!;
-    warning.value='';consent.value=false;
+    warning.value='';
     compatibilityReview.value=null;
     try {
         phase.value='releasing';
@@ -223,23 +252,17 @@ async function prepare(){
             const latestDevice=(await api.devices(owner)).items.find(item=>item.id===id);
             if(!valid(mine,owner,id,source))return;
             if(!latestDevice)throw new Error('无法确认当前手机授权及绑定。');
-            const checked=requiresReuseHierarchy([chosen])
-                ? reviewAutomationDeviceCompatibility(owner,latestDevice,
-                    await api.hierarchy(owner,id),[chosen],Date.now(),{requireUniqueSelectors:true})
-                : statelessCompatibility(owner,latestDevice,[chosen]);
+            const checked=await reviewStepOnPhone(owner,latestDevice,chosen);
             if(!valid(mine,owner,id,source))return;
             compatibilityReview.value=checked;
             if(checked.status==='blocked'){
                 phase.value='failed';
-                warning.value='本机屏幕尺寸、控件唯一性或目标定位不符合安全校验；请刷新控件树、重新拾取或修改步骤，执行已阻止。';
+                warning.value=checked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '设备安全校验未通过。';
             }else {
                 phase.value='ready';warning.value='';
-                if(inlineStepMayAutoSubmit(safety.value,checked,parameter.value)) {
-                    // The original ▶ is sufficient for a read-only assertion.
-                    // Mutating actions, screenshots and uncertain locators
-                    // still require explicit operator confirmation.
-                    void submit();
-                }
+                // One deliberate press of ▶ authorizes this one frozen step.
+                // Never skip fresh target validation or the durable request receipt.
+                if (!parameter.value) void submit();
             }
         }
         else {
@@ -261,12 +284,6 @@ async function submit(){
     if(!compatibilityReview.value || compatibilityReview.value.status==='blocked'){
         warning.value='当前手机兼容性核验尚未通过，不能执行此步骤。';return;
     }
-    if(compatibilityReview.value.status==='confirm' && !consent.value){
-        warning.value='请确认当前手机的坐标/定位风险后再执行。';return;
-    }
-    if(safety.value==='confirm_required' && !consent.value) {
-        warning.value='请明确确认此步骤可能修改手机状态或保存截图证据。';return;
-    }
     if(parameter.value && (!parameterValue.value ||
         new TextEncoder().encode(parameterValue.value).length>2000)) {
         warning.value='请输入本次试跑参数（最多 2000 字节）。';return;
@@ -278,7 +295,7 @@ async function submit(){
         warning.value='单步执行身份或草稿内容已发生变化，拒绝产生新设备动作。';return;
     }
     const payload=makeSingleStepRun(frozen.value,id,intent!.requestId,
-        parameter.value ? {[parameter.value]:parameterValue.value} : {},consent.value);
+        parameter.value ? {[parameter.value]:parameterValue.value} : {},true);
     if(!payload){warning.value='步骤不支持脱离上下文单独执行。';return;}
     pending.value=payload; // Freeze request ID and body across uncertain HTTP outcomes.
     phase.value='submitting';warning.value='';
@@ -294,21 +311,18 @@ async function submit(){
             row.active_session?.id!==handedOffSessionId.value ||
             !['active','view_only'].includes(row.active_session.state) || row.run_occupied)
             throw new Error('原视频会话或设备绑定在提交前变化，未提交试跑。');
-        const rechecked=requiresReuseHierarchy([frozen.value])
-            ? reviewAutomationDeviceCompatibility(owner,row,
-                await api.hierarchy(owner,id),[frozen.value],Date.now(),{requireUniqueSelectors:true})
-            : statelessCompatibility(owner,row,[frozen.value]);
+        const rechecked=await reviewStepOnPhone(owner,row,frozen.value);
         if(!valid(mine,owner,id,original))return;
         if(rechecked.status==='blocked'){
             pending.value=null;compatibilityReview.value=rechecked;
             phase.value='failed';
-            warning.value='提交前发现控件定位不唯一、目标不可靠或画面尺寸不符，已中止本次执行。';return;
+            warning.value=rechecked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '目标定位未通过实时安全验证。';return;
         }
-        if(!compatibilityStillCurrent(compatibilityReview.value,owner,row,[frozen.value]) ||
-            JSON.stringify(rechecked.issues)!==JSON.stringify(compatibilityReview.value?.issues)){
-            pending.value=null;compatibilityReview.value=rechecked;
-            phase.value='ready';
-            warning.value='手机页面/定位状态变化，请重新核对兼容性风险并确认。';return;
+        // The just-captured hierarchy and device fingerprint are fresh.
+        // A harmless warning difference must not force another risk click.
+        if(compatibilityReview.value?.targetFingerprint!==row.target_fingerprint){
+            pending.value=null;phase.value='failed';
+            warning.value='设备绑定已变化，试跑已中止。';return;
         }
         clearSecrets();
         await sendFrozen(mine,owner,id,original,payload);
@@ -423,7 +437,6 @@ async function recheckPreparation(){
                 : statelessCompatibility(owner,latestDevice,[frozen.value]);
             if(!valid(mine,owner,id,original))return;
             compatibilityReview.value=checked;
-            consent.value=false;
             if(checked.status==='blocked'){
                 phase.value='failed';
                 warning.value='准备已恢复，但控件定位或屏幕坐标仍不安全；请重新拾取。';
@@ -495,7 +508,7 @@ onBeforeUnmount(()=>{
 </script>
 
 <template>
-    <AutomationFloatingDialog :visible="visible" :portal-target="portalTarget"
+    <AutomationFloatingDialog :visible="visible && (!headless || phase==='unknown' || (phase==='ready' && !!parameter && !parameterValue))" :portal-target="portalTarget"
         :fullscreen="fullscreen" title="卡片单步骤试跑"
         :closable="!busy || phase === 'preparing'" @close="hide">
         <div class="card-trial-content">
@@ -517,15 +530,13 @@ onBeforeUnmount(()=>{
             </div>
             <div v-if="compatibilityReview" class="trial-progress" aria-live="polite">
                 <strong>手机匹配：{{ compatibilityReview.viewport.width ? compatibilityReview.viewport.width+' × '+compatibilityReview.viewport.height : '仅ADB操作' }}</strong>
-                <Tag :value="compatibilityReview.status==='blocked'?'尺寸不兼容':compatibilityReview.status==='confirm'?'需要确认定位风险':'只读核验通过'"
+                <Tag :value="compatibilityReview.status==='blocked'
+                    ? compatibilityReview.issues.some(i=>i.severity==='block' && i.message.includes('坐标参考画面'))?'尺寸不兼容':'定位校验失败'
+                    : compatibilityReview.status==='confirm'?'已检查定位风险':'只读核验通过'"
                     :severity="compatibilityReview.status==='blocked'?'danger':compatibilityReview.status==='confirm'?'warn':'success'"/>
                 <p v-for="item in compatibilityReview.issues" :key="item.stepId+item.message">
                     第 {{ item.stepNumber }} 步：{{ item.message }}
                 </p>
-            </div>
-            <div v-if="phase==='ready' && (safety==='confirm_required' || compatibilityReview?.status==='confirm')" class="trial-check">
-                <Checkbox v-model="consent" input-id="card-trial-consent" binary />
-                <label for="card-trial-consent">我已核对当前手机、页面和定位风险，确认仅在这台手机执行本步骤；操作可能修改手机状态或留存截图证据。</label>
             </div>
             <label v-if="phase==='ready' && parameter" class="param-input">
                 本次输入参数：{{ parameter }}
@@ -563,8 +574,7 @@ onBeforeUnmount(()=>{
                 <Button v-if="phase==='ready' && !started" label="确认执行此步骤"
                     icon="pi pi-play" size="small"
                     :disabled="!compatibilityReview || compatibilityReview.status==='blocked' ||
-                        (compatibilityReview.status==='confirm'&&!consent) ||
-                        (safety==='confirm_required'&&!consent) || (!!parameter&&!parameterValue)"
+                        (!!parameter&&!parameterValue)"
                     @click="submit"/>
             </div>
             <small class="trial-note">准备成功不代表执行成功；单步骤成功不代表整套业务验证完成。未知动作结果不会自动重试。</small>

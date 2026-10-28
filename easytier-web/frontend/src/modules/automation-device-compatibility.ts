@@ -60,7 +60,7 @@ export function reviewAutomationDeviceCompatibility(
     hierarchy: AutomationHierarchy,
     steps: AutomationStep[],
     nowMs=Date.now(),
-    options: { requireUniqueSelectors?: boolean } = {},
+    options: { requireUniqueSelectors?: boolean; xpathVerified?: Record<string,boolean> } = {},
 ): DeviceCompatibilityReview {
     if(ownerId<=0 || !steps.length || device.owner_user_id!==ownerId ||
        !device.connection.enabled || device.availability_reason ||
@@ -94,8 +94,11 @@ export function reviewAutomationDeviceCompatibility(
         }
         if(step.selector) {
             if(step.selector.xpath) {
-                issues.push(issue(step,i,options.requireUniqueSelectors?'block':'confirm',
-                    'XPath 需要执行器 XML 解析；现有只读树无法证明跨手机定位唯一，建议重新拾取。'));
+                // The browser's flattened hierarchy cannot evaluate XPath. Only
+                // the executor's fresh raw XML can establish a unique match.
+                if (options.xpathVerified?.[step.id] !== true)
+                    issues.push(issue(step,i,options.requireUniqueSelectors?'block':'confirm',
+                        'XPath 未通过执行器实时 XML 唯一性核验，请检查定位规则。'));
             } else if(truncated) {
                 issues.push(issue(step,i,options.requireUniqueSelectors?'block':'confirm',
                     '控件树存在截断，无法证明当前手机定位唯一；请刷新控件树或重新拾取。'));

@@ -132,6 +132,20 @@ const repairStepNumber = computed(() => repairStep.value
     ? props.draft.steps.findIndex(step => step.id === repairStep.value!.id)+1 : 0);
 const trialStepId = ref<string | null>(null);
 const trialProgress = ref<InlineStepRunProgress | null>(null);
+const trialToast = ref<{severity:'success'|'error';message:string}|null>(null);
+let trialToastTimer:ReturnType<typeof setTimeout>|null=null;
+function showTrialToast(severity:'success'|'error',message:string){
+    if(trialToastTimer!==null)clearTimeout(trialToastTimer);
+    trialToast.value={severity,message};
+    trialToastTimer=setTimeout(()=>{trialToast.value=null;trialToastTimer=null;},
+        severity==='error'?9000:4000);
+}
+function finishCardTrial(value:{phase:'succeeded'|'action_sent'|'failed'|'cancelled';message:string}){
+    showTrialToast(value.phase==='succeeded'||value.phase==='action_sent'?'success':'error',
+        value.message || (value.phase==='failed'?'本次试跑失败':'本次试跑已结束'));
+    trialStepId.value=null;
+}
+onBeforeUnmount(()=>{if(trialToastTimer!==null)clearTimeout(trialToastTimer);});
 const batchVideoProtected=computed(()=>props.batchRunState.selected.includes(props.device.id) &&
     ['preparing','submitting','running','cancel_requested','unknown'].includes(props.batchRunState.phase));
 function onTrialProgress(value:InlineStepRunProgress){
@@ -943,6 +957,8 @@ onBeforeUnmount(() => {
                         @stop-device="id=>{if(id===device.id)emit('batch-stop-device',device.id)}"
                         @reconcile="emit('batch-reconcile',device.id)" />
                     <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
+                        :batch-run="batchRunState.owner===ownerId && batchRunState.selected.includes(device.id)
+                            ? batchRunState.run : null" :batch-device-id="device.id"
                         :trial-progress="trialProgress" :trial-active="trialStepId !== null"
                         :structure-locked="!!editingDirty || batchVideoProtected || !!syncRole || recording"
                         :undo-label="undoDeleteLabel"
@@ -1022,12 +1038,18 @@ onBeforeUnmount(() => {
                 @trial="stepId => openCardTrial(stepId,true)"
                 @dismiss="emit('repair-dismiss',device.id)" />
         </AutomationFloatingDialog>
-        <CardTrialPanel :visible="trialStepId !== null" :owner-id="ownerId" :device="device"
+        <div v-if="trialToast" class="trial-toast" :class="'trial-toast-'+trialToast.severity"
+            role="alert" aria-live="assertive">
+            <i :class="trialToast.severity==='error'?'pi pi-exclamation-triangle':'pi pi-check-circle'" aria-hidden="true" />
+            <span>{{trialToast.message}}</span>
+            <button type="button" title="关闭提示" aria-label="关闭提示" @click="trialToast=null"><i class="pi pi-times" /></button>
+        </div>
+        <CardTrialPanel :visible="trialStepId !== null" :headless="true" :owner-id="ownerId" :device="device"
             :step="trialStep" :preview-handle="getTrialPreviewHandle"
             :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
             :runner-available="runnerAvailable"
             :blocked="!!recording || !!syncRole || !!unlocking || !!editingStepId"
-            @progress="onTrialProgress"
+            @progress="onTrialProgress" @finished="finishCardTrial"
             @close="trialStepId = null"
             @history="runId => { trialStepId = null; emit('trial-history',device.id,runId); }"
             @repair="(runId,stepId) => { trialStepId = null; emit('trial-repair',device.id,runId,stepId); }" />
@@ -1124,6 +1146,13 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 }
 .control-dismiss{position:absolute;inset:0;z-index:5;background:transparent;border:0;cursor:default}
 footer{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;gap:8px;font-size:11px}.phase{color:var(--console-muted)}.phase.live{color:var(--p-green-500)}.phase.live:before{content:'';display:inline-block;width:6px;height:6px;background:currentColor;border-radius:50%;margin-right:6px}.unlock-notice{display:block;padding:0 12px 10px;color:var(--console-muted);font-size:11px}.phone-error{font-size:11px;padding:0 12px 10px;color:var(--p-red-500);overflow-wrap:anywhere;max-height:80px;overflow:auto}.fullscreen-stop{display:none}
+.trial-toast{position:absolute;top:14px;right:14px;z-index:70;display:flex;align-items:flex-start;
+gap:9px;max-width:min(420px,calc(100% - 28px));padding:12px;border-radius:9px;
+background:var(--console-panel-raised);border:1px solid var(--console-border);
+box-shadow:0 6px 25px #0003;color:var(--p-text-color);font-size:12px;line-height:1.5}
+.trial-toast-error{border-color:var(--p-red-500);color:var(--p-red-500)}
+.trial-toast-success{border-color:var(--p-green-500);color:var(--p-green-500)}
+.trial-toast button{border:0;background:transparent;cursor:pointer;color:inherit;margin-left:auto}
 /* Match EasyADB: only the phone SCREEN enters the browser top layer.
    The decoded image is never stretched or cropped, on desktop or mobile. */
 .phone-screen:fullscreen{width:100vw;max-width:none;height:100dvh;max-height:none;aspect-ratio:auto!important;border-radius:0;background:#142033}

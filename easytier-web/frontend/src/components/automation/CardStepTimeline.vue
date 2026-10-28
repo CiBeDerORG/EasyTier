@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { AutomationStepType } from '../../types/automation';
+import type { AutomationRun, AutomationStepType } from '../../types/automation';
 import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
 import { projectCardSteps } from '../../modules/card-step-projection';
@@ -13,6 +13,8 @@ const props=defineProps<{
     pickerActive?: boolean;
     trialProgress?: InlineStepRunProgress | null;
     trialActive?: boolean;
+    batchRun?: AutomationRun | null;
+    batchDeviceId?: string;
     structureLocked?: boolean;
 }>();
 const emit=defineEmits<{
@@ -26,6 +28,31 @@ const emit=defineEmits<{
     move: [stepId:string,delta:-1|1];
 }>();
 const projected=computed(()=>projectCardSteps(props.draft));
+/** Durable per-step executor results, scoped to exactly this device and script
+ * snapshot. Never color a modified draft from an older run. */
+const batchStepStates=computed(()=>{
+    const run=props.batchRun,deviceId=props.batchDeviceId;
+    const map=new Map<string,'running'|'succeeded'|'failed'|'skipped'>();
+    if(!run||!deviceId || run.script_snapshot.steps.length!==props.draft.steps.length ||
+        run.script_snapshot.steps.some((s,i)=>s.id!==props.draft.steps[i]?.id))return map;
+    const device=run.devices.find(x=>x.device_id===deviceId);
+    if(!device)return map;
+    for(const step of device.steps){
+        if(['failed','interrupted','outcome_unknown'].includes(step.state))
+            map.set(step.step_id,'failed');
+        else if(['succeeded','completed','success','action_sent'].includes(step.state))
+            map.set(step.step_id,'succeeded');
+        else if(['skipped','skip'].includes(step.state))
+            map.set(step.step_id,'skipped');
+        else if(['running','starting','executing'].includes(step.state))
+            map.set(step.step_id,'running');
+    }
+    if(typeof device.current_step==='string' && props.draft.steps.some(s=>s.id===device.current_step)
+        && ['running','starting','accepted'].includes(device.state)
+        && !map.has(device.current_step))
+        map.set(device.current_step,'running');
+    return map;
+});
 const layout=computed(()=>analyzeAutomationFlow(props.draft.steps));
 const insertType=ref<AutomationStepType>('key');
 const actions:{value:AutomationStepType;name:string}[]=[
@@ -71,7 +98,11 @@ function canMove(id:string,delta:-1|1):boolean{
         </div>
         <ol v-else class="timeline" aria-label="脚本步骤时间线">
             <li v-for="step in projected.steps" :key="step.id" class="timeline-item"
-                :class="{ active: step.id === draft.selectedStepId }">
+                :class="{ active: step.id === draft.selectedStepId,
+                    'batch-running': batchStepStates.get(step.id)==='running',
+                    'batch-success': batchStepStates.get(step.id)==='succeeded',
+                    'batch-failed': batchStepStates.get(step.id)==='failed',
+                    'batch-skipped': batchStepStates.get(step.id)==='skipped' }">
                 <button class="step-select" type="button"
                     :aria-pressed="step.id === draft.selectedStepId"
                     :title="'编辑第 '+step.number+' 步：'+step.label" @click="emit('edit',step.id)">
@@ -80,6 +111,11 @@ function canMove(id:string,delta:-1|1):boolean{
                         <strong>{{ step.label }}</strong>
                         <small v-if="step.branch" class="branch">{{ step.branch }}</small>
                         <small>{{ step.context }}{{ step.incomplete ? ' · 待完善' : '' }}</small>
+                        <small v-if="batchStepStates.get(step.id)" class="batch-step-label">
+                            {{ batchStepStates.get(step.id)==='running'?'● 当前执行'
+                                : batchStepStates.get(step.id)==='succeeded'?'✓ 已完成'
+                                : batchStepStates.get(step.id)==='failed'?'✕ 执行失败':'— 已跳过' }}
+                        </small>
                         <InlineStepRunStatus v-if="trialProgress?.stepId === step.id"
                             :progress="trialProgress" />
                     </span>
@@ -142,6 +178,14 @@ function canMove(id:string,delta:-1|1):boolean{
 .step-select{display:flex;align-items:center;min-width:0;gap:5px;flex:1;background:transparent;color:inherit;border:0;text-align:left;padding:6px 3px;cursor:pointer}
 .number{display:grid;place-items:center;width:20px;height:20px;flex:0 0 20px;border-radius:50%;border:1px solid var(--console-border);font-size:10px;font-variant-numeric:tabular-nums}
 .timeline-item.active .number{border-color:var(--p-primary-color);color:var(--p-primary-color)}
+.timeline-item.batch-running{border-color:var(--p-primary-color);background:var(--console-accent-soft);box-shadow:inset 3px 0 var(--p-primary-color)}
+.timeline-item.batch-running .number,.timeline-item.batch-running .batch-step-label{color:var(--p-primary-color);font-weight:700}
+.timeline-item.batch-success{border-color:var(--p-green-500);background:color-mix(in srgb,var(--p-green-500) 9%,transparent)}
+.timeline-item.batch-success .number,.timeline-item.batch-success .batch-step-label{color:var(--p-green-500);font-weight:700}
+.timeline-item.batch-failed{border-color:var(--p-red-500);background:color-mix(in srgb,var(--p-red-500) 12%,transparent)}
+.timeline-item.batch-failed .number,.timeline-item.batch-failed .batch-step-label{color:var(--p-red-500);font-weight:700}
+.timeline-item.batch-skipped{opacity:.7}
+.timeline-item.batch-running .step-select:focus-visible,.timeline-item.batch-failed .step-select:focus-visible{outline-offset:-2px}
 .step-info{min-width:0;display:flex;flex-direction:column;gap:2px}
 .step-info strong{font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .step-info small{font-size:10px;color:var(--console-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

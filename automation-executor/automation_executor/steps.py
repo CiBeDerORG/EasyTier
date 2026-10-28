@@ -113,9 +113,13 @@ def execute(target, step, parameters, artifact_path=None):
         if step.get("preview_only") is True:
             # A saved XPath may be previewed without knowing its old bounds;
             # this proves CURRENT uniqueness only, not business identity.
-            unique = bounds is not None and same_size
+            # XPath is selector-based, NOT a recording of the source-phone
+            # viewport. The hierarchy parser already validates returned bounds
+            # against the live device size; don't require another snapshot to
+            # have identical dimensions for read-only uniqueness checking.
+            unique = bounds is not None
             return {"device_id": target["device_id"], "target_fingerprint": target["target_fingerprint"],
-                    "verified": bool(unique), "reason": "unique_preview" if unique else "snapshot_changed",
+                    "verified": bool(unique), "reason": "unique_preview" if unique else "selector_not_found",
                     "bounds": bounds if unique else None}
         expected = step["expected_bounds"]
         # A different display or moved target requires a new user pick.

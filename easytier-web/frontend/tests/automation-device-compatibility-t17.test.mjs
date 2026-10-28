@@ -108,3 +108,21 @@ test('AC11 fingerprint of a script is sensitive to ordering but does not mutate 
   assert.notEqual(reuseStepFingerprint(steps),reuseStepFingerprint([...steps].reverse()));
   assert.deepEqual(steps,original);
 });
+
+test('XPath verified by the executor on a fresh device XML is not a screen-size failure',()=>{
+  const p=phone('mate30');
+  const step={id:'xpath-step',type:'tap',selector:{xpath:"//*[@content-desc='领淘金币']"}};
+  const shot=hierarchy(p,1080,2340);
+  const blocked=reviewAutomationDeviceCompatibility(7,p,shot,[step],now,{requireUniqueSelectors:true});
+  assert.equal(blocked.status,'blocked');
+  assert.match(blocked.issues.find(x=>x.severity==='block').message,/XPath/);
+  const passed=reviewAutomationDeviceCompatibility(7,p,shot,[step],now,{
+    requireUniqueSelectors:true,xpathVerified:{'xpath-step':true},
+  });
+  assert.notEqual(passed.status,'blocked');
+  assert.ok(!passed.issues.some(x=>x.message.includes('尺寸不兼容')));
+  const notVerified=reviewAutomationDeviceCompatibility(7,p,shot,[step],now,{
+    requireUniqueSelectors:true,xpathVerified:{'xpath-step':false},
+  });
+  assert.equal(notVerified.status,'blocked');
+});
