@@ -38,3 +38,9 @@
 - EasyTier 主镜像打包、冒烟和 GHCR 发布必须单独核对对应提交的 job 和镜像 digest，不以 Web + Rust 测试成功代替此阶段。下一步状态见同分支 GitHub Actions。
 - **T50 的 FF01～FF18 + AC01～AC12 共 30 项 FnOS、两 Android 机型和真实双浏览器现场验收，本轮按用户明确要求全部不执行。** 未登录用户服务器、未运行 ADB/UiAutomator2、未触发真实动作或部署。
 - T51 **非真机追踪、源代码审阅与可追溯自动测试证据已归档**；因 T50 排除，最终现场签收/正式发布放行依然保持阻塞，不能把“非真机任务代码及自动回归完成”等价于“全功能验收完成”。
+
+## 2026-10-28 · 非真机交付确认与镜像锁定（本轮实际结果）
+- EasyTier 主镜像 [GitHub Actions #40622528076](https://github.com/CiBeDerORG/EasyTier/actions/runs/40622528076) **五 Job 全部成功**：Web/Vue/TypeScript 与单元 157/157；Chromium 生产浮窗模拟 3/3；Rust 原生 50/50（T49 12/12）；amd64 原生程序、Docker 打包和容器冒烟通过；GHCR 推送和远端清单校验通过。
+- 源码 SHA `9120b252fa265fefad3507953145068738f3efa2`；`ghcr.io/cibederorg/easytier:feat-automation-center` 镜像索引摘要 `sha256:088695b8a3c9926a39beb3d200d42324c5438214cfd451be895bf6e758091975`；amd64 子清单 `sha256:7b2ac282d7da536238787b558905ab0e69232b87ec9e6b113322ad87652ae925`。
+- 独立 Executor [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092) Python 95/95（T49 6/6）；分支镜像 `ghcr.io/cibederorg/easytier-automation-executor:feat-automation-center`，摘要 `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`。
+- T46/T47/T48/T49 与 T51 非真机追踪项**已经具备提交、自动回归和镜像证据**。T50 30 项真实 FnOS/Android/跨浏览器现场执行仍为**未测**，所以 T51 **正式最终验收/生产放行仍阻塞**。没有在本轮部署、登录用户服务器或控制真实手机。
