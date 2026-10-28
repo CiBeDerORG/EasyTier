@@ -85,7 +85,7 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
             <strong>本机运行全流程</strong>
             <Tag :value="label(runOutcome)" :severity="outcomeSeverity" />
         </div>
-        <small>仅执行当前 {{ localName || '手机' }}，不使用工作台勾选的其他设备，也不会向其他手机发送执行或停止指令。保留原实时画面。</small>
+        <small>仅以当前 {{ localName || '手机' }} 为执行目标，不采用工作台勾选的其他设备，也不会向其他手机发送执行或停止指令。保留原实时画面。</small>
         <div class="batch-actions">
             <Button label="▶ 本机运行全流程" size="small" icon="pi pi-play"
                 :disabled="!localAllowed || missingParameters" @click="startLocal" />
