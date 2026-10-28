@@ -52,5 +52,11 @@ pub(super) async fn remove(auth: AuthSession, Extension(service): Service, Exten
     let owner = owner(query)?;
     authorize(&auth,&config,&service,owner).await?;
     let id = id(&raw_id)?;
-    Ok(Json(store(&service).delete_script(owner,&id).await.map_err(store_error)?))
+    // Deprecated unversioned DELETE used to erase a newer browser revision.
+    // Keep the route for old clients, but fail closed instead of bypassing CAS.
+    // Every writer must use POST /scripts/{id}/safe-delete with a revision.
+    let _ = (owner,id,service);
+    Err(error(axum::http::StatusCode::CONFLICT,
+        "script_revision_required",
+        "旧版无修订号删除接口已停止写入。请刷新客户端后使用带 revision 的安全删除。"))
 }
