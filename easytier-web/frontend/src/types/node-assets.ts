@@ -353,6 +353,70 @@ export interface AgentHostResult {
     snapshot: AgentHostSnapshot | null;
     message?: string;
 }
+/** A Docker resource is from the EXISTING server asset; it is not a new host. */
+export type DockerManagementState =
+    | 'external' | 'adoption_pending_catalog_validation' | 'adoption_needs_revalidation';
+
+export interface AgentDockerPort {
+    protocol: 'tcp' | 'udp';
+    host_ip: string;
+    host_port: number;
+    container_port: number;
+    is_web: boolean;
+}
+export interface AgentDockerContainer {
+    container_id: string;
+    name: string;
+    image: string;
+    state: 'created' | 'running' | 'restarting' | 'paused' | 'exited' | 'dead' | 'unknown';
+    ports: AgentDockerPort[];
+}
+export interface AgentDockerResource {
+    resource_id: string;
+    kind: 'compose_project' | 'container';
+    name: string;
+    state: 'running' | 'stopped' | 'partial' | 'unknown';
+    compose_project?: string;
+    containers: AgentDockerContainer[];
+    ports: AgentDockerPort[];
+    managed: boolean;
+    management_state?: DockerManagementState;
+    proposed_application_id?: string;
+}
+export interface AgentDockerSnapshot {
+    agent_id: string;
+    observed_at: string;
+    complete: boolean;
+    status: 'ok' | 'error';
+    resources: AgentDockerResource[];
+}
+export interface AgentDockerInventory extends AgentDockerSnapshot {
+    live_status?: 'online' | 'offline' | 'degraded';
+    fresh?: boolean;
+    snapshot?: AgentDockerSnapshot | null;
+    message?: string;
+}
+export interface AgentDockerAdoptionIntent {
+    resource_id: string;
+    application_id: string;
+    agent_id: string;
+    confirmed: boolean;
+    managed: false;
+    management_state: 'adoption_pending_catalog_validation';
+    message: string;
+}
+export interface AgentDockerAdoptionInput {
+    resource_id: string;
+    application_id: string;
+    expected_container_ids: string[];
+    confirm: true;
+}
+export interface AgentDockerAdoptionCancelResult {
+    resource_id: string;
+    removed: boolean;
+    docker_modified: false;
+}
+
 export interface AssetAgentProbeInput {
     address: AgentAddressChoice;
     trusted_spki_sha256: string;
