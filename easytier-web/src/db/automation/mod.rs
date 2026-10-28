@@ -3,6 +3,8 @@ mod runs;
 mod scripts;
 mod drafts;
 mod validation;
+#[cfg(test)]
+mod tests;
 
 use std::{collections::BTreeMap, net::Ipv4Addr};
 
