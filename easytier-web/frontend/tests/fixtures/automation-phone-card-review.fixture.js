@@ -21,6 +21,7 @@ const device={
 const App={
   setup(){
     const card=ref(null),editing=ref(null);
+    const attempts=ref([]);
     const draft=reactive(emptyAutomationDraft(owner));
     draft.name='浏览器集成测试';
     draft.steps=[{id:'step-one',type:'key',key:'HOME'}];
@@ -30,6 +31,7 @@ const App={
     });
     window.phoneCardReview={
       open:()=>card.value?.openAutomationPanel(),
+      attempts:()=>[...attempts.value],
       close:()=>card.value?.closeAutomationPanel(),
       setBatchPhase:phase=>{
         batch.phase=phase;
@@ -60,11 +62,15 @@ const App={
         control('fullscreen-card','真实卡片画面全屏',()=>document.querySelector('.phone-screen')?.requestFullscreen()),
       ]),
       h(PhoneCard,{
-        ref:card,device,ownerId:owner,selected:true,runnerAvailable:true,
+        ref:card,device,ownerId:owner,selected:false,runnerAvailable:true,
         syncActive:false,recording:false,draft,scriptGuard:'clean',
-        scripts:[],selectedDeviceCount:1,batchRunState:batch,
+        scripts:[],selectedDeviceCount:0,batchRunState:batch,
+        draftSyncLabel:'工作草稿已同步 · 修订 7',
         batchDraftReady:true,editingStepId:editing.value,
         onStepEdit:(_device,id)=>{editing.value=id;},
+        onDraftSave:id=>{attempts.value.push({type:'save',device:id});},
+        onBatchStartLocal:(id,params)=>{attempts.value.push({type:'local',device:id,params});},
+        onBatchStart:(params,concurrency)=>{attempts.value.push({type:'selected',params,concurrency});},
         onStepClose:()=>{editing.value=null;},
         onStepDirty:()=>{},
       }),
