@@ -19,11 +19,11 @@ test_args=(
 # libtest accepts multiple filters after '--' and runs their union. A second
 # Cargo invocation can rerun build scripts and compile the workspace again,
 # even with identical flags; build and execute all selected suites in one invocation.
-cargo test "${test_args[@]}" -- publication discovery::luci_client::tests asset_agent server_agent_entry automation::tests::t49_ \
+cargo test "${test_args[@]}" -- publication discovery::luci_client::tests asset_agent server_agent_entry automation::tests::t49_ docker_absence docker_discovery_regression \
     --nocapture --test-threads=2 --color never --format pretty \
     2>&1 | tee "$REPORT_DIR/native-tests.log"
 
-for test_suite in publication discovery::luci_client::tests:: asset_agent server_agent_entry automation::tests::t49_; do
+for test_suite in publication discovery::luci_client::tests:: asset_agent server_agent_entry automation::tests::t49_ docker_absence docker_discovery_regression; do
     if ! awk -v suite="$test_suite" '
         NF >= 4 && $1 == "test" && $(NF - 1) == "..." && $NF == "ok" && index($2, suite) { passed++ }
         END { exit passed == 0 }
