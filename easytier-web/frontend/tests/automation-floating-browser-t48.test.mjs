@@ -272,3 +272,21 @@ test('T55 real local console never displays another phone run or its action butt
   assert.equal(await panel.getByRole('button',{name:/运行已选/}).count(),0,
     'no cross-device running control remains');
 });
+
+test('T56 legacy mixed run is shown only as local status; stop uses own device ID',async t=>{
+  const page=await setup(t,realCardFixture);
+  await page.locator('#open-panel').click();
+  await page.evaluate(()=>window.phoneCardReview.setMixedRun());
+  const panel=page.locator('.phone-card').getByRole('region',{name:'自动化脚本'});
+  assert.equal(await panel.getByText('远端模拟手机').count(),0,
+    'even legacy multi-device receipts must not expose another phone in this console');
+  assert.equal(await panel.getByText('其他手机运行中').count(),0);
+  assert.equal(await panel.getByRole('button',{name:'请求停止全部'}).count(),0);
+  assert.equal(await panel.getByRole('button',{name:'停止此手机'}).count(),0);
+  const stop=panel.getByRole('button',{name:'停止本机'});
+  assert.equal(await stop.count(),1);
+  await stop.click();
+  const attempts=await page.evaluate(()=>window.phoneCardReview.attempts());
+  assert.deepEqual(attempts.at(-1),{type:'stop-local',device:'phone-a'},
+    'stop must never dispatch an action for the other selected phone');
+});
