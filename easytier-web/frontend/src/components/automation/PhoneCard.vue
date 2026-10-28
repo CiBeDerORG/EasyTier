@@ -921,11 +921,12 @@ onBeforeUnmount(() => {
                         :parameter-names="[...new Set(draft.steps.filter(step=>step.type==='input_text' && !!step.parameter).map(step=>step.parameter!.trim()))]"
                         :runner-available="runnerAvailable"
                         :draft-ready="batchDraftReady && !editingDirty"
-                        :block-reason="batchRunMessage || (editingStepId || editingDirty
+                        :local-message="batchRunMessage"
+                        :block-reason="editingStepId || editingDirty
                             ? '步骤正在编辑，请先在步骤浮窗保存并关闭。'
                             : effectiveScriptGuard==='conflict' ? '服务器草稿出现版本冲突，请先另存新草稿。'
                             : effectiveScriptGuard==='unsynced' ? '工作草稿未同步，请先点击“保存草稿”。'
-                            : effectiveScriptGuard==='loading' ? '工作草稿正在从服务器加载。' : '')"
+                            : effectiveScriptGuard==='loading' ? '工作草稿正在从服务器加载。' : ''"
                         :state="batchRunState"
                         @start-local="params=>emit('batch-start-local',device.id,params)"
                         @refresh="emit('batch-refresh',device.id)"
