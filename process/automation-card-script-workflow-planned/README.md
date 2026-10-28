@@ -73,3 +73,8 @@
 - 原 `PhoneCard` 唯一可操作主视频、卡片单步骤浮窗、共享批量运行浮窗、T36～T39 的 Viewer/Action Lease、`RunHistory` 和所有持久动作回执安全约束维持不变；批量新入口会识别历史单步骤未知 UUID 并禁止绕开核验重播动作。
 - 旧「脚本」Tab 仍保留正式脚本增改删、分支条件编辑和旧历史修复的兼容能力；这部分完整可用的浮窗替代及旧链接转接需要继续处理，不能现在直接删掉业务页。工作台原卡片已取代旧日常试跑方式。
 - 本次调试模式**未执行**类型检查、测试、构建、CI 手动触发或 FnOS/Android 真机验收。进度详见 [P15计划](plan/plan-15-legacy-consolidation.md)、[T46任务卡](task/task-46-obsolete-ui-removal.md)、[测试记录](task/test-report.md)。
+## 2026-10-28 · T46 第二批：正式脚本和完整条件编辑迁入原手机浮窗
+- 手机卡片脚本浮窗已接入正式脚本创建/更新/修订号 CAS、可拖动删除确认和未知写入回执只读核对；Rust 新增独立 `safe-delete` 修订 CAS 路由，旧 DELETE 仅保留兼容，ScriptLibrary 同步改用安全接口。
+- 执行历史失败步骤不再进入 ScriptLibrary 复制一套回修工作区，而是统一使用 `onRepairCard` 返回原设备，验证 runId/stepId/设备授权及历史快照；未执行自动重放。
+- 卡片时间线支持无手机动作的新增步骤、条件节点转换、Then/Else 分支插入、同分支上移/下移及唯一末尾业务断言勾选。原 Inspector、卡片视频与草稿均维持单一来源。
+- 旧 ScriptLibrary 兼容管理页仍保留，不能在未通过编译和 FnOS/Android/双浏览器联调前删除；详见 [T46任务卡](task/task-46-obsolete-ui-removal.md) 与 [测试记录](task/test-report.md)。
