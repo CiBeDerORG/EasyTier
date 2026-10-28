@@ -495,15 +495,54 @@ impl Manager {
         Ok(inventory)
     }
 
+    // Historical inventory is never authoritative: no adoption, deletion or
+    // Docker mutation may use cached resource membership.
+    async fn cached_docker_inventory(&self, device_id: &str, agent: &str) -> Result<Option<Value>, Error> {
+        let row: Option<(String, String)> = sqlx::query_as(
+            "SELECT agent_id,snapshot_json FROM asset_agent_docker_snapshots WHERE asset_device_id=?"
+        )
+        .bind(device_id)
+        .fetch_optional(&self.db.inner())
+        .await
+        .map_err(|_| Error::Storage)?;
+        Ok(row.and_then(|(cached_agent, raw)| {
+            if cached_agent != agent {
+                return None;
+            }
+            serde_json::from_str::<Value>(&raw).ok()
+        }))
+    }
+
     pub async fn docker_inventory(&self, device: &Value) -> Result<Value, Error> {
         let device_id = device["id"].as_str().ok_or(Error::Storage)?;
         let owner = device["owner_user_id"].as_i64().ok_or(Error::Storage)?;
-        let mut inventory = self.fetch_docker_inventory(device).await?;
+        let agent = self.saved(device_id).await?
+            .ok_or(Error::Invalid("This server has no paired Agent"))?.0;
+        let fetched = self.fetch_docker_inventory(device).await;
+        let mut inventory = match fetched {
+            Ok(inventory) => inventory,
+            Err(Error::Remote) => {
+                let cached = self.cached_docker_inventory(device_id, &agent).await?;
+                return Ok(json!({
+                    "agent_id":agent, "live_status":"offline", "fresh":false,
+                    "complete":false, "status":"error", "resources":[],
+                    "snapshot":cached, "message":"Agent unavailable; showing historical inventory only"
+                }));
+            }
+            Err(error) => return Err(error),
+        };
         if inventory["complete"] != true || inventory["status"] != "ok" {
-            // A failed scan must not infer deletion or authorize adoption.
+            let cached = self.cached_docker_inventory(device_id, &agent).await?;
+            inventory["live_status"] = json!("degraded");
+            inventory["fresh"] = json!(false);
+            inventory["snapshot"] = json!(cached);
+            inventory["resources"] = json!([]);
+            inventory["message"] = json!("Docker scan incomplete; historical inventory is read-only");
             return Ok(inventory);
         }
-        let agent = inventory["agent_id"].as_str().ok_or(Error::Remote)?.to_string();
+        if inventory["agent_id"].as_str() != Some(agent.as_str()) {
+            return Err(Error::IdentityChanged);
+        }
         let rows = sqlx::query(
             "SELECT resource_id,application_id,container_ids_json FROM asset_agent_adoption_intents WHERE asset_device_id=? AND owner_user_id=? AND agent_id=?"
         )
@@ -544,6 +583,20 @@ impl Manager {
                 }
             }
         }
+        // Commit the last complete snapshot only after current Agent identity
+        // and inventory structure are verified. Never overwrite it on failure.
+        let stored = inventory.clone();
+        sqlx::query(
+            "INSERT INTO asset_agent_docker_snapshots(asset_device_id,agent_id,snapshot_json,observed_at) VALUES(?,?,?,?) ON CONFLICT(asset_device_id) DO UPDATE SET agent_id=excluded.agent_id,snapshot_json=excluded.snapshot_json,observed_at=excluded.observed_at"
+        )
+        .bind(device_id)
+        .bind(&agent)
+        .bind(stored.to_string())
+        .bind(stored["observed_at"].as_str().ok_or(Error::Remote)?)
+        .execute(&self.db.inner()).await.map_err(|_| Error::Storage)?;
+        inventory["live_status"] = json!("online");
+        inventory["fresh"] = json!(true);
+        inventory["snapshot"] = json!(stored);
         Ok(inventory)
     }
 
