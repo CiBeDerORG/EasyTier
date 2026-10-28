@@ -17,12 +17,13 @@ const props=defineProps<{
     stepCount:number;
     source:AutomationScript|null;
     guard:ScriptGuard;
-    busy:boolean;
+    busy:boolean;saveBusy?:boolean;saveMessage?:string;
     error?:string;
 }>();
 const emit=defineEmits<{
     close:[];
     publish:[name:string,description:string];
+    saveDraft:[];
     remove:[id:string,revision:number];
 }>();
 const name=ref('');
@@ -81,14 +82,20 @@ function confirm(){
                    guard==='loading'?'正在加载服务器工作草稿，请完成同步后继续。':
                    '工作草稿仍有尚未确认的修改，请先保存并等待同步。' }}
             </p>
+            <p v-if="saveMessage" class="manage-hint" role="status">{{ saveMessage }}</p>
             <p v-if="error" class="manage-error" role="alert">{{ error }}</p>
             <div class="manage-actions">
+                <button v-if="mode==='publish'" type="button"
+                    :disabled="busy || saveBusy || guard==='editor' || guard==='conflict' || guard==='loading'"
+                    @click="emit('saveDraft')">
+                    {{ saveBusy?'正在保存…':'① 保存工作草稿' }}
+                </button>
                 <button type="button" :disabled="busy" @click="emit('close')">取消</button>
                 <button type="button" :class="{danger:mode==='delete'}"
                     :disabled="!allowed || (mode==='publish'? !validName || !validDescription:
                         !source || acknowledged!==source.name)"
                     @click="confirm">
-                    {{ busy?'正在等待服务器确认':mode==='publish'?'确认发布正式版本':'确认删除此修订' }}
+                    {{ busy?'正在等待服务器确认':mode==='publish'?'② 保存为正式版本':'确认删除此修订' }}
                 </button>
             </div>
         </div>
@@ -97,6 +104,7 @@ function confirm(){
 <style scoped>
 .manage-content{display:grid;gap:9px;font-size:12px;line-height:1.6;min-width:0}
 .manage-content>small{color:var(--console-muted);overflow-wrap:anywhere}
+.manage-hint{font-size:11px;color:var(--console-muted);margin:0;overflow-wrap:anywhere}
 .manage-content label{display:grid;gap:5px}
 .manage-content input,.manage-content textarea{width:100%;min-width:0;box-sizing:border-box;
     padding:6px 7px;border:1px solid var(--console-border);background:var(--console-panel-raised);
