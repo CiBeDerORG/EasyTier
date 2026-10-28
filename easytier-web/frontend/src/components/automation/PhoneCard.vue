@@ -211,6 +211,7 @@ const menuOpen = ref(false);
 /** T21/T22: per-card UI only; independent of orb menu, stream and running scripts. */
 const automationPanelOpen = ref(false);
 const consolePermissionPending=ref(false);
+const consolePermissionUncertain=ref(false);
 const consoleRestoreQueued=ref(false);
 let consolePermissionEpoch=0;
 let consoleHandoff:Promise<void>|null=null;
@@ -321,17 +322,22 @@ async function switchConsoleToReadOnly():Promise<void>{
     const id=session.getSessionId(),owner=props.ownerId,device=props.device.id;
     if(!id)return;
     consolePermissionPending.value=true;
+    consolePermissionUncertain.value=false;
     const task=session.enterViewOnly();
     consoleHandoff=task;
     try{
         await task;
-        if(session.getSessionId()===id && props.ownerId===owner && props.device.id===device)
+        if(session.getSessionId()===id && props.ownerId===owner && props.device.id===device){
+            consolePermissionUncertain.value=false;
             emit('refresh');
+        }
     }catch(cause){
         // A failed/unknown view-only response must NEVER re-enable manual
         // commands. The backend SQLite+Executor permission fence owns truth.
-        if(session.getSessionId()===id && props.ownerId===owner && props.device.id===device)
+        if(session.getSessionId()===id && props.ownerId===owner && props.device.id===device){
+            consolePermissionUncertain.value=true;
             session.state.error=cause instanceof Error?cause.message:'只读权限移交未确认';
+        }
     }finally{
         if(consoleHandoff===task)consoleHandoff=null;
         consolePermissionPending.value=false;
@@ -373,6 +379,10 @@ function toggleAutomationPanel() {
     if(automationPanelOpen.value) closeAutomationPanel();
     else openAutomationPanel();
 }
+// If the primary video finishes connecting AFTER the panel is opened,
+// transfer the same session into view-only then; do not open another viewer.
+watch([()=>automationPanelOpen.value,()=>session.state.phase,()=>session.state.controlReady],
+    ([open])=>{if(open)void switchConsoleToReadOnly();});
 // Never restore a viewer while a step trial, batch run or unknown cleanup
 // still holds phone action rights. A queued close gets one safe attempt when
 // the observed owner/runner occupancy becomes eligible for manual control.
@@ -419,6 +429,7 @@ watch(() => props.draft.editingId, (next,previous) => {
 watch(() => [props.ownerId, props.device.id], () => {
     ++consolePermissionEpoch;
     consoleRestoreQueued.value=false;
+    consolePermissionUncertain.value=false;
     automationPanelOpen.value = false;
     cloneSourceId.value=null;
     manageScript.value=null;manageWaiting.value=false;
@@ -751,6 +762,7 @@ const resumingManual=ref(false);
 const manualPermissionTitle=computed(()=>{
     if(session.state.phase!=='live')return '手控不可用 · 请先打开原手机实时画面';
     if(consolePermissionPending.value)return '手控已关闭 · 正在向服务器确认只读权限';
+    if(consolePermissionUncertain.value)return '手控保持锁定 · 只读权限结果尚未确认，请查看提示并核对服务器';
     if(resumingManual.value)return '正在向服务器申请恢复手控';
     if(session.state.viewerOnly)return '当前为只读观看 · 点击恢复手控（须先释放所有脚本动作权）';
     return '当前为手动控制 · 点击切换为只读观看';
@@ -766,7 +778,7 @@ async function toggleManualPermission(){
 async function resumeManualControl(){
     if(!consoleMayResumeManual() || resumingManual.value)return;
     resumingManual.value=true;
-    try {await session.resumeManual();emit('refresh');}
+    try {await session.resumeManual();consolePermissionUncertain.value=false;emit('refresh');}
     catch(cause){session.state.error=cause instanceof Error?cause.message:'尚不能安全恢复手动操作';}
     finally{resumingManual.value=false;}
 }
