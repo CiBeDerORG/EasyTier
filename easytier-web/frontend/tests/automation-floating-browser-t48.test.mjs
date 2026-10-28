@@ -224,7 +224,7 @@ test('T54 real PhoneCard shows manual permission separately from stopping a touc
   assert.equal(await permission.isDisabled(),true);
   assert.equal(await card.getByRole('button',{name:'停止当前手动操作'}).count(),1,
     'a touch-stop command is not the same operation as viewerOnly/resumeManual');
-  await permission.evaluate(node=>assert.equal(node.getAttribute('aria-pressed'),'false'));
+  assert.equal(await permission.getAttribute('aria-pressed'),'false');
   // Closing the console cannot close the original PhoneCard video or create
   // a manual session when none exists.
   const original=card.locator('video.primary-video');
