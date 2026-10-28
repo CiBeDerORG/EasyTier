@@ -86,3 +86,7 @@
 
 ## 2026-10-28 · T48 第一批可运行但尚未执行的回归断言
 已编写并接入 `test:unit` 的批量幂等凭据/单步意图安全断言，同时加固批量凭据 UUID、唯一设备和时间戳的落盘校验。按当前调试模式没有执行 Node、类型检查、CI 或真机测试；详见 [T48任务卡](task/task-48-frontend-regression.md)。
+
+## 2026-10-28 · T48/T49 浮窗身份、正式回执与执行器互斥回归代码
+
+新增前端浮窗堆叠、唯一原手机身份/媒体权限、正式脚本 CAS 未知回执纯逻辑断言；将正式写操作的回执管理从巨型 Vue 工作区抽出并加固损坏凭据 fail-closed 和元数据白名单存储。Executor 新增真实 `Runtime + SQLite Journal` 的只读观看与脚本写锁模拟媒体用例。均为**已提交、未执行**，并不代表全屏、WebRTC、ADB、双浏览器或 FNOS 验收通过。详见 [T48](task/task-48-frontend-regression.md)、[T49](task/task-49-backend-regression.md) 与 [测试记录](task/test-report.md)。
