@@ -964,6 +964,9 @@ function onState(id: string, phase: string) {
     if (phase !== 'live') stopCardPicking(id);
     if (phase !== 'live' && inspectorDeviceId.value === id) closeInspector();
     phases.value[id] = phase;
+    // T45: media loss is NOT the same as action execution failure.
+    // Keep the run's server status intact; display a separate viewer warning.
+    if(floatingBatch.state.selected.includes(id))floatingBatch.inspectMedia();
     if (phase === 'live') phoneConnections.value[id] = 'connected';
     if (phase !== 'live' && sync.value?.deviceIds.includes(id)) {
         if (id === sync.value.masterId) { notice.value = t('syncMasterLost'); void stopSync(); }
