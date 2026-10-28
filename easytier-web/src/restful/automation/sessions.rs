@@ -414,6 +414,26 @@ async fn control_loop(mut socket: WebSocket, manager:AppStateInner, service: Arc
                                 let (_,Json(mut failure))=store_error(cause); failure["type"]=json!("error"); failure["command_id"]=value["command_id"].clone(); let _=send(&mut socket,&failure).await; break;
                             }
                         }
+                        // A run may now coexist with this actor's original
+                        // manual-enabled video. The run's persisted action
+                        // lease still fences any new hand control, even if
+                        // the viewer has not refreshed its device metadata.
+                        // The Executor additionally arbitrates physical
+                        // claims, covering admission/relay timing races.
+                        let occupied:Result<bool,_>=sqlx::query_scalar(
+                            "SELECT EXISTS(SELECT 1 FROM automation_run_devices d JOIN automation_sessions s ON s.id=? AND s.owner_user_id=? WHERE (d.device_id=s.device_id OR d.target_key=s.target_key) AND d.cleanup_confirmed=0 AND d.state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending'))"
+                        ).bind(&session_id).bind(owner).fetch_one(&service.db.inner()).await;
+                        match occupied {
+                            Ok(false)=>{},
+                            Ok(true)=>{
+                                keep_running=send(&mut socket,&json!({"type":"error","command_id":value["command_id"],"code":"device_busy","message":"自动化动作正占用当前手机；手控开关状态不变，请在脚本确认结束后再操作。"})).await;
+                                continue;
+                            },
+                            Err(_)=>{
+                                keep_running=send(&mut socket,&json!({"type":"error","command_id":value["command_id"],"code":"permission_unconfirmed","message":"未能确认设备执行占用状态，已拒绝本次手动动作。"})).await;
+                                continue;
+                            }
+                        }
                         let Some(runner) = runtime.runner.as_ref() else { break; };
                         match runner.post(&format!("sessions/{session_id}/commands"),&value).await {
                             Ok(result) if result["type"]=="ack" && result["command_id"]==value["command_id"] && result["state"]=="action_sent" => {
