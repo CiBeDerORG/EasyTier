@@ -19,7 +19,8 @@ import { useFloatingBatchRun, freezeFloatingBatchIntent } from '../modules/useFl
 import RunHistory from './automation/RunHistory.vue';
 import ExecutorSettings from './automation/ExecutorSettings.vue';
 import { automationMessages } from './automation/messages';
-import { analyzeAutomationFlow } from '../modules/automation-flow';
+import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../modules/automation-flow';
+import { addFlowBranchStep, createFlowCondition } from '../modules/automation-flow-tree';
 import { appendAutomationDraftSteps, appendPickedAutomationStep, emptyAutomationDraft } from '../modules/automation-draft';
 import { createAutomationDraftSync } from '../modules/automation-draft-sync';
 import { createAutomationScriptWorkspace, type AutomationScriptAction } from '../modules/automation-script-workspace';
@@ -1285,6 +1286,70 @@ function editCardStep(deviceId: string, stepId: string) {
     cardEditorDirty.value=false;
 }
 
+/** T46: advanced conditional editing now changes the SAME shared draft
+ * and is never a phone action. The validated flow-tree remains the sole
+ * authority for branch counts and nesting; this UI never edits spans itself.
+ */
+function cardStructureAllowed(deviceId:string):boolean{
+    const device=devices.value.find(d=>d.id===deviceId);
+    if(tab.value!=='workbench' ||
+        !canAccessAutomationCard(ownerId.value,deviceId,device,draftWorkspace) ||
+        !!recordingId.value || !!sync.value || !!floatingBatch.busy.value ||
+        !!inspectorDeviceId.value || cardEditorDirty.value ||
+        scriptWorkspace.state.busy || analyzeAutomationFlow(draftWorkspace.steps).problem){
+        error.value='请先结束录制、群控、执行或参数编辑，并修复当前条件结构后再修改脚本。';
+        return false;
+    }
+    return true;
+}
+function createCardDraftStep(deviceId:string,type:AutomationStepType) {
+    if(!cardStructureAllowed(deviceId) || ['if_gone','if_else'].includes(type) ||
+        draftWorkspace.steps.length>=100)return;
+    const step:AutomationStep={id:uuid(),type};
+    const next=[...draftWorkspace.steps,step];
+    if(analyzeAutomationFlow(next).problem){error.value='无法在当前条件结构外插入步骤。';return;}
+    clearDeletedStepUndo();
+    if(cardStepEditor.value)closeCardStepEditor(cardStepEditor.value.deviceId);
+    draftWorkspace.steps=next;
+    draftWorkspace.selectedStepId=step.id;
+    editCardStep(deviceId,step.id);
+    notice.value='已向唯一工作草稿新增待配置步骤；保存参数前不能试跑。';
+}
+function addCardBranchStep(deviceId:string,conditionId:string,lane:BranchLane,type:AutomationStepType){
+    if(!cardStructureAllowed(deviceId)||['if_gone','if_else'].includes(type))return;
+    const layout=analyzeAutomationFlow(draftWorkspace.steps);
+    const index=draftWorkspace.steps.findIndex(step=>step.id===conditionId);
+    if(!canInsertBranchStep(draftWorkspace.steps,layout,index,lane)){
+        error.value='条件分支已达到容量/嵌套上限，不能插入动作。';return;
+    }
+    const step:AutomationStep={id:uuid(),type};
+    const next=addFlowBranchStep(draftWorkspace.steps,conditionId,lane,step);
+    if(!next){error.value='条件树已变化或当前分支范围不可插入。';return;}
+    clearDeletedStepUndo();
+    if(cardStepEditor.value)closeCardStepEditor(cardStepEditor.value.deviceId);
+    draftWorkspace.steps=next;
+    draftWorkspace.selectedStepId=step.id;
+    editCardStep(deviceId,step.id);
+    notice.value='已在 '+(lane==='then'?'Then':'Else')+' 分支新增待配置动作；父条件跨度由校验器自动更新。';
+}
+function convertCardCondition(deviceId:string,stepId:string,type:'if_gone'|'if_else') {
+    if(!cardStructureAllowed(deviceId))return;
+    const old=draftWorkspace.steps.find(step=>step.id===stepId);
+    if(!old||old.type==='if_gone'||old.type==='if_else')return;
+    const replacement:AutomationStep={
+        id:stepId,type,selector:old.selector?{...old.selector}:undefined,
+    };
+    const empty=():AutomationStep=>({id:uuid(),type:'key'});
+    const next=createFlowCondition(draftWorkspace.steps,stepId,replacement,empty);
+    if(!next){error.value='无法转换条件：请检查分支嵌套深度、跨度或100步上限。';return;}
+    clearDeletedStepUndo();
+    if(cardStepEditor.value)closeCardStepEditor(cardStepEditor.value.deviceId);
+    draftWorkspace.steps=next;
+    draftWorkspace.selectedStepId=stepId;
+    editCardStep(deviceId,stepId);
+    notice.value='已转换成条件节点，原步骤 ID 保留；Then/Else 占位动作必须单独完善才能执行。';
+}
+
 /** Only one shared draft mutation path, regardless of which phone requests it. */
 interface DeletedStepUndo {
     owner: number;
@@ -1828,6 +1893,8 @@ onBeforeUnmount(() => { stopEvents?.();
                         @batch-stop="stopBatch" @batch-stop-device="stopBatchDevice"
                         @batch-reconcile="reconcileBatch"
                         @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
+                        @step-create="createCardDraftStep" @step-branch-add="addCardBranchStep"
+                        @step-convert-condition="convertCardCondition"
                         @step-undo="undoCardDraftStepDeletion"
                         @trial-history="onCardTrialHistory" @trial-repair="onCardTrialRepair" @repair-repick="repickCardRepairStep" @repair-dismiss="dismissCardRepair" @step-close="closeCardStepEditor"
                         @step-save="saveCardStep" @step-repick="repickCardStep" @step-dirty="markCardStepDirty"
