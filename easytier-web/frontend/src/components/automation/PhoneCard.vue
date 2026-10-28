@@ -148,22 +148,36 @@ function finishCardTrial(value:{phase:'succeeded'|'action_sent'|'failed'|'cancel
 onBeforeUnmount(()=>{if(trialToastTimer!==null)clearTimeout(trialToastTimer);});
 const batchVideoProtected=computed(()=>props.batchRunState.selected.includes(props.device.id) &&
     ['preparing','submitting','running','cancel_requested','unknown'].includes(props.batchRunState.phase));
+let notifiedUnknownTrial='';
 function onTrialProgress(value:InlineStepRunProgress){
     if(value.ownerId===props.ownerId && value.deviceId===props.device.id &&
-        value.stepId===trialStepId.value) trialProgress.value=value;
+        value.stepId===trialStepId.value){
+        trialProgress.value=value;
+        if(value.phase==='unknown' && notifiedUnknownTrial!==value.requestId){
+            notifiedUnknownTrial=value.requestId;
+            showTrialToast('error',value.message || '本次试跑执行结果未确认；请只读查询旧请求，不能重复提交。');
+        }
+    }
 }
 watch(()=>props.ownerId,()=>{trialProgress.value=null;});
 const trialStep = computed(() => props.draft.steps.find(item => item.id === trialStepId.value) ?? null);
 async function openCardTrial(stepId: string, acknowledgedUnknown = false) {
     // A second ▶ must not silently replace the frozen in-flight trial,
     // even if its previous dialog is already preparing the helper.
-    if(trialStepId.value !== null)return;
-    if (props.repairContext?.stepId === stepId && props.repairContext.resultState === 'outcome_unknown' && !acknowledgedUnknown) return;
+    if(trialStepId.value !== null){
+        showTrialToast('error','当前手机已有单步骤试跑，等待结果后再试。');return;
+    }
+    if (props.repairContext?.stepId === stepId && props.repairContext.resultState === 'outcome_unknown' && !acknowledgedUnknown){
+        showTrialToast('error','上次试跑结果尚未确认，请从执行记录只读核对，避免重复点击。');return;
+    }
     if (!props.runnerAvailable || props.recording || !!props.syncRole || !!props.unlocking ||
         !!props.editingStepId || !props.device.target_fingerprint ||
-        !props.draft.steps.some(item => item.id === stepId)) return;
+        !props.draft.steps.some(item => item.id === stepId)){
+        showTrialToast('error','当前手机尚不满足单步试跑条件：请检查执行器、录制状态、步骤编辑和设备连接。');return;
+    }
     // T40: the trial window is teleported into the original phone-screen.
     // Never exit fullscreen or replace its WebRTC stream to start one step.
+    notifiedUnknownTrial='';
     trialStepId.value = stepId;
 }
 function getTrialPreviewHandle(): TrialPreviewHandle {
