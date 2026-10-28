@@ -689,6 +689,48 @@ class Runtime:
                 self.device_cancellations.pop(key,None)
             body["parameters"].clear()
 
+    async def _claim_run_after_manual(self, target, script_holder):
+        """Release the prior manual gesture lease, not the user's manual switch.
+
+        Run admission has already fenced further manual WS commands in the
+        main DB. Under the *same* session command lock used for scrcpy,
+        release any old finger/worker before claiming this run. If we cannot
+        prove cleanup, do not start a script action or close its video.
+        """
+        control = self.journal.control(target)
+        if not control or control["kind"] != "manual":
+            self.journal.claim(target, script_holder, "script")
+            return
+        manual_holder = control["holder"]
+        if not manual_holder.startswith("session:") or control["state"] != "active":
+            raise ExecutorError("device_busy", "旧控制权不属于有效的手机手控会话，禁止抢占", 409)
+        sid = manual_holder[len("session:"):]
+        viewer = self.sessions.get(sid)
+        if not viewer or viewer.closing or any(
+            viewer.target.get(key) != target.get(key)
+            for key in ("owner_user_id", "device_id", "target_fingerprint", "ip", "adb_port")
+        ):
+            raise ExecutorError("device_busy", "旧手控会话与当前任务目标不符，禁止抢占", 409)
+        async with viewer.lock:
+            current = self.journal.control(target)
+            if current is None:
+                self.journal.claim(target, script_holder, "script")
+                return
+            if (current["holder"] != manual_holder or current["kind"] != "manual"
+                    or current["state"] != "active" or viewer.closing):
+                raise ExecutorError("device_busy", "手控动作租约正在变化，不能交给脚本", 409)
+            record = self.journal.worker_record(manual_holder)
+            if record:
+                cleaned = await asyncio.to_thread(cleanup_record, record)
+                if not cleaned:
+                    self.journal.release(manual_holder, clean=False)
+                    raise ExecutorError("cleanup_pending", "手控输入工作进程清理未确认，脚本未接管", 409)
+            # Scrcpy touch-up is safe only while we still hold its exact
+            # manual lease. A failed release MUST keep the claim as occupied.
+            await self.media.command(sid, {"type": "touch.release"})
+            self.journal.release(manual_holder, clean=True)
+            self.journal.claim(target, script_holder, "script")
+
     async def _run_device(self, body, target, cancel, limit):
         rid, did = body["id"], target["device_id"]
         holder = "run:" + rid + ":" + did
@@ -708,7 +750,10 @@ class Runtime:
             if cancel.is_set() or (self.journal.cancelled(rid) or self.journal.withdrawn(rid, did)):
                 await self._update(rid, did, {"state": "cancelled", "steps": results})
                 return
-            self.journal.claim(target, holder, "script")
+            # Stable manual-enabled video can coexist with this run. Only
+            # its old physical gesture lease is released; viewerOnly stays
+            # exactly as the floating icon selected.
+            await self._claim_run_after_manual(target, holder)
             # Authorize before any helper-side effects. If a valid helper is
             # not running, prepare it once under this run's exclusive claim.
             await self._authorize(rid, target)
