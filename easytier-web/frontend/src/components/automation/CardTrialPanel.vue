@@ -295,7 +295,7 @@ async function submit(){
             !handedOffSessionId.value || handle.getSessionId()!==handedOffSessionId.value ||
             row.active_session?.id!==handedOffSessionId.value ||
             row.active_session.state!=='view_only' || row.run_occupied)
-            throw new Error('原视频只读移交或设备绑定已变化，未提交试跑。');
+            throw new Error('悬浮手控开关、原视频只读权限或设备绑定已变化，未提交试跑。');
         const rechecked=requiresReuseHierarchy([frozen.value])
             ? reviewAutomationDeviceCompatibility(owner,row,
                 await api.hierarchy(owner,id),[frozen.value],Date.now(),{requireUniqueSelectors:true})
