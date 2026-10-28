@@ -29,3 +29,12 @@
 - T48 新增 Node 纯模块、旧路径防回退与 Chromium 生产浮窗组件测试。T49 Rust 12 项真实迁移 SQLite DB 和 Executor 6 项 Runtime/Journal 模拟媒体测试均在对应代码文件。
 - 版本、自动验证失败/重试情况汇总在 [测试记录](test-report.md)。最终实际 Git SHA、镜像 digest、FnOS/双 OEM 和双浏览器真实行为仍须 T50 实际采集。
 - **结项规则**：本文件的非真机准备可以完成；T51 的发布签收不能因跳过 T50 而标完成。必须在 FF01～FF18 与 AC01～AC12 的 30 条真机结果均归档以后签收。
+
+## 2026-10-28 · 接手收尾与非真机交付状态（已查真实 CI）
+
+- T19～T47：前后端与 Viewer/Action 租约、原 PhoneCard 唯一主视频、浮窗脚本 CRUD、条件步骤、原画面单步/批量执行、历史修复路径源码均已提交；旧第二播放器/二套编辑 UI 已退役。代码已存在**不代表**实际 FnOS/Android 运行效果已经验收。
+- T48：[主镜像自动 CI #40622528076](https://github.com/CiBeDerORG/EasyTier/actions/runs/40622528076) Web 构建成功；前端 Node **157/157**，真实 Vue 浮窗组件无手机 Chromium **3/3**。包括全屏宿主、Esc/脏编辑及浮窗堆叠；不证明真实媒体或双浏览器竞争。
+- T49：上述 CI 的 Rust 原生 `test_native` **50/50 通过**，其中数据库/租约回归 **12/12 通过**（修复测试夹具遗漏虚拟 ADB 端点已确认清理证明，生产安全规则未放松）；[独立执行器自动 CI #40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092) Python **95/95**，其中 Viewer/Action **6/6**，执行器镜像已发布，digest `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`。
+- EasyTier 主镜像打包、冒烟和 GHCR 发布必须单独核对对应提交的 job 和镜像 digest，不以 Web + Rust 测试成功代替此阶段。下一步状态见同分支 GitHub Actions。
+- **T50 的 FF01～FF18 + AC01～AC12 共 30 项 FnOS、两 Android 机型和真实双浏览器现场验收，本轮按用户明确要求全部不执行。** 未登录用户服务器、未运行 ADB/UiAutomator2、未触发真实动作或部署。
+- T51 **非真机追踪、源代码审阅与可追溯自动测试证据已归档**；因 T50 排除，最终现场签收/正式发布放行依然保持阻塞，不能把“非真机任务代码及自动回归完成”等价于“全功能验收完成”。
