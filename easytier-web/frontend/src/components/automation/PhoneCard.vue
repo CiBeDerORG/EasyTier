@@ -852,7 +852,12 @@ onBeforeUnmount(() => {
                  It MUST stay inside phone-screen, not document.body. -->
             <div ref="automationSubwindowHost" class="automation-subwindow-host" />
         </div>
-        <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}<template v-if="session.state.phase === 'live' && session.state.viewerOnly"> · 只读观看，手控已锁定</template></span><Button v-if="session.state.phase === 'live' && session.state.viewerOnly" label="恢复手控" size="small" text :loading="resumingManual" :disabled="!!device.run_occupied || resumingManual" @click="resumeManualControl" /><span class="mono-value">{{ device.overlay_ip }}</span></footer>
+        <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}<template v-if="session.state.phase === 'live' && session.state.viewerOnly"> · 只读观看，手控已锁定</template></span>
+            <small v-if="batchRunState.selected.includes(device.id) && batchRunState.devices[device.id]"
+                class="batch-card-status" role="status">
+                批量：{{ batchRunState.devices[device.id].phase }}
+                <span v-if="batchRunState.devices[device.id].mediaState==='lost'"> · 视频已断流</span>
+            </small><Button v-if="session.state.phase === 'live' && session.state.viewerOnly" label="恢复手控" size="small" text :loading="resumingManual" :disabled="!!device.run_occupied || resumingManual" @click="resumeManualControl" /><span class="mono-value">{{ device.overlay_ip }}</span></footer>
         <!-- T42: failed-step repair uses the same real PhoneCard video and
              its fullscreen subwindow host, never a second preview or footer UI. -->
         <AutomationFloatingDialog :visible="!!repairContext && !!repairStep"
@@ -895,6 +900,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .step-delete-error{color:var(--p-red-500);font-size:11px;line-height:1.5;margin:4px 0}
+.batch-card-status{font-size:10px;color:var(--p-primary-color);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .endpoint-status{padding:8px 14px;display:flex;gap:6px;flex-wrap:wrap;color:var(--console-muted)}
 .phone-card{min-width:0;max-width:100%;flex:0 1 auto;border:1px solid var(--console-border);border-radius:14px;background:var(--console-panel);overflow:hidden;box-shadow:var(--console-shadow)}
 .phone-card.selected{border-color:var(--p-primary-color);box-shadow:0 0 0 1px color-mix(in srgb,var(--p-primary-color) 20%,transparent)}
