@@ -152,6 +152,34 @@ class ViewOnlyLeaseTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.media.command.assert_not_awaited()
         self.runtime.journal.release(foreign_holder,clean=True)
 
+    async def test_run_releases_prior_manual_gesture_without_changing_viewer_switch(self):
+        manual_holder="session:"+self.sid
+        script_holder="run:"+str(uuid4())
+        self.runtime.journal.claim(self.phone,manual_holder,"manual")
+        await self.runtime._claim_run_after_manual(self.phone,script_holder)
+        self.assertEqual(self.runtime.journal.control(self.phone)["holder"],script_holder)
+        self.assertFalse(self.runtime.sessions[self.sid].view_only,
+                         "the floating manual switch must stay ON")
+        self.runtime.media.command.assert_awaited_once_with(
+            self.sid,{"type":"touch.release"})
+        self.runtime.media.close.assert_not_awaited()
+        with self.assertRaises(ExecutorError) as busy:
+            self.runtime.journal.claim(self.phone,"session:new","manual")
+        self.assertEqual(busy.exception.code,"device_busy")
+        self.runtime.journal.release(script_holder,clean=True)
+        self.assertFalse(self.runtime.sessions[self.sid].view_only)
+
+    async def test_run_rejects_failed_manual_release_and_retains_original_lease(self):
+        manual_holder="session:"+self.sid
+        self.runtime.journal.claim(self.phone,manual_holder,"manual")
+        self.runtime.media.command.side_effect=ExecutorError(
+            "release_unknown","原触点释放回执未知",502)
+        with self.assertRaises(ExecutorError):
+            await self.runtime._claim_run_after_manual(self.phone,"run:"+str(uuid4()))
+        self.assertEqual(self.runtime.journal.control(self.phone)["holder"],manual_holder)
+        self.assertFalse(self.runtime.sessions[self.sid].view_only)
+        self.runtime.media.close.assert_not_awaited()
+
     async def test_other_executor_generation_cannot_downgrade_or_restore_viewer(self):
         wrong={"expected_executor_id":str(uuid4())}
         with self.assertRaises(ExecutorError) as changed:
