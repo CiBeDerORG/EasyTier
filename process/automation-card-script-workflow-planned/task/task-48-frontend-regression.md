@@ -1,6 +1,6 @@
 # T48 · 浮窗交互、脚本 CAS 与异常前端回归测试
 
-> 状态：**第一批纯逻辑回归断言已提交，待授权运行与UI交互覆盖**｜计划：P16｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**回执/身份/浮窗堆叠单测已提交，浏览器交互和执行仍待授权**｜计划：P16｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一负责人/依赖
 - Owner：**QA 前端 Agent**。
@@ -32,3 +32,12 @@
 ## 2026-10-28 · 第一批断言补充
 - 新增独立批量回执校验反例：错误 UUID 格式、重复/空目标 ID、21 台越界、无效日期均必须在保存前拒绝，存储值保持空；其余冻结单步骤动作与未知提交保护断言详见同日第一批记录。
 - 回执模块因断言设计补充了严格格式与唯一设备约束。所有代码**仅提交、未执行**；后续仍应补前端可交互浮窗、ESC/全屏、CAS 409、读历史未知状态。
+
+## 2026-10-28 · T48 第二批 · 子窗排序 / 共享正式回执 / 手机身份
+
+- 新增 `frontend/tests/automation-floating-dialog-order-t48.test.mjs`：直接调用实际 `useAutomationFloatingDialogOrder` 组合式函数，覆盖顶窗可交互资格、raise 顺序、关闭释放后另一子窗恢复、重复注销不抢占另一窗口。它属于无 DOM 的逻辑回归，**不等于**完成 Esc 键、Fullscreen/Teleport、触摸、拖拽浏览器测试。
+- 把原来写在 `automation-script-workspace.ts` 内的正式脚本操作保护提取为 `automation-formal-script-receipt.ts`，存储结构/键名保持兼容，只保存 owner、类型、脚本 ID、修订、期望名称与 step IDs、日期；对请求身份、新建 UUID、时间戳、重复 step ID 做检查。对调用方对象进行 allowlist 序列化，明确不持久化定位器、输入文字或脚本正文。损坏/不可读取的浏览器凭据阻断新发布/删除/切换，UI 入口不再直接抛异常。
+- 新增 `frontend/tests/automation-formal-script-receipt-t48.test.mjs`：覆盖新建 revision 0 与临时 ID、已保存 PUT/DELETE、写后恢复、跨账号隔离、坏 JSON/重复 ID/时间戳/版本拒绝、不同回执无法清除、敏感额外字段绝不落盘、存储失败禁止发送。
+- 新增 `frontend/tests/automation-floating-scope-t48.test.mjs`：直接覆盖 `automation-floating-contract.ts` 原 PhoneCard owner/device/target fingerprint、脚本 revision、草稿 revision、generation 漂移拒绝，允许离线只改草稿但媒体操作必须保持同一原 session。
+- 上述三个新测试已加入 `frontend/package.json` 的 `test:unit` 清单；此前的批量 UUID/单步冻结测试仍保留。
+- **状态**：仅编写/提交，未执行 Node/Vue/TS 测试、浏览器 E2E、类型检查、构建或手工 CI。FullScreen Teleport、按键/触摸、跨浏览器实际竞争及 CAS 409 仍需补覆盖和 T50 联调。
