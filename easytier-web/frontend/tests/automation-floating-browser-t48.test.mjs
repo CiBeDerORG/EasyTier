@@ -178,7 +178,7 @@ test('T52 actual PhoneCard shows failed and partial-failed batch outcomes instea
       outcome+' must not appear green');
   }
   await verifyOutcome('failed','执行失败或准备失败','danger');
-  await verifyOutcome('partial_failed','部分手机失败','warn');
+  await verifyOutcome('partial_failed','部分步骤失败','warn');
   await verifyOutcome('completed','执行成功','success');
 });
 
