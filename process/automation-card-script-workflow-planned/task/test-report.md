@@ -402,3 +402,10 @@
 - 正式脚本共享工作区的 owner watcher 增加初始化立即读取持久写入凭据：旧正式操作未知时及时显示保护状态和只读核对入口。
 - 取舍证据：`frontend/tests/automation-run-safety-t17.test.mjs` 仍真实导入 `releaseOwnedTrialPreviews`，所以保留旧 handoff 模块，不错误破坏测试；`PhoneCard` dock 样式通过动态 `:class` 生成，所以不按字面检索误删。
 - **未执行** TypeScript 类型检查、编译、lint、单测、CI/Actions 人工触发、FnOS/Android/双浏览器真机验证。以上仅为静态源代码阅读与实际修改后的提交事实，不声称验收成功。需后续验证：旧脚本页被筛选手机回跳、设备重绑/账号切换竞态、正式写操作回执恢复、多浏览器旧版本阻断、动态侧边栏和全屏行为。
+
+## 2026-10-28 · T48 第一批安全回归断言及回执校验加固（调试模式）
+
+- 新增 `frontend/tests/automation-inline-batch-regression.test.mjs`，通过 Node 原生 `node:test`、`assert` 提供纯业务断言，不启动浏览器、视频、ADB 或脚本执行器。覆盖批量请求 UUID 保留/撤销相等身份、账号隔离、旧回执未知不得重复保存、凭据损坏拒绝使用、存储最小请求元数据、单步冻结意图及多维上下文失效、只读可兼容且无参数才能自动提交。
+- 结合用例审阅，`automation-batch-receipt.ts` 原只对 UUID 检查 36 位字符长度；现改为标准 UUID 形式、有效时间戳、1～20 个非空且不重复的设备 ID、有效 owner，并在 `setItem` 前验证，坏凭据不会写入浏览器存储。新增测试覆盖重复 ID、空 ID、超过 20 台、错误 UUID/日期。
+- 已修改 `frontend/package.json` 的既有 `test:unit` 脚本，加入上述测试文件。未修改 CI Workflow、Runner、构建/部署配置。
+- **未执行** 新增或历史测试、Vue/TypeScript、lint、Rust、构建、CI 手动触发、FnOS/Android 实机/双浏览器验证。不能报告任何测试通过数；用例覆盖只限纯前端安全模块，不能替代真实全屏/浮窗拖拽/播放器和设备租约联调。
