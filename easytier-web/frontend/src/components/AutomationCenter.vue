@@ -156,6 +156,48 @@ watch(ownerId,owner=>{
     if(owner>0)void floatingBatch.reconcile(owner);
 });
 const draftSyncState=draftSync.state;
+const savingFloatingDraft=ref(false);
+const floatingDraftMessage=ref('');
+const floatingRunMessage=ref('');
+/** Do not let an old "saved" notice outlive a subsequent step mutation. */
+watch(()=>draftFingerprint(draftWorkspace),()=>{floatingDraftMessage.value='';floatingRunMessage.value='';});
+watch(ownerId,()=>{floatingDraftMessage.value='';floatingRunMessage.value='';});
+async function saveFloatingDraft(deviceId:string) {
+    floatingDraftMessage.value='';
+    const owner=ownerId.value;
+    if(savingFloatingDraft.value)return;
+    if(!devices.value.some(d=>d.id===deviceId && d.owner_user_id===owner) ||
+        draftWorkspace.ownerId!==owner){
+        floatingDraftMessage.value='手机授权或当前草稿身份已变化，请刷新设备。';return;
+    }
+    if(cardEditorDirty.value || cardStepEditor.value){
+        floatingDraftMessage.value='请先在步骤编辑浮窗点击“保存”，再保存工作草稿。';return;
+    }
+    if(draftSyncState.phase==='conflict'){
+        floatingDraftMessage.value='服务器草稿存在修订冲突。请先选择“另存新草稿”或在页面顶部恢复服务端版本；不会覆盖其他窗口。';return;
+    }
+    savingFloatingDraft.value=true;
+    const before=draftFingerprint(draftWorkspace);
+    try{
+        await draftSync.retry();
+        if(owner!==ownerId.value || before!==draftFingerprint(draftWorkspace)) {
+            floatingDraftMessage.value='保存期间草稿发生变化；请重新确认当前步骤。';return;
+        }
+        floatingDraftMessage.value=draftSync.canLeave()
+            ? '已保存工作草稿 · 服务器修订 '+(draftSyncState.revision??'—')+'。需要复用时可再点击“发布正式脚本”。'
+            : (draftSyncState.message||'服务器尚未确认保存，请检查网络或冲突状态后重试。');
+    }catch(cause){
+        floatingDraftMessage.value='保存草稿未完成：'+automationErrorMessage(cause);
+    }finally{savingFloatingDraft.value=false;}
+}
+function forkFloatingDraft(deviceId:string){
+    if(!devices.value.some(d=>d.id===deviceId && d.owner_user_id===ownerId.value))return;
+    if(cardEditorDirty.value || cardStepEditor.value){
+        floatingDraftMessage.value='请先保存当前步骤编辑再另存草稿。';return;
+    }
+    forkCurrentDraft();
+}
+
 const draftSyncLabel=computed(()=>{
     const state=draftSyncState;
     if(state.phase==='loading')return '正在检查服务端草稿…';
@@ -542,22 +584,32 @@ const recordingName = computed(() => deviceNames.value[recordingId.value ?? ''] 
 /** T43: the selector on ANY phone edits the same shared draft but the
  * batch target is ONLY the current workbench checkbox set, never "all". */
 const batchDraftReady=computed(()=>scriptWorkspace.guard.value==='clean' &&
-    draftSync.canLeave() && !cardEditorDirty.value);
-async function runSelectedBatch(parameters:Record<string,string>,concurrency:number) {
-    error.value='';
+    draftSync.canLeave() && !cardEditorDirty.value && !cardStepEditor.value);
+async function runSelectedBatch(parameters:Record<string,string>,concurrency:number,localDeviceId?:string) {
+    error.value='';floatingRunMessage.value='';
+    const ids=localDeviceId?[localDeviceId]:[...selectedIds.value];
     if(!runnerAvailable.value || !batchDraftReady.value ||
-        !!recordingId.value || !!sync.value || !!cardStepEditor.value ||
-        !!inspectorDeviceId.value || selectedIds.value.some(id=>unlockingIds.value.includes(id))){
-        error.value='批量执行前请保存草稿并结束录制、群控、编辑、控件拾取和解锁操作。';return;
+        !!recordingId.value || !!sync.value || !!inspectorDeviceId.value ||
+        ids.some(id=>unlockingIds.value.includes(id))){
+        const reason=cardStepEditor.value || cardEditorDirty.value
+            ? '请先在步骤编辑浮窗保存参数并关闭编辑窗。'
+            : scriptWorkspace.guard.value==='conflict'
+                ? '当前草稿与服务器修订冲突，请先在浮窗中另存新草稿。'
+                : !draftSync.canLeave() ? '当前草稿尚未同步，请先在浮窗点击“保存草稿”。'
+                : '请先结束录制、群控、控件拾取或解锁，再运行脚本。';
+        floatingRunMessage.value=reason;error.value=reason;return;
     }
     try{
         const intent=freezeFloatingBatchIntent(
-            ownerId.value,selectedIds.value,devices.value,draftWorkspace.steps,
-            draftWorkspace.name,parameters,concurrency);
+            ownerId.value,ids,devices.value,draftWorkspace.steps,
+            draftWorkspace.name,parameters,localDeviceId?1:concurrency);
         await floatingBatch.start(intent,id=>cards.get(id),{...mediaSettings.value},()=>
             !disposed && tab.value==='workbench' && ownerId.value===intent.owner);
-        if(floatingBatch.state.error)error.value=floatingBatch.state.error;
-    }catch(cause){error.value=automationErrorMessage(cause);}
+        if(floatingBatch.state.error){error.value=floatingBatch.state.error;floatingRunMessage.value=error.value;}
+    }catch(cause){error.value=automationErrorMessage(cause);floatingRunMessage.value=error.value;}
+}
+function runLocalBatch(id:string,parameters:Record<string,string>){
+    void runSelectedBatch(parameters,1,id);
 }
 function refreshBatch(){void floatingBatch.refresh();}
 function reconcileBatch(){void floatingBatch.reconcile(ownerId.value);}
@@ -1935,6 +1987,9 @@ onBeforeUnmount(() => { stopEvents?.();
                         :repair-context="cardRepairContext?.deviceId === device.id ? cardRepairContext : null"
                         :demo-result="locatorDemos[device.id]?.stepId === cardStepEditor?.stepId ? locatorDemos[device.id]?.result : null"
                         :demo-loading="locatorDemos[device.id]?.loading ?? false" :demo-error="locatorDemos[device.id]?.error"
+                        :draft-save-busy="savingFloatingDraft" :draft-save-message="floatingDraftMessage"
+                        :draft-sync-phase="draftSyncState.phase" :draft-sync-message="draftSyncState.message"
+                        :batch-run-message="floatingRunMessage"
                         @selection="select" @configure="connectionDevice = $event" @input="routeInput" @action="localAction" @unlock="id => unlockPhones([id])" @text="id => showText([id])" @record="toggleRecord" :picker-phase="pickerContexts[device.id]?.phase ?? 'off'" :picker-error="pickerContexts[device.id]?.error"
                         @toggle-picking="toggleCardPicking" @pick-action="onCardPickAction"
                         @inspector-close="closeInspector" @inspector-add-step="addInspectorStep"
@@ -1942,7 +1997,8 @@ onBeforeUnmount(() => { stopEvents?.();
                         @script-refresh="refreshScriptList" @script-action="handleFloatingScriptAction"
                         @script-publish="publishFloatingScript" @script-remove="removeFloatingScript"
                         @script-reconcile="reconcileFloatingScript"
-                        @batch-start="runSelectedBatch" @batch-refresh="refreshBatch"
+                        @draft-save="saveFloatingDraft" @draft-fork="forkFloatingDraft"
+                        @batch-start="runSelectedBatch" @batch-start-local="runLocalBatch" @batch-refresh="refreshBatch"
                         @batch-stop="stopBatch" @batch-stop-device="stopBatchDevice"
                         @batch-restore-manual="restoreBatchManual"
                         @batch-reconcile="reconcileBatch"
