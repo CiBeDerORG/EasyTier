@@ -37,3 +37,6 @@
 - 验证主服务 `begin_session_permission/confirm_session_permission` 二阶段写锁：`active` 与 `suspending` 期间不许运行；只有确认 `view_only` 后脚本才可录入 `dispatch_pending`；存在未清理 run 时不得 `resume_manual` 或建立第二视频会话，且旧观看行保留。
 - 测试 ID / 函数 / 预期结果已汇总至 [T49 测试矩阵](task-49-test-matrix.md) RS01～RS12、EX01～EX06；其中真实设备验证属于 T50，不是本任务的自动通过证据。
 - **未执行** Rust 编译/单测、Python unittest、前端类型检查、Vite、CI 手动触发、FnOS/Android/多浏览器验证。任何 SQL、迁移或模拟数据适配问题必须在获得测试授权后以真实日志确认；当前只能报告测试源码已提交，不打勾“通过标准”。
+## 2026-10-28 · T49 第三批：有据可查的构建阻塞修复
+- 从 GHCR 自动运行 [#40616428698](https://github.com/CiBeDerORG/EasyTier/actions/runs/40616428698) 发现 Rust T49 测试缺 `easytier_core::management::remote_client::Storage` trait 导入导致 `insert_or_update_user_network_config` 方法不可见；已由提交 `bbc6fe7b613bd6222d3bba8d7f7039362cb48b89` 修复。
+- 该流水线并没有完成 T49 回归，属于**失败证据**。最新代码的 Rust 12 例和 Executor 6 例后续只能以新 Actions 明确成功才标通过；当前不凭推送和修复声明所有用例通过。
