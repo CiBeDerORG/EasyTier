@@ -134,7 +134,7 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
             <Button v-if="unresolved" label="只读查询原请求" icon="pi pi-history"
                 size="small" outlined @click="emit('reconcile')" />
         </div>
-        <small class="batch-hint">真实运行前须在每台目标手机的悬浮 Icon 中手动关闭“手控”，确认显示只读；脚本运行和操作台打开/关闭都不会自动切换开关。停止只是请求，不等于动作已结束；结果由服务器确认。</small>
+        <small class="batch-hint">允许保持悬浮手控开关开启来执行脚本；执行过程中自动化任务独占设备动作，手动点击会暂时被拦截，不改变开关和原视频。停止只是请求，不等于动作已结束；结果由服务器确认。</small>
     </section>
 </template>
 
