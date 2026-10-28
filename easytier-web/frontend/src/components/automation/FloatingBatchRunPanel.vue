@@ -3,6 +3,7 @@
 import { computed, onBeforeUnmount, reactive, watch } from 'vue';
 import { Button, InputText, Message, Tag } from 'primevue';
 import type { FloatingBatchState } from '../../modules/useFloatingBatchRun';
+import type { AutomationStepResult } from '../../types/automation';
 
 const props=defineProps<{
     ownerId:number;
@@ -19,7 +20,7 @@ const props=defineProps<{
 }>();
 const emit=defineEmits<{
     startLocal:[parameters:Record<string,string>];
-    refresh:[];reconcile:[];stopDevice:[deviceId:string];
+    refresh:[];reconcile:[];newRun:[];stopDevice:[deviceId:string];
 }>();
 const values=reactive<Record<string,string>>({});
 // Run state belongs to the workbench. Never expose another phone's run,
@@ -34,6 +35,19 @@ const canRun=computed(()=>props.runnerAvailable && props.draftReady && props.ste
 const localAllowed=computed(()=>canRun.value && !!props.localAvailable);
 const missingParameters=computed(()=>props.parameterNames.some(name=>!values[name]));
 const localRow=computed(()=>mine.value ? props.state.devices[props.deviceId] : undefined);
+const deviceRun=computed(()=>mine.value ? props.state.run?.devices.find(x=>x.device_id===props.deviceId):undefined);
+const failures=computed(()=>deviceRun.value?.steps.filter(s=>['failed','interrupted','outcome_unknown'].includes(s.state))??[]);
+function errorText(value:string|{code?:string;message?:string}|undefined){
+    if(typeof value==='string')return value;
+    return value?[value.code,value.message].filter(Boolean).join(' · '):'';
+}
+function stepNumber(id:string):number{
+    return (props.state.run?.script_snapshot.steps.findIndex(x=>x.id===id)??-1)+1;
+}
+function stepError(step:AutomationStepResult):string{
+    return [errorText(step.error),step.message].filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i).join('；')
+        || '执行器未提供该步骤的具体失败原因';
+}
 const localError=computed(()=>props.localMessage || (mine.value ? props.state.error : ''));
 const runOutcome=computed(()=>!mine.value?'idle':props.state.phase==='completed'
     ? (props.state.run?.devices.find(device=>device.device_id===props.deviceId)?.state ?? 'outcome_unknown')
@@ -66,7 +80,7 @@ const label=(state:string)=>{
         idle:'未运行',preparing:'本机准备中',submitting:'提交本机任务中',
         running:'本机执行中',cancel_requested:'已请求停止，等待确认',
         completed:'执行成功',partial_failed:'部分步骤失败',failed:'执行失败或准备失败',
-        interrupted:'执行中断',unknown:'结果未知，禁止再次提交',
+        interrupted:'执行中断',unknown:'旧请求结果未知',
         queued:'排队中',viewing:'原画面检查',suspending:'核验原会话',ready:'已准备',
         succeeded:'成功',cancelled:'已取消',outcome_unknown:'结果未知',cleanup_pending:'清理待确认',
         restoring_manual:'正在恢复手控',manual_restored:'已恢复手控',manual_restore_failed:'手控恢复失败',
@@ -103,6 +117,16 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
             执行器未配置或不可用，请先到自动化中心设置页检查执行器。
         </Message>
         <Message v-if="localError" severity="warn" :closable="false">{{ localError }}</Message>
+        <section v-if="mine && failures.length" class="batch-failures" aria-label="本机失败步骤与错误">
+            <strong>执行失败详情 · {{ failures.length }} 项</strong>
+            <details v-for="step in failures" :key="step.step_id" open>
+                <summary>第 {{ stepNumber(step.step_id) }} 步 · {{ step.state }}</summary>
+                <p>{{ stepError(step) }}</p><small>步骤 ID：{{ step.step_id }}</small>
+            </details>
+        </section>
+        <section v-else-if="mine && deviceRun?.error" class="batch-failures">
+            <strong>设备执行错误</strong><p>{{errorText(deviceRun.error)}}</p>
+        </section>
         <Message v-if="!mine && active" severity="secondary" :closable="false">
             当前工作台已有未完成任务，本机暂不能提交新的执行请求。
         </Message>
@@ -133,6 +157,9 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
             <Button v-if="state.run" label="刷新本机状态" icon="pi pi-refresh" outlined size="small" @click="emit('refresh')" />
             <Button v-if="unresolved" label="查询本机原请求" icon="pi pi-history"
                 size="small" outlined @click="emit('reconcile')" />
+            <Button v-if="unresolved" label="结束旧请求跟踪，准备新运行" icon="pi pi-replay"
+                size="small" outlined @click="emit('newRun')" />
+            <small v-if="unresolved">先核查旧任务及设备占用；正在执行的任务不会重发。</small>
         </div>
         <small class="batch-hint">手控开关保持原状态。脚本执行期间由执行器独占当前手机动作；停止只是请求，需等待服务端确认实际结果。</small>
     </section>
@@ -150,4 +177,9 @@ const terminal=(status:string)=>['completed','succeeded','failed','cancelled','i
 .batch-device strong{font-size:11px}
 .batch-hint{border-top:1px solid var(--console-border);padding-top:7px}
 .batch-device .media-alert{color:var(--p-red-500)}
+.batch-failures{display:grid;gap:6px;padding:8px;background:color-mix(in srgb,var(--p-red-500) 7%,transparent);border:1px solid var(--p-red-500);border-radius:8px}
+.batch-failures>strong{color:var(--p-red-500);font-size:12px}
+.batch-failures details{font-size:11px;border-top:1px solid var(--console-border);padding-top:5px}
+.batch-failures summary{cursor:pointer;font-weight:600}
+.batch-failures p{white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0;font-size:11px}
 </style>

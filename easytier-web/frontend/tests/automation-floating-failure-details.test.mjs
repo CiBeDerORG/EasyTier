@@ -1,0 +1,42 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const source=name=>readFileSync(new URL('../src/'+name,import.meta.url),'utf8');
+const timeline=source('components/automation/CardStepTimeline.vue');
+const batch=source('components/automation/FloatingBatchRunPanel.vue');
+const state=source('modules/useFloatingBatchRun.ts');
+const floating=source('components/automation/AutomationFloatingPanel.vue');
+const dialog=source('components/automation/AutomationFloatingDialog.vue');
+const card=source('components/automation/PhoneCard.vue');
+test('failed full-flow steps expose the persisted server error and run id',()=>{
+  assert.match(timeline,/batchResults/);
+  assert.match(timeline,/result\.error/);
+  assert.match(timeline,/failureInfo\(step\.id\)/);
+  assert.match(timeline,/查看失败原因/);
+  assert.match(timeline,/运行 ID：/);
+  assert.match(batch,/执行失败详情/);
+  assert.match(batch,/errorText\(step\.error\)/);
+  assert.match(batch,/deviceRun\.error/);
+});
+test('explicit new run after unknown checks server history and phone occupancy',()=>{
+  assert.match(state,/async function startNewAfterUnknown/);
+  assert.match(state,/await api\.getRun/);
+  assert.match(state,/await api\.listRuns/);
+  assert.match(state,/await api\.devices/);
+  assert.match(state,/device\.run_occupied/);
+  assert.match(state,/clearBatchReceipt/);
+  assert.match(state,/state\.phase='idle'/);
+  assert.match(batch,/结束旧请求跟踪，准备新运行/);
+  assert.match(batch,/emit\('newRun'\)/);
+  assert.match(card,/@new-run="emit\('batch-new-run',device\.id\)"/);
+});
+test('normal automation console can escape phone card without changing live video',()=>{
+  assert.match(floating,/<Teleport to="body" :disabled="fullscreen">/);
+  assert.match(floating,/viewport-host/);
+  assert.match(floating,/normalAnchor/);
+  assert.match(floating,/positionOutsideCard/);
+  assert.match(card,/<Teleport to="body" :disabled="isFullscreen">/);
+  assert.match(card,/detached-subwindows/);
+  assert.match(dialog,/--automation-dialog-x/);
+  assert.match(card,/ref="automationSubwindowHost"/);
+});

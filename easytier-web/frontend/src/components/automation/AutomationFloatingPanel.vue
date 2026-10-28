@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, toRef, watch } from 'vue';
+import { nextTick, ref, toRef, watch } from 'vue';
 import { useAutomationFloatingLayer } from '../../modules/useAutomationFloatingLayer';
 
 const props = defineProps<{
@@ -7,18 +7,40 @@ const props = defineProps<{
     fullscreen: boolean;
     title?: string;
     deviceName: string;
+    normalAnchor?: HTMLElement | null;
 }>();
 const emit = defineEmits<{ close: [] }>();
-const { host, panel, style, constrain, pointerDown, pointerMove, pointerEnd } = useAutomationFloatingLayer(toRef(props, 'fullscreen'));
+const { host, panel, position, style, constrain, pointerDown, pointerMove, pointerEnd } =
+    useAutomationFloatingLayer(toRef(props, 'fullscreen'));
+const normalTheme=ref<Record<string,string>>({});
+function positionOutsideCard(){
+    if(!props.normalAnchor)return;
+    const bounds=props.normalAnchor.getBoundingClientRect();
+    const computed=getComputedStyle(props.normalAnchor);
+    normalTheme.value=Object.fromEntries(['--console-panel','--console-panel-raised',
+        '--console-border','--console-muted','--console-accent-soft','--p-text-color',
+        '--p-primary-color','--p-red-500','--p-green-500']
+        .map(k=>[k,computed.getPropertyValue(k)]).filter(([,v])=>!!v));
+    position.value={
+        x:Math.max(8,Math.min(window.innerWidth-(panel.value?.offsetWidth??328)-8,bounds.right+12)),
+        y:Math.max(8,Math.min(window.innerHeight-(panel.value?.offsetHeight??500)-8,bounds.top+22)),
+    };
+}
 
-watch(() => props.visible, open => {
-    if (open) void nextTick(constrain);
-}, { flush: 'post' });
+watch([() => props.visible,()=>props.fullscreen],async ([open,fullscreen],[wasOpen,wasFullscreen])=>{
+    if(!open)return;
+    await nextTick();
+    if(!fullscreen && (!wasOpen || wasFullscreen)) positionOutsideCard();
+    constrain();
+},{flush:'post'});
 </script>
 
 <template>
     <!-- Host is the SAME PhoneCard video surface; it never owns a video or stream. -->
-    <div ref="host" class="automation-floating-host" :class="{ hidden: !visible }"
+    <Teleport to="body" :disabled="fullscreen">
+    <div ref="host" class="automation-floating-host"
+        :class="{ hidden: !visible, 'viewport-host': !fullscreen }"
+        :style="!fullscreen ? normalTheme : undefined"
         :aria-hidden="!visible" @pointerdown.stop @pointermove.stop @pointerup.stop
         @click.stop @dblclick.stop @contextmenu.stop @wheel.stop>
         <section v-show="visible" ref="panel" class="automation-floating-panel"
@@ -45,11 +67,13 @@ watch(() => props.visible, open => {
             </div>
         </section>
     </div>
+    </Teleport>
 </template>
 
 <style scoped>
 .automation-floating-host{position:absolute;inset:0;z-index:9;pointer-events:none;contain:layout style}
 .automation-floating-host.hidden{visibility:hidden}
+.automation-floating-host.viewport-host{position:fixed;inset:0;z-index:1100;contain:layout style;pointer-events:none}
 .automation-floating-panel{
     position:absolute;display:flex;flex-direction:column;
     width:min(328px, calc(100% - 16px));max-height:calc(100% - 16px);

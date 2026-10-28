@@ -111,7 +111,7 @@ const emit = defineEmits<{
     'repair-repick': [deviceId: string, stepId: string];
     'repair-dismiss': [deviceId: string];
     'batch-start-local': [deviceId:string, params:Record<string,string>];
-    'batch-refresh': [deviceId:string]; 'batch-reconcile': [deviceId:string];
+    'batch-refresh': [deviceId:string]; 'batch-reconcile': [deviceId:string]; 'batch-new-run': [deviceId:string];
     'batch-stop-device': [deviceId:string];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
@@ -202,6 +202,25 @@ const card = ref<HTMLElement | null>(null);
 const screen = ref<HTMLElement | null>(null);
 const isFullscreen = ref(false);
 const automationSubwindowHost = ref<HTMLElement | null>(null);
+const detachedTheme=ref<Record<string,string>>({});
+function updateDetachedTheme(){
+    if(!screen.value)return;
+    const css=getComputedStyle(screen.value);
+    const rect=screen.value.getBoundingClientRect();
+    detachedTheme.value={
+        '--automation-dialog-x':Math.max(8,Math.min(window.innerWidth-430,rect.right+24))+'px',
+        '--automation-dialog-y':Math.max(8,Math.min(window.innerHeight-220,rect.top+42))+'px',
+        ...Object.fromEntries(['--console-panel','--console-panel-raised',
+        '--console-border','--console-muted','--console-accent-soft',
+        '--console-border-strong','--p-text-color','--p-primary-color',
+        '--p-red-500','--p-green-500'].map(k=>[k,css.getPropertyValue(k)])
+            .filter(([,v])=>!!v))};
+}
+watch(isFullscreen,()=>void nextTick(updateDetachedTheme));
+watch([automationPanelOpen,()=>props.inspectorVisible,()=>props.editingStepId],
+    ()=>void nextTick(updateDetachedTheme));
+
+
 /** T24 subwindows Teleport HERE, inside the current phone-screen fullscreen top layer. */
 function getAutomationSubwindowHost() { return automationSubwindowHost.value; }
 const screenDimensions = ref({ width: 0, height: 0 });
@@ -942,7 +961,7 @@ onBeforeUnmount(() => {
                 @drag-mode="inspectorDragMode=$event"
                 @drag-guide="inspectorDragGuide=$event" />
             <AutomationFloatingPanel :visible="automationPanelOpen" :fullscreen="isFullscreen"
-                :device-name="device.name" @close="closeAutomationPanel">
+                :normal-anchor="screen" :device-name="device.name" @close="closeAutomationPanel">
                 <AutomationScriptSelector :scripts="scripts ?? []"
                     :selected-id="draft.editingId ?? null" :selected-name="draft.name"
                     :count="draft.steps.length" :busy="!!scriptsBusy" :loading="!!scriptsLoading"
@@ -973,7 +992,8 @@ onBeforeUnmount(() => {
                         @start-local="params=>emit('batch-start-local',device.id,params)"
                         @refresh="emit('batch-refresh',device.id)"
                         @stop-device="id=>{if(id===device.id)emit('batch-stop-device',device.id)}"
-                        @reconcile="emit('batch-reconcile',device.id)" />
+                        @reconcile="emit('batch-reconcile',device.id)"
+                        @new-run="emit('batch-new-run',device.id)" />
                     <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
                         :batch-run="batchRunState.owner===ownerId && batchRunState.selected.includes(device.id)
                             ? batchRunState.run : null" :batch-device-id="device.id"
@@ -1029,9 +1049,13 @@ onBeforeUnmount(() => {
                     @clear-demo="emit('demo-clear',device.id)"
                     @dirty-change="emit('step-dirty',device.id,$event)" />
             </AutomationFloatingDialog>
-            <!-- T24: target for controlled Teleport of editable child windows.
-                 It MUST stay inside phone-screen, not document.body. -->
-            <div ref="automationSubwindowHost" class="automation-subwindow-host" />
+            <!-- Non-fullscreen editors float over the whole browser viewport.
+                 Fullscreen moves the SAME host back into the phone-screen top layer. -->
+            <Teleport to="body" :disabled="isFullscreen">
+                <div ref="automationSubwindowHost" class="automation-subwindow-host"
+                    :class="{ 'detached-subwindows': !isFullscreen }"
+                    :style="!isFullscreen ? detachedTheme : undefined" />
+            </Teleport>
         </div>
         <footer><span class="phase" :class="{ live: session.state.phase === 'live' }">{{ t(session.state.phase) }}<template v-if="session.state.phase === 'live' && session.state.viewerOnly"> · 只读观看，手控已锁定</template></span>
             <small v-if="batchRunState.selected.includes(device.id) && batchRunState.devices[device.id]"
@@ -1132,6 +1156,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .phone-controls{position:absolute;z-index:6;transform:translateY(-50%);display:flex;align-items:center;gap:6px;transition:left .16s ease;touch-action:none}
 .phone-controls.menu-expanded{z-index:12}
 .automation-subwindow-host{position:absolute;inset:0;z-index:13;pointer-events:none}
+.automation-subwindow-host.detached-subwindows{position:fixed;inset:0;z-index:1120;pointer-events:none;contain:layout style}
 .phone-controls :deep(.p-button){width:42px;height:42px;min-width:42px;box-shadow:0 3px 14px #0006;border:1px solid #ffffff38;backdrop-filter:blur(10px)}
 .phone-controls :deep(.p-button-secondary){background:#142c42e8;color:#e1edf7}
 .main-orb{background:var(--p-primary-color);cursor:grab;touch-action:none;position:relative;z-index:2}.main-orb:active{cursor:grabbing}

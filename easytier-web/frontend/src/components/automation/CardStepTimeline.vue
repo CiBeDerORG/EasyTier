@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { AutomationRun, AutomationStepType } from '../../types/automation';
+import type { AutomationRun, AutomationStepResult, AutomationStepType } from '../../types/automation';
 import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
 import { projectCardSteps } from '../../modules/card-step-projection';
@@ -28,6 +28,31 @@ const emit=defineEmits<{
     move: [stepId:string,delta:-1|1];
 }>();
 const projected=computed(()=>projectCardSteps(props.draft));
+const expandedErrors=ref<string[]>([]);
+function toggleError(id:string){expandedErrors.value=expandedErrors.value.includes(id)
+    ?expandedErrors.value.filter(x=>x!==id):[...expandedErrors.value,id];}
+function errorMessage(error:string|{code?:string;message?:string}|undefined):string {
+    if(typeof error==='string')return error;
+    return error ? [error.code,error.message].filter(Boolean).join(' · ') : '';
+}
+const batchDevice=computed(()=>{
+    const run=props.batchRun;
+    if(!run||!props.batchDeviceId||run.script_snapshot.steps.length!==props.draft.steps.length
+        ||run.script_snapshot.steps.some((s,i)=>s.id!==props.draft.steps[i]?.id))return null;
+    return run.devices.find(d=>d.device_id===props.batchDeviceId)??null;
+});
+const batchResults=computed(()=>new Map((batchDevice.value?.steps??[]).map(s=>[s.step_id,s])));
+function failureInfo(id:string):{result:AutomationStepResult|null;message:string;code:string;runId:string}|null{
+    const result=batchResults.value.get(id),device=batchDevice.value,run=props.batchRun;
+    if(!result || !['failed','interrupted','outcome_unknown'].includes(result.state))return null;
+    const err=result.error;
+    const code=typeof err==='object' ? err.code??'' : '';
+    const message=[errorMessage(err),result.message,
+        errorMessage(device?.error)].filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i).join('；');
+    return {result,message:message||'执行器未返回详细错误；可查看本次运行 ID 查询服务端记录。',
+        code,runId:run?.id??''};
+}
+
 /** Durable per-step executor results, scoped to exactly this device and script
  * snapshot. Never color a modified draft from an older run. */
 const batchStepStates=computed(()=>{
@@ -116,10 +141,23 @@ function canMove(id:string,delta:-1|1):boolean{
                                 : batchStepStates.get(step.id)==='succeeded'?'✓ 已完成'
                                 : batchStepStates.get(step.id)==='failed'?'✕ 执行失败':'— 已跳过' }}
                         </small>
+                        <span v-if="failureInfo(step.id)" class="batch-step-failure">
+                            <button type="button" class="batch-error-toggle" :aria-expanded="expandedErrors.includes(step.id)"
+                                @click.stop="toggleError(step.id)">
+                                {{ expandedErrors.includes(step.id)?'收起失败详情':'查看失败原因' }}
+                            </button>
+                        </span>
                         <InlineStepRunStatus v-if="trialProgress?.stepId === step.id"
                             :progress="trialProgress" />
                     </span>
                 </button>
+                <div v-if="failureInfo(step.id) && expandedErrors.includes(step.id)"
+                    class="batch-error-detail" role="alert">
+                    <strong>第 {{step.number}} 步 · {{failureInfo(step.id)?.result?.state}}</strong>
+                    <span v-if="failureInfo(step.id)?.code">错误码：{{failureInfo(step.id)?.code}}</span>
+                    <p>{{failureInfo(step.id)?.message}}</p>
+                    <small>运行 ID：{{failureInfo(step.id)?.runId}}</small>
+                </div>
                 <button type="button" class="step-move" :disabled="!canMove(step.id,-1)"
                     :aria-label="'上移第 '+step.number+' 步'" title="只在同一条件分支内上移"
                     @click.stop="emit('move',step.id,-1)"><i class="pi pi-arrow-up" aria-hidden="true" /></button>
@@ -185,6 +223,14 @@ function canMove(id:string,delta:-1|1):boolean{
 .timeline-item.batch-failed{border-color:var(--p-red-500);background:color-mix(in srgb,var(--p-red-500) 12%,transparent)}
 .timeline-item.batch-failed .number,.timeline-item.batch-failed .batch-step-label{color:var(--p-red-500);font-weight:700}
 .timeline-item.batch-skipped{opacity:.7}
+.batch-step-failure{display:block;white-space:normal}
+.batch-error-toggle{border:0;background:transparent;padding:1px 0;text-align:left;
+    color:var(--p-red-500);font-size:10px;text-decoration:underline;cursor:pointer}
+.batch-error-detail{order:20;width:100%;display:grid;gap:4px;padding:8px;margin:3px 6px 6px;
+    border-radius:6px;border:1px solid var(--p-red-500);
+    background:color-mix(in srgb,var(--p-red-500) 6%,var(--console-panel));font-size:11px}
+.batch-error-detail p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;line-height:1.55}
+.batch-error-detail small{overflow-wrap:anywhere;color:var(--console-muted)}
 .timeline-item.batch-running .step-select:focus-visible,.timeline-item.batch-failed .step-select:focus-visible{outline-offset:-2px}
 .step-info{min-width:0;display:flex;flex-direction:column;gap:2px}
 .step-info strong{font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

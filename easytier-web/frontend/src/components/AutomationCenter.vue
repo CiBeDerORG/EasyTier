@@ -649,6 +649,9 @@ function batchTargetsLocal(id:string){
     return floatingBatch.state.owner===ownerId.value && floatingBatch.state.selected.includes(id);
 }
 function refreshBatch(id:string){if(batchTargetsLocal(id))void floatingBatch.refresh();}
+function startNewLocalRun(id:string){
+    if(batchTargetsLocal(id))void floatingBatch.startNewAfterUnknown(ownerId.value,id);
+}
 function reconcileBatch(id:string){
     if(batchTargetsLocal(id))void floatingBatch.reconcile(ownerId.value);
 }
@@ -2067,6 +2070,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         @draft-save="saveFloatingDraft" @draft-fork="forkFloatingDraft"
                         @batch-start-local="runLocalBatch" @batch-refresh="refreshBatch"
                         @batch-stop-device="stopBatchDevice" @batch-reconcile="reconcileBatch"
+                        @batch-new-run="startNewLocalRun"
                         @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
                         @step-create="createCardDraftStep" @step-branch-add="addCardBranchStep"
                         @step-convert-condition="convertCardCondition"

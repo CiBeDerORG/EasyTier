@@ -6,7 +6,8 @@ import { useAutomationFloatingDialogOrder } from '../../modules/automation-float
 /**
  * T24: one reusable non-modal child floating window in the ORIGINAL phone video.
  * Callers supply only UI content and retain ownership of edits/dirty state.
- * Teleport MUST target PhoneCard's automationSubwindowHost, never body.
+ * Teleport targets PhoneCard's scoped host; normal mode uses the viewport,
+ * fullscreen mode moves that same host into the phone-screen top layer.
  */
 const props = withDefaults(defineProps<{
     visible: boolean;
@@ -27,7 +28,7 @@ const cancelDiscardButton = ref<HTMLButtonElement | null>(null);
 const discardRequested = ref(false);
 let previouslyFocused: HTMLElement | null = null;
 let registered = false;
-const { host, panel, style, constrain, moveBy, pointerDown, pointerMove, pointerEnd } =
+const { host, panel, position, style, constrain, moveBy, pointerDown, pointerMove, pointerEnd } =
     useAutomationFloatingLayer(toRef(props, 'fullscreen'), {
         normalStart: { x: 24, y: 72 },
         fullscreenTop: 72,
@@ -95,6 +96,13 @@ watch([() => props.visible, () => props.portalTarget], async ([visible, target])
             registered = true;
         }
         await nextTick();
+        if(!props.fullscreen && target){
+            const css=getComputedStyle(target);
+            const x=parseFloat(css.getPropertyValue('--automation-dialog-x'));
+            const y=parseFloat(css.getPropertyValue('--automation-dialog-y'));
+            if(Number.isFinite(x) && Number.isFinite(y))
+                position.value={x,y};
+        }
         constrain();
         if (props.visible && panel.value && !panel.value.contains(document.activeElement))
             panel.value.focus({ preventScroll: true });
@@ -116,8 +124,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <!-- v-show retains inputs when temporarily hidden; target is part of the
-         PhoneCard fullscreen element, so no modal can escape to body. -->
+    <!-- In normal mode the PhoneCard portal host uses viewport bounds; in
+         fullscreen the same host is moved into the top-layer phone screen. -->
     <Teleport v-if="portalTarget" :to="portalTarget">
         <section v-show="visible" ref="panel" class="automation-child-dialog"
             :class="{ 'automation-child-dialog-wide': wide }"

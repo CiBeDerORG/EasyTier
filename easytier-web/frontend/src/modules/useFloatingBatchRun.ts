@@ -10,7 +10,6 @@ import AutomationApi, { AutomationApiError, automationErrorMessage } from './aut
 import { analyzeAutomationFlow } from './automation-flow';
 import { useCardTrialPreparation } from './useCardTrialPreparation';
 import { readBatchReceipt, reserveBatchReceipt, clearBatchReceipt, type BatchSubmissionReceipt } from './automation-batch-receipt';
-import { readTrialReceipt } from './automation-trial-receipt';
 
 export interface BatchPhoneHandle {
     open(quality: 'wall' | 'focus', settings: AutomationMediaSettings): Promise<void>;
@@ -209,16 +208,9 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
         allow:()=>boolean,
     ):Promise<void>{
         if(busy.value || state.pendingReceipt)throw new Error('存在运行中或结果未核实的批量任务。');
-        // T46 backward compatibility: obsolete ScriptLibrary used per-device
-        // sessionStorage receipts. Removing its modal must not allow the new
-        // batch surface to re-execute an old unknown action.
-        for(const target of intent.targets){
-            const legacy=readTrialReceipt(window.sessionStorage,intent.owner,target.id);
-            if(legacy)throw new Error(
-                target.name+' 有旧试跑请求结果尚未确认（'+legacy.requestId+
-                '）。请先从脚本管理页只读核对历史请求；禁止再次操作。'
-            );
-        }
+        // A new explicit full-flow run has a new request UUID. A historical
+        // one-step trial receipt is diagnostic history, not a permanent block
+        // on creating a distinct run. The server enforces device occupancy.
         // Never re-POST a previous ambiguous action after page refresh.
         const old=readBatchReceipt(window.sessionStorage,intent.owner);
         if(old){
@@ -388,11 +380,52 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
             state.phase='unknown';state.error='停止请求结果未确认，不能自动重发：'+automationErrorMessage(error);
         }
     }
+    /**
+     * Explicit user-directed NEW run, never an automatic replay of an uncertain
+     * request. Consult the current server history before clearing the old
+     * browser receipt. An existing nonterminal run must remain protected.
+     */
+    async function startNewAfterUnknown(owner:number, deviceId:string):Promise<void>{
+        if(state.owner!==owner||state.phase!=='unknown'||!state.selected.includes(deviceId))return;
+        try{
+            const receipts=state.pendingReceipt;
+            let prior=state.run;
+            if(prior)prior=await api.getRun(owner,prior.id);
+            else if(receipts){
+                const runs=await api.listRuns(owner);
+                prior=runs.items.find(run=>run.request_id===receipts.requestId)??null;
+            }
+            const devices=await api.devices(owner);
+            // An unknown historical result does not necessarily mean the phone
+            // is still occupied. The operator can explicitly begin another run
+            // once the server confirms this device is free. Active runs remain
+            // protected regardless of stale browser receipt state.
+            if(prior && ['queued','accepted','starting','running','cancel_requested'].includes(prior.state)){
+                acceptRun(prior);
+                state.error='原请求仍在执行；请先停止或等待完成。';
+                return;
+            }
+            const device=devices.items.find(d=>d.id===deviceId);
+            if(!device || device.run_occupied || !device.target_fingerprint){
+                state.error='当前手机仍被执行任务占用或设备授权已变化，无法开始新运行。';
+                return;
+            }
+            if(receipts)clearBatchReceipt(window.sessionStorage,receipts);
+            const persisted=readBatchReceipt(window.sessionStorage,owner);
+            if(persisted)clearBatchReceipt(window.sessionStorage,persisted);
+            stopTimer();++version;
+            state.phase='idle';state.error='旧请求记录已结束跟踪。下一次点击运行会创建全新的请求 ID。';
+            state.run=null;state.pendingReceipt=null;state.requestId='';
+            state.devices={};state.selected=[];
+        }catch(error){
+            state.error='核对原请求/设备状态失败，无法开始新运行：'+automationErrorMessage(error);
+        }
+    }
     function forgetOwner(){
         ++version;stopTimer();cardResolver=null;state.owner=0;state.phase='idle';state.error='';
         state.selected=[];state.devices={};state.run=null;state.pendingReceipt=null;
         // Do not delete persistent request proof.
     }
     onBeforeUnmount(()=>{disposed=true;forgetOwner();preparation.dispose();});
-    return {state,busy,start,refresh,reconcile,cancelAll,cancelDevice,inspectMedia,forgetOwner};
+    return {state,busy,start,refresh,reconcile,cancelAll,cancelDevice,startNewAfterUnknown,inspectMedia,forgetOwner};
 }
