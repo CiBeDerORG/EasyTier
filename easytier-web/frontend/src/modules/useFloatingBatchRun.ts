@@ -3,7 +3,7 @@
  * No Android device control lives here: only existing PhoneCard viewers,
  * the T12 preparation helper and the server's immutable /runs API.
  */
-import { computed, onBeforeUnmount, reactive } from 'vue';
+import { computed, onBeforeUnmount, reactive, watch } from 'vue';
 import { v4 as uuid } from 'uuid';
 import type { AutomationDevice, AutomationMediaSettings, AutomationRun, AutomationRunInput, AutomationStep } from '../types/automation';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from './automation-api';
@@ -88,6 +88,17 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
     let disposed=false;
     let cardResolver:((id:string)=>BatchPhoneHandle|undefined)|null=null;
     const busy=computed(()=>['preparing','submitting','running','cancel_requested'].includes(state.phase));
+    // Per-device preparation updates are independent: a slow UiAutomator2
+    // install on A must not hide B's ready/failed state.
+    watch(preparation.state, observations=>{
+        if(state.phase!=='preparing')return;
+        for(const target of state.selected){
+            const p=observations[state.owner+':'+target];
+            const row=state.devices[target];
+            if(!p || !row || row.phase==='ready' || row.phase==='viewing' || row.phase==='suspending')continue;
+            state.devices[target]={...row,phase:p.phase,message:p.message};
+        }
+    },{deep:true});
     function stopTimer(){if(timer!==null){clearTimeout(timer);timer=null;}}
     function still(owner:number,epoch:number){return !disposed&&version===epoch&&state.owner===owner;}
     function progress(id:string,phase:string,message:string,sessionId?:string){
