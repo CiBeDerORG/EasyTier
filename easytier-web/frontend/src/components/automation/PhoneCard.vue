@@ -89,6 +89,10 @@ const emit = defineEmits<{
     'inspector-add-step': [step: AutomationStep, token: number, acknowledge: (accepted: boolean) => void];
     'inspector-replace-target': [stepId: string, target: StepTarget];
     'step-edit': [deviceId: string, stepId: string];
+    'step-create': [deviceId:string,type:import('../../types/automation').AutomationStepType];
+    'step-branch-add': [deviceId:string,conditionId:string,lane:'then'|'else',
+        type:import('../../types/automation').AutomationStepType];
+    'step-convert-condition': [deviceId:string,stepId:string,type:'if_gone'|'if_else'];
     'step-delete': [deviceId: string, requestedId: string, expectedFingerprint: string, confirmedTargetId: string,
         ownerId: number, scriptId: string | null, scriptRevision: number | null];
     'step-undo': [deviceId: string];
@@ -865,9 +869,13 @@ onBeforeUnmount(() => {
                         @reconcile="emit('batch-reconcile')" />
                     <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
                         :trial-progress="trialProgress" :trial-active="trialStepId !== null"
+                        :structure-locked="!!editingDirty || batchVideoProtected || !!syncRole || recording"
                         :undo-label="undoDeleteLabel"
                         @edit="emit('step-edit',device.id,$event)"
                         @trial="openCardTrial" @delete="requestStepDeletion"
+                        @create="type=>emit('step-create',device.id,type)"
+                        @branch="(id,lane,type)=>emit('step-branch-add',device.id,id,lane,type)"
+                        @convert="(id,type)=>emit('step-convert-condition',device.id,id,type)"
                         @undo="emit('step-undo',device.id)" />
                     <p v-if="stepDeleteError" class="step-delete-error" role="alert">{{ stepDeleteError }}</p>
                 </AutomationScriptSelector>
