@@ -346,3 +346,36 @@ async fn t49_rust_run_dispatch_fences_manual_restore_and_new_media_admission() {
     assert_eq!(f.store.run(f.owner,run["id"].as_str().unwrap()).await.unwrap()["state"],
         "dispatch_pending");
 }
+ 
+#[tokio::test]
+async fn t49_saved_run_rejects_stale_revision_before_persisting_any_action() {
+    let f=Fixture::new().await;
+    let phone=f.phone().await;
+    let saved=f.create("script v1",json!([valid_step()])).await;
+    let id=saved["id"].as_str().unwrap();
+    let newer=f.store.save_script(f.owner,Some(id),&json!({
+        "name":"script v2","description":"updated elsewhere",
+        "steps":saved["steps"],"revision":1,
+    })).await.unwrap();
+    assert_eq!(newer["revision"],2);
+
+    let old=json!({
+        "request_id":Uuid::new_v4().to_string(),
+        "script_id":id,"revision":1,
+        "device_ids":[phone],"parameters":{},"concurrency":1,
+    });
+    let stale=f.store.create_run(f.owner,f.owner,&old).await.unwrap_err();
+    assert_eq!(stale.status,409);
+    assert_eq!(stale.code,"script_revision_changed");
+    assert_eq!(f.store.list_runs(f.owner).await.unwrap()["items"],json!([]),
+        "a stale formal revision must never leave a dispatch_pending run");
+
+    let mut latest=old;
+    latest["revision"]=json!(2);
+    latest["request_id"]=json!(Uuid::new_v4().to_string());
+    let (admitted,created)=f.store.create_run(f.owner,f.owner,&latest).await.unwrap();
+    assert!(created);
+    assert_eq!(admitted["script_snapshot"]["revision"],2);
+    assert_eq!(admitted["state"],"dispatch_pending");
+}
+
