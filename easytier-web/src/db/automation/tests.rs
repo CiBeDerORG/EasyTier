@@ -67,6 +67,19 @@ impl Fixture {
             "service_type":"adb","connection_mode":"wireless",
         })).await.unwrap();
         assert_eq!(adb["service_type"],"adb");
+        // Asset creation deliberately records a pending endpoint retirement.
+        // In this in-memory-only fixture, simulate the executor's *confirmed*
+        // cleanup reply for this specific virtual phone before admitting it.
+        // Do not relax the production target_cleanup_pending guard.
+        let cleanup=sqlx::query(
+            "UPDATE discovery_endpoint_events SET cleanup_json='{\\"state\\":\\"confirmed\\"}' \
+             WHERE owner_user_id=? AND device_id=? AND seq=( \
+               SELECT MAX(seq) FROM discovery_endpoint_events \
+               WHERE owner_user_id=? AND device_id=?)"
+        ).bind(self.owner).bind(&id).bind(self.owner).bind(&id)
+        .execute(&self.db.inner()).await.unwrap();
+        assert_eq!(cleanup.rows_affected(),1,
+            "T49 fixture must explicitly acknowledge its virtual endpoint cleanup");
         let target=self.store.target(self.owner,&id).await.unwrap();
         assert_eq!(target["device_id"],id);
         assert!(target["target_fingerprint"].is_string());
