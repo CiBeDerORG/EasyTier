@@ -101,7 +101,7 @@ export function createAutomationScriptWorkspace(
             // Fail closed, even if storage content cannot be parsed.
             state.formalPending={owner:ownerId.value,kind:'publish',scriptId:'unknown',
                 revision:1,createdAt:''};}
-    });
+    }, {immediate:true});
 
     async function refresh(): Promise<boolean> {
         const owner = ownerId.value, generation = ++listGeneration;
