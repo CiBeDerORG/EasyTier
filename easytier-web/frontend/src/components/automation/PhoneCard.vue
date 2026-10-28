@@ -26,6 +26,8 @@ import type { StepTarget } from '../../modules/automation-step-target';
 import type { InspectorCardHighlight, InspectorCardDragGuide, InspectorCardScreenPoint } from '../../modules/automation-inspector-overlay';
 import AutomationFloatingPanel from './AutomationFloatingPanel.vue';
 import AutomationScriptSelector from './AutomationScriptSelector.vue';
+import FloatingBatchRunPanel from './FloatingBatchRunPanel.vue';
+import type { FloatingBatchState } from '../../modules/useFloatingBatchRun';
 import AutomationScriptCloneDialog from './AutomationScriptCloneDialog.vue';
 import AutomationScriptSwitchDialog from './AutomationScriptSwitchDialog.vue';
 import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
@@ -66,6 +68,9 @@ const props = defineProps<{
     demoResult?: LocatorDemoResult | null;
     demoLoading?: boolean; demoError?: string;
     repairContext?: CardRepairContext | null;
+    selectedDeviceCount: number;
+    batchRunState: FloatingBatchState;
+    batchDraftReady: boolean;
 }>();
 const emit = defineEmits<{
     selection: [id: string, selected: boolean]; configure: [device: AutomationDevice];
@@ -89,6 +94,8 @@ const emit = defineEmits<{
     'trial-repair': [deviceId: string, runId: string, stepId: string];
     'repair-repick': [deviceId: string, stepId: string];
     'repair-dismiss': [deviceId: string];
+    'batch-start': [params: Record<string,string>, concurrency: number];
+    'batch-refresh': []; 'batch-stop': []; 'batch-reconcile': [];
     state: [id: string, phase: string]; geometry: [id: string]; stopSync: []; refresh: [];
 }>();
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -793,6 +800,16 @@ onBeforeUnmount(() => {
                     @refresh="emit('script-refresh',device.id)"
                     @create="name => requestScriptAction({kind:'create',deviceId:device.id,name})"
                     @select="chooseScript" @clone="openScriptClone">
+                    <FloatingBatchRunPanel :owner-id="ownerId"
+                        :selected-count="selectedDeviceCount"
+                        :steps-count="draft.steps.length"
+                        :parameter-names="[...new Set(draft.steps.filter(step=>step.type==='input_text' && !!step.parameter).map(step=>step.parameter!.trim()))]"
+                        :runner-available="runnerAvailable"
+                        :draft-ready="batchDraftReady && !editingDirty"
+                        :state="batchRunState"
+                        @start="(params,concurrency)=>emit('batch-start',params,concurrency)"
+                        @refresh="emit('batch-refresh')" @stop="emit('batch-stop')"
+                        @reconcile="emit('batch-reconcile')" />
                     <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
                         :trial-progress="trialProgress" :trial-active="trialStepId !== null"
                         :undo-label="undoDeleteLabel"
