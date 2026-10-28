@@ -1157,9 +1157,8 @@ async function openScriptInspector(stepId: string, stepType: AutomationStepType,
         !draftWorkspace.steps.some(item=>item.id===stepId && item.type===stepType)) return;
     // Legacy script-step navigation must first make its original PhoneCard
     // visible; otherwise cards.get(id) is null when a workbench filter hid it.
-    if(!visibleIds.value.has(deviceId)){
-        filters.value={node:'',group:'',type:'',keyword:''};
-        applied.value={...filters.value};
+    if(!revealOriginalAutomationCard(deviceId)){
+        error.value='目标手机已不在授权列表，不能从旧脚本页重新拾取。';return;
     }
     await nextTick();
     const latest=devices.value.find(item=>item.id===deviceId);
@@ -1653,6 +1652,19 @@ async function settingsSaved() {
     try { context.value = await api.context(); }
     catch (cause) { handleError(cause); }
 }
+/** Make a hidden original device card render BEFORE resolving its
+ * component ref. Shared by old script picking, old tab navigation and
+ * historical repair; deliberately does not start or steal media sessions. */
+function revealOriginalAutomationCard(deviceId:string):boolean {
+    const device=devices.value.find(item=>item.id===deviceId);
+    if(!device || device.owner_user_id!==ownerId.value) return false;
+    if(!visibleIds.value.has(deviceId)){
+        filters.value={node:'',group:'',type:'',keyword:''};
+        applied.value={...filters.value};
+    }
+    return true;
+}
+
 /** T47: safe navigation from a legacy scripts-tab link to the one
  * shared script panel hosted inside the original PhoneCard.
  * Navigation does not open a competing WebRTC player or run any script.
@@ -1668,11 +1680,10 @@ async function openLegacyScriptOnCard(deviceId:string){
     await nextTick();
     // A filtered-out card has no mounted component ref yet. Clear the
     // filter before resolving the original PhoneCard, never open a new video.
-    if(!visibleIds.value.has(deviceId)){
-        filters.value={node:'',group:'',type:'',keyword:''};
-        applied.value={...filters.value};
-        await nextTick();
+    if(!revealOriginalAutomationCard(deviceId)){
+        error.value='返回原卡片时手机授权已变化，请刷新列表。';return;
     }
+    await nextTick();
     if(disposed || ownerId.value!==owner || tab.value!=='workbench')return;
     const current=devices.value.find(d=>d.id===deviceId);
     if(!current || current.owner_user_id!==owner || !current.connection.enabled){
@@ -1750,10 +1761,8 @@ async function onRepairCard(request: AutomationRepairRequest) {
         draftWorkspace.selectedStepId=context.stepId;
         cardRepairContext.value=context;
         // Show the target even if a previous workbench filter hid it.
-        if(!visibleIds.value.has(context.deviceId)) {
-            filters.value={node:'',group:'',type:'',keyword:''};
-            applied.value={...filters.value};
-        }
+        if(!revealOriginalAutomationCard(context.deviceId))
+            throw new Error('历史修复的目标手机已不在当前账号授权列表。');
         await nextTick();
         if(!current() || tab.value!=='workbench')return;
         editCardStep(context.deviceId,context.stepId);
