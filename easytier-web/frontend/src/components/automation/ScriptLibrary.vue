@@ -515,10 +515,13 @@ async function deleteScript() {
     const scope = scopeRevision;
     const owner = props.ownerId;
     const id = deleteTarget.value.id;
+    const revision=deleteTarget.value.revision;
     ++listRequest; loading.value = false;
     deleting.value = true; error.value = '';
     try {
-        await api.deleteScript(owner, id);
+        // T46: the old management tab also uses server-side revision CAS.
+        // Never let its stale dialog delete a newer revision from another page.
+        await api.deleteScriptVersioned(owner,id,revision);
         if (disposed || scope !== scopeRevision) return;
         scripts.value = scripts.value.filter(script => script.id !== id);
         if (editingId.value === id) resetEditor();
