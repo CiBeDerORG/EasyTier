@@ -93,6 +93,7 @@ const emit = defineEmits<{
     'step-branch-add': [deviceId:string,conditionId:string,lane:'then'|'else',
         type:import('../../types/automation').AutomationStepType];
     'step-convert-condition': [deviceId:string,stepId:string,type:'if_gone'|'if_else'];
+    'step-move': [deviceId:string,stepId:string,delta:-1|1];
     'step-delete': [deviceId: string, requestedId: string, expectedFingerprint: string, confirmedTargetId: string,
         ownerId: number, scriptId: string | null, scriptRevision: number | null];
     'step-undo': [deviceId: string];
@@ -876,6 +877,7 @@ onBeforeUnmount(() => {
                         @create="type=>emit('step-create',device.id,type)"
                         @branch="(id,lane,type)=>emit('step-branch-add',device.id,id,lane,type)"
                         @convert="(id,type)=>emit('step-convert-condition',device.id,id,type)"
+                        @move="(id,delta)=>emit('step-move',device.id,id,delta)"
                         @undo="emit('step-undo',device.id)" />
                     <p v-if="stepDeleteError" class="step-delete-error" role="alert">{{ stepDeleteError }}</p>
                 </AutomationScriptSelector>
