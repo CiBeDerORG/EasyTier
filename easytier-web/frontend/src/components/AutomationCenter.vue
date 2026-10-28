@@ -657,6 +657,7 @@ async function runSelectedBatch(parameters:Record<string,string>,concurrency:num
 function refreshBatch(){void floatingBatch.refresh();}
 function reconcileBatch(){void floatingBatch.reconcile(ownerId.value);}
 function stopBatch(){void floatingBatch.cancelAll();}
+function stopBatchDevice(id:string){void floatingBatch.cancelDevice(id);}
 
 function setCard(id: string, value: unknown) {
     if (value) cards.set(id, value as PhoneHandle); else cards.delete(id);
@@ -1923,7 +1924,8 @@ onBeforeUnmount(() => { stopEvents?.();
                         @inspector-replace-target="replaceInspectorTarget" @inspector-edit="editInspectorDraft"
                         @script-refresh="refreshScriptList" @script-action="handleFloatingScriptAction"
                         @batch-start="runSelectedBatch" @batch-refresh="refreshBatch"
-                        @batch-stop="stopBatch" @batch-reconcile="reconcileBatch"
+                        @batch-stop="stopBatch" @batch-stop-device="stopBatchDevice"
+                        @batch-reconcile="reconcileBatch"
                         @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
                         @step-undo="undoCardDraftStepDeletion"
                         @trial-history="onCardTrialHistory" @trial-repair="onCardTrialRepair" @repair-repick="repickCardRepairStep" @repair-dismiss="dismissCardRepair" @step-close="closeCardStepEditor"
