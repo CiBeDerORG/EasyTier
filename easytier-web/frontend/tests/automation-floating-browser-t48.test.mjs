@@ -292,3 +292,48 @@ test('T56 legacy mixed run is shown only as local status; stop uses own device I
   assert.deepEqual(attempts.at(-1),{type:'stop-local',device:'phone-a'},
     'stop must never dispatch an action for the other selected phone');
 });
+
+test('T57 product acceptance: native step and insert menus stay inside current viewport/fullscreen and remain clickable',async t=>{
+  const page=await setup(t,realCardFixture);
+  await page.locator('#open-step').click();
+  const editor=page.getByRole('dialog',{name:/编辑第 1 步/});
+  await editor.waitFor();
+  const keySelect=editor.locator('.p-select').nth(1);
+  await keySelect.click();
+  let overlay=page.locator('.automation-subwindow-host .p-select-overlay:visible').last();
+  await overlay.waitFor();
+  assert.equal(await overlay.evaluate(node=>!!node.closest('.automation-subwindow-host.detached-subwindows')),true,
+    'normal mode must append dropdown to the viewport host, not body');
+  assert.equal(await page.locator('body > .p-select-overlay').count(),0);
+  await overlay.getByRole('option',{name:'返回'}).click();
+  assert.match(await keySelect.textContent(),/返回/);
+  const original=page.locator('.phone-card video.primary-video');
+  await original.evaluate(node=>node.dataset.productAcceptance='video-kept');
+
+  await page.locator('#fullscreen-card').click();
+  await page.waitForFunction(()=>document.fullscreenElement?.classList.contains('phone-screen'));
+  assert.equal(await editor.isVisible(),true);
+  await keySelect.click();
+  overlay=page.locator('.phone-screen .automation-subwindow-host .p-select-overlay:visible').last();
+  await overlay.waitFor();
+  assert.equal(await overlay.evaluate(node=>document.fullscreenElement?.contains(node)),true,
+    'select menu must belong to browser fullscreen top layer');
+  await page.keyboard.press('Escape');
+  assert.equal(await editor.isVisible(),true,
+    'Escape should close the dropdown, not discard the step editor');
+  await keySelect.click();
+  overlay=page.locator('.phone-screen .automation-subwindow-host .p-select-overlay:visible').last();
+  await overlay.waitFor();
+  await overlay.getByRole('option',{name:'主页'}).click();
+  assert.match(await keySelect.textContent(),/主页/);
+
+  const insert=page.getByRole('region',{name:'自动化脚本'}).locator('.flow-tools .p-select');
+  await insert.click();
+  overlay=page.locator('.phone-screen .automation-subwindow-host .p-select-overlay:visible').last();
+  await overlay.waitFor();
+  await overlay.getByRole('option',{name:'点击'}).click();
+  assert.match(await insert.textContent(),/点击/);
+  assert.equal(await original.getAttribute('data-product-acceptance'),'video-kept');
+  assert.equal(await page.locator('.phone-card video.primary-video').count(),1);
+  assert.equal(await page.locator('body > .p-select-overlay').count(),0);
+});

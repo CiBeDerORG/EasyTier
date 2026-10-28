@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { Select } from 'primevue';
 import type { AutomationRun, AutomationStepResult, AutomationStepType } from '../../types/automation';
 import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
@@ -15,6 +16,8 @@ const props=defineProps<{
     trialActive?: boolean;
     batchRun?: AutomationRun | null;
     batchDeviceId?: string;
+    overlayTarget?: HTMLElement | null;
+    fullscreen?: boolean;
 }>();
 const emit=defineEmits<{
     edit: [stepId: string];
@@ -88,7 +91,7 @@ const actions:{value:AutomationStepType;name:string}[]=[
     {value:'assert_property',name:'断言属性'},{value:'scroll_find',name:'滚动查找'},
     {value:'screenshot',name:'截图检查点'},
 ];
-const blocked=computed(()=>!!props.structureLocked||!!props.trialActive||!!layout.value.problem);
+const blocked=computed(()=>!!layout.value.problem);
 const selectedAction=computed(()=>props.draft.steps.find(s=>s.id===props.draft.selectedStepId &&
     s.type!=='if_gone' && s.type!=='if_else'));
 function canAddBranch(id:string,lane:BranchLane):boolean {
@@ -140,16 +143,16 @@ function canMove(id:string,delta:-1|1):boolean{
                                 : batchStepStates.get(step.id)==='succeeded'?'✓ 已完成'
                                 : batchStepStates.get(step.id)==='failed'?'✕ 执行失败':'— 已跳过' }}
                         </small>
-                        <span v-if="failureInfo(step.id)" class="batch-step-failure">
-                            <button type="button" class="batch-error-toggle" :aria-expanded="expandedErrors.includes(step.id)"
-                                @click.stop="toggleError(step.id)">
-                                {{ expandedErrors.includes(step.id)?'收起失败详情':'查看失败原因' }}
-                            </button>
-                        </span>
                         <InlineStepRunStatus v-if="trialProgress?.stepId === step.id"
                             :progress="trialProgress" />
                     </span>
                 </button>
+                <div v-if="failureInfo(step.id)" class="batch-step-failure">
+                    <button type="button" class="batch-error-toggle" :aria-expanded="expandedErrors.includes(step.id)"
+                        @click.stop="toggleError(step.id)">
+                        {{ expandedErrors.includes(step.id)?'收起失败详情':'查看失败原因' }}
+                    </button>
+                </div>
                 <div v-if="failureInfo(step.id) && expandedErrors.includes(step.id)"
                     class="batch-error-detail" role="alert">
                     <strong>第 {{step.number}} 步 · {{failureInfo(step.id)?.result?.state}}</strong>
@@ -189,9 +192,11 @@ function canMove(id:string,delta:-1|1):boolean{
         </ol>
         <div class="flow-tools" aria-label="结构编辑工具">
             <label>插入动作
-                <select v-model="insertType" :disabled="blocked">
-                    <option v-for="item in actions" :key="item.value" :value="item.value">{{ item.name }}</option>
-                </select>
+                <Select :key="fullscreen ? 'fullscreen-menu' : 'page-menu'"
+                    v-model="insertType" input-id="automation-insert-action"
+                    :append-to="overlayTarget ?? 'self'" :options="actions"
+                    option-label="name" option-value="value" aria-label="插入动作类型"
+                    class="insert-action-select" />
             </label>
             <button type="button" :disabled="blocked || draft.steps.length>=100"
                 @click="emit('create',insertType)">+ 新增</button>
@@ -222,7 +227,7 @@ function canMove(id:string,delta:-1|1):boolean{
 .timeline-item.batch-failed{border-color:var(--p-red-500);background:color-mix(in srgb,var(--p-red-500) 12%,transparent)}
 .timeline-item.batch-failed .number,.timeline-item.batch-failed .batch-step-label{color:var(--p-red-500);font-weight:700}
 .timeline-item.batch-skipped{opacity:.7}
-.batch-step-failure{display:block;white-space:normal}
+.batch-step-failure{order:18;flex-basis:100%;min-width:0;padding:0 6px 3px 31px;white-space:normal}
 .batch-error-toggle{border:0;background:transparent;padding:1px 0;text-align:left;
     color:var(--p-red-500);font-size:10px;text-decoration:underline;cursor:pointer}
 .batch-error-detail{order:20;width:100%;display:grid;gap:4px;padding:8px;margin:3px 6px 6px;
@@ -251,7 +256,7 @@ function canMove(id:string,delta:-1|1):boolean{
 .flow-tools,.condition-tools,.branch-tools{display:flex;gap:5px;align-items:center;flex-wrap:wrap;font-size:10px}
 .flow-tools,.condition-tools{padding:6px 0;border-top:1px solid var(--console-border);margin-top:5px}
 .flow-tools label{display:flex;gap:5px;align-items:center}
-.flow-tools select{min-width:0;max-width:150px;font-size:10px;padding:4px;border:1px solid var(--console-border);
+.flow-tools :deep(.insert-action-select){min-width:0;max-width:168px;font-size:11px;width:168px;border:1px solid var(--console-border);
     background:var(--console-panel-raised);color:inherit;border-radius:5px}
 .flow-tools button,.condition-tools button,.branch-tools button{border:1px solid var(--console-border);
     border-radius:5px;background:var(--console-panel-raised);color:inherit;font-size:10px;padding:4px 6px;cursor:pointer}

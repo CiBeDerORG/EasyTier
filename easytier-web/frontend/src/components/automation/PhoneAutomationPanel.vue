@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
 import type { AutomationComponentStatus, AutomationDevice, AutomationPreparation, AutomationPreparationLog } from '../../types/automation';
 
-const props = defineProps<{ device: AutomationDevice; ownerId: number; runnerAvailable: boolean; observedStatus?: AutomationComponentStatus }>();
+const props = defineProps<{ device: AutomationDevice; ownerId: number; runnerAvailable: boolean; observedStatus?: AutomationComponentStatus; portalTarget?: HTMLElement | null }>();
 const api = new AutomationApi();
 const visible = ref(false);
 const status = ref<AutomationComponentStatus | null>(null);
@@ -128,7 +128,7 @@ onBeforeUnmount(() => { disposed = true; ++epoch; stopPolling(); });
             <i class="pi pi-microchip" aria-hidden="true" />
         </button>
     </span>
-    <Dialog v-model:visible="visible" modal append-to="body" :header="device.name + ' · 控件组件'"
+    <Dialog v-model:visible="visible" modal :append-to="portalTarget ?? 'body'" :header="device.name + ' · 控件组件'"
         :style="{width:'640px',maxWidth:'calc(100vw - 24px)'}">
         <div class="component-content">
             <p class="hint">UiAutomator2 · 每台手机独立管理。查询只读取当前状态，不会安装、启动或重启组件。</p>

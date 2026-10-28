@@ -867,7 +867,8 @@ onBeforeUnmount(() => {
                 </span>
             </div>
             <div class="card-header-actions">
-                <PhoneAutomationPanel :device="device" :owner-id="ownerId" :runner-available="runnerAvailable" :observed-status="componentStatus" />
+                <PhoneAutomationPanel :device="device" :owner-id="ownerId" :runner-available="runnerAvailable"
+                    :portal-target="automationSubwindowHost" :observed-status="componentStatus" />
                 <span class="card-action-tip" :title="connectActionHint">
                     <button type="button" class="card-icon connect-icon"
                         :class="{ connected: phoneConnection === 'connected', connecting: phoneConnection === 'connecting' }"
@@ -1003,7 +1004,9 @@ onBeforeUnmount(() => {
                         @stop-device="id=>{if(id===device.id)emit('batch-stop-device',device.id)}"
                         @reconcile="emit('batch-reconcile',device.id)"
                         @new-run="emit('batch-new-run',device.id)" />
-                    <CardStepTimeline :draft="draft" :picker-active="pickingPhase === 'on'"
+                    <CardStepTimeline :draft="draft" :overlay-target="automationSubwindowHost"
+                        :fullscreen="isFullscreen"
+                        :picker-active="pickingPhase === 'on'"
                         :batch-run="batchRunState.owner===ownerId && batchRunState.selected.includes(device.id)
                             ? batchRunState.run : null" :batch-device-id="device.id"
                         :trial-progress="trialProgress" :trial-active="trialStepId !== null"
@@ -1044,7 +1047,8 @@ onBeforeUnmount(() => {
                 :fullscreen="isFullscreen" :dirty="!!editingDirty"
                 :title="'编辑第 '+editingStepNumber+' 步'"
                 @close="finishEditorClose">
-                <CardStepEditor :key="editingStep.id" floating
+                <CardStepEditor :key="editingStep.id" floating :overlay-target="automationSubwindowHost"
+                    :fullscreen="isFullscreen"
                     :step="editingStep" :step-number="editingStepNumber"
                     :business-verification-eligible="businessVerificationEligible"
                     :repicking="repickingStepId === editingStep.id"
@@ -1165,6 +1169,12 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .phone-controls.menu-expanded{z-index:12}
 .automation-subwindow-host{position:absolute;inset:0;z-index:13;pointer-events:none}
 .automation-subwindow-host.detached-subwindows{position:fixed;inset:0;z-index:1120;pointer-events:none;contain:layout style}
+/* PrimeVue overlays must be interactive above the FLOATING editor and inside
+   the browser's fullscreen top layer; they are never attached to body. */
+.automation-subwindow-host :deep(.p-select-overlay),
+.automation-subwindow-host :deep(.p-dialog-mask){pointer-events:auto}
+.automation-subwindow-host :deep(.p-select-overlay){max-width:min(420px,calc(100% - 16px))}
+.automation-subwindow-host :deep(.p-select-list-container){max-height:min(40vh,300px);overscroll-behavior:contain}
 .phone-controls :deep(.p-button){width:42px;height:42px;min-width:42px;box-shadow:0 3px 14px #0006;border:1px solid #ffffff38;backdrop-filter:blur(10px)}
 .phone-controls :deep(.p-button-secondary){background:#142c42e8;color:#e1edf7}
 .main-orb{background:var(--p-primary-color);cursor:grab;touch-action:none;position:relative;z-index:2}.main-orb:active{cursor:grabbing}

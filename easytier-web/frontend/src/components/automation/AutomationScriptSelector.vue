@@ -136,14 +136,14 @@ watch(()=>props.selectedId,(id,old)=>{if(id && id!==old){draftName.value='';expa
 .script-count{border:0;background:transparent;color:inherit;white-space:nowrap;
     font-size:11px;padding:4px 0;cursor:pointer}
 .script-count>.pi{font-size:10px}
-.script-popover{width:56%;max-width:56%;border:1px solid var(--console-border);border-radius:8px;
+.script-popover{width:100%;max-width:100%;border:1px solid var(--console-border);border-radius:8px;
     background:var(--console-panel);box-shadow:0 4px 16px #0007;overflow:hidden}
 .script-create-row{display:flex;gap:3px;padding:5px;border-bottom:1px solid var(--console-border)}
 .script-create-row input{min-width:0;width:100%;font-size:11px;padding:5px 3px;border:1px solid var(--console-border);
     background:var(--console-panel-raised);color:inherit;border-radius:4px}
 .script-create-row button{font-size:11px;padding:3px 5px;border:1px solid var(--console-border);
     border-radius:4px;background:var(--console-panel-raised);color:inherit;cursor:pointer}
-.script-options{max-height:160px;overflow-y:auto}
+.script-options{max-height:min(38vh,250px);overflow-y:auto;overscroll-behavior:contain}
 .script-option{display:flex;gap:2px;min-width:0;align-items:center;padding:2px}
 .script-option>button:first-child{display:flex;gap:4px;min-width:0;flex:1;align-items:center;
     padding:5px 0;border:0;background:transparent;color:inherit;font-size:11px;text-align:left;cursor:pointer}

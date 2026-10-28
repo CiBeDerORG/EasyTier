@@ -4,7 +4,7 @@ import { Checkbox, InputNumber, InputText, Select, Textarea } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import type { AutomationKey, AutomationSelector, AutomationStep, AutomationStepType } from '../../types/automation';
 
-const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean; lockActionType?: boolean }>();
+const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean; lockActionType?: boolean; overlayTarget?: HTMLElement | null }>();
 const emit = defineEmits<{ 'update:modelValue': [step: AutomationStep] }>();
 const { locale } = useI18n();
 const cn = computed(() => locale.value === 'cn' || locale.value.startsWith('zh'));
@@ -164,24 +164,24 @@ function updateNumber(key: string, value: number | null | undefined) {
     <div class="step-editor">
         <label class="field" :for="fieldId('type')">
             <span>{{ text('操作类型', 'Action') }}</span>
-            <Select :input-id="fieldId('type')" :model-value="modelValue.type" :options="actionOptions" option-label="label" option-value="value" :disabled="disabled || lockActionType || ['if_gone','if_else'].includes(modelValue.type)" @update:model-value="changeType" />
+            <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('type')" :model-value="modelValue.type" :options="actionOptions" option-label="label" option-value="value" :disabled="disabled || lockActionType || ['if_gone','if_else'].includes(modelValue.type)" @update:model-value="changeType" />
         </label>
 
         <small v-if="['if_gone','if_else'].includes(modelValue.type)" class="hint">{{ text('条件节点的类型已锁定。需要修改类型时请删除整个条件块后重建。', 'Conditional types are locked. Remove the whole condition block to change the type.') }}</small>
         <label v-if="modelValue.type === 'key'" class="field" :for="fieldId('key')">
             <span>{{ text('导航按键', 'Navigation key') }}</span>
-            <Select :input-id="fieldId('key')" :model-value="modelValue.key" :options="keys" option-label="label" option-value="value" :disabled="disabled" @update:model-value="update({ key: $event as AutomationKey })" />
+            <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('key')" :model-value="modelValue.key" :options="keys" option-label="label" option-value="value" :disabled="disabled" @update:model-value="update({ key: $event as AutomationKey })" />
         </label>
 
         <label v-if="modelValue.type === 'tap' || modelValue.type === 'long_press'" class="field" :for="fieldId('position')">
             <span>{{ text('定位方式', 'Targeting') }}</span>
-            <Select :input-id="fieldId('position')" :model-value="modelValue.selector ? 'element' : 'coordinates'" :options="positionModes" option-label="label" option-value="value" :disabled="disabled" @update:model-value="positionMode" />
+            <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('position')" :model-value="modelValue.selector ? 'element' : 'coordinates'" :options="positionModes" option-label="label" option-value="value" :disabled="disabled" @update:model-value="positionMode" />
         </label>
 
         <template v-if="modelValue.type === 'input_text'">
             <label class="field" :for="fieldId('input-mode')">
                 <span>{{ text('文字来源', 'Text source') }}</span>
-                <Select :input-id="fieldId('input-mode')" :model-value="modelValue.parameter !== undefined ? 'parameter' : 'literal'" :options="inputModes" option-label="label" option-value="value" :disabled="disabled" @update:model-value="inputMode" />
+                <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('input-mode')" :model-value="modelValue.parameter !== undefined ? 'parameter' : 'literal'" :options="inputModes" option-label="label" option-value="value" :disabled="disabled" @update:model-value="inputMode" />
             </label>
             <label v-if="modelValue.parameter !== undefined" class="field" :for="fieldId('parameter')">
                 <span>{{ text('参数名称', 'Parameter name') }}</span>
@@ -204,7 +204,7 @@ function updateNumber(key: string, value: number | null | undefined) {
             <legend>{{ text('控件条件（至少填写一项）', 'Element conditions (at least one)') }}</legend>
             <label class="field" :for="fieldId('selector-mode')">
                 <span>{{ text('定位策略', 'Locator mode') }}</span>
-                <Select :input-id="fieldId('selector-mode')" :model-value="modelValue.selector.xpath !== undefined ? 'xpath' : 'native'"
+                <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('selector-mode')" :model-value="modelValue.selector.xpath !== undefined ? 'xpath' : 'native'"
                     :options="selectorModes" option-label="label" option-value="value"
                     :disabled="disabled || ['input_text', 'assert_property'].includes(modelValue.type)" @update:model-value="changeSelectorMode" />
             </label>
@@ -237,14 +237,14 @@ function updateNumber(key: string, value: number | null | undefined) {
                 </label>
                 <label class="field" :for="fieldId('selector-clickable')">
                     <span>{{ text('可点击状态', 'Clickable state') }}</span>
-                    <Select :input-id="fieldId('selector-clickable')"
+                    <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('selector-clickable')"
                         :model-value="modelValue.selector.clickable === undefined ? 'unset' : modelValue.selector.clickable ? 'true' : 'false'"
                         :options="clickableOptions" option-label="label" option-value="value"
                         :disabled="disabled" @update:model-value="clickableValue" />
                 </label>
                 <label v-for="field in booleanFields" :key="field.key" class="field" :for="fieldId('selector-' + field.key)">
                     <span>{{ field.label }}</span>
-                    <Select :input-id="fieldId('selector-' + field.key)"
+                    <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('selector-' + field.key)"
                         :model-value="modelValue.selector[field.key] === undefined ? 'unset' : modelValue.selector[field.key] ? 'true' : 'false'"
                         :options="selectorBooleanOptions" option-label="label" option-value="value"
                         :disabled="disabled" @update:model-value="booleanValue(field.key, $event)" />
@@ -274,13 +274,13 @@ function updateNumber(key: string, value: number | null | undefined) {
         <template v-if="modelValue.type === 'assert_property'">
             <label class="field" :for="fieldId('property')">
                 <span>{{ text('断言属性', 'Property to assert') }}</span>
-                <Select :input-id="fieldId('property')" :model-value="modelValue.property"
+                <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('property')" :model-value="modelValue.property"
                     :options="propertyOptions" option-label="label" option-value="value"
                     :disabled="disabled" @update:model-value="update({ property: $event })" />
             </label>
             <label class="field" :for="fieldId('expected')">
                 <span>{{ text('预期状态', 'Expected state') }}</span>
-                <Select :input-id="fieldId('expected')" :model-value="modelValue.expected"
+                <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('expected')" :model-value="modelValue.expected"
                     :options="booleanOptions" option-label="label" option-value="value"
                     :disabled="disabled" @update:model-value="update({ expected: $event })" />
             </label>
@@ -305,7 +305,7 @@ function updateNumber(key: string, value: number | null | undefined) {
             </label>
             <label class="field" :for="fieldId('direction')">
                 <span>{{ text('查找方向', 'Search direction') }}</span>
-                <Select :input-id="fieldId('direction')" :model-value="modelValue.direction"
+                <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('direction')" :model-value="modelValue.direction"
                     :options="directionOptions" option-label="label" option-value="value"
                     :disabled="disabled" @update:model-value="update({ direction: $event })" />
             </label>
