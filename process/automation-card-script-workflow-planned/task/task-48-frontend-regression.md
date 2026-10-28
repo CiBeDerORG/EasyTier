@@ -1,6 +1,6 @@
 # T48 · 浮窗交互、脚本 CAS 与异常前端回归测试
 
-> 状态：**待开发**｜计划：P16｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
+> 状态：**第一批纯逻辑回归断言已提交，待授权运行与UI交互覆盖**｜计划：P16｜复杂度：M｜目标分支：`feat/automation-center`｜产品合同：`../require/require-05-final-card-script-workflow.md`
 
 ## 唯一负责人/依赖
 - Owner：**QA 前端 Agent**。
@@ -21,4 +21,10 @@
 创建测试代码不等于获准运行测试；按仓库调试模式等待用户后续明确授权。
 
 ## 本任务当前状态
-只建立任务计划；未修改功能代码，未执行检查、测试、手动 CI 或真机操作。后续执行须遵守 `AGENTS.md` 调试模式。
+已新增第一批回归测试源代码并接入单测清单；当前调试模式下未运行测试、检查、构建或真机操作。
+
+## 2026-10-28 · T48 第一批（仅编写，不执行）
+
+- `frontend/tests/automation-inline-batch-regression.test.mjs` 新增 5 组显式断言：批量 `requestId` 只能保留/清除同一个 ID、账号隔离、旧 UUID 未核实不得产生第二个提交、损坏/缺字段的持久凭据必须拒绝、存储只含请求及设备元数据不含明文参数/步骤、单步冻结源选择器且 owner/device/fingerprint/step 修改使其失效、只有兼容的只读无参数动作才可以自动提交。
+- `frontend/package.json` 将新增文件纳入既有 `test:unit` 测试清单。仅更新脚本列表，不触发运行，也不更改 GitHub Actions 工作流。
+- **未执行** node --test、TypeScript、lint、Vite、Runner/CI、浏览器/Android 或 FnOS 实测，尚不能报告断言通过数量。UI 的拖拽、全屏 Teleport、ESC/dirty、执行历史恢复、动态手机选择仍待后续 T48 用例或真实联调覆盖。
