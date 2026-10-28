@@ -90,17 +90,17 @@ function canMove(id:string,delta:-1|1):boolean{
                 <button type="button" class="step-move" :disabled="!canMove(step.id,1)"
                     :aria-label="'下移第 '+step.number+' 步'" title="只在同一条件分支内下移"
                     @click.stop="emit('move',step.id,1)"><i class="pi pi-arrow-down" aria-hidden="true" /></button>
-                <button type="button" class="step-trial" :aria-label="'试跑第 '+step.number+' 步"
+                <button type="button" class="step-trial" :aria-label="'试跑第 '+step.number+' 步'"
                     title="当前手机单步骤真实试跑"
                     :disabled="trialActive || step.incomplete || step.type === 'if_gone' || step.type === 'if_else'"
                     @click.stop="emit('trial',step.id)">
                     <i class="pi pi-play" aria-hidden="true" />
                 </button>
-                <button type="button" class="step-edit" :aria-label="'编辑第 '+step.number+' 步"
+                <button type="button" class="step-edit" :aria-label="'编辑第 '+step.number+' 步'"
                     title="编辑步骤" @click.stop="emit('edit',step.id)">
                     <i class="pi pi-pencil" aria-hidden="true" />
                 </button>
-                <button type="button" class="step-delete" :aria-label="'删除第 '+step.number+' 步"
+                <button type="button" class="step-delete" :aria-label="'删除第 '+step.number+' 步'"
                     title="删除此步骤或其所属条件块" @click.stop="emit('delete',step.id)">
                     <i class="pi pi-trash" aria-hidden="true" />
                 </button>
