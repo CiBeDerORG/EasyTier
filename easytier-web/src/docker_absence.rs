@@ -220,6 +220,56 @@ mod tests {
         assert_eq!(confirmed["state"], "confirmed_missing");
         assert_eq!(confirmed["cleanup_allowed"], false);
     }
+    #[tokio::test]
+    async fn complete_scans_stage_confirm_and_clear_missing_resources_without_deletion() {
+        let db = Db::memory_db().await;
+        let pool = db.inner();
+        let owner = sqlx::query("INSERT INTO users(username,password) VALUES(?,?)")
+            .bind("docker-absence-test").bind("fake-hash")
+            .execute(&pool).await.unwrap().last_insert_rowid();
+        let node = "00000000-0000-4000-8000-000000000001";
+        let device = "00000000-0000-4000-8000-000000000002";
+        sqlx::query("INSERT INTO devices(user_id,machine_id,first_seen_time,last_seen_time) VALUES(?,?,?,?)")
+            .bind(owner).bind(node).bind("2026-10-28").bind("2026-10-28")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO asset_devices(id,owner_user_id,machine_id,name,overlay_ip,created_at,updated_at) VALUES(?,?,?,?,?,?,?)")
+            .bind(device).bind(owner).bind(node).bind("FnOS").bind("10.1.1.10")
+            .bind("2026-10-28").bind("2026-10-28")
+            .execute(&pool).await.unwrap();
+
+        let web = resource("compose:web", "web-container", "running");
+        let db_container = resource("compose:db", "db-container", "exited");
+        let full = snapshot(vec![web.clone(), db_container.clone()], true);
+        assert!(reconcile_and_cache(&db, device, "agent-a", &full).await.unwrap().is_empty());
+        let partial = snapshot(vec![web.clone()], false);
+        assert!(reconcile_and_cache(&db, device, "agent-a", &partial).await.is_err());
+        let one_missing = snapshot(vec![web.clone()], true);
+        let first = reconcile_and_cache(&db, device, "agent-a", &one_missing).await.unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0]["state"], "needs_recheck");
+        assert_eq!(first[0]["cleanup_allowed"], false);
+        let second = reconcile_and_cache(&db, device, "agent-a", &one_missing).await.unwrap();
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0]["state"], "confirmed_missing");
+        assert_eq!(second[0]["consecutive_complete_absences"], 2);
+        assert_eq!(second[0]["last_resource"]["state"], "exited");
+        assert_eq!(second[0]["cleanup_allowed"], false);
+        let restored = snapshot(vec![web.clone(), db_container.clone()], true);
+        assert!(reconcile_and_cache(&db, device, "agent-a", &restored).await.unwrap().is_empty());
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM asset_agent_docker_absences WHERE asset_device_id=?"
+        ).bind(device).fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 0);
+        // A newly bound Agent UUID does not inherit missing resources from the old Agent.
+        let mut rebound = snapshot(vec![], true);
+        rebound["agent_id"] = json!("agent-b");
+        assert!(reconcile_and_cache(&db, device, "agent-b", &rebound).await.unwrap().is_empty());
+        let snapshot_agent: String = sqlx::query_scalar(
+            "SELECT agent_id FROM asset_agent_docker_snapshots WHERE asset_device_id=?"
+        ).bind(device).fetch_one(&pool).await.unwrap();
+        assert_eq!(snapshot_agent, "agent-b");
+    }
+
     #[test]
     fn stopped_and_running_resources_remain_present() {
         let stopped = resource("compose:sub2api", "db", "exited");
