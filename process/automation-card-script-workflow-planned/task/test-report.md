@@ -452,3 +452,11 @@
 - 前一次 Rust 5 项失败归因于测试虚拟 ADB 端点缺已确认清理回执，修复后 RS08～RS12 全部 `ok`。正式设备依旧拒绝 `target_cleanup_pending`，不存在通过放宽生产资源隔离让测试变绿的行为。
 - Python Executor [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092) 为成功的独立测试/发版证据，95/95（T49 六项 6/6），digest `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`。
 - 主镜像 native 构建、容器打包/冒烟与 GHCR 发布仍须以该次工作流后续 job 明确通过及 digest 为准；本段不提前宣称镜像已发布。T50 真实设备及真实双浏览器测试未执行。
+
+## 2026-10-28 · 主镜像全绿发布 · 非真机任务最终证据
+
+- 最新源码 SHA `9120b252fa265fefad3507953145068738f3efa2` 的 [GHCR 工作流 #40622528076](https://github.com/CiBeDerORG/EasyTier/actions/runs/40622528076) **五个 Job 全部 success**：`build_web`、`test_native`、`build_images`、`package`、`publish`（Job 显示名称分别为 Web、原生回归、原生程序准备、amd64 打包与烟测、GHCR 发布验证）。
+- Web 单元回归 **157/157**、Chromium 浮窗组件交互 **3/3**、Rust 原生 **50/50**（T49 12/12），均真实执行成功；主镜像 `Package and smoke test (amd64)` 以及 `Publish and verify the selected GHCR image` 均实际成功。
+- 已发布主镜像：`ghcr.io/cibederorg/easytier:feat-automation-center`；完整 Git 提交标签 `sha-9120b252fa265fefad3507953145068738f3efa2`；**多架构索引 Digest** `sha256:088695b8a3c9926a39beb3d200d42324c5438214cfd451be895bf6e758091975`（本次仅 amd64）；**amd64 内容 Manifest Digest** `sha256:7b2ac282d7da536238787b558905ab0e69232b87ec9e6b113322ad87652ae925`。发布日志明确拉取验证成功。
+- 独立 Executor 已有成功 GHCR [#40615238092](https://github.com/CiBeDerORG/EasyTier/actions/runs/40615238092)，Python **95/95**（T49 6/6），`ghcr.io/cibederorg/easytier-automation-executor:feat-automation-center`，digest `sha256:5944803cc72312d67b7f5ebfef35abfead544232939b022b87a2d0d8930f19b7`。
+- **非真机阶段完成范围**：T46/T47 旧业务入口收敛，T48/T49 非真机回归与失败修复，T51 非真机追踪。**未执行范围**：T50 FnOS、真实 Android 设备、ADB/UiAutomator2、真实视频媒体、跨浏览器争用、正式部署/实操。不可将“GHCR 发布成功”标成“FnOS 已部署或最终发布验收通过”。
