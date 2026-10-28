@@ -13,10 +13,6 @@ import { addFlowBranchStep, createFlowCondition, removeFlowBlock } from '../../m
 import { emptyAutomationDraft, type AutomationDraftWorkspace } from '../../modules/automation-draft';
 import { stepCanPickTarget } from '../../modules/automation-step-target';
 import { businessCheckStepId } from '../../modules/automation-business-verification';
-import {
-    planAutomationRepair, cloneRepairSteps,
-    type AutomationRepairRequest, type AutomationRepairPlan,
-} from '../../modules/automation-run-repair';
 const props = defineProps<{
     ownerId: number;
     selectedDeviceIds: string[];
@@ -27,12 +23,10 @@ const props = defineProps<{
     deviceNames?: Record<string, string>;
     pickerDevices: { id: string; name: string }[];
     runDeviceSnapshots: AutomationDevice[];
-    repairRequest?: AutomationRepairRequest | null;
 }>();
 const emit = defineEmits<{
     'run-created': [run: AutomationRun];
     'pick-step-target': [stepId: string, stepType: AutomationStepType, deviceId: string];
-    'repair-consumed': [requestId: string];
 }>();
 const api = new AutomationApi();
 const { locale } = useI18n();
@@ -56,9 +50,6 @@ const flowLayout = computed(() => analyzeAutomationFlow(steps.value));
 const baseline = toRef(props.draft, 'baseline');
 const replaceDraftVisible = ref(false);
 const pendingOpenScript = ref<AutomationScript | null>(null);
-const pendingRepairPlan = ref<AutomationRepairPlan | null>(null);
-const repairOrigin = ref<{ runId: string; deviceId: string; revision?: number; isCopy: boolean } | null>(null);
-let repairGeneration = 0;
 const deleteVisible = ref(false);
 const deleteTarget = ref<AutomationScript>();
 const blockedRunReceipts=ref<TrialSubmissionReceipt[]>([]);
@@ -198,7 +189,6 @@ function addBranchStep(index: number, lane: BranchLane) {
     error.value = '';
 }
 function resetEditor(script?: AutomationScript) {
-    repairOrigin.value = null;
     editingId.value = script?.id;
     revision.value = script?.revision;
     name.value = script?.name ?? '';
@@ -299,8 +289,6 @@ function moveStep(index: number, delta: number) {
 }
 function requestOpenScript(script?: AutomationScript) {
     if (busy.value || props.canReplaceWorkspace?.() === false) return;
-    repairGeneration++;
-    pendingRepairPlan.value = null;
     if (dirty.value) {
         pendingOpenScript.value = script ?? null;
         replaceDraftVisible.value = true;
@@ -308,83 +296,11 @@ function requestOpenScript(script?: AutomationScript) {
     }
     resetEditor(script);
 }
-function applyRepairPlan(plan: AutomationRepairPlan) {
-    if (plan.kind === 'saved') {
-        resetEditor(plan.script);
-    } else {
-        // Historical execution snapshots are immutable. Changed/deleted
-        // revisions are never saved back under the original script ID.
-        editingId.value = undefined;
-        revision.value = undefined;
-        name.value = plan.name;
-        description.value = '';
-        steps.value = cloneRepairSteps(plan.steps);
-        baseline.value = JSON.stringify({name:'',description:'',steps:[]});
-    }
-    selectedStepId.value = plan.stepId;
-    repairOrigin.value = {
-        runId: plan.sourceRunId, deviceId: plan.sourceDeviceId,
-        revision: plan.kind === 'saved' ? plan.script.revision : plan.sourceRevision,
-        isCopy: plan.kind === 'copy',
-    };
-    flowView.value = true;
-    replaceDraftVisible.value = false;
-    pendingRepairPlan.value = null;
-    pendingOpenScript.value = null;
-    notice.value = plan.kind === 'saved'
-        ? text('已打开原脚本的相同修订并定位失败步骤。修改并保存将生成新的脚本修订，历史记录不变。',
-            'Opened the exact saved revision at the failed step. Saving creates a new revision; history is unchanged.')
-        : text('原脚本已修改、被删除或来自单机试跑。已从历史快照建立独立修复草稿，保存时会创建新脚本。',
-            'The original is newer, deleted or inline. Created a separate draft from the historical snapshot; saving creates a new script.');
-    error.value = '';
-}
 function confirmOpenScript() {
     if (busy.value || props.canReplaceWorkspace?.() === false) return;
-    const repair = pendingRepairPlan.value;
-    if (repair) {
-        applyRepairPlan(repair);
-        return;
-    }
     resetEditor(pendingOpenScript.value ?? undefined);
     pendingOpenScript.value = null;
     replaceDraftVisible.value = false;
-}
-async function receiveRepairRequest(request: AutomationRepairRequest) {
-    if (disposed || request.ownerId !== props.ownerId || props.draft.ownerId !== props.ownerId) return;
-    const generation = ++repairGeneration;
-    const owner = props.ownerId, scope = scopeRevision;
-    try {
-        // Query the current saved script state instead of relying on an old
-        // copy cached when the ScriptLibrary tab was last opened.
-        const result = await api.listScripts(owner);
-        if (disposed || scope !== scopeRevision || owner !== props.ownerId
-            || generation !== repairGeneration || props.repairRequest?.requestId !== request.requestId) return;
-        scripts.value = result.items;
-        const plan = planAutomationRepair(request, result.items);
-        if (!plan) {
-            error.value = text('无法验证历史步骤与执行快照，修复入口已取消。',
-                'Historical step or run snapshot could not be verified. Repair was cancelled.');
-            emit('repair-consumed',request.requestId);
-            return;
-        }
-        // Consume the navigation request once. Returning to this tab must
-        // not unexpectedly re-open a cancelled repair dialog.
-        emit('repair-consumed',request.requestId);
-        if (dirty.value) {
-            pendingOpenScript.value = null;
-            pendingRepairPlan.value = plan;
-            replaceDraftVisible.value = true;
-        } else {
-            applyRepairPlan(plan);
-        }
-    } catch (cause) {
-        if (!disposed && scope === scopeRevision && generation === repairGeneration) {
-            // Cannot prove that the saved script revision still matches.
-            // Do not silently fall back to editing a possibly newer script.
-            error.value = automationErrorMessage(cause);
-            emit('repair-consumed',request.requestId);
-        }
-    }
 }
 function validationError(candidate?: AutomationStep[], singleStep = false, allowEmpty = false): string | null {
     if (!singleStep) {
@@ -533,8 +449,7 @@ async function deleteScript() {
     }
 }
 watch(() => props.ownerId, () => {
-    scopeRevision++; listRequest++; repairGeneration++;
-    pendingRepairPlan.value = null; repairOrigin.value = null;
+    scopeRevision++; listRequest++;
     scripts.value = []; loading.value = false; saving.value = false; deleting.value = false;
     deleteVisible.value = false;
     blockedRunReceipts.value=[];checkingOldRun.value=false;
@@ -553,12 +468,8 @@ watch(()=>props.runDeviceSnapshots.map(device=>device.id).join(','),()=>{
     if(props.ownerId>0)checkOldRunReceipts(props.runDeviceSnapshots.map(device=>device.id));
 });
 onBeforeUnmount(() => {
-    disposed = true; scopeRevision++; listRequest++; repairGeneration++;
+    disposed = true; scopeRevision++; listRequest++;
 });
-watch(() => props.repairRequest, request => {
-    if (request) void receiveRepairRequest(request);
-}, { immediate: true });
-
 </script>
 
 <template>
@@ -588,16 +499,6 @@ watch(() => props.repairRequest, request => {
             </aside>
 
             <div class="console-panel draft-panel">
-                <div v-if="repairOrigin" class="repair-origin-banner" role="status">
-                    <Tag :value="repairOrigin.isCopy ? text('历史快照修复副本', 'Historical repair copy') : text('原脚本同修订', 'Matching saved revision')"
-                        :severity="repairOrigin.isCopy ? 'warn' : 'info'" />
-                    <span>{{ text('来源运行', 'Source run') }} {{ repairOrigin.runId }}
-                        · {{ text('设备', 'Device') }} {{ repairOrigin.deviceId }}
-                        <template v-if="repairOrigin.revision">· {{ text('原修订', 'Original revision') }} {{ repairOrigin.revision }}</template>
-                    </span>
-                    <small>{{ text('当前只在编辑草稿；历史执行记录不会修改，手机也不会自动重新操作。',
-                        'Editing only the current draft; history remains unchanged and no phone action is replayed.') }}</small>
-                </div>
                 <div class="section-heading draft-heading">
                     <div><h2>{{ text('步骤编辑器', 'Step editor') }}</h2>
                         <span class="muted draft-state">{{ dirty || !editingId ? text('正式脚本未保存', 'Not published as a script') : text(`正式脚本 · 修订 ${revision}`, `Published script · revision ${revision}`) }}</span>
@@ -715,13 +616,10 @@ watch(() => props.repairRequest, request => {
         </div>
 
         <Dialog v-model:visible="replaceDraftVisible" modal :header="text('覆盖未保存草稿？', 'Discard unsaved draft?')" :style="{ width: '440px', maxWidth: 'calc(100vw - 24px)' }">
-            <p v-if="pendingRepairPlan">
-                {{ text('当前草稿有未保存更改。从历史执行记录打开失败步骤会替换当前工作区草稿，但不会修改历史记录或后台已保存脚本。确定丢弃当前未保存内容？',
-                    'The current draft has unsaved changes. Opening a failed step replaces the workspace draft, not the historical record or saved script. Discard your current edits?') }}
-            </p>
-            <p v-else>{{ text('当前草稿存在未保存的录制、拾取或编辑步骤。切换脚本会丢失这些更改。', 'Your current draft contains unsaved recording, inspection or editing changes. Switching scripts discards them.') }}</p>
+            <p>{{ text('当前共享工作草稿存在未保存编辑；切换到另一个脚本之前请确认放弃本地修改。服务器已保存的旧草稿不会删除。',
+                'The shared work draft contains unsaved changes. Switching scripts discards local edits; server-saved drafts are preserved.') }}</p>
             <template #footer>
-                <Button :label="text('继续编辑', 'Keep editing')" text @click="replaceDraftVisible = false; pendingRepairPlan = null" />
+                <Button :label="text('继续编辑', 'Keep editing')" text @click="replaceDraftVisible = false" />
                 <Button :label="text('丢弃并切换', 'Discard and switch')" severity="danger" @click="confirmOpenScript" />
             </template>
         </Dialog>
@@ -736,9 +634,6 @@ watch(() => props.repairRequest, request => {
 
 <style scoped>
 .script-library { display: grid; gap: 16px; }
-.repair-origin-banner{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 18px;border-bottom:1px solid var(--console-border);font-size:12px;overflow-wrap:anywhere}
-.repair-origin-banner span{flex:1;min-width:200px}
-.repair-origin-banner small{width:100%;color:var(--console-muted)}
 
 .library-columns { display: grid; grid-template-columns: minmax(210px, .65fr) minmax(0, 2fr); gap: 20px; align-items: start; }
 .recording-notice { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; padding: 14px 18px; border: 1px solid var(--console-border); border-radius: 12px; background: var(--console-accent-soft); }
