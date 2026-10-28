@@ -30,8 +30,8 @@ function valid(proof:Partial<FormalScriptWriteReceipt>,owner:number):boolean {
         typeof proof.createdAt!=='string' ||
         !Number.isFinite(Date.parse(proof.createdAt)))return false;
     if(proof.kind==='create') {
-        if(proof.revision!==0 || !/^new:[0-9a-f-]{36}$/i.test(proof.scriptId))return false;
-    }else if(proof.revision!<1)return false;
+        if(proof.revision!==0 || !/^new:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(proof.scriptId))return false;
+    }else if((proof.revision??0)<1)return false;
     if(proof.kind!=='delete'){
         const ids=proof.expectedStepIds;
         if(typeof proof.expectedName!=='string'||!proof.expectedName.trim() ||
