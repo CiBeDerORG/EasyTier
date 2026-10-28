@@ -181,7 +181,12 @@ async function saveFloatingDraft(deviceId:string) {
     try{
         // retry() forces an unsynced phase; calling it on an already
         // confirmed draft would incorrectly turn a clean draft unsynced.
-        if(!draftSync.canLeave())await draftSync.retry();
+        if(!draftSync.canLeave()) {
+            // Do not mutate the current in-flight CAS intent: wait for its
+            // original receipt, or retry the same UUID after uncertainty.
+            if(draftSyncState.phase==='saving')await draftSync.flush();
+            else await draftSync.retry();
+        }
         if(owner!==ownerId.value || before!==draftFingerprint(draftWorkspace)) {
             floatingDraftMessage.value='保存期间草稿发生变化；请重新确认当前步骤。';return;
         }
