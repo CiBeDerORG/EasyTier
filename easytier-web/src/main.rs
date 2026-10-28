@@ -33,6 +33,7 @@ mod db;
 mod deploy_agent;
 mod asset_agent;
 mod asset_agent_tls;
+mod docker_absence;
 mod discovery;
 mod migrator;
 mod restful;
