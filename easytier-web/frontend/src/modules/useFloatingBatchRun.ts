@@ -265,15 +265,18 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                     if(!valid())return;
                     if(before?.active_session?.id!==sid || before.target_fingerprint!==target.fingerprint)
                         throw new Error(target.name+' 原卡片会话已改变');
-                    if(before.active_session.state!=='view_only' || !card.getState().viewerOnly)
-                        throw new Error(target.name+'：请先在该手机悬浮 Icon 中关闭手控，然后再运行脚本。');
+                    // An active manual viewer is allowed to coexist with a
+                    // run. The Executor owns the physical action lease; never
+                    // change the floating manual toggle on the user's behalf.
+                    if(!['active','view_only'].includes(before.active_session.state))
+                        throw new Error(target.name+' 原视频权限移交中或状态未知，请先确认会话稳定');
                     if(!valid())return;
                     const viewer=(await api.devices(intent.owner)).items.find(d=>d.id===target.id);
                     if(!valid())return;
                     if(viewer?.active_session?.id!==sid ||
-                        viewer.active_session.state!=='view_only' || !card.getState().viewerOnly ||
+                        !['active','view_only'].includes(viewer.active_session.state) ||
                         viewer.target_fingerprint!==target.fingerprint || !card.getStream())
-                        throw new Error(target.name+'：悬浮手控开关需保持关闭，服务端须确认只读，才能准备脚本');
+                        throw new Error(target.name+' 原会话已变化或权限转换未结束，禁止准备脚本');
                     progress(target.id,'preparing','检查 ADB / UiAutomator2',sid);
                     inspectMedia();
                     const p=await preparation.run({
@@ -299,9 +302,9 @@ export function useFloatingBatchRun(api: AutomationApi = new AutomationApi()) {
                 const card=resolveCard(target.id);
                 if(!dev || dev.owner_user_id!==intent.owner || dev.target_fingerprint!==target.fingerprint ||
                     dev.run_occupied || !sid || dev.active_session?.id!==sid ||
-                    dev.active_session.state!=='view_only' || !card?.getState().viewerOnly ||
+                    !['active','view_only'].includes(dev.active_session.state) ||
                     card?.getSessionId()!==sid || !card?.getStream())
-                    throw new Error(target.name+' 原视频/只读权限或目标指纹在提交前变化，整批取消');
+                    throw new Error(target.name+' 原视频会话/设备绑定或执行独占状态在提交前变化，整批取消');
             }
             const body:AutomationRunInput={
                 request_id:intent.requestId,name:intent.name,steps:JSON.parse(intent.stepHash),
