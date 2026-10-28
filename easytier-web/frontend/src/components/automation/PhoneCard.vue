@@ -156,10 +156,8 @@ async function openCardTrial(stepId: string, acknowledgedUnknown = false) {
 function getTrialPreviewHandle(): TrialPreviewHandle {
     return {
         getSessionId: () => session.getSessionId(),
-        getState: () => ({ phase: session.state.phase }),
+        getState: () => ({ phase: session.state.phase, viewerOnly: session.state.viewerOnly }),
         close: () => close(),
-        enterViewOnly: () => session.enterViewOnly(),
-        resumeManual: () => session.resumeManual(),
     };
 }
 const api = new AutomationApi();
