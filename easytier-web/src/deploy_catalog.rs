@@ -363,105 +363,293 @@ fn safe_id(id: &str) -> bool {
         && !id.ends_with('-') && !id.contains("--")
 }
 
-fn scalar(line: &str, key: &str) -> Option<String> {
-    let trimmed = line.trim();
-    let raw = trimmed.strip_prefix(key)?.strip_prefix(':')?.trim();
-    if raw.is_empty() || raw.starts_with('#') { return None; }
-    let raw = raw.split(" #").next()?.trim();
-    Some(raw.trim_matches('"').trim_matches('\'').to_owned())
+
+fn parse_yaml<T: serde::de::DeserializeOwned>(text: &str, max_bytes: u64) -> Result<T, Error> {
+    if text.len() as u64 > max_bytes {
+        return Err(Error::Invalid("YAML document exceeds size limit"));
+    }
+    let mut options = serde_saphyr::Options::default();
+    options.merge_keys = serde_saphyr::MergeKeyPolicy::Error;
+    options.reject_unsupported_tags = true;
+    options.reject_tagged_field_names = true;
+    options.alias_limits.max_total_replayed_events = 0;
+    options.alias_limits.max_replay_stack_depth = 0;
+    options.alias_limits.max_alias_expansions_per_anchor = 0;
+    if let Some(budget) = options.budget.as_mut() {
+        budget.max_reader_input_bytes = Some(max_bytes as usize);
+        budget.max_events = 100_000;
+        budget.max_aliases = 0;
+        budget.max_anchors = 0;
+        budget.max_depth = 32;
+        budget.max_nodes = 50_000;
+        budget.max_total_scalar_bytes = max_bytes as usize;
+        budget.max_documents = 1;
+        budget.max_merge_keys = 0;
+        budget.max_recorded_anchor_events = 0;
+        budget.max_recorded_anchor_bytes = 0;
+    }
+    serde_saphyr::from_str_with_options(text, options)
+        .map_err(|_| Error::Invalid("YAML is invalid, duplicated, tagged or outside the manifest contract"))
 }
 
-fn fields(text: &str) -> Result<BTreeMap<String, String>, Error> {
-    if text.contains('\t') || text.contains('\r') || text.contains("!!")
-        || text.contains("<<:") || text.contains("&") || text.contains("*") {
-        return Err(Error::Invalid("Unsupported YAML catalog syntax"));
-    }
-    let mut map = BTreeMap::new();
-    let mut section = String::new();
-    for line in text.lines() {
-        if line.trim().is_empty() || line.trim_start().starts_with('#') { continue; }
-        let indent = line.len() - line.trim_start().len();
-        if indent == 0 {
-            section = line.split(':').next().unwrap_or("").trim().to_string();
-            if let Some(value) = scalar(line, &section) {
-                if map.insert(section.clone(), value).is_some() {
-                    return Err(Error::Invalid("Duplicate catalog display field"));
-                }
-            }
-        } else if indent == 2 && (section == "runtime" || section == "compatibility") {
-            let key = line.trim_start().split(':').next().unwrap_or("");
-            if let Some(value) = scalar(line, key) {
-                if map.insert(format!("{section}.{key}"), value).is_some() {
-                    return Err(Error::Invalid("Duplicate catalog runtime field"));
-                }
-            }
-        } else if section == "actions" && indent == 2 {
-            let action = line.trim().trim_end_matches(':');
-            if ["install","update","uninstall"].contains(&action) {
-                map.insert("current_action".to_string(), action.to_string());
-            }
-        } else if section == "actions" && indent == 4 {
-            if let Some(action) = map.get("current_action").cloned() {
-                let key = line.trim().split(':').next().unwrap_or("");
-                if key == "strategy" {
-                    if let Some(value) = scalar(line, key) {
-                        if map.insert(format!("actions.{action}.strategy"), value).is_some() {
-                            return Err(Error::Invalid("Duplicate action strategy"));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Ok(map)
+fn parse_manifest(text: &str) -> Result<ManifestV1, Error> {
+    parse_yaml(text, MAX_MANIFEST)
 }
 
-// Parse only the flat, non-executable fields of two known manifest lists.
-// This deliberately is NOT an app.yaml execution validator. Unhandled YAML
-// constructs cannot grant installation rights.
-fn display_items(text: &str, section_name: &str, allowed: &[&str]) -> Result<Vec<Value>, Error> {
-    let mut active = false;
-    let mut current = BTreeMap::<String, String>::new();
-    let mut rows = Vec::new();
-    for line in text.lines() {
-        if line.trim().is_empty() || line.trim_start().starts_with('#') { continue; }
-        let indent = line.len() - line.trim_start().len();
-        if indent == 0 {
-            if active && !current.is_empty() {
-                rows.push(json!(current));
-                current.clear();
-            }
-            active = line.trim() == format!("{section_name}:");
-            continue;
-        }
-        if !active { continue; }
-        if indent == 2 && line.trim_start().starts_with("- ") {
-            if !current.is_empty() {
-                rows.push(json!(current));
-                current.clear();
-            }
-            if rows.len() >= 120 { return Err(Error::Invalid("Too many manifest display fields")); }
-            let field = line.trim_start().trim_start_matches("- ");
-            let key = field.split(':').next().unwrap_or("").trim();
-            if allowed.contains(&key) {
-                if let Some(value) = scalar(field, key) {
-                    current.insert(key.to_owned(), value);
-                }
-            }
-        } else if indent == 4 && !current.is_empty() {
-            let field = line.trim();
-            let key = field.split(':').next().unwrap_or("").trim();
-            if allowed.contains(&key) {
-                if let Some(value) = scalar(field, key) {
-                    if current.insert(key.to_owned(), value).is_some() {
-                        return Err(Error::Invalid("Repeated manifest display field"));
-                    }
-                }
-            }
+fn safe_relative(raw: &str, reject_runtime_data: bool) -> Result<Vec<&str>, Error> {
+    if raw.is_empty() || raw.len() > 256 || raw.starts_with('/')
+        || raw.contains('\\') || raw.contains('\0') {
+        return Err(Error::Invalid("Unsafe manifest path"));
+    }
+    let parts: Vec<&str> = raw.split('/').collect();
+    if parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".."
+        || p.starts_with('.') || !p.bytes().all(|c|
+            c.is_ascii_alphanumeric() || c == b'_' || c == b'-' || c == b'.')) {
+        return Err(Error::Invalid("Unsafe manifest path component"));
+    }
+    const BLOCKED_NAMES: &[&str] = &[".env", ".secrets", ".git", ".ssh", "id_rsa", "id_ed25519"];
+    const BLOCKED_PARTS: &[&str] = &["data", "state", "backup", "runtime", "workspace"];
+    for part in &parts {
+        let lower = part.to_ascii_lowercase();
+        if BLOCKED_NAMES.contains(&lower.as_str())
+            || (reject_runtime_data && BLOCKED_PARTS.contains(&lower.as_str())) {
+            return Err(Error::Invalid("Manifest path points to protected data or credentials"));
         }
     }
-    if active && !current.is_empty() { rows.push(json!(current)); }
-    Ok(rows)
+    Ok(parts)
+}
+
+fn valid_env_key(key: &str) -> bool {
+    key.len() >= 2 && key.len() <= 120
+        && key.as_bytes()[0].is_ascii_uppercase()
+        && key.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_')
+}
+fn json_integer(value: &Value) -> Option<i64> {
+    value.as_i64().or_else(|| value.as_u64().and_then(|n| i64::try_from(n).ok()))
+}
+fn config_value_matches(field: &ConfigSpec, value: &Value) -> bool {
+    match field.kind.as_str() {
+        "string" => value.is_string(),
+        "secret" => value.as_str().is_some_and(str::is_empty),
+        "number" | "port" => json_integer(value).is_some(),
+        "boolean" => value.is_boolean(),
+        "ipv4" => value.as_str().is_some_and(|s| s.parse::<std::net::Ipv4Addr>().is_ok()),
+        _ => false,
+    }
+}
+
+fn validate_manifest_shape(manifest: &ManifestV1, expected_id: &str) -> Result<(), Error> {
+    if manifest.schema_version != 1 || manifest.id != expected_id || !safe_id(&manifest.id)
+        || manifest.name.trim().is_empty() || manifest.name.len() > 100
+        || manifest.summary.trim().is_empty() || manifest.summary.len() > 500 {
+        return Err(Error::Invalid("Manifest version, ID, name or summary is invalid"));
+    }
+    if !["infrastructure", "network", "developer", "media", "productivity", "other"]
+        .contains(&manifest.category.as_str()) {
+        return Err(Error::Invalid("Unknown catalog category"));
+    }
+    if manifest.homepage.as_ref().is_some_and(|u|
+        !(u.starts_with("https://") || u.starts_with("http://")) || u.len() > 500) {
+        return Err(Error::Invalid("Invalid application homepage"));
+    }
+    if manifest.runtime.kind != "docker_compose" || !safe_id(&manifest.runtime.compose_project) {
+        return Err(Error::Invalid("Unsupported runtime or Compose project"));
+    }
+    safe_relative(&manifest.runtime.compose_file, true)?;
+    if manifest.compatibility.platforms.is_empty()
+        || manifest.compatibility.platforms.iter().any(|p| !["linux", "fnos"].contains(&p.as_str()))
+        || manifest.compatibility.architectures.is_empty()
+        || manifest.compatibility.architectures.iter().any(|a| !["amd64", "arm64"].contains(&a.as_str()))
+        || manifest.compatibility.platforms.iter().collect::<BTreeSet<_>>().len() != manifest.compatibility.platforms.len()
+        || manifest.compatibility.architectures.iter().collect::<BTreeSet<_>>().len() != manifest.compatibility.architectures.len()
+        || manifest.compatibility.requires_docker != Some(true)
+        || manifest.compatibility.requires_compose_v2 != Some(true) {
+        return Err(Error::Invalid("Invalid platform or architecture compatibility"));
+    }
+    if manifest.package.files.is_empty() || manifest.package.files.len() > MAX_PACKAGE_FILES {
+        return Err(Error::Invalid("Package file count outside allowed bounds"));
+    }
+    let mut sources = BTreeSet::new();
+    let mut destinations = BTreeSet::new();
+    for file in &manifest.package.files {
+        safe_relative(&file.source, true)?;
+        safe_relative(&file.destination, true)?;
+        if !(file.source.starts_with(&format!("{}/", manifest.id)) || file.source.starts_with("lib/"))
+            || !(file.destination.starts_with(&format!("{}/", manifest.id))
+                || file.destination.starts_with("deploy/lib/")) {
+            return Err(Error::Invalid("Package path outside app/shared-library ownership"));
+        }
+        if file.source.starts_with("lib/") {
+            if file.destination != format!("deploy/{}", file.source) {
+                return Err(Error::Invalid("Shared library destination must preserve source path"));
+            }
+        } else if file.source != file.destination {
+            return Err(Error::Invalid("Application package destination must preserve source path"));
+        }
+        if !sources.insert(file.source.to_ascii_lowercase())
+            || !destinations.insert(file.destination.to_ascii_lowercase()) {
+            return Err(Error::Invalid("Duplicate package source/destination"));
+        }
+        if file.mode.as_deref().is_some_and(|m| m != "0644" && m != "0755") {
+            return Err(Error::Invalid("Unsupported package file mode"));
+        }
+    }
+    let mut config = BTreeMap::<String, &ConfigSpec>::new();
+    if manifest.config.len() > 120 { return Err(Error::Invalid("Too many configuration fields")); }
+    for field in &manifest.config {
+        if !valid_env_key(&field.key) || field.label.trim().is_empty()
+            || !config.insert(field.key.clone(), field).is_none() {
+            return Err(Error::Invalid("Invalid or duplicate configuration field"));
+        }
+        if !["string", "number", "boolean", "port", "ipv4", "secret"].contains(&field.kind.as_str())
+            || !["env", "secrets"].contains(&field.target.as_str())
+            || (field.kind == "secret") != (field.target == "secrets") {
+            return Err(Error::Invalid("Configuration type and target mismatch"));
+        }
+        if let Some(default) = &field.default {
+            if !config_value_matches(field, default) {
+                return Err(Error::Invalid("Configuration default has the wrong type"));
+            }
+            if field.kind == "secret" && default.as_str() != Some("") {
+                return Err(Error::Invalid("Secret defaults must be blank"));
+            }
+        }
+        if field.min_length.is_some_and(|n| n > 4096)
+            || field.max_length.is_some_and(|n| n == 0 || n > 4096)
+            || field.min_length.zip(field.max_length).is_some_and(|(min, max)| min > max)
+            || field.pattern.as_ref().is_some_and(|p| p.len() > 500)
+            || field.generated_by_script == Some(true) && field.kind != "secret" {
+            return Err(Error::Invalid("Invalid configuration constraints"));
+        }
+        if field.kind == "port" {
+            let min = field.minimum.unwrap_or(1);
+            let max = field.maximum.unwrap_or(65535);
+            if min < 1 || max > 65535 || min > max
+                || field.default.as_ref().and_then(json_integer)
+                    .is_some_and(|v| v < min || v > max) {
+                return Err(Error::Invalid("Invalid port range"));
+            }
+        } else if field.minimum.zip(field.maximum).is_some_and(|(min, max)| min > max) {
+            return Err(Error::Invalid("Invalid numeric range"));
+        }
+    }
+    let mut port_ids = BTreeSet::new();
+    if manifest.ports.len() > 40 { return Err(Error::Invalid("Too many port definitions")); }
+    for port in &manifest.ports {
+        if !safe_id(&port.id) || !port_ids.insert(port.id.to_ascii_lowercase())
+            || !["tcp", "udp"].contains(&port.protocol.as_str())
+            || !["web", "other"].contains(&port.purpose.as_str())
+            || port.container_port == 0 || port.container_port > 65535
+            || port.service.as_deref().is_none_or(str::is_empty)
+            || port.path.as_ref().is_some_and(|p| p.len() > 255 || !p.starts_with('/')
+                || p.contains('?') || p.contains('#')) {
+            return Err(Error::Invalid("Invalid port definition"));
+        }
+        if config.get(&port.host_port_key).is_none_or(|f| f.kind != "port") {
+            return Err(Error::Invalid("Port host_port_key must reference a declared port field"));
+        }
+        if port.bind_address_key.as_ref().is_some_and(|k|
+            config.get(k).is_none_or(|f| f.kind != "ipv4")) {
+            return Err(Error::Invalid("Port bind_address_key must reference an IPv4 field"));
+        }
+    }
+    let package_destinations = manifest.package.files.iter()
+        .map(|f| f.destination.as_str()).collect::<BTreeSet<_>>();
+    let compose_dest = format!("{}/{}", manifest.id, manifest.runtime.compose_file);
+    if !package_destinations.contains(compose_dest.as_str()) {
+        return Err(Error::Invalid("Compose file is not included in the package"));
+    }
+    let check_action = |name: &str, action: &ActionSpec| -> Result<(), Error> {
+        if action.remove_orphans {
+            return Err(Error::Invalid("Removing orphan containers is not authorized"));
+        }
+        if name == "uninstall" {
+            if action.strategy != "compose_down" || action.path.is_some() || !action.argv.is_empty() {
+                return Err(Error::Invalid("Uninstall must use the bounded compose_down strategy"));
+            }
+        } else {
+            if action.strategy != "script" {
+                return Err(Error::Invalid("Install/update must use a packaged script"));
+            }
+            let path = action.path.as_deref().ok_or(Error::Invalid("Action script path is required"))?;
+            safe_relative(path, true)?;
+            let expected = format!("{}/{}", manifest.id, path);
+            if !package_destinations.contains(expected.as_str()) {
+                return Err(Error::Invalid("Action script is missing from the package"));
+            }
+            let allowed = if name == "install" { "install" } else { "update" };
+            if action.argv.len() > 1 || action.argv.iter().any(|arg| arg != allowed) {
+                return Err(Error::Invalid("Action argv is not in the allowlist"));
+            }
+        }
+        Ok(())
+    };
+    check_action("install", &manifest.actions.install)?;
+    if let Some(action) = &manifest.actions.update { check_action("update", action)?; }
+    if let Some(action) = &manifest.actions.uninstall { check_action("uninstall", action)?; }
+    if manifest.verification.mode != "docker_compose"
+        || !["running", "healthy"].contains(&manifest.verification.state.as_str())
+        || manifest.verification.timeout_seconds == 0 || manifest.verification.timeout_seconds > 1800
+        || manifest.verification.required_services.is_empty()
+        || manifest.verification.required_services.iter().collect::<BTreeSet<_>>().len()
+            != manifest.verification.required_services.len() {
+        return Err(Error::Invalid("Invalid post-install verification contract"));
+    }
+    for data_path in &manifest.data.paths {
+        safe_relative(data_path, false)?;
+        if !data_path.starts_with(&format!("{}/data/", manifest.id)) {
+            return Err(Error::Invalid("Data paths must be owned app data directories"));
+        }
+    }
+    for volume in &manifest.data.named_volumes {
+        if !safe_id(volume) { return Err(Error::Invalid("Invalid named volume")); }
+    }
+    if !manifest.data.default_retain {
+        return Err(Error::Invalid("Application data must be retained by default"));
+    }
+    Ok(())
+}
+
+fn config_json(field: &ConfigSpec) -> Value {
+    let mut out = json!({
+        "key":field.key, "label":field.label, "type":field.kind, "target":field.target,
+        "required":field.required, "editable":field.editable.unwrap_or(true),
+        "generated_by_script":field.generated_by_script.unwrap_or(false)
+    });
+    if let Some(description) = &field.description { out["description"] = json!(description); }
+    // Never send even an empty default for secrets. This makes it impossible for
+    // a future non-empty secret default to be reflected in the UI by accident.
+    if field.kind != "secret" {
+        if let Some(default) = &field.default { out["default"] = default.clone(); }
+    }
+    if let Some(n) = field.min_length { out["min_length"] = json!(n); }
+    if let Some(n) = field.max_length { out["max_length"] = json!(n); }
+    if let Some(n) = field.minimum { out["minimum"] = json!(n); }
+    if let Some(n) = field.maximum { out["maximum"] = json!(n); }
+    if let Some(p) = &field.pattern { out["pattern"] = json!(p); }
+    out
+}
+fn manifest_detail(m: &ManifestV1) -> Value {
+    json!({
+        "runtime_kind":m.runtime.kind,
+        "compose_file":m.runtime.compose_file,
+        "platforms":m.compatibility.platforms,
+        "architectures":m.compatibility.architectures,
+        "actions":{
+            "install":m.actions.install.strategy,
+            "update":m.actions.update.as_ref().map(|a| a.strategy.as_str()),
+            "uninstall":m.actions.uninstall.as_ref().map(|a| a.strategy.as_str())
+        },
+        "config":m.config.iter().map(config_json).collect::<Vec<_>>(),
+        "ports":m.ports.iter().map(|p| json!({
+            "id":p.id,"label":p.label,"protocol":p.protocol,"purpose":p.purpose,
+            "host_port_key":p.host_port_key,"bind_address_key":p.bind_address_key,
+            "container_port":p.container_port,"service":p.service,"path":p.path
+        })).collect::<Vec<_>>(),
+        "install_available":false,
+        "management_rights":false,
+        "validation":"strict_manifest_v1; package must be reverified before Agent execution"
+    })
 }
 
 fn safe_manifest(root: &Path, id: &str) -> Result<Option<PathBuf>, Error> {
