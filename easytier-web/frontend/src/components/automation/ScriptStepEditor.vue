@@ -161,8 +161,9 @@ async function restoreHiddenBuiltinPresets() {
         hiddenBuiltinIds.value = [];
         favoriteMessage.value = '已恢复全部内置常用 ADB 命令';
     } catch (cause) {
-        favoriteError.value = '恢复内置命令失败：' + automationErrorMessage(cause);
+        const message = '恢复内置命令失败：' + automationErrorMessage(cause);
         await loadFavorites(owner);
+        favoriteError.value = message;
     } finally { presetBusy.value = false; }
 }
 async function deleteFavorite() {
