@@ -832,6 +832,25 @@ fn manifest_detail(m: &ManifestV1) -> Value {
 }
 
 
+fn set_file_mode(path: &Path, mode: &str) -> Result<(), Error> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let numeric = match mode {
+            "0644" => 0o644,
+            "0755" => 0o755,
+            _ => return Err(Error::Invalid("Unsupported package file mode")),
+        };
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(numeric))
+            .map_err(|_| Error::Storage)?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+    }
+    Ok(())
+}
+
 fn verified_file_bytes(root: &Path, relative: &str, max_bytes: u64) -> Result<(PathBuf, Vec<u8>), Error> {
     let parts = safe_relative(relative, true)?;
     let root_meta = std::fs::symlink_metadata(root).map_err(|_| Error::RevisionUnavailable)?;
