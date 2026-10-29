@@ -289,7 +289,7 @@ impl AutomationStore {
             "SELECT d.run_id,d.device_id,d.target_key,d.target_fingerprint,d.state AS device_state, \
              d.cleanup_confirmed,d.withdraw_requested,d.withdraw_event_id,d.updated_at AS device_updated_at, \
              r.owner_user_id,r.actor_user_id,r.state AS run_state,r.runner_identity,r.updated_at AS run_updated_at \
-             FROM automation_run_devices d JOIN automation_runs r ON r.id=d.run_id \
+             FROM automation_run_devices d LEFT JOIN automation_runs r ON r.id=d.run_id \
              WHERE (d.device_id=? OR d.target_key=?) AND d.cleanup_confirmed=0 \
              AND d.state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending') \
              ORDER BY d.updated_at DESC"
@@ -302,14 +302,14 @@ impl AutomationStore {
                 let row_key:String=row.try_get("target_key")?;
                 let row_fingerprint:String=row.try_get("target_fingerprint")?;
                 let device_state:String=row.try_get("device_state")?;
-                let run_state:String=row.try_get("run_state")?;
+                let run_state:Option<String>=row.try_get("run_state")?;
                 let cleanup_confirmed:bool=row.try_get("cleanup_confirmed")?;
                 let withdraw_requested:bool=row.try_get("withdraw_requested")?;
                 let withdraw_event_id:Option<String>=row.try_get("withdraw_event_id")?;
                 let device_updated_at:String=row.try_get("device_updated_at")?;
-                let run_updated_at:String=row.try_get("run_updated_at")?;
-                let row_owner:i32=row.try_get("owner_user_id")?;
-                let row_actor:i32=row.try_get("actor_user_id")?;
+                let run_updated_at:Option<String>=row.try_get("run_updated_at")?;
+                let row_owner:Option<i32>=row.try_get("owner_user_id")?;
+                let row_actor:Option<i32>=row.try_get("actor_user_id")?;
                 let runner_identity:Option<String>=row.try_get("runner_identity")?;
                 let device_matches=row_device==device_id;
                 let endpoint_matches=row_key==key;
@@ -325,9 +325,11 @@ impl AutomationStore {
                     "match_reason":match_reason,
                     "device_state":device_state,
                     "run_state":run_state,
+                    "run_record_present":row_owner.is_some(),
+                    "orphaned_run_record":row_owner.is_none(),
                     "cleanup_confirmed":cleanup_confirmed,
-                    "owner_matches":row_owner==owner,
-                    "actor_matches":row_actor==actor,
+                    "owner_matches":row_owner==Some(owner),
+                    "actor_matches":row_actor==Some(actor),
                     "runner_identity_present":runner_identity.is_some(),
                     "runner_identity":runner_identity,
                     "withdraw_requested":withdraw_requested,
