@@ -973,9 +973,12 @@ fn compose_port_matches(entry: &Value, port: &PortSpec) -> bool {
         && port.bind_address_key.as_deref().is_none_or(|key| has_compose_variable(bind, key))
 }
 
-fn normalize_mount_source(app_id: &str, source: &str) -> Option<String> {
+fn normalize_mount_source(app_id: &str, compose_file: &str, source: &str) -> Option<String> {
     if source.starts_with('/') || source.contains('\\') || source.contains('\0') { return None; }
-    let mut parts = vec![app_id.to_string(), "deploy".to_string()];
+    let mut parts = vec![app_id.to_string()];
+    let mut compose_parts: Vec<&str> = compose_file.split('/').collect();
+    compose_parts.pop();
+    parts.extend(compose_parts.into_iter().map(str::to_string));
     for item in source.split('/') {
         match item {
             "" | "." => {},
@@ -983,7 +986,8 @@ fn normalize_mount_source(app_id: &str, source: &str) -> Option<String> {
                 if parts.len() <= 1 { return None; }
                 parts.pop();
             }
-            value if value.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-' || c == b'.') => {
+            value if !value.starts_with('.') && value.bytes().all(|c|
+                c.is_ascii_alphanumeric() || c == b'_' || c == b'-' || c == b'.') => {
                 parts.push(value.to_string());
             }
             _ => return None,
@@ -1032,7 +1036,7 @@ fn validate_compose(manifest: &ManifestV1, sources: &BTreeMap<String, Vec<u8>>) 
                     volume.get("source").and_then(Value::as_str).unwrap_or("")
                 };
                 if source.starts_with("../") {
-                    if let Some(path) = normalize_mount_source(&manifest.id, source) {
+                    if let Some(path) = normalize_mount_source(&manifest.id, &manifest.runtime.compose_file, source) {
                         mounted_data.insert(path);
                     }
                 }
