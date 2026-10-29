@@ -690,8 +690,8 @@ fn validate_manifest_shape(manifest: &ManifestV1, expected_id: &str) -> Result<(
         || manifest.compatibility.architectures.iter().any(|a| !["amd64", "arm64"].contains(&a.as_str()))
         || manifest.compatibility.platforms.iter().collect::<BTreeSet<_>>().len() != manifest.compatibility.platforms.len()
         || manifest.compatibility.architectures.iter().collect::<BTreeSet<_>>().len() != manifest.compatibility.architectures.len()
-        || manifest.compatibility.requires_docker != Some(true)
-        || manifest.compatibility.requires_compose_v2 != Some(true) {
+        || manifest.compatibility.requires_docker == Some(false)
+        || manifest.compatibility.requires_compose_v2 == Some(false) {
         return Err(Error::Invalid("Invalid platform or architecture compatibility"));
     }
     if manifest.package.files.is_empty() || manifest.package.files.len() > MAX_PACKAGE_FILES {
@@ -742,7 +742,7 @@ fn validate_manifest_shape(manifest: &ManifestV1, expected_id: &str) -> Result<(
                 return Err(Error::Invalid("Secret defaults must be blank"));
             }
         }
-        if field.min_length.is_some_and(|n| n > 4096)
+        if field.min_length.is_some_and(|n| n == 0 || n > 4096)
             || field.max_length.is_some_and(|n| n == 0 || n > 4096)
             || field.min_length.zip(field.max_length).is_some_and(|(min, max)| min > max)
             || field.pattern.as_ref().is_some_and(|p| p.len() > 500 || regex::Regex::new(p).is_err())
@@ -817,7 +817,7 @@ fn validate_manifest_shape(manifest: &ManifestV1, expected_id: &str) -> Result<(
     if let Some(action) = &manifest.actions.uninstall { check_action("uninstall", action)?; }
     if manifest.verification.mode != "docker_compose"
         || !["running", "healthy"].contains(&manifest.verification.state.as_str())
-        || manifest.verification.timeout_seconds == 0 || manifest.verification.timeout_seconds > 1800
+        || manifest.verification.timeout_seconds < 5 || manifest.verification.timeout_seconds > 1200
         || manifest.verification.required_services.is_empty()
         || manifest.verification.required_services.iter().collect::<BTreeSet<_>>().len()
             != manifest.verification.required_services.len() {
