@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import ApiClient from '../modules/api';
 import { getApiBase } from '../modules/api-host';
-import type { DeployCatalogApp, DeployCatalogConfigField, DeployCatalogIndex, DeployCatalogPackage } from '../types/deploy-catalog';
+import type { DeployCatalogApp, DeployCatalogIndex, DeployCatalogPackage } from '../types/deploy-catalog';
 
 const router = useRouter();
 const { locale } = useI18n();
