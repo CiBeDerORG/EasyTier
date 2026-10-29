@@ -455,7 +455,7 @@ impl Catalog {
                 Err(Error::Storage)
             };
         }
-        tokio::fs::remove_file(&archive_tmp).await.map_err(|_| Error::Storage)?;
+        let _ = tokio::fs::remove_file(&archive_tmp).await;
         let built_at = chrono::Utc::now().to_rfc3339();
         let inserted = sqlx::query(
             "INSERT INTO deploy_catalog_packages(app_id,git_revision,manifest_sha256,package_sha256,package_size,file_count,built_at) VALUES(?,?,?,?,?,?,?)"
