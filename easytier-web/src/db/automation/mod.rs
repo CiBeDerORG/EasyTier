@@ -339,12 +339,13 @@ impl AutomationStore {
                     "run_updated_at":run_updated_at
                 }));
             }
+            let blocking_run_count=blockers.len();
             let diagnostics=json!({
                 "stage":"database_run_lease",
                 "source":"sqlite.automation_run_devices",
                 "device_id":device_id,
                 "adb_endpoint":key,
-                "blocking_run_count":blockers.len(),
+                "blocking_run_count":blocking_run_count,
                 "blocking_runs":blockers,
                 "why_restart_did_not_clear_it":"This is a durable Web database lease. Restarting the Web and executor processes does not delete it. A row with runner_identity present is retained because execution may have reached the executor."
             });
@@ -352,7 +353,7 @@ impl AutomationStore {
                 owner_user_id=owner,
                 device_id=%device_id,
                 adb_endpoint=%key,
-                blocking_run_count=blockers.len(),
+                blocking_run_count=blocking_run_count,
                 diagnostics=%diagnostics,
                 "automation manual preview blocked by persistent script lease"
             );
