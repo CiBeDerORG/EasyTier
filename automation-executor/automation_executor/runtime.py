@@ -199,13 +199,19 @@ class Runtime:
                 probe_stage["value"] = "load_rpc_sdk"
                 import adbutils
                 from uiautomator2.core import _jsonrpc_call, DEFAULT_SERVER_PORT
-                from uiautomator2._selector import Selector
                 probe_stage["value"] = "adb_device_lookup"
-                dev = adbutils.adb.device(serial=f'{target["ip"]}:{target["adb_port"]}')
+                # The global adbutils client has no socket timeout. A blocked
+                # ADB transport can outlive asyncio.wait_for and leak a thread.
+                # Give this read-only probe its own bounded client.
+                client = adbutils.AdbClient(socket_timeout=3)
+                dev = client.device(serial=f'{target["ip"]}:{target["adb_port"]}')
                 probe_stage["value"] = "uiautomator_rpc"
+                # Initialization verifies dumpWindowHierarchy successfully.
+                # Probe that same lightweight RPC at shallow depth instead of
+                # using a selector/count call that can stall on some devices.
                 observed = _jsonrpc_call(
-                    dev, DEFAULT_SERVER_PORT, "count",
-                    (Selector(className="android.view.View"),), 3, False,
+                    dev, DEFAULT_SERVER_PORT, "dumpWindowHierarchy",
+                    (True, 2), 3, False,
                 )
                 probe_stage["value"] = "rpc_response_validation"
                 return observed
@@ -218,12 +224,13 @@ class Runtime:
             stage = probe_stage["value"]
             return {
                 "ready": False, "code": "automation_rpc_timeout",
-                "message": "控件服务状态探测超时（5 秒），未确认 UiAutomator2 RPC 是否可用",
+                "message": "UiAutomator2 控件树 RPC 在 5 秒内未返回；执行器进程存活不代表手机端 RPC 已响应",
                 "stage": stage,
                 "diagnostics": {
                     "helper": helper,
-                    "probe": {"method": "count", "timeout_seconds": 5,
-                              "exception_type": "TimeoutError", "exception_message": "probe exceeded 5 seconds"},
+                    "probe": {"method": "dumpWindowHierarchy", "max_depth": 2,
+                              "timeout_seconds": 5, "exception_type": "TimeoutError",
+                              "exception_message": "控件树 RPC 未在期限内返回；已为 ADB 传输设置 3 秒 socket timeout"},
                 },
             }
         except ProbeFailure as failure:
@@ -236,7 +243,9 @@ class Runtime:
                 code, message = "adb_device_lookup_failed", "ADB 已通过前置检查，但 RPC 探测无法重新绑定设备"
             elif exception_type == "UiAutomationNotConnectedError":
                 code, message = "uiautomator_service_disconnected", "手机端 UiAutomator2 服务未连接或无障碍服务已断开"
-            elif exception_type in ("HTTPError", "ConnectionError", "ReadTimeout", "ConnectTimeout"):
+            elif exception_type in ("AdbTimeout", "TimeoutError", "ReadTimeout", "ConnectTimeout"):
+                code, message = "uiautomator_rpc_transport_timeout", "建立 ADB 转发连接或等待手机端控件 RPC 响应超时"
+            elif exception_type in ("HTTPError", "ConnectionError"):
                 code, message = "uiautomator_rpc_transport_error", "访问手机端 UiAutomator2 RPC 时发生连接或 HTTP 错误"
             else:
                 code, message = "uiautomator_rpc_failed", "手机端 UiAutomator2 RPC 探测抛出异常"
@@ -245,26 +254,33 @@ class Runtime:
                 "diagnostics": {
                     "helper": helper,
                     "probe": {
-                        "method": "count", "exception_type": exception_type,
+                        "method": "dumpWindowHierarchy", "max_depth": 2,
+                        "exception_type": exception_type,
                         "exception_message": self._automation_probe_exception_message(exc, target),
                     },
                 },
             }
 
-        if not isinstance(observed, int) or isinstance(observed, bool):
+        if not isinstance(observed, str) or "<hierarchy" not in observed:
             return {
                 "ready": False, "code": "uiautomator_rpc_invalid_response",
-                "message": "UiAutomator2 RPC 已响应，但返回值不是预期的整数",
+                "message": "UiAutomator2 RPC 已响应，但未返回有效的控件树",
                 "stage": "rpc_response_validation",
                 "diagnostics": {
                     "helper": helper,
-                    "probe": {"method": "count", "result_type": type(observed).__name__},
+                    "probe": {"method": "dumpWindowHierarchy", "max_depth": 2,
+                              "result_type": type(observed).__name__,
+                              "hierarchy_marker_present": isinstance(observed, str) and "<hierarchy" in observed},
                 },
             }
         return {
-            "ready": True, "code": None, "message": "UiAutomator2 RPC 探测成功",
+            "ready": True, "code": None, "message": "UiAutomator2 控件树 RPC 探测成功",
             "stage": "complete",
-            "diagnostics": {"helper": helper, "probe": {"method": "count", "result_type": type(observed).__name__}},
+            "diagnostics": {
+                "helper": helper,
+                "probe": {"method": "dumpWindowHierarchy", "max_depth": 2,
+                          "result_type": type(observed).__name__, "hierarchy_length": len(observed)},
+            },
         }
 
     async def _automation_rpc_ready(self, target):

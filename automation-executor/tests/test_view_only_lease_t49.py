@@ -85,7 +85,7 @@ class ViewOnlyLeaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.runtime.journal.worker_record(holder))
         self.assertFalse(self.runtime.journal.prepared(self.phone))
 
-    async def test_fresh_initialization_stops_stale_phone_service_before_startup(self):
+    async def test_fresh_initialization_does_not_stop_phone_service_before_startup(self):
         events = []
         class Channel:
             def send(self, value):
@@ -103,28 +103,17 @@ class ViewOnlyLeaseTests(unittest.IsolatedAsyncioTestCase):
             def dump_hierarchy(self):
                 events.append(("dump_hierarchy",))
                 return "<hierarchy/>"
-        fake_adb_device = object()
         fake_u2 = ModuleType("uiautomator2")
-        fake_u2.__path__ = []
-        fake_u2.connect_usb = lambda device, port=9008: (
-            events.append(("connect", device, port)) or Device())
-        fake_core = ModuleType("uiautomator2.core")
-        fake_core.DEFAULT_SERVER_PORT = 9008
-        with patch.dict(sys.modules, {
-                "uiautomator2": fake_u2, "uiautomator2.core": fake_core}), \
-             patch("automation_executor.worker._isolate"), \
-             patch("adbutils.adb.device", return_value=fake_adb_device), \
-             patch("automation_executor.worker._stop_stale_uiautomator",
-                   side_effect=lambda device, port: events.append(("stop_stale", device, port))):
+        fake_u2.connect_usb = lambda serial: (events.append(("connect", serial)) or Device())
+        with patch.dict(sys.modules, {"uiautomator2": fake_u2}), \
+             patch("automation_executor.worker._isolate"):
             _helper_entry(Channel(), SimpleNamespace(wait=lambda timeout: True),
                           1, self.phone, "adb")
-        stop_index = events.index(("stop_stale", fake_adb_device, 9008))
-        connect_index = events.index(("connect", fake_adb_device, 9008))
-        self.assertLess(stop_index, connect_index,
-                        "orphaned phone-side server must be stopped before connect_usb")
+        connect_index = events.index(("connect", f'{self.phone["ip"]}:{self.phone["adb_port"]}'))
         self.assertLess(connect_index, events.index(("window_size",)))
         self.assertLess(events.index(("window_size",)), events.index(("dump_hierarchy",)))
         self.assertIn(("stop_uiautomator", False), events)
+        self.assertNotIn(("stop_uiautomator", True), events)
 
     async def test_force_cleanup_ends_all_phone_sessions_and_frees_script_lease(self):
         holder="run:"+str(uuid4())+":"+self.phone["device_id"]

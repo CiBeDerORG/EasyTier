@@ -127,6 +127,8 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             pass
         adbutils_module = ModuleType("adbutils")
         adbutils_module.adb = SimpleNamespace(device=lambda serial: object())
+        adbutils_module.AdbClient = lambda socket_timeout: SimpleNamespace(
+            device=lambda serial: object())
         uiautomator_module = ModuleType("uiautomator2")
         uiautomator_module.__path__ = []
         core_module = ModuleType("uiautomator2.core")
@@ -926,56 +928,22 @@ class HelperBootstrapTests(unittest.TestCase):
                 return '<hierarchy rotation="0"></hierarchy>'
             def stop_uiautomator(self,wait=False):
                 stopped.append(wait)
-        adb_device=object()
         events=[]
         module=ModuleType('uiautomator2')
-        module.__path__=[]
-        module.connect_usb=lambda device,port=9008: (events.append(('connect_usb',device,port)) or Device())
-        core=ModuleType('uiautomator2.core')
-        core.DEFAULT_SERVER_PORT=9008
+        module.connect_usb=lambda serial: (events.append(('connect_usb',serial)) or Device())
         channel=SimpleNamespace(send=messages.append,recv=lambda:'stop',close=lambda:None)
         gate=SimpleNamespace(wait=lambda seconds:True)
         with patch('automation_executor.worker._isolate'), \
-             patch('adbutils.adb.device',return_value=adb_device), \
-             patch('automation_executor.worker._stop_stale_uiautomator',
-                   side_effect=lambda device,port: events.append(('stop_stale',device,port))), \
-             patch.dict(sys.modules,{'uiautomator2':module,'uiautomator2.core':core}):
+             patch.dict(sys.modules,{'uiautomator2':module}):
             worker._helper_entry(channel,gate,1234,target(),'adb')
         stages=[m.get('stage') for m in messages if isinstance(m,dict) and 'stage' in m]
-        self.assertEqual(stages[:7],
+        self.assertEqual(stages[:6],
                          ['isolate_process','wait_for_gate','import_sdk','connect_device',
-                          'stop_stale_uiautomator','start_uiautomator','verify_hierarchy'])
+                          'start_uiautomator','verify_hierarchy'])
         self.assertEqual(messages[-1]['result']['state'],'automation_ready')
         self.assertEqual(messages[-1]['result']['display'],{'width':1080,'height':2400})
-        self.assertEqual(stopped,[False], 'only the fresh service is stopped during worker shutdown')
-        self.assertEqual(events,[('stop_stale',adb_device,9008),('connect_usb',adb_device,9008)])
-
-
-    def test_stale_server_cleanup_kills_only_matching_uiautomator_port(self):
-        from automation_executor.worker import _stop_stale_uiautomator
-        class FakeAdbDevice:
-            def __init__(self):
-                self.processes = {
-                    101: "app_process / com.wetest.uia2.Main -p 9008",
-                    102: "app_process / com.wetest.uia2.Main -p 9009",
-                    103: "app_process / com.example.Other -p 9008",
-                }
-                self.killed = []
-            def shell(self, command):
-                if command.startswith("for f in /proc/"):
-                    return "\n".join(f"{pid} {cmd}" for pid, cmd in self.processes.items())
-                if command.startswith("kill -9 "):
-                    pid = int(command.split()[-1])
-                    self.killed.append(pid)
-                    self.processes.pop(pid, None)
-                    return ""
-                raise AssertionError("unexpected shell command")
-        adb = FakeAdbDevice()
-        stopped = _stop_stale_uiautomator(adb, 9008)
-        self.assertEqual(stopped, 1)
-        self.assertEqual(adb.killed, [101])
-        self.assertIn(102, adb.processes, "a different UiAutomator2 port must be untouched")
-        self.assertIn(103, adb.processes, "unrelated Android processes must be untouched")
+        self.assertEqual(stopped,[False], 'the initialized service is stopped only when the helper exits')
+        self.assertEqual(events,[('connect_usb',f'{target()["ip"]}:{target()["adb_port"]}')])
 
 class NativeActionTests(unittest.TestCase):
     def test_key_and_launch_app_do_not_require_uiautomator(self):

@@ -5,7 +5,6 @@ import multiprocessing
 import os
 from pathlib import Path
 import signal
-import time
 
 from .errors import ExecutorError
 
@@ -32,57 +31,6 @@ def _isolate(parent_pid, adb_binary):
         os.dup2(sink.fileno(), 2)
 
 
-def _uiautomator_server_pids(adb_device, port):
-    """Find only the uiautomator2 server process bound to this device-side port."""
-    script = (
-        "for f in /proc/[0-9]*/cmdline; do "
-        "[ -r \"$f\" ] || continue; "
-        "p=${f#/proc/}; p=${p%/cmdline}; "
-        "printf '%s ' \"$p\"; "
-        "tr '\\000' ' ' < \"$f\" 2>/dev/null; "
-        "printf '\\n'; "
-        "done"
-    )
-    output = adb_device.shell(script)
-    port_text = str(int(port))
-    pids = set()
-    for line in (output or "").splitlines():
-        fields = line.strip().split(None, 1)
-        if len(fields) != 2 or not fields[0].isdigit():
-            continue
-        pid, command_line = fields
-        tokens = command_line.split()
-        try:
-            main_index = tokens.index("com.wetest.uia2.Main")
-        except ValueError:
-            continue
-        if tokens[main_index + 1:main_index + 3] == ["-p", port_text]:
-            pids.add(int(pid))
-    return sorted(pids)
-
-
-def _stop_stale_uiautomator(adb_device, port):
-    """Kill orphaned phone-side servers before connect_usb can attach to them.
-
-    uiautomator2.connect_usb() starts a server in its constructor. If an old
-    server is already alive, the new client does not own its process handle,
-    so calling Device.stop_uiautomator() after connect_usb cannot stop it.
-    """
-    pids = _uiautomator_server_pids(adb_device, port)
-    for pid in pids:
-        # Only numeric PIDs found with the exact main-class/port signature are
-        # signalled. The following poll confirms the old service is gone.
-        adb_device.shell(f"kill -9 {pid}")
-    deadline = time.monotonic() + 5
-    while True:
-        remaining = _uiautomator_server_pids(adb_device, port)
-        if not remaining:
-            return len(pids)
-        if time.monotonic() >= deadline:
-            raise RuntimeError("手机端残留 UiAutomator2 服务未能停止")
-        time.sleep(0.2)
-
-
 def _helper_entry(channel, gate, parent_pid, target, adb_binary):
     device = None
     stage = "isolate_process"
@@ -99,23 +47,12 @@ def _helper_entry(channel, gate, parent_pid, target, adb_binary):
             return
         stage = "import_sdk"
         channel.send({"stage": stage})
-        import adbutils
         import uiautomator2 as u2
-        from uiautomator2.core import DEFAULT_SERVER_PORT
         stage = "connect_device"
         channel.send({"stage": stage})
-        adb_device = adbutils.adb.device(serial=f'{target["ip"]}:{target["adb_port"]}')
-        # Force cleanup may kill the host worker before its finally block runs,
-        # leaving the phone-side app_process server orphaned. Clean it using raw
-        # ADB BEFORE connect_usb: that constructor may attach to an existing
-        # server and therefore have no process handle with which to stop it.
-        stage = "stop_stale_uiautomator"
-        channel.send({"stage": stage})
-        _stop_stale_uiautomator(adb_device, DEFAULT_SERVER_PORT)
+        device = u2.connect_usb(f'{target["ip"]}:{target["adb_port"]}')
         stage = "start_uiautomator"
         channel.send({"stage": stage})
-        # connect_usb starts a fresh service after the stale server is gone.
-        device = u2.connect_usb(adb_device, port=DEFAULT_SERVER_PORT)
         # ADB-backed dimensions and a real UI hierarchy prove readiness without
         # invoking Android 17's broken UiDevice.getDisplaySizeDp / deviceInfo path.
         width, height = device.window_size()
