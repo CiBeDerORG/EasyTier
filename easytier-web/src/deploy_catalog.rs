@@ -330,8 +330,16 @@ impl Catalog {
         let manifest_sha256 = format!("{:x}", Sha256::digest(&manifest_bytes));
         if manifest_sha256 != app.manifest_sha256 { return Err(Error::PackageConflict); }
 
+        tokio::fs::create_dir_all(&self.base).await.map_err(|_| Error::Storage)?;
         let packages_dir = self.base.join("packages");
-        tokio::fs::create_dir_all(&packages_dir).await.map_err(|_| Error::Storage)?;
+        match tokio::fs::symlink_metadata(&packages_dir).await {
+            Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => return Err(Error::Storage),
+            Ok(_) => {},
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tokio::fs::create_dir(&packages_dir).await.map_err(|_| Error::Storage)?;
+            }
+            Err(_) => return Err(Error::Storage),
+        }
         let packages_dir = tokio::fs::canonicalize(&packages_dir).await.map_err(|_| Error::Storage)?;
         let archive_path = packages_dir.join(format!("{}-{}.tar", app.id, app.git_revision));
         let pool = self.db.inner();
@@ -362,9 +370,13 @@ impl Catalog {
                 ready_for_agent: false, install_enabled: false,
             });
         }
-        if tokio::fs::symlink_metadata(&archive_path).await.is_ok() {
-            // Never overwrite an orphaned or tampered immutable artifact.
-            return Err(Error::PackageConflict);
+        match tokio::fs::symlink_metadata(&archive_path).await {
+            Ok(_) => {
+                // Never overwrite an orphaned or tampered immutable artifact.
+                return Err(Error::PackageConflict);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
+            Err(_) => return Err(Error::Storage),
         }
 
         let manifest_text = std::str::from_utf8(&manifest_bytes)
