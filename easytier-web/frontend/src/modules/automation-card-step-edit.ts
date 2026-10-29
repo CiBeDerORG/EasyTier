@@ -8,7 +8,7 @@ export function updateCardDraftStep(
     expected:AutomationStep, edited:AutomationStep,
 ): boolean {
     if(draft.ownerId!==ownerId || !stepId || expected.id!==stepId || edited.id!==stepId
-        || edited.type!==expected.type || draft.steps.filter(s=>s.id===stepId).length!==1) return false;
+        || draft.steps.filter(s=>s.id===stepId).length!==1) return false;
     const index=draft.steps.findIndex(step=>step.id===stepId);
     if(JSON.stringify(draft.steps[index])!==JSON.stringify(expected)) return false;
     // Conditional blocks are governed by the flow editor, never resized here.

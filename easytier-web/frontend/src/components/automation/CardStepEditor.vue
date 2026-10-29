@@ -37,7 +37,7 @@ watch(()=>props.step, value=>{
     if (!dirty.value) {original.value=copy(value);edited.value=copy(value);warning.value='';}
 },{deep:true});
 function updateDraft(next:AutomationStep) {
-    if(next.id!==original.value.id || next.type!==original.value.type) return;
+    if(next.id!==original.value.id) return;
     edited.value=copy(next);
     warning.value='';
 }
@@ -69,7 +69,7 @@ function repick() {
         <Message v-if="conflict" severity="warn" :closable="false">步骤在编辑期间已变化。当前修改不会自动覆盖新的草稿内容。</Message>
         <div class="edit-fields">
             <ScriptStepEditor :model-value="edited" :owner-id="ownerId"
-                lock-action-type @update:model-value="updateDraft"/>
+                exclude-conditional-types @update:model-value="updateDraft"/>
             <label v-if="businessVerificationEligible || original.business_verification===true ||
                 edited.business_verification===true" class="business-check">
                 <Checkbox :model-value="edited.business_verification===true" binary

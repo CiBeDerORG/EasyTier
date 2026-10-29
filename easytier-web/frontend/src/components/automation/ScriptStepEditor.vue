@@ -7,30 +7,37 @@ import type { AutomationAdbFavorite, AutomationKey, AutomationSelector, Automati
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
 import { builtinAdbCommands } from '../../modules/automation-adb-presets';
 
-const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean; lockActionType?: boolean; ownerId?: number }>();
+const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean; lockActionType?: boolean; excludeConditionalTypes?: boolean; ownerId?: number }>();
 const emit = defineEmits<{ 'update:modelValue': [step: AutomationStep] }>();
 const { locale } = useI18n();
 const cn = computed(() => locale.value === 'cn' || locale.value.startsWith('zh'));
 const text = (zh: string, en: string) => cn.value ? zh : en;
 const fieldId = (name: string) => `automation-step-${props.modelValue.id}-${name}`;
-const actionOptions = computed(() => [
-    { value: 'key', label: text('导航按键', 'Navigation key') },
-    { value: 'tap', label: text('点击', 'Tap') },
-    { value: 'long_press', label: text('长按', 'Long press') },
-    { value: 'swipe', label: text('滑动', 'Swipe') },
-    { value: 'drag', label: text('拖拽', 'Drag') },
-    { value: 'input_text', label: text('输入文字', 'Enter text') },
-    { value: 'launch_app', label: text('打开应用', 'Launch app') },
-    { value: 'wait_for', label: text('等待控件出现', 'Wait for element') },
-    { value: 'wait_gone', label: text('等待控件消失', 'Wait until element disappears') },
-    { value: 'if_gone', label: text('如果控件消失，则执行后续步骤', 'If gone, execute following steps') },
-    { value: 'if_else', label: text('条件分支 If / Else', 'Conditional If / Else') },
-    { value: 'assert', label: text('断言控件存在', 'Assert element exists') },
-    { value: 'assert_property', label: text('断言控件属性', 'Assert element property') },
-    { value: 'scroll_find', label: text('滚动查找控件', 'Scroll until element appears') },
-    { value: 'screenshot', label: text('截图检查点', 'Screenshot checkpoint') },
-    { value: 'adb_command', label: text('ADB 命令', 'ADB shell command') },
-]);
+const actionOptions = computed(() => {
+    const options = [
+        { value: 'key', label: text('导航按键', 'Navigation key') },
+        { value: 'tap', label: text('点击', 'Tap') },
+        { value: 'long_press', label: text('长按', 'Long press') },
+        { value: 'swipe', label: text('滑动', 'Swipe') },
+        { value: 'drag', label: text('拖拽', 'Drag') },
+        { value: 'input_text', label: text('输入文字', 'Enter text') },
+        { value: 'launch_app', label: text('打开应用', 'Launch app') },
+        { value: 'wait_for', label: text('等待控件出现', 'Wait for element') },
+        { value: 'wait_gone', label: text('等待控件消失', 'Wait until element disappears') },
+        { value: 'if_gone', label: text('如果控件消失，则执行后续步骤', 'If gone, execute following steps') },
+        { value: 'if_else', label: text('条件分支 If / Else', 'Conditional If / Else') },
+        { value: 'assert', label: text('断言控件存在', 'Assert element exists') },
+        { value: 'assert_property', label: text('断言控件属性', 'Assert element property') },
+        { value: 'scroll_find', label: text('滚动查找控件', 'Scroll until element appears') },
+        { value: 'screenshot', label: text('截图检查点', 'Screenshot checkpoint') },
+        { value: 'adb_command', label: text('ADB 命令', 'ADB shell command') },
+    ];
+    // Conditional blocks own the following steps; the card editor cannot
+    // safely create or reshape them as a single-step edit.
+    return props.excludeConditionalTypes
+        ? options.filter(option => option.value !== 'if_gone' && option.value !== 'if_else')
+        : options;
+});
 const keys = computed(() => [
     { value: 'HOME', label: text('主页', 'Home') }, { value: 'BACK', label: text('返回', 'Back') },
     { value: 'RECENT', label: text('最近任务', 'Recent apps') }, { value: 'WAKE', label: text('唤醒', 'Wake') },
