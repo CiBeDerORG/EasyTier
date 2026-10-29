@@ -45,3 +45,16 @@ test('step editor lets the owner name actions, manually enter shell and manage a
   const timeline = read('components/automation/CardStepTimeline.vue');
   assert.match(timeline,/value:'adb_command'/);
 });
+
+
+test('built-in ADB presets can be hidden per account and restored', () => {
+  const ui = read('components/automation/ScriptStepEditor.vue');
+  const api = read('modules/automation-api.ts');
+  assert.match(ui,/builtinAdbCommands\\.filter\\(item => !hiddenBuiltinIds\\.value\\.includes\\(item\\.id\\)\\)/);
+  assert.match(ui,/删除选中的内置命令/);
+  assert.match(ui,/恢复已删除内置命令/);
+  assert.match(ui,/当前步骤命令仍保留/);
+  assert.match(api,/hiddenAdbPresets\\(ownerId: number\\)/);
+  assert.match(api,/hideAdbPreset\\(ownerId: number, id: string\\)/);
+  assert.match(api,/restoreAdbPreset\\(ownerId: number, id: string\\)/);
+});

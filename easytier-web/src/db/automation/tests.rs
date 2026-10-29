@@ -577,3 +577,18 @@ async fn adb_favorites_are_owned_by_account_and_survive_script_edits() {
     assert_eq!(f.store.delete_adb_favorite(f.owner,saved["id"].as_str().unwrap()).await.unwrap()["deleted"],true);
     assert_eq!(f.store.list_adb_favorites(f.owner).await.unwrap()["items"],json!([]));
 }
+
+
+#[tokio::test]
+async fn builtin_adb_preset_visibility_is_account_scoped_and_restorable() {
+    let f=Fixture::new().await;
+    assert_eq!(f.store.list_hidden_adb_presets(f.owner).await.unwrap()["items"],json!([]));
+    f.store.hide_adb_preset(f.owner,"home").await.unwrap();
+    assert_eq!(f.store.list_hidden_adb_presets(f.owner).await.unwrap()["items"],json!(["home"]));
+    assert_eq!(f.store.list_hidden_adb_presets(f.other).await.unwrap()["items"],json!([]));
+    assert!(f.store.hide_adb_preset(f.owner,"not-a-builtin").await.is_err());
+    assert_eq!(f.store.restore_adb_preset(f.other,"home").await.unwrap()["hidden"],false);
+    assert_eq!(f.store.list_hidden_adb_presets(f.owner).await.unwrap()["items"],json!(["home"]));
+    assert_eq!(f.store.restore_adb_preset(f.owner,"home").await.unwrap()["hidden"],false);
+    assert_eq!(f.store.list_hidden_adb_presets(f.owner).await.unwrap()["items"],json!([]));
+}
