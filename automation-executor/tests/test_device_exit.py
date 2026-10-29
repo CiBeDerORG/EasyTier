@@ -112,6 +112,9 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                                  callback_url='http://test.invalid',adb_binary='adb',max_artifact_bytes=10000000)
         self.runtime=Runtime(settings)
         self.runtime._authorize=AsyncMock();self.runtime._publish=AsyncMock();self.runtime.prepared=lambda _:True
+        # These tests mock the Android boundary. Dedicated tests cover the live
+        # RPC health probe; scheduler tests must never reach a real ADB server.
+        self.runtime._automation_rpc_ready=AsyncMock(return_value=True)
         self.adb_patch=patch('automation_executor.runtime.adb.require_connected',new=AsyncMock());self.adb_patch.start()
 
     async def asyncTearDown(self):

@@ -53,6 +53,15 @@ def _helper_entry(channel, gate, parent_pid, target, adb_binary):
         device = u2.connect_usb(f'{target["ip"]}:{target["adb_port"]}')
         # Unlike raw JSON-RPC, these public APIs can initialize the
         # device-side UiAutomator service. They avoid Android 17 deviceInfo.
+        # Force cleanup can kill this host worker before its finally block runs,
+        # leaving a stale phone-side service behind. Stop it before starting a
+        # fresh service; a missing service is normal on first initialization.
+        stage = "stop_stale_uiautomator"
+        channel.send({"stage": stage})
+        try:
+            device.stop_uiautomator(wait=True)
+        except Exception:
+            pass
         stage = "start_uiautomator"
         channel.send({"stage": stage})
         # ADB-backed dimensions and a real UI hierarchy prove readiness without
@@ -162,6 +171,7 @@ class PreparedHelper:
             "wait_for_gate": "等待进程启动许可",
             "import_sdk": "加载控件 SDK",
             "connect_device": "绑定 ADB 设备",
+            "stop_stale_uiautomator": "清理手机残留控件服务",
             "start_uiautomator": "启动手机控件服务",
             "verify_hierarchy": "校验手机控件树",
         }

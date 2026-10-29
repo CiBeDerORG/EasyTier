@@ -1100,14 +1100,19 @@ class Runtime:
                     except Exception:
                         active = True
             # Stop remembered UIA helpers regardless of which script started them.
+            # If graceful close fails, the recorded process identity is checked
+            # again below. A later confirmed reap must clear this transient failure.
+            helpers_needing_reap = {}
             for helper_id, helper in list(self.helpers.items()):
                 if same(helper.target):
                     try:
                         stopped = await asyncio.wait_for(helper.close(), timeout=8)
                     except Exception:
                         stopped = False
-                    if stopped:self.helpers.pop(helper_id,None)
-                    else:active = True
+                    if stopped:
+                        self.helpers.pop(helper_id,None)
+                    else:
+                        helpers_needing_reap[helper_id] = helper
             # Match journal claims by original saved target; a reused IP on
             # another phone must never be stopped by device-id-only inference.
             controls = []
@@ -1143,6 +1148,16 @@ class Runtime:
                     cleaned+=1
                 else:
                     active=True
+            # Reconcile helper objects after final process-identity cleanup.
+            for helper_id, helper in helpers_needing_reap.items():
+                try:
+                    still_alive = helper.alive()
+                except Exception:
+                    still_alive = True
+                if still_alive:
+                    active = True
+                else:
+                    self.helpers.pop(helper_id, None)
             # A preparation's control record may be present even if the task
             # has already disappeared from memory.
             for record in controls:

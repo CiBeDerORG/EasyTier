@@ -15,6 +15,7 @@ from uuid import uuid4
 from automation_executor.errors import ExecutorError
 from automation_executor.runtime import Runtime
 from automation_executor.scheduler import FairDeviceSlots
+from automation_executor.worker import _helper_entry
 
 
 def target():
@@ -62,6 +63,56 @@ class ViewOnlyLeaseTests(unittest.IsolatedAsyncioTestCase):
 
     def identity(self):
         return {"expected_executor_id":self.runtime.journal.executor_id}
+
+    async def test_force_cleanup_reconciles_failed_helper_close_after_worker_is_reaped(self):
+        holder = "helper:" + self.phone["device_id"]
+        helper = SimpleNamespace(
+            target=self.phone,
+            close=AsyncMock(return_value=False),
+            alive=lambda: False,
+        )
+        self.runtime.helpers[self.phone["device_id"]] = helper
+        self.runtime.journal.worker(holder, 999999999, "1")
+        self.runtime.journal.mark_prepared(self.phone)
+
+        reply = await self.runtime.force_cleanup_device(self.phone["device_id"], {
+            "target": self.phone, "expected_executor_id": self.runtime.journal.executor_id,
+            "event_id": str(uuid4()),
+        })
+
+        self.assertTrue(reply["cleanup_confirmed"])
+        self.assertNotIn(self.phone["device_id"], self.runtime.helpers)
+        self.assertIsNone(self.runtime.journal.worker_record(holder))
+        self.assertFalse(self.runtime.journal.prepared(self.phone))
+
+    async def test_fresh_initialization_stops_stale_phone_service_before_startup(self):
+        events = []
+        class Channel:
+            def send(self, value):
+                events.append(("message", value.get("stage", value.get("ok"))))
+            def recv(self):
+                return "stop"
+            def close(self):
+                events.append(("channel_close",))
+        class Device:
+            def stop_uiautomator(self, wait=True):
+                events.append(("stop_uiautomator", wait))
+            def window_size(self):
+                events.append(("window_size",))
+                return (1080, 2340)
+            def dump_hierarchy(self):
+                events.append(("dump_hierarchy",))
+                return "<hierarchy/>"
+        fake_u2 = ModuleType("uiautomator2")
+        fake_u2.connect_usb = lambda serial: (events.append(("connect", serial)) or Device())
+        with patch.dict(sys.modules, {"uiautomator2": fake_u2}), \
+             patch("automation_executor.worker._isolate"):
+            _helper_entry(Channel(), SimpleNamespace(wait=lambda timeout: True),
+                          1, self.phone, "adb")
+        stop_index = events.index(("stop_uiautomator", True))
+        self.assertLess(stop_index, events.index(("window_size",)))
+        self.assertLess(events.index(("window_size",)), events.index(("dump_hierarchy",)))
+        self.assertIn(("stop_uiautomator", False), events)
 
     async def test_force_cleanup_ends_all_phone_sessions_and_frees_script_lease(self):
         holder="run:"+str(uuid4())+":"+self.phone["device_id"]
