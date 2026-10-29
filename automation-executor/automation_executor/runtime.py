@@ -1361,8 +1361,7 @@ class Runtime:
                     active=True
             if not active:
                 with self.journal.transaction() as db:
-                    for related_device, related_target in related_targets:
-                        fingerprint = related_target["target_fingerprint"]
+                    for related_device, fingerprint in related_targets:
                         db.execute("DELETE FROM prepared WHERE device_id=? AND fingerprint=?",
                                    (related_device, fingerprint))
                         # Clear only non-retirement refusals for each exact
