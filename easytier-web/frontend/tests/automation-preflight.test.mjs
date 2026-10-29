@@ -22,8 +22,12 @@ function probes({ adb = 'connected', component = 'ready' } = {}) {
   };
 }
 
-test('only native keys and launch-app steps run without UiAutomator helper', () => {
-  assert.equal(requiresAutomationHelper([{id:'a',type:'key',key:'BACK'},{id:'b',type:'launch_app',package:'com.app'}]),false);
+test('native keys, app launches and ADB shell commands run without UiAutomator helper', () => {
+  assert.equal(requiresAutomationHelper([
+    {id:'a',type:'key',key:'BACK'},
+    {id:'b',type:'launch_app',package:'com.app'},
+    {id:'c',type:'adb_command',command:'adb shell wm size',timeout_ms:8000},
+  ]),false);
   for (const type of ['tap','swipe','drag','input_text','if_else','if_gone','assert','screenshot'])
     assert.equal(requiresAutomationHelper([{id:'a',type}]),true,type);
 });

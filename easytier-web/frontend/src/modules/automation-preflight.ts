@@ -19,8 +19,10 @@ export interface PreflightProbe {
     componentStatus(owner: number, id: string): Promise<AutomationComponentStatus>;
 }
 
+const NATIVE_ONLY_STEPS = new Set<AutomationStep['type']>(['key', 'launch_app', 'adb_command']);
+
 export function requiresAutomationHelper(steps: AutomationStep[]): boolean {
-    return steps.some(step => step.type !== 'key' && step.type !== 'launch_app');
+    return steps.some(step => !NATIVE_ONLY_STEPS.has(step.type));
 }
 
 export function initPreflightRow(device: AutomationDevice | undefined, id: string, ownedSessionId?: string | null): PreflightRow {
