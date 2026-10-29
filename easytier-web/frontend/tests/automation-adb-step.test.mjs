@@ -58,3 +58,15 @@ test('built-in ADB presets can be hidden per account and restored', () => {
   assert.ok(api.includes('hideAdbPreset(ownerId: number, id: string)'));
   assert.ok(api.includes('restoreAdbPreset(ownerId: number, id: string)'));
 });
+
+test('ADB single-step play does not depend on editor, UI helper or preview session', () => {
+  const card = read('components/automation/PhoneCard.vue');
+  const panel = read('components/automation/CardTrialPanel.vue');
+  const preflight = read('modules/automation-preflight.ts');
+  assert.doesNotMatch(card, /!!props\.editingStepId\s*\|\|\s*!props\.device\.target_fingerprint/);
+  assert.match(panel, /if\(chosen\.type==='adb_command'\)/);
+  assert.match(panel, /if\(frozen\.value\.type==='adb_command'\)/);
+  assert.match(panel, /await sendFrozen\(mine,owner,id,original,payload\)/);
+  assert.match(panel, /phase==='failed'/);
+  assert.match(preflight, /'adb_command'/);
+});

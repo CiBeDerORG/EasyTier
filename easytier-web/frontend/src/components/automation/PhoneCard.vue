@@ -197,10 +197,11 @@ async function openCardTrial(stepId: string, acknowledgedUnknown = false) {
     if (props.repairContext?.stepId === stepId && props.repairContext.resultState === 'outcome_unknown' && !acknowledgedUnknown){
         showTrialToast('error','上次试跑结果尚未确认，请从执行记录只读核对，避免重复点击。');return;
     }
-    if (!props.runnerAvailable || props.recording || !!props.syncRole || !!props.unlocking ||
-        !!props.editingStepId || !props.device.target_fingerprint ||
+    // Do not silently discard ▶ clicks due to editing, recording or a
+    // potentially stale local runner flag. The run API owns admission.
+    if (!props.device.target_fingerprint ||
         !props.draft.steps.some(item => item.id === stepId)){
-        showTrialToast('error','当前手机尚不满足单步试跑条件：请检查执行器、录制状态、步骤编辑和设备连接。');return;
+        showTrialToast('error','未找到当前步骤或手机绑定已失效。');return;
     }
     // T40: the trial window is teleported into the original phone-screen.
     // Never exit fullscreen or replace its WebRTC stream to start one step.
@@ -1147,7 +1148,6 @@ onBeforeUnmount(() => {
             :step="trialStep" :preview-handle="getTrialPreviewHandle"
             :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
             :runner-available="runnerAvailable"
-            :blocked="!!recording || !!syncRole || !!unlocking || !!editingStepId"
             @progress="onTrialProgress" @finished="finishCardTrial"
             @cleanup="emit('force-cleanup',device.id)"
             @close="trialStepId = null; trialInspectOpen = false"

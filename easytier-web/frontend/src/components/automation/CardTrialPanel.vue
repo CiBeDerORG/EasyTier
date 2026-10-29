@@ -237,16 +237,15 @@ function valid(mine:number, owner:number, deviceId:string, original:string):bool
         props.device.target_fingerprint===targetFingerprint.value &&
         inlineStepIntentStillCurrent(lockedIntent.value,owner,deviceId,
             props.device.target_fingerprint,props.step) &&
-        !!props.step && JSON.stringify(props.step)===original && !props.blocked;
+        !!props.step && JSON.stringify(props.step)===original;
 }
 function checkReadyToPrepare(): string | null {
-    if(!props.runnerAvailable)return '执行器当前不可用。';
-    if(props.blocked)return '请先退出录制、群控或当前未保存步骤编辑。';
     if(!targetFingerprint.value || !props.device.connection.enabled || props.device.availability_reason)
         return '目标设备绑定无效，请检查 ADB 服务。';
     if(!usable.value)return '此步骤尚未配置完整、是条件分支节点或包含不安全的字面输入。';
     const handle=props.previewHandle();
-    if(!handle.getSessionId() || handle.getState().phase!=='live')
+    if(frozen.value?.type!=='adb_command' &&
+        (!handle.getSessionId() || handle.getState().phase!=='live'))
         return '请先打开本机卡片原实时画面。';
     return null;
 }
@@ -266,6 +265,23 @@ async function prepare(){
     warning.value='';
     compatibilityReview.value=null;
     try {
+        // Pure ADB shell steps do not use UiAutomator2, screen geometry or
+        // the preview session. Submit the frozen step to the ordinary run API;
+        // the server and executor remain authoritative for task occupancy,
+        // authorization, command policy and actual ADB execution.
+        if(chosen.type==='adb_command'){
+            phase.value='preparing';
+            const latest=(await api.devices(owner)).items.find(item=>item.id===id);
+            if(!valid(mine,owner,id,source))return;
+            if(!latest || latest.owner_user_id!==owner ||
+                latest.target_fingerprint!==targetFingerprint.value ||
+                !latest.connection.enabled || latest.availability_reason || latest.run_occupied)
+                throw new Error('目标手机不可用、绑定已变化或存在未结束任务。');
+            compatibilityReview.value=statelessCompatibility(owner,latest,[chosen]);
+            phase.value='ready';
+            void submit();
+            return;
+        }
         phase.value='releasing';
         const handle=props.previewHandle();
         const sid=handle.getSessionId();
@@ -351,6 +367,13 @@ async function submit(){
     phase.value='submitting';warning.value='';
     try{
         if(!valid(mine,owner,id,original))throw new Error('提交前账号、设备或脚本步骤发生变化。');
+        // The ADB-only path already checked this device in prepare().
+        // Do not repeat hierarchy/preview checks that cannot validate a shell
+        // command. create_run() performs authoritative admission atomically.
+        if(frozen.value.type==='adb_command'){
+            await sendFrozen(mine,owner,id,original,payload);
+            return;
+        }
         const latest=await api.devices(owner);
         if(!valid(mine,owner,id,original))return;
         const row=latest.items.find(item=>item.id===id);
@@ -571,7 +594,7 @@ onBeforeUnmount(()=>{
 </script>
 
 <template>
-    <AutomationFloatingDialog :visible="visible && (!headless || phase==='unknown' || (phase==='ready' && !!parameter && !parameterValue) || (trialDiagnosis !== null && trialDiagnosis.count !== 1))" :portal-target="portalTarget"
+    <AutomationFloatingDialog :visible="visible && (!headless || phase==='unknown' || phase==='failed' || (phase==='ready' && !!parameter && !parameterValue) || (trialDiagnosis !== null && trialDiagnosis.count !== 1))" :portal-target="portalTarget"
         :fullscreen="fullscreen" title="卡片单步骤试跑"
         :closable="!busy || phase === 'preparing'" @close="hide">
         <div class="card-trial-content">
