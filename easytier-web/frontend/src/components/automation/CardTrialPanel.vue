@@ -129,7 +129,7 @@ const usable=computed(()=>!!frozen.value && !!frozen.value.id &&
     safety.value!=='unsupported' && !(frozen.value.type==='key' && !frozen.value.key) &&
     !(frozen.value.type==='input_text' && !frozen.value.parameter));
 const started=computed(()=>!!result.run.value || !!pending.value);
-const label=computed(()=>frozen.value ? cardStepLabels[frozen.value.type] : '未选择步骤');
+const label=computed(()=>frozen.value ? (frozen.value.title?.trim() || cardStepLabels[frozen.value.type]) : '未选择步骤');
 const inlineStatus=computed<InlineStepRunProgress|null>(() => {
     const intent=lockedIntent.value;
     if(!props.visible || !intent) return null;
