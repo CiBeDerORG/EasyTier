@@ -880,7 +880,7 @@ onBeforeUnmount(() => {
                         <i :class="phoneConnection === 'connecting' ? 'pi pi-spin pi-spinner' : 'pi pi-link'" aria-hidden="true" />
                     </button>
                 </span>
-                <span v-if="executorTaskStatus?.has_tasks || device.run_occupied || device.active_session"
+                <span v-if="(executorTaskStatus?.has_tasks || device.run_occupied || device.active_session) && session.state.phase === 'live' "
                     class="card-action-tip"
                     :title="executorTaskStatus?.has_tasks
                         ? '清除执行器任务：' + (executorTaskStatus?.task_count ?? 0) + ' 条；停止该设备下所有未确认任务与残留工作进程'
@@ -913,6 +913,15 @@ onBeforeUnmount(() => {
             <div v-if="session.state.phase !== 'live'" class="screen-placeholder">
                 <i :class="pending ? 'pi pi-spin pi-spinner' : 'pi pi-mobile'" aria-hidden="true" />
                 <span>{{ t(session.state.phase) }}</span>
+                <Button v-if="executorTaskStatus?.has_tasks || device.run_occupied"
+                    :label="forceCleanupBusy ? '正在清除执行器任务' : t('clearExecutorTasks')"
+                    icon="pi pi-stop-circle" size="small" severity="danger"
+                    :loading="forceCleanupBusy"
+                    :disabled="!runnerAvailable || forceCleanupBusy || batchVideoProtected"
+                    @click="emit('force-cleanup',device.id)" />
+                <small v-if="executorTaskStatus?.state === 'query_failed' && device.run_occupied">
+                    {{ t('executorTasksQueryFailed') }}：{{ executorTaskStatus.message }}
+                </small>
                 <Button v-if="canOpen" :label="t('open')" icon="pi pi-play" size="small" @click="emit('toggle-screen', device.id)" />
                 <Button v-if="session.state.phase === 'cleanup_pending'" :label="t('clearResources')" icon="pi pi-refresh" size="small" severity="warn" :disabled="batchVideoProtected" @click="close().then(() => emit('refresh'))" />
                 <Button v-if="device.active_session && !pending && session.state.phase !== 'cleanup_pending'" :label="t('cleanupSaved')" icon="pi pi-stop" size="small" severity="warn" :loading="cleaningSaved" :disabled="batchVideoProtected" @click="cleanupSaved" />
