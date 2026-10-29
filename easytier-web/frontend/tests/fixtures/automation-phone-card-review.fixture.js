@@ -5,6 +5,7 @@
  */
 import { createApp, h, computed, nextTick, reactive, ref } from 'vue';
 import PrimeVue from 'primevue/config';
+import ToastService from 'primevue/toastservice';
 import { createI18n } from 'vue-i18n';
 import PhoneCard from '../../src/components/automation/PhoneCard.vue';
 import { emptyAutomationDraft } from '../../src/modules/automation-draft.ts';
@@ -153,5 +154,6 @@ const App={
 };
 const app=createApp(App);
 app.use(PrimeVue);
+app.use(ToastService);
 app.use(createI18n({legacy:false,locale:'zh',fallbackLocale:'zh',messages:{zh:{}}}));
 app.mount('#app');
