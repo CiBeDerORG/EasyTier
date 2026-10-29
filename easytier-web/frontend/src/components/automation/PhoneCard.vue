@@ -880,14 +880,16 @@ onBeforeUnmount(() => {
                         <i :class="phoneConnection === 'connecting' ? 'pi pi-spin pi-spinner' : 'pi pi-link'" aria-hidden="true" />
                     </button>
                 </span>
-                <span v-if="executorTaskStatus?.has_tasks || device.run_occupied"
+                <span v-if="executorTaskStatus?.has_tasks || device.run_occupied || device.active_session"
                     class="card-action-tip"
                     :title="executorTaskStatus?.has_tasks
                         ? '清除执行器任务：' + (executorTaskStatus?.task_count ?? 0) + ' 条；停止该设备下所有未确认任务与残留工作进程'
-                        : '清除该设备的执行器任务及服务端残留占用'">
+                        : device.run_occupied
+                            ? '清除该设备的执行器任务及服务端残留占用'
+                            : '清理该设备的旧会话与残留占用'">
                     <button type="button" class="card-icon force-cleanup-icon"
                         :disabled="!runnerAvailable || forceCleanupBusy"
-                        :aria-label="forceCleanupBusy ? '正在清除执行器任务' : '清除执行器任务'"
+                        :aria-label="forceCleanupBusy ? '正在清理本机自动化占用' : executorTaskStatus?.has_tasks ? '清除执行器任务' : '强制清理本机自动化占用'"
                         @click="emit('force-cleanup',device.id)">
                         <i :class="forceCleanupBusy ? 'pi pi-spin pi-spinner' : 'pi pi-stop-circle'" aria-hidden="true"/>
                     </button>
