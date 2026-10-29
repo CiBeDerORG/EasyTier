@@ -940,20 +940,27 @@ fn has_compose_variable(value: &str, key: &str) -> bool {
         .and_then(|start| value[start..].find('}')).is_some()
 }
 
+fn compose_variable_pattern(key: &str) -> String {
+    format!(r"\$\{{{}(?::[^}}]*)?\}}", regex::escape(key))
+}
+
 fn compose_port_matches(entry: &Value, port: &PortSpec) -> bool {
     if let Some(text) = entry.as_str() {
-        let target = port.container_port.to_string();
-        let target_suffix = format!(":{target}");
-        let protocol_suffix = format!(":{target}/{}", port.protocol);
-        let suffix_matches = if port.protocol == "tcp" {
-            text.ends_with(&target_suffix) || text.ends_with(&protocol_suffix)
+        let mut expected = String::new();
+        if let Some(bind) = port.bind_address_key.as_deref() {
+            expected.push_str(&compose_variable_pattern(bind));
+            expected.push(':');
+        }
+        expected.push_str(&compose_variable_pattern(&port.host_port_key));
+        expected.push(':');
+        expected.push_str(&port.container_port.to_string());
+        if port.protocol == "tcp" {
+            expected.push_str("(?:/tcp)?");
         } else {
-            text.ends_with(&protocol_suffix)
-        };
-        if !suffix_matches { return false; }
-        if !has_compose_variable(text, &port.host_port_key) { return false; }
-        return port.bind_address_key.as_deref()
-            .is_none_or(|key| has_compose_variable(text, key));
+            expected.push_str("/udp");
+        }
+        return regex::Regex::new(&format!("^{expected}$"))
+            .is_ok_and(|pattern| pattern.is_match(text));
     }
     let Some(map) = entry.as_object() else { return false };
     let target_matches = map.get("target").is_some_and(|v|
