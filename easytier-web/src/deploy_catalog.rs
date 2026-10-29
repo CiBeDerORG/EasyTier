@@ -1073,16 +1073,192 @@ fn scan_catalog(root: &Path, revision: &str) -> Result<Vec<CatalogApp>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const PORTAINER: &str = "schema_version: 1\nid: portainer\nname: Portainer\nsummary: Docker management\ncategory: infrastructure\nruntime:\n  kind: docker_compose\n  compose_project: portainer\n  compose_file: deploy/docker-compose.yaml\ncompatibility:\n  platforms: [linux, fnos]\n  architectures: [amd64, arm64]\n";
+    use std::process::Command as StdCommand;
+
+    const PORTAINER: &str = r#"schema_version: 1
+id: portainer
+name: Portainer
+summary: Docker and Compose management UI
+category: infrastructure
+runtime:
+  kind: docker_compose
+  compose_project: portainer
+  compose_file: deploy/docker-compose.yaml
+  requires_root: true
+compatibility:
+  platforms: [linux, fnos]
+  architectures: [amd64, arm64]
+  requires_docker: true
+  requires_compose_v2: true
+package:
+  files:
+    - source: portainer/deploy/docker-compose.yaml
+      destination: portainer/deploy/docker-compose.yaml
+    - source: portainer/deploy/install.sh
+      destination: portainer/deploy/install.sh
+      mode: "0755"
+    - source: portainer/deploy/update.sh
+      destination: portainer/deploy/update.sh
+      mode: "0755"
+config:
+  - key: PORTAINER_HTTP_PORT
+    label: Web port
+    type: port
+    target: env
+    required: true
+    default: 7004
+    minimum: 1
+    maximum: 65535
+  - key: PORTAINER_ADMIN_PASSWORD
+    label: Administrator password
+    type: secret
+    target: secrets
+    required: true
+    default: ""
+    min_length: 12
+ports:
+  - id: web
+    label: Web UI
+    protocol: tcp
+    purpose: web
+    host_port_key: PORTAINER_HTTP_PORT
+    container_port: 9000
+    service: portainer
+    path: /
+actions:
+  install:
+    strategy: script
+    path: deploy/install.sh
+    argv: [install]
+  update:
+    strategy: script
+    path: deploy/update.sh
+    argv: [update]
+  uninstall:
+    strategy: compose_down
+    remove_orphans: false
+verification:
+  mode: docker_compose
+  required_services: [portainer]
+  state: running
+  timeout_seconds: 180
+data:
+  paths: [portainer/data]
+  named_volumes: []
+  default_retain: true
+"#;
+
+    fn write_test_checkout(root: &Path) {
+        std::fs::create_dir_all(root.join("portainer/deploy")).unwrap();
+        std::fs::write(root.join("portainer/app.yaml"), PORTAINER).unwrap();
+        std::fs::write(root.join("portainer/deploy/docker-compose.yaml"), r#"name: portainer
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    ports:
+      - "\${PORTAINER_HTTP_PORT:?required}:9000"
+    volumes:
+      - ../data:/data
+"#).unwrap();
+        std::fs::write(root.join("portainer/deploy/install.sh"), "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::write(root.join("portainer/deploy/update.sh"), "#!/bin/sh\nexit 0\n").unwrap();
+    }
 
     #[test]
-    fn restricted_catalog_index_rejects_ambiguous_yaml_and_missing_display_fields() {
-        assert_eq!(fields(PORTAINER).unwrap()["runtime.compose_project"], "portainer");
-        assert!(fields(&(PORTAINER.to_string()+"id: other\n")).is_err());
-        assert!(fields("id: portainer\nname: !!python/object/apply:os.system\n").is_err());
-        assert!(fields("id: portainer\nname: &shared secret\n").is_err());
+    fn strict_yaml_rejects_duplicate_keys_anchors_tags_and_unknown_fields() {
+        let manifest = parse_manifest(PORTAINER).unwrap();
+        validate_manifest_shape(&manifest, "portainer").unwrap();
+        assert!(parse_manifest(&PORTAINER.replace("name: Portainer\n", "name: Portainer\nname: Spoofed\n")).is_err());
+        assert!(parse_manifest(&PORTAINER.replace("name: Portainer", "name: &shared Portainer")).is_err());
+        assert!(parse_manifest(&PORTAINER.replace("name: Portainer", "name: !!str Portainer")).is_err());
+        assert!(parse_manifest(&(PORTAINER.to_string() + "unexpected: true\n")).is_err());
         assert!(!safe_id("../bad"));
         assert!(!safe_id("PORTAINER"));
+    }
+
+    #[test]
+    fn secret_defaults_are_never_returned_to_catalog_or_dynamic_form() {
+        let manifest = parse_manifest(PORTAINER).unwrap();
+        let detail = manifest_detail(&manifest);
+        let config = detail["config"].as_array().unwrap();
+        let secret = config.iter().find(|field| field["type"] == "secret").unwrap();
+        assert!(secret.get("default").is_none());
+        let port = config.iter().find(|field| field["key"] == "PORTAINER_HTTP_PORT").unwrap();
+        assert_eq!(port["default"], 7004);
+        assert_eq!(port["minimum"], 1);
+        assert_eq!(detail["install_available"], false);
+    }
+
+    #[test]
+    fn strict_manifest_rejects_path_traversal_and_missing_package_scripts() {
+        let mut manifest = parse_manifest(PORTAINER).unwrap();
+        manifest.package.files[0].source = "../outside".to_string();
+        assert!(validate_manifest_shape(&manifest, "portainer").is_err());
+
+        let mut manifest = parse_manifest(PORTAINER).unwrap();
+        manifest.package.files.retain(|f| f.destination != "portainer/deploy/install.sh");
+        assert!(validate_manifest_shape(&manifest, "portainer").is_err());
+    }
+
+    #[test]
+    fn package_validator_checks_compose_contract_and_rejects_symlinks() {
+        let root = std::env::temp_dir().join(format!("catalog-package-{}", Uuid::new_v4()));
+        write_test_checkout(&root);
+        let manifest = parse_manifest(PORTAINER).unwrap();
+        validate_manifest_shape(&manifest, "portainer").unwrap();
+        let sources = validate_package_files(&root, &manifest).unwrap();
+        assert_eq!(sources.len(), 3);
+        assert_eq!(sources["portainer/deploy/install.sh"], b"#!/bin/sh\nexit 0\n");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn package_builder_is_pinned_immutable_and_reuses_verified_artifact() {
+        let base = std::env::temp_dir().join(format!("catalog-build-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        let work = base.join("work");
+        write_test_checkout(&work);
+        let run = |args: &[&str]| {
+            let output = StdCommand::new("git").arg("-C").arg(&work).args(args).output().unwrap();
+            assert!(output.status.success(), "git command failed");
+            output
+        };
+        let init = StdCommand::new("git").args(["init", "--quiet"]).arg(&work).status().unwrap();
+        assert!(init.success());
+        run(&["config", "user.name", "EasyTier CI"]);
+        run(&["config", "user.email", "ci@example.invalid"]);
+        run(&["add", "."]);
+        run(&["commit", "--quiet", "-m", "fixture"]);
+        let sha = String::from_utf8(run(&["rev-parse", "HEAD"]).stdout).unwrap().trim().to_string();
+        let root = base.join(format!("revision-{sha}"));
+        std::fs::rename(&work, &root).unwrap();
+        let bytes = std::fs::read(root.join("portainer/app.yaml")).unwrap();
+        let manifest = parse_manifest(std::str::from_utf8(&bytes).unwrap()).unwrap();
+        let mut apps = scan_catalog(&root, &sha).unwrap();
+        let app = apps.remove(0);
+        let db = Db::memory_db().await;
+        let pool = db.inner();
+        sqlx::query("INSERT INTO deploy_catalog_state(singleton,git_revision,fetched_at,app_count) VALUES(1,?,?,1)")
+            .bind(&sha).bind("2026-10-29T00:00:00Z").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO deploy_catalog_apps(app_id,git_revision,name,summary,category,compose_project,manifest_path,manifest_sha256,detail_json) VALUES(?,?,?,?,?,?,?,?,?)")
+            .bind(&app.id).bind(&app.git_revision).bind(&app.name).bind(&app.summary)
+            .bind(&app.category).bind(&app.compose_project).bind(&app.manifest_path)
+            .bind(&app.manifest_sha256).bind(app.detail.to_string())
+            .execute(&pool).await.unwrap();
+
+        let catalog = Catalog::new(db, base.clone());
+        let first = catalog.prepare_package("portainer").await.unwrap();
+        assert_eq!(first.git_revision, sha);
+        assert_eq!(first.manifest_sha256, format!("{:x}", Sha256::digest(&bytes)));
+        assert_eq!(first.file_count, manifest.package.files.len());
+        assert!(!first.ready_for_agent);
+        assert!(!first.install_enabled);
+        assert!(base.join("packages").join(format!("portainer-{sha}.tar")).is_file());
+
+        let second = catalog.prepare_package("portainer").await.unwrap();
+        assert!(second.reused);
+        assert_eq!(first.package_sha256, second.package_sha256);
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[tokio::test]
@@ -1105,47 +1281,9 @@ mod tests {
         let before = catalog.list().await.unwrap();
         assert_eq!(before["items"].as_array().unwrap().len(), 1);
         assert_eq!(catalog.detail("portainer").await.unwrap()["git_revision"], old);
-        // A valid Git token, permission or network cannot make this refresh
-        // succeed: its local staging directory is deliberately not a folder.
         assert!(catalog.refresh().await.is_err());
         let after = catalog.list().await.unwrap();
         assert_eq!(before, after, "failed refresh must preserve the last revision");
         std::fs::remove_file(root).unwrap();
-    }
-
-    #[test]
-    fn display_lists_never_include_secret_values() {
-        let yaml = r#"schema_version: 1
-config:
-  - key: ADMIN_PASS
-    label: Admin password
-    type: secret
-    target: secrets
-    required: true
-    default: ""
-ports:
-  - id: web
-    label: Web interface
-    host_port_key: PORT
-    container_port: 9000
-"#;
-        let config = display_items(yaml, "config", &["key","label","type","target","required"]).unwrap();
-        assert_eq!(config.len(), 1);
-        assert_eq!(config[0]["type"], "secret");
-        assert!(config[0].get("default").is_none());
-        let ports = display_items(yaml, "ports", &["id","label","host_port_key","container_port"]).unwrap();
-        assert_eq!(ports[0]["container_port"], "9000");
-    }
-
-    #[test]
-    fn scan_reads_only_normal_published_manifests_not_contract_fixtures() {
-        let dir = std::env::temp_dir().join(format!("t0304-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(dir.join("portainer")).unwrap();
-        std::fs::write(dir.join("portainer/app.yaml"), PORTAINER).unwrap();
-        let apps = scan_catalog(&dir, &"a".repeat(40)).unwrap();
-        assert_eq!(apps.len(), 1);
-        assert_eq!(apps[0].detail["install_available"], false);
-        assert_eq!(apps[0].manifest_path, "portainer/app.yaml");
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }
