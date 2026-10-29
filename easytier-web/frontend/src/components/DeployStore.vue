@@ -250,6 +250,8 @@ onBeforeUnmount(() => { disposed = true; ++requestId; });
                 <div><strong>{{ cn ? '分类' : 'Category' }}</strong><span>{{ categoryLabel(selected.category) }}</span></div>
                 <div><strong>Compose</strong><span class="mono-value">{{ selected.compose_project }}</span></div>
                 <div><strong>{{ cn ? '运行方式' : 'Runtime' }}</strong><span>{{ selected.detail.runtime_kind }}</span></div>
+                <div><strong>{{ cn ? '支持平台' : 'Platforms' }}</strong><span>{{ selected.detail.platforms.join(', ') }}</span></div>
+                <div><strong>{{ cn ? '支持架构' : 'Architectures' }}</strong><span>{{ selected.detail.architectures.join(', ') }}</span></div>
                 <div><strong>{{ cn ? '清单路径' : 'Manifest' }}</strong><span class="mono-value">{{ selected.manifest_path }}</span></div>
                 <div><strong>{{ cn ? '模板校验摘要' : 'Manifest SHA-256' }}</strong><span class="mono-value store-hash">{{ selected.manifest_sha256 }}</span></div>
                 <div><strong>{{ cn ? '源代码版本' : 'Source revision' }}</strong><span class="mono-value store-hash">{{ selected.git_revision }}</span></div>
@@ -268,13 +270,68 @@ onBeforeUnmount(() => { disposed = true; ++requestId; });
                 </div>
             </div>
             <div v-if="selected.detail.config?.length" class="store-definition">
-                <h3>{{ cn ? '配置参数（仅展示定义，不读取实际值）' : 'Configuration definitions (values are never loaded)' }}</h3>
-                <div v-for="field in selected.detail.config" :key="field.key" class="store-definition-row">
-                    <span><strong>{{ field.label || field.key }}</strong><small class="mono-value"> {{ field.key }}</small></span>
-                    <Tag :severity="field.type === 'secret' ? 'warn' : 'secondary'" :value="field.type === 'secret' ? (cn ? '敏感配置' : 'Secret') : field.type" />
+                <h3>{{ cn ? '动态安装配置表单' : 'Dynamic installation configuration' }}</h3>
+                <Message severity="info" :closable="false">
+                    {{ cn ? '字段来自固定版本 app.yaml。值仅暂存在当前页面内存；生成部署包不会提交或保存任何配置值，密码不会预填。' : 'Fields are generated from the pinned app.yaml. Values stay in this page memory only; package preparation does not submit or save them. Secrets are never prefilled.' }}
+                </Message>
+                <div class="install-form">
+                    <div v-for="field in selected.detail.config" :key="field.key" class="install-field">
+                        <label :for="'deploy-config-' + field.key">
+                            {{ field.label }} <span v-if="field.required" class="required-mark">*</span>
+                        </label>
+                        <small class="mono-value">{{ field.key }} · {{ field.target }}</small>
+                        <p v-if="field.description" class="field-description">{{ field.description }}</p>
+                        <Checkbox v-if="field.type === 'boolean'"
+                            :inputId="'deploy-config-' + field.key"
+                            v-model="formValues[field.key]" binary
+                            :disabled="working || field.editable === false" />
+                        <InputNumber v-else-if="field.type === 'number' || field.type === 'port'"
+                            :inputId="'deploy-config-' + field.key"
+                            v-model="formValues[field.key]"
+                            :min="field.minimum ?? (field.type === 'port' ? 1 : undefined)"
+                            :max="field.maximum ?? (field.type === 'port' ? 65535 : undefined)"
+                            :useGrouping="false" fluid
+                            :disabled="working || field.editable === false"
+                            :aria-invalid="Boolean(formErrors[field.key])" />
+                        <InputText v-else
+                            :id="'deploy-config-' + field.key"
+                            v-model="formValues[field.key]"
+                            :type="field.type === 'secret' ? 'password' : 'text'"
+                            :autocomplete="field.type === 'secret' ? 'new-password' : 'off'"
+                            :maxlength="field.max_length ?? undefined"
+                            :placeholder="field.type === 'secret'
+                                ? (field.generated_by_script ? (cn ? '留空由安装脚本生成' : 'Leave blank to generate securely') : (cn ? '请输入，不会预填' : 'Enter value; never prefilled'))
+                                : (field.default !== undefined ? String(field.default) : '')"
+                            :disabled="working || field.editable === false"
+                            :aria-invalid="Boolean(formErrors[field.key])" />
+                        <small v-if="field.minimum !== undefined || field.maximum !== undefined" class="field-hint">
+                            {{ cn ? '允许范围' : 'Allowed range' }}: {{ field.minimum ?? '—' }} – {{ field.maximum ?? '—' }}
+                        </small>
+                        <small v-if="field.min_length !== undefined || field.max_length !== undefined" class="field-hint">
+                            {{ cn ? '字符长度' : 'Length' }}: {{ field.min_length ?? 0 }} – {{ field.max_length ?? '∞' }}
+                        </small>
+                        <small v-if="field.pattern" class="field-hint">
+                            {{ cn ? '此格式约束会在后端实际安装阶段再次校验。' : 'This format constraint will be revalidated by the backend before installation.' }}
+                        </small>
+                        <small v-if="formErrors[field.key]" class="form-error" role="alert">{{ formErrors[field.key] }}</small>
+                    </div>
                 </div>
+                <Button icon="pi pi-shield" :loading="preparing" :disabled="working"
+                    :label="cn ? '校验表单并准备固定版本包' : 'Validate form and prepare pinned package'"
+                    @click="preparePackage" />
             </div>
-            <Message severity="warn" :closable="false">{{ cn ? '安装操作尚未开放：固定版本打包、签名/摘要及 Agent 安全执行由后续任务实现。' : 'Installation is unavailable until pinned package verification and secure Agent execution are implemented.' }}</Message>
+            <div v-if="packageResult" class="store-definition package-result" role="status">
+                <h3>{{ cn ? '固定版本部署包已准备' : 'Pinned package prepared' }}</h3>
+                <div class="store-definition-row"><strong>{{ cn ? '源版本' : 'Source revision' }}</strong><span class="mono-value">{{ packageResult.git_revision }}</span></div>
+                <div class="store-definition-row"><strong>SHA-256</strong><span class="mono-value store-hash">{{ packageResult.package_sha256 }}</span></div>
+                <div class="store-definition-row"><strong>{{ cn ? '包大小' : 'Package size' }}</strong><span>{{ (packageResult.package_size / 1024 / 1024).toFixed(2) }} MiB</span></div>
+                <div class="store-definition-row"><strong>{{ cn ? '文件数' : 'Files' }}</strong><span>{{ packageResult.file_count }}</span></div>
+                <div class="store-definition-row"><strong>{{ cn ? '构建时间' : 'Built at' }}</strong><span>{{ displayTime(packageResult.built_at) }}</span></div>
+                <Message severity="warn" :closable="false">
+                    {{ cn ? '这是只读、不可变的包预览，不是安装授权。表单值尚未上传；不会执行脚本、启动容器或修改设备。' : 'This is an immutable package preview, not an install authorization. Form values were not uploaded; no script, container or device was changed.' }}
+                </Message>
+            </div>
+            <Message severity="warn" :closable="false">{{ cn ? '实际安装仍未开放：后续任务将把表单值绑定到受控 Agent 执行链路，并再次验证包签名/摘要与设备授权。' : 'Actual installation remains disabled. A later task will bind form values to the controlled Agent flow and revalidate package integrity and device authorization.' }}</Message>
         </section>
     </section>
 </template>
@@ -298,6 +355,13 @@ onBeforeUnmount(() => { disposed = true; ++requestId; });
 .store-facts > div { display: flex; gap: 1rem; justify-content: space-between; border-bottom: 1px solid var(--p-content-border-color); padding-bottom: .35rem; }
 .store-facts strong { flex: 0 0 auto; }
 .store-hash { overflow-wrap: anywhere; text-align: right; }
+.install-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+.install-field { display: flex; flex-direction: column; align-items: stretch; gap: .4rem; min-width: 0; }
+.install-field label { font-weight: 600; }
+.install-field input { width: 100%; }
+.field-description, .field-hint { color: var(--p-text-muted-color); margin: 0; font-size: .85rem; }
+.required-mark, .form-error { color: var(--p-red-500); }
+.package-result { border: 1px solid var(--p-content-border-color); border-radius: .5rem; padding: 1rem; }
 .store-definition { display: grid; gap: .45rem; }
 .store-definition h3 { margin: .5rem 0; }
 .store-definition-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; border-bottom: 1px solid var(--p-content-border-color); padding: .45rem 0; }
