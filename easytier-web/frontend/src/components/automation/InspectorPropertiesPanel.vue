@@ -155,7 +155,7 @@ function title(node: AutomationHierarchyNode) {
                                     <span>{{ item.label }} · {{ item.unique ? '唯一' : '匹配 ' + item.matches + ' 个' }}</span>
                                     <small>{{ selectedCandidate === item.id ? '已选为过滤条件' : '可选择，运行时查看实际匹配' }}</small>
                                 </button>
-                                <small>允许选择匹配多个控件的候选；不保存 instance 序号，运行时会展示真实匹配列表。</small>
+                                <small>可先选择匹配多个控件的候选；确认录入时通过属性对比缩小至唯一目标。</small>
                             </div>
 
                         </details>
@@ -181,7 +181,7 @@ function title(node: AutomationHierarchyNode) {
                         <div v-if="replaceStep" class="step-actions">
                             <Button label="更新当前步骤控件" icon="pi pi-check" size="small"
                                 :disabled="!canReplace" @click="emit('replace-target')" />
-                            <small v-if="activeMode && !activeMode.unique" class="hint">请设置有效的定位条件，无需在录入时确保唯一。</small>
+                            <small v-if="activeMode && !activeMode.unique" class="hint">当前条件尚未唯一命中；确认时将打开属性对比帮助继续过滤。</small>
                             <small v-if="mode === 'xpath' && ['input_text', 'assert_property'].includes(replaceStep.type)" class="hint">此动作只支持组合控件定位，请选择 Resource ID、文字或组合条件。</small>
                             <small v-if="mode === 'coordinates' && !['tap', 'long_press'].includes(replaceStep.type)" class="hint">当前步骤必须使用唯一控件定位，不能使用画面坐标。</small>
                         </div>
@@ -191,7 +191,7 @@ function title(node: AutomationHierarchyNode) {
                                 <small>先确认控件定位条件，再录入脚本；不会直接操作手机。</small>
                                 <Button :label="'确认录入 · ' + actionLabel[preferredAction]" icon="pi pi-check" size="small"
                                     :disabled="!preferredEnabled" @click="emit('add-step', preferredAction)" />
-                                <small v-if="!preferredEnabled">请先选择有效的过滤条件；多个匹配可录入，使用坐标需手动确认。</small>
+                                <small v-if="!preferredEnabled">先选择有效条件；确认录入时如果命中多个，将弹出对比列表直至唯一。</small>
                             </div>
                             <div class="other-step-actions">
                                 <small v-if="preferredAction">或选择其他操作</small>
