@@ -330,10 +330,30 @@ impl Catalog {
         }
         let apps = scan_catalog(stage, &sha)?;
         if apps.is_empty() { return Err(Error::Invalid("No published app.yaml manifests")); }
-        // Retain immutable local checkouts. Existing revisions are never
-        // overwritten; a failed clone/scan does not affect the previous index.
-        let destination = self.base.join(format!("revision-{}", Uuid::new_v4()));
-        tokio::fs::rename(stage, &destination).await.map_err(|_| Error::Storage)?;
+        // One immutable checkout per commit lets T03-07 rebuild a package
+        // from the exact revision recorded in SQLite, never from moving main.
+        let destination = self.base.join(format!("revision-{sha}"));
+        match tokio::fs::symlink_metadata(&destination).await {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() || !meta.is_dir() {
+                    return Err(Error::Storage);
+                }
+                let existing = timeout(Duration::from_secs(10),
+                    Command::new("git").arg("-C").arg(&destination).args(["rev-parse", "HEAD"])
+                        .env("GIT_CONFIG_NOSYSTEM","1").env("GIT_CONFIG_GLOBAL","/dev/null")
+                        .kill_on_drop(true).output()
+                ).await.map_err(|_| Error::Storage)?.map_err(|_| Error::Storage)?;
+                let existing_sha = String::from_utf8(existing.stdout).map_err(|_| Error::Storage)?;
+                if !existing.status.success() || existing_sha.trim() != sha {
+                    return Err(Error::PackageConflict);
+                }
+                tokio::fs::remove_dir_all(stage).await.map_err(|_| Error::Storage)?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tokio::fs::rename(stage, &destination).await.map_err(|_| Error::Storage)?;
+            }
+            Err(_) => return Err(Error::Storage),
+        }
         let pool = self.db.inner();
         let mut tx = pool.begin().await.map_err(|_| Error::Storage)?;
         sqlx::query("DELETE FROM deploy_catalog_apps").execute(&mut *tx).await
