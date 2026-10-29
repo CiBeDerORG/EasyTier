@@ -14,8 +14,8 @@ test('OFFLINE-01 empty authorized script draft has a valid edit structure',()=>{
     assert.equal(analyzeAutomationFlow(draft.steps).problem,undefined);
 });
 test('OFFLINE-02 action selector stays enabled even after force cleanup or unknown run',()=>{
-    assert.match(timeline,/<Select\b[^>]*v-model="insertType"/);
-    assert.match(timeline,/:append-to="overlayTarget \?\? 'self'"/);
+    assert.match(timeline,/<AutomationInlineSelect :model-value="insertType"/);
+    assert.match(timeline,/class="insert-action-select"/);
     assert.doesNotMatch(timeline,/<select[^>]*:disabled=/);
     assert.match(timeline,/const blocked=computed\(\(\)=>!!layout\.value\.problem\)/);
     assert.doesNotMatch(card,/:structure-locked=/);

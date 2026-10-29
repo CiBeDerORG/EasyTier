@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Checkbox, InputNumber, InputText, Select, Textarea } from 'primevue';
+import { Checkbox, InputNumber, InputText, Textarea } from 'primevue';
+import AutomationInlineSelect from './AutomationInlineSelect.vue';
 import { useI18n } from 'vue-i18n';
 import type { AutomationKey, AutomationSelector, AutomationStep, AutomationStepType } from '../../types/automation';
 
@@ -162,27 +163,27 @@ function updateNumber(key: string, value: number | null | undefined) {
 
 <template>
     <div class="step-editor">
-        <label class="field" :for="fieldId('type')">
+        <div class="field" :for="fieldId('type')">
             <span>{{ text('操作类型', 'Action') }}</span>
-            <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('type')" :model-value="modelValue.type" :options="actionOptions" option-label="label" option-value="value" :disabled="disabled || lockActionType || ['if_gone','if_else'].includes(modelValue.type)" @update:model-value="changeType" />
-        </label>
+            <AutomationInlineSelect :input-id="fieldId('type')" :model-value="modelValue.type" :options="actionOptions" option-label="label" option-value="value" :disabled="disabled || lockActionType || ['if_gone','if_else'].includes(modelValue.type)" @update:model-value="changeType($event as AutomationStepType)" />
+        </div>
 
         <small v-if="['if_gone','if_else'].includes(modelValue.type)" class="hint">{{ text('条件节点的类型已锁定。需要修改类型时请删除整个条件块后重建。', 'Conditional types are locked. Remove the whole condition block to change the type.') }}</small>
-        <label v-if="modelValue.type === 'key'" class="field" :for="fieldId('key')">
+        <div v-if="modelValue.type === 'key'" class="field" :for="fieldId('key')">
             <span>{{ text('导航按键', 'Navigation key') }}</span>
-            <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('key')" :model-value="modelValue.key" :options="keys" option-label="label" option-value="value" :disabled="disabled" @update:model-value="update({ key: $event as AutomationKey })" />
-        </label>
+            <AutomationInlineSelect :input-id="fieldId('key')" :model-value="modelValue.key" :options="keys" option-label="label" option-value="value" :disabled="disabled" @update:model-value="update({ key: String($event) as AutomationKey })" />
+        </div>
 
-        <label v-if="modelValue.type === 'tap' || modelValue.type === 'long_press'" class="field" :for="fieldId('position')">
+        <div v-if="modelValue.type === 'tap' || modelValue.type === 'long_press'" class="field" :for="fieldId('position')">
             <span>{{ text('定位方式', 'Targeting') }}</span>
-            <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('position')" :model-value="modelValue.selector ? 'element' : 'coordinates'" :options="positionModes" option-label="label" option-value="value" :disabled="disabled" @update:model-value="positionMode" />
-        </label>
+            <AutomationInlineSelect :input-id="fieldId('position')" :model-value="modelValue.selector ? 'element' : 'coordinates'" :options="positionModes" option-label="label" option-value="value" :disabled="disabled" @update:model-value="positionMode(String($event))" />
+        </div>
 
         <template v-if="modelValue.type === 'input_text'">
-            <label class="field" :for="fieldId('input-mode')">
+            <div class="field" :for="fieldId('input-mode')">
                 <span>{{ text('文字来源', 'Text source') }}</span>
-                <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('input-mode')" :model-value="modelValue.parameter !== undefined ? 'parameter' : 'literal'" :options="inputModes" option-label="label" option-value="value" :disabled="disabled" @update:model-value="inputMode" />
-            </label>
+                <AutomationInlineSelect :input-id="fieldId('input-mode')" :model-value="modelValue.parameter !== undefined ? 'parameter' : 'literal'" :options="inputModes" option-label="label" option-value="value" :disabled="disabled" @update:model-value="inputMode(String($event))" />
+            </div>
             <label v-if="modelValue.parameter !== undefined" class="field" :for="fieldId('parameter')">
                 <span>{{ text('参数名称', 'Parameter name') }}</span>
                 <InputText :id="fieldId('parameter')" :model-value="modelValue.parameter" :maxlength="64" :disabled="disabled" autocomplete="off" @update:model-value="update({ parameter: $event ?? '' })" />
@@ -202,12 +203,12 @@ function updateNumber(key: string, value: number | null | undefined) {
 
         <fieldset v-if="modelValue.selector && ['tap', 'long_press', 'input_text', 'wait_for', 'wait_gone', 'if_gone', 'if_else', 'assert', 'assert_property', 'scroll_find'].includes(modelValue.type)" class="selector-fields">
             <legend>{{ text('控件条件（至少填写一项）', 'Element conditions (at least one)') }}</legend>
-            <label class="field" :for="fieldId('selector-mode')">
+            <div class="field" :for="fieldId('selector-mode')">
                 <span>{{ text('定位策略', 'Locator mode') }}</span>
-                <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('selector-mode')" :model-value="modelValue.selector.xpath !== undefined ? 'xpath' : 'native'"
+                <AutomationInlineSelect :input-id="fieldId('selector-mode')" :model-value="modelValue.selector.xpath !== undefined ? 'xpath' : 'native'"
                     :options="selectorModes" option-label="label" option-value="value"
-                    :disabled="disabled || ['input_text', 'assert_property'].includes(modelValue.type)" @update:model-value="changeSelectorMode" />
-            </label>
+                    :disabled="disabled || ['input_text', 'assert_property'].includes(modelValue.type)" @update:model-value="changeSelectorMode(String($event))" />
+            </div>
             <label v-if="modelValue.selector.xpath !== undefined" class="field" :for="fieldId('xpath')">
                 <span>XPath 1.0</span>
                 <Textarea :id="fieldId('xpath')" :model-value="modelValue.selector.xpath" :rows="2" :maxlength="512"
@@ -235,20 +236,20 @@ function updateNumber(key: string, value: number | null | undefined) {
                     <span>{{ text('应用包名', 'Package') }}</span>
                     <InputText :id="fieldId('selector-package')" :model-value="modelValue.selector.package" :maxlength="256" :disabled="disabled" @update:model-value="selectorValue('package', $event)" />
                 </label>
-                <label class="field" :for="fieldId('selector-clickable')">
+                <div class="field" :for="fieldId('selector-clickable')">
                     <span>{{ text('可点击状态', 'Clickable state') }}</span>
-                    <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('selector-clickable')"
+                    <AutomationInlineSelect :input-id="fieldId('selector-clickable')"
                         :model-value="modelValue.selector.clickable === undefined ? 'unset' : modelValue.selector.clickable ? 'true' : 'false'"
                         :options="clickableOptions" option-label="label" option-value="value"
-                        :disabled="disabled" @update:model-value="clickableValue" />
-                </label>
-                <label v-for="field in booleanFields" :key="field.key" class="field" :for="fieldId('selector-' + field.key)">
+                        :disabled="disabled" @update:model-value="clickableValue(String($event))" />
+                </div>
+                <div v-for="field in booleanFields" :key="field.key" class="field" :for="fieldId('selector-' + field.key)">
                     <span>{{ field.label }}</span>
-                    <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('selector-' + field.key)"
+                    <AutomationInlineSelect :input-id="fieldId('selector-' + field.key)"
                         :model-value="modelValue.selector[field.key] === undefined ? 'unset' : modelValue.selector[field.key] ? 'true' : 'false'"
                         :options="selectorBooleanOptions" option-label="label" option-value="value"
-                        :disabled="disabled" @update:model-value="booleanValue(field.key, $event)" />
-                </label>
+                        :disabled="disabled" @update:model-value="booleanValue(field.key, String($event))" />
+                </div>
                 <small>{{ text('布尔条件支持“是 / 否”并可与其他属性组合；执行时仍必须匹配唯一控件。', 'Boolean conditions support true / false in combinations; runtime match must still be unique.') }}</small>
             </template>
         </fieldset>
@@ -272,18 +273,18 @@ function updateNumber(key: string, value: number | null | undefined) {
         </template>
 
         <template v-if="modelValue.type === 'assert_property'">
-            <label class="field" :for="fieldId('property')">
+            <div class="field" :for="fieldId('property')">
                 <span>{{ text('断言属性', 'Property to assert') }}</span>
-                <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('property')" :model-value="modelValue.property"
+                <AutomationInlineSelect :input-id="fieldId('property')" :model-value="modelValue.property"
                     :options="propertyOptions" option-label="label" option-value="value"
-                    :disabled="disabled" @update:model-value="update({ property: $event })" />
-            </label>
-            <label class="field" :for="fieldId('expected')">
+                    :disabled="disabled" @update:model-value="update({ property: String($event) as AutomationStep['property'] })" />
+            </div>
+            <div class="field" :for="fieldId('expected')">
                 <span>{{ text('预期状态', 'Expected state') }}</span>
-                <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('expected')" :model-value="modelValue.expected"
+                <AutomationInlineSelect :input-id="fieldId('expected')" :model-value="modelValue.expected"
                     :options="booleanOptions" option-label="label" option-value="value"
-                    :disabled="disabled" @update:model-value="update({ expected: $event })" />
-            </label>
+                    :disabled="disabled" @update:model-value="update({ expected: $event as boolean })" />
+            </div>
         </template>
 
         <fieldset v-if="modelValue.type === 'scroll_find'" class="selector-fields">
@@ -303,12 +304,12 @@ function updateNumber(key: string, value: number | null | undefined) {
                 <InputText :id="fieldId('scroll-package')" :model-value="modelValue.scroll_container?.package"
                     :disabled="disabled" :maxlength="256" @update:model-value="scrollContainerValue('package', $event)" />
             </label>
-            <label class="field" :for="fieldId('direction')">
+            <div class="field" :for="fieldId('direction')">
                 <span>{{ text('查找方向', 'Search direction') }}</span>
-                <Select :append-to="overlayTarget ?? 'self'" :input-id="fieldId('direction')" :model-value="modelValue.direction"
+                <AutomationInlineSelect :input-id="fieldId('direction')" :model-value="modelValue.direction"
                     :options="directionOptions" option-label="label" option-value="value"
-                    :disabled="disabled" @update:model-value="update({ direction: $event })" />
-            </label>
+                    :disabled="disabled" @update:model-value="update({ direction: String($event) as AutomationStep['direction'] })" />
+            </div>
             <label class="field" :for="fieldId('max-swipes')">
                 <span>{{ text('最多滚动次数', 'Maximum swipes') }}</span>
                 <InputNumber :input-id="fieldId('max-swipes')" :model-value="modelValue.max_swipes"

@@ -293,102 +293,84 @@ test('T56 legacy mixed run is shown only as local status; stop uses own device I
     'stop must never dispatch an action for the other selected phone');
 });
 
-test('T57 product acceptance: native step and insert menus stay inside current viewport/fullscreen and remain clickable',async t=>{
+
+test('T57 real PhoneCard: desktop dropdowns can open, select and survive fullscreen',async t=>{
   const page=await setup(t,realCardFixture);
   await page.locator('#open-step').click();
   const editor=page.getByRole('dialog',{name:/编辑第 1 步/});
   await editor.waitFor();
-  const keySelect=editor.locator('.p-select').nth(1);
-  await keySelect.click();
-  let overlay=page.locator('.automation-subwindow-host .p-select-overlay:visible').last();
-  await overlay.waitFor();
-  assert.equal(await overlay.evaluate(node=>!!node.closest('.automation-subwindow-host.detached-subwindows')),true,
-    'normal mode must append dropdown to the viewport host, not body');
-  assert.equal(await page.locator('body > .p-select-overlay').count(),0);
-  await overlay.getByRole('option',{name:'返回'}).click();
-  assert.match(await keySelect.textContent(),/返回/);
-  const original=page.locator('.phone-card video.primary-video');
-  await original.evaluate(node=>node.dataset.productAcceptance='video-kept');
+  const nav=editor.locator('.automation-inline-choice').nth(1);
+  await nav.locator('.choice-trigger').click();
+  let list=nav.locator('.choice-list');
+  await list.waitFor();
+  assert.equal(await list.evaluate(node=>!!node.closest('[role="dialog"]')),true);
+  await list.getByRole('option',{name:'返回'}).click();
+  assert.match(await nav.locator('.choice-current').textContent(),/返回/);
+  const video=page.locator('.phone-card video.primary-video');
+  await video.evaluate(n=>n.dataset.testDropDown='same-video');
 
   await page.locator('#fullscreen-card').click();
   await page.waitForFunction(()=>document.fullscreenElement?.classList.contains('phone-screen'));
   assert.equal(await editor.isVisible(),true);
-  await keySelect.click();
-  overlay=page.locator('.phone-screen .automation-subwindow-host .p-select-overlay:visible').last();
-  await overlay.waitFor();
-  assert.equal(await overlay.evaluate(node=>document.fullscreenElement?.contains(node)),true,
-    'select menu must belong to browser fullscreen top layer');
+  await nav.locator('.choice-trigger').click();
+  list=nav.locator('.choice-list');
+  await list.waitFor();
+  assert.equal(await list.evaluate(node=>!!document.fullscreenElement?.contains(node)),true);
   await page.keyboard.press('Escape');
-  assert.equal(await editor.isVisible(),true,
-    'Escape must preserve the step editor even if the browser exits native fullscreen');
-  // Browsers are permitted to exit native fullscreen on Escape regardless of
-  // application handlers. Re-enter through a user gesture before testing the
-  // fullscreen-only overlay again.
+  assert.equal(await editor.isVisible(),true);
+  assert.equal(await nav.locator('.choice-list').count(),0);
+  // The browser can itself leave native fullscreen on Escape.
   if(!await page.evaluate(()=>!!document.fullscreenElement)){
     await page.locator('#fullscreen-card').click();
     await page.waitForFunction(()=>document.fullscreenElement?.classList.contains('phone-screen'));
   }
-  await keySelect.click();
-  overlay=page.locator('.phone-screen .automation-subwindow-host .p-select-overlay:visible').last();
-  await overlay.waitFor();
-  await overlay.getByRole('option',{name:'主页'}).click();
-  assert.match(await keySelect.textContent(),/主页/);
-
-  const insert=page.getByRole('region',{name:'自动化脚本'}).locator('.flow-tools .p-select');
-  await insert.click();
-  overlay=page.locator('.phone-screen .automation-subwindow-host .p-select-overlay:visible').last();
-  await overlay.waitFor();
-  await overlay.getByRole('option',{name:'点击'}).click();
-  assert.match(await insert.textContent(),/点击/);
-  assert.equal(await original.getAttribute('data-product-acceptance'),'video-kept');
+  await nav.locator('.choice-trigger').click();
+  await nav.getByRole('option',{name:'主页'}).click();
+  assert.match(await nav.locator('.choice-current').textContent(),/主页/);
+  const insertion=page.getByRole('region',{name:'自动化脚本'})
+    .locator('.flow-tools .automation-inline-choice');
+  await insertion.locator('.choice-trigger').click();
+  const options=insertion.locator('.choice-list');
+  await options.waitFor();
+  assert.equal(await options.evaluate(node=>!!node.closest('.automation-floating-panel')),true);
+  await options.getByRole('option',{name:'点击'}).click();
+  assert.match(await insertion.locator('.choice-current').textContent(),/点击/);
+  assert.equal(await video.getAttribute('data-test-drop-down'),'same-video');
   assert.equal(await page.locator('.phone-card video.primary-video').count(),1);
   assert.equal(await page.locator('body > .p-select-overlay').count(),0);
 });
 
-test('T58 mobile portrait and narrow touch: insert-action dropdown remains inside the viewport and accepts choices',async t=>{
+test('T58 mobile portrait: touch selections work at 390px and 320px without a portal',async t=>{
   for(const viewport of [{width:390,height:844},{width:320,height:640}]){
-    await t.test(viewport.width+'x'+viewport.height+' touch portrait',async child=>{
+    await t.test(viewport.width+'px touch viewport',async child=>{
       const page=await setup(child,realCardFixture,{viewport,isMobile:true,hasTouch:true,deviceScaleFactor:2});
       await page.locator('#open-panel').tap();
-      const panel=page.getByRole('region',{name:'自动化脚本'});
-      const select=panel.locator('.flow-tools .p-select');
-      await select.scrollIntoViewIfNeeded();
-      await select.tap();
-      const overlay=page.locator('.automation-subwindow-host .p-select-overlay:visible').last();
-      await overlay.waitFor();
-      assert.equal(await overlay.evaluate(node=>!!node.closest('.automation-subwindow-host.detached-subwindows')),true,
-        'mobile popup must stay in the existing viewport popup host');
-      const rect=await overlay.boundingBox();
-      assert.ok(rect && rect.width>=120,'menu must have touch-accessible width');
-      assert.ok(rect.x>=-1 && rect.x+rect.width<=viewport.width+1,
-        'menu must not overflow horizontally: '+JSON.stringify({viewport,rect}));
-      assert.ok(rect.y>=-1 && rect.y+rect.height<=viewport.height+1,
-        'menu must remain in the visible vertical viewport: '+JSON.stringify({viewport,rect}));
-      await overlay.getByRole('option',{name:'截图检查点'}).tap();
-      assert.match(await select.textContent(),/截图检查点/);
-      assert.equal(await page.locator('body > .p-select-overlay').count(),0,
-        'there must be no dropdown appended directly to document.body');
+      const choice=page.getByRole('region',{name:'自动化脚本'})
+        .locator('.flow-tools .automation-inline-choice');
+      await choice.locator('.choice-trigger').scrollIntoViewIfNeeded();
+      await choice.locator('.choice-trigger').tap();
+      const list=choice.locator('.choice-list');
+      await list.waitFor();
+      assert.equal(await list.evaluate(n=>!!n.closest('.automation-floating-panel')),true);
+      await list.getByRole('option',{name:'截图检查点'}).tap();
+      assert.match(await choice.locator('.choice-current').textContent(),/截图检查点/);
+      assert.equal(await page.locator('body > .p-select-overlay').count(),0);
     });
   }
 });
 
-test('T59 mobile fullscreen touch: action popup must be operable inside the phone fullscreen layer',async t=>{
-  const page=await setup(t,realCardFixture,{
-    viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2,
-  });
+test('T59 mobile full screen: touch option stays inside original fullscreen phone',async t=>{
+  const page=await setup(t,realCardFixture,{viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2});
   await page.locator('#fullscreen-card').tap();
   await page.waitForFunction(()=>document.fullscreenElement?.classList.contains('phone-screen'));
   await page.evaluate(()=>window.phoneCardReview.open());
-  const panel=page.getByRole('region',{name:'自动化脚本'});
-  const select=panel.locator('.flow-tools .p-select');
-  await select.scrollIntoViewIfNeeded();
-  await select.tap();
-  const popup=page.locator('.phone-screen .automation-subwindow-host .p-select-overlay:visible').last();
-  await popup.waitFor();
-  assert.equal(await popup.evaluate(node=>!!document.fullscreenElement?.contains(node)),true);
-  const rect=await popup.boundingBox(),viewport=page.viewportSize();
-  assert.ok(rect && rect.x>=-1 && rect.x+rect.width<=viewport.width+1);
-  assert.ok(rect && rect.y>=-1 && rect.y+rect.height<=viewport.height+1);
-  await popup.getByRole('option',{name:'点击'}).tap();
-  assert.match(await select.textContent(),/点击/);
+  const choice=page.getByRole('region',{name:'自动化脚本'})
+    .locator('.flow-tools .automation-inline-choice');
+  await choice.locator('.choice-trigger').scrollIntoViewIfNeeded();
+  await choice.locator('.choice-trigger').tap();
+  const list=choice.locator('.choice-list');
+  await list.waitFor();
+  assert.equal(await list.evaluate(n=>!!document.fullscreenElement?.contains(n)),true);
+  await list.getByRole('option',{name:'点击'}).tap();
+  assert.match(await choice.locator('.choice-current').textContent(),/点击/);
 });

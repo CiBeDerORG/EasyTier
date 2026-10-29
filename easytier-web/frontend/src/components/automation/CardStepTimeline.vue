@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { Select } from 'primevue';
+import AutomationInlineSelect from './AutomationInlineSelect.vue';
 import type { AutomationRun, AutomationStepResult, AutomationStepType } from '../../types/automation';
 import { analyzeAutomationFlow, canInsertBranchStep, type BranchLane } from '../../modules/automation-flow';
 import type { AutomationDraftWorkspace } from '../../modules/automation-draft';
@@ -191,13 +191,11 @@ function canMove(id:string,delta:-1|1):boolean{
             </li>
         </ol>
         <div class="flow-tools" aria-label="结构编辑工具">
-            <label>插入动作
-                <Select :key="fullscreen ? 'fullscreen-menu' : 'page-menu'"
-                    v-model="insertType" input-id="automation-insert-action"
-                    :append-to="overlayTarget ?? 'self'" :options="actions"
-                    option-label="name" option-value="value" aria-label="插入动作类型"
-                    class="insert-action-select" />
-            </label>
+            <div class="flow-action-field"><span>插入动作</span>
+                <AutomationInlineSelect :model-value="insertType" @update:model-value="insertType=String($event) as AutomationStepType" input-id="automation-insert-action"
+                    :options="actions" option-label="name" option-value="value"
+                    aria-label="插入动作类型" class="insert-action-select" />
+            </div>
             <button type="button" :disabled="blocked || draft.steps.length>=100"
                 @click="emit('create',insertType)">+ 新增</button>
         </div>
@@ -255,8 +253,9 @@ function canMove(id:string,delta:-1|1):boolean{
 .draft-hint{display:block;margin-top:6px;font-size:10px;line-height:1.4;color:var(--console-muted)}
 .flow-tools,.condition-tools,.branch-tools{display:flex;gap:5px;align-items:center;flex-wrap:wrap;font-size:10px}
 .flow-tools,.condition-tools{padding:6px 0;border-top:1px solid var(--console-border);margin-top:5px}
-.flow-tools label{display:flex;gap:5px;align-items:center}
-.flow-tools :deep(.insert-action-select){min-width:0;max-width:168px;font-size:11px;width:168px;border:1px solid var(--console-border);
+.flow-tools .flow-action-field{display:flex;gap:6px;align-items:center;flex:1 1 180px;min-width:0}
+.flow-tools .flow-action-field>span{flex:0 0 auto}
+.flow-tools :deep(.insert-action-select){flex:1 1 auto;min-width:112px;max-width:100%;font-size:12px;width:100%;
     background:var(--console-panel-raised);color:inherit;border-radius:5px}
 .flow-tools button,.condition-tools button,.branch-tools button{border:1px solid var(--console-border);
     border-radius:5px;background:var(--console-panel-raised);color:inherit;font-size:10px;padding:4px 6px;cursor:pointer}

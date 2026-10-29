@@ -84,7 +84,8 @@ function onDocumentKeydown(event: KeyboardEvent) {
     // The expanded PrimeVue Select owns the first Escape: close its popup
     // without closing or discarding the containing step editor.
     if(panel.value.querySelector(
-        '.p-select[aria-expanded="true"], .p-select [role="combobox"][aria-expanded="true"]'
+        '.p-select[aria-expanded="true"], .p-select [role="combobox"][aria-expanded="true"], '+
+        '.automation-inline-choice [aria-expanded="true"]'
     ))return;
     event.preventDefault();
     event.stopPropagation();
