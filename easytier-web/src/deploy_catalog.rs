@@ -678,53 +678,22 @@ fn scan_catalog(root: &Path, revision: &str) -> Result<Vec<CatalogApp>, Error> {
         let name = item.file_name().to_string_lossy().to_string();
         let Some(path) = safe_manifest(root, &name)? else { continue };
         let bytes = std::fs::read(&path).map_err(|_| Error::Remote)?;
-        if bytes.len() as u64 > MAX_MANIFEST { return Err(Error::Invalid("Manifest too large")); }
+        if bytes.len() as u64 > MAX_MANIFEST {
+            return Err(Error::Invalid("Manifest too large"));
+        }
         let content = std::str::from_utf8(&bytes).map_err(|_| Error::Invalid("Non-UTF8 manifest"))?;
-        let values = fields(content)?;
-        let get = |k: &str| -> Result<String, Error> {
-            values.get(k).filter(|s| !s.is_empty()).cloned()
-                .ok_or(Error::Invalid("Missing catalog display field"))
-        };
-        if get("schema_version")? != "1" || get("id")? != name
-            || get("runtime.kind")? != "docker_compose"
-        {
-            return Err(Error::Invalid("Unsupported manifest version, app ID or runtime"));
-        }
-        let category = get("category")?;
-        if !["infrastructure", "network", "developer", "media", "productivity", "other"]
-            .contains(&category.as_str()) {
-            return Err(Error::Invalid("Unknown catalog category"));
-        }
-        let project = get("runtime.compose_project")?;
-        if !safe_id(&project) { return Err(Error::Invalid("Invalid Compose project")); }
+        let manifest = parse_manifest(content)?;
+        validate_manifest_shape(&manifest, &name)?;
         let app = CatalogApp {
-            id: name.clone(),
-            name: get("name")?,
-            summary: get("summary")?,
-            category,
-            compose_project: project,
+            id: manifest.id.clone(),
+            name: manifest.name.clone(),
+            summary: manifest.summary.clone(),
+            category: manifest.category.clone(),
+            compose_project: manifest.runtime.compose_project.clone(),
             manifest_path: format!("{name}/app.yaml"),
             manifest_sha256: format!("{:x}", Sha256::digest(&bytes)),
             git_revision: revision.to_owned(),
-            detail: json!({
-                "runtime_kind":"docker_compose",
-                "compose_file":get("runtime.compose_file")?,
-                "platforms":values.get("compatibility.platforms").cloned(),
-                "architectures":values.get("compatibility.architectures").cloned(),
-                "actions":{
-                    "install":values.get("actions.install.strategy").cloned(),
-                    "update":values.get("actions.update.strategy").cloned(),
-                    "uninstall":values.get("actions.uninstall.strategy").cloned()
-                },
-                "config":display_items(content, "config",
-                    &["key","label","type","target","required"])?,
-                "ports":display_items(content, "ports",
-                    &["id","label","protocol","purpose","host_port_key",
-                      "container_port","service"])?,
-                "install_available":false,
-                "management_rights":false,
-                "validation":"display_only_requires_T03_07"
-            }),
+            detail: manifest_detail(&manifest),
         };
         if !seen.insert(name) || apps.len() >= MAX_APPS {
             return Err(Error::Invalid("Too many or repeated application IDs"));
