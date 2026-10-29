@@ -1238,6 +1238,17 @@ services:
         let sources = validate_package_files(&root, &manifest).unwrap();
         assert_eq!(sources.len(), 3);
         assert_eq!(sources["portainer/deploy/install.sh"], b"#!/bin/sh\nexit 0\n");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let outside = root.join("outside.sh");
+            std::fs::write(&outside, "#!/bin/sh\nexit 0\n").unwrap();
+            let update = root.join("portainer/deploy/update.sh");
+            std::fs::remove_file(&update).unwrap();
+            symlink(&outside, &update).unwrap();
+            assert!(validate_package_files(&root, &manifest).is_err(),
+                "package source symlinks must be rejected");
+        }
         std::fs::remove_dir_all(&root).unwrap();
     }
 
