@@ -537,3 +537,43 @@ async fn review_create_uuid_replay_returns_same_formal_script_and_refuses_differ
     assert_eq!(deleted_replay,created,"do not recreate a script deleted after the original POST");
     assert_eq!(f.store.list_scripts(f.owner).await.unwrap()["items"],json!([]));
 }
+
+
+// Step-title compatibility and scoped favorite storage must hold in real SQLite.
+#[test]
+fn adb_step_title_and_command_validation() {
+    let step=json!({
+        "id":Uuid::new_v4().to_string(), "type":"adb_command",
+        "title":"检查屏幕尺寸", "command":"adb shell wm size", "timeout_ms":8000
+    });
+    let valid=validation::steps(&json!([step.clone()])).unwrap();
+    assert_eq!(valid[0]["title"],"检查屏幕尺寸");
+    assert_eq!(valid[0]["command"],"adb shell wm size");
+    let mut invalid=step.clone();
+    invalid["command"]=json!("adb -s another-device shell wm size");
+    assert!(validation::steps(&json!([invalid])).is_err());
+    let mut injected=step.clone();
+    injected["command"]=json!("adb shell getprop; adb shell input keyevent 3");
+    assert!(validation::steps(&json!([injected])).is_err());
+    let mut too_long=step.clone();
+    too_long["title"]=json!("题".repeat(81));
+    assert!(validation::steps(&json!([too_long])).is_err());
+}
+
+#[tokio::test]
+async fn adb_favorites_are_owned_by_account_and_survive_script_edits() {
+    let f=Fixture::new().await;
+    let input=json!({"title":"设备信息","command":"adb shell getprop ro.product.model"});
+    let saved=f.store.save_adb_favorite(f.owner,&input).await.unwrap();
+    assert_eq!(saved["title"],"设备信息");
+    assert_eq!(f.store.list_adb_favorites(f.owner).await.unwrap()["items"][0]["id"],saved["id"]);
+    assert_eq!(f.store.list_adb_favorites(f.other).await.unwrap()["items"],json!([]));
+    let renamed=f.store.save_adb_favorite(f.owner,&json!({
+        "title":"手机型号","command":"adb shell getprop ro.product.model"
+    })).await.unwrap();
+    assert_eq!(saved["id"],renamed["id"]);
+    assert_eq!(f.store.list_adb_favorites(f.owner).await.unwrap()["items"].as_array().unwrap().len(),1);
+    assert_eq!(f.store.delete_adb_favorite(f.other,saved["id"].as_str().unwrap()).await.unwrap()["deleted"],false);
+    assert_eq!(f.store.delete_adb_favorite(f.owner,saved["id"].as_str().unwrap()).await.unwrap()["deleted"],true);
+    assert_eq!(f.store.list_adb_favorites(f.owner).await.unwrap()["items"],json!([]));
+}
