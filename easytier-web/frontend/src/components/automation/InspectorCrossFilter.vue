@@ -2,6 +2,7 @@
 import {computed,ref,watch} from 'vue';
 import type {AutomationHierarchyNode,AutomationSelector} from '../../types/automation';
 import {boundsText,type FilterOption,type FilterField} from '../../modules/automation-cross-filter';
+import InspectorFilterOption from './InspectorFilterOption.vue';
 
 const props=defineProps<{
   selectedId:number|null; options:FilterOption[]; activeIds:string[];
@@ -10,7 +11,8 @@ const props=defineProps<{
   truncated:boolean;
 }>();
 const emit=defineEmits<{
-  toggle:[id:string,checked:boolean];verify:[];preview:[id:number];'focus-parent':[id:number];
+  toggle:[id:string,checked:boolean];'toggle-fuzzy':[id:string,enabled:boolean];'edit-fuzzy':[id:string,text:string];
+  verify:[];preview:[id:number];'focus-parent':[id:number];
   'parent-filter':[nodeId:number,field:FilterField];'reset-preview':[];
 }>();
 const expanded=ref(false),page=ref(0),parentDetailId=ref<number|null>(null);
@@ -100,14 +102,11 @@ function restoreOriginal(){
   <div class="filter-section">
     <strong>当前目标的属性</strong>
     <div class="filter-options">
-      <label v-for="option in selfOptions" :key="option.id" class="filter-option"
-             :title="option.caution||''">
-        <input type="checkbox" :checked="activeIds.includes(option.id)"
-               :disabled="truncated" @change="emit('toggle',option.id,($event.target as HTMLInputElement).checked)" />
-        <span class="filter-name">{{option.label}}</span>
-        <code>{{option.displayValue}}</code>
-        <small v-if="option.caution" class="caution">!</small>
-      </label>
+      <InspectorFilterOption v-for="option in selfOptions" :key="option.id"
+          :option="option" :checked="activeIds.includes(option.id)" :truncated="truncated"
+          @toggle="(id,checked)=>emit('toggle',id,checked)"
+          @toggle-fuzzy="(id,enabled)=>emit('toggle-fuzzy',id,enabled)"
+          @edit-fuzzy="(id,text)=>emit('edit-fuzzy',id,text)" />
     </div>
   </div>
   <div class="filter-section">
@@ -120,14 +119,11 @@ function restoreOriginal(){
         <span>可选 {{group.items.length}} 项</span>
       </summary>
       <div class="filter-options">
-        <label v-for="option in group.items" :key="option.id" class="filter-option"
-               :title="option.caution||''">
-          <input type="checkbox" :checked="activeIds.includes(option.id)"
-                 :disabled="truncated" @change="emit('toggle',option.id,($event.target as HTMLInputElement).checked)" />
-          <span class="filter-name">{{option.label}}</span>
-          <code>{{option.displayValue}}</code>
-          <small v-if="option.caution" class="caution">!</small>
-        </label>
+        <InspectorFilterOption v-for="option in group.items" :key="option.id"
+            :option="option" :checked="activeIds.includes(option.id)" :truncated="truncated"
+            @toggle="(id,checked)=>emit('toggle',id,checked)"
+            @toggle-fuzzy="(id,enabled)=>emit('toggle-fuzzy',id,enabled)"
+            @edit-fuzzy="(id,text)=>emit('edit-fuzzy',id,text)" />
       </div>
     </details>
   </div>
@@ -197,11 +193,6 @@ function restoreOriginal(){
 .filter-heading strong,.filter-section strong{font-size:12px}
 .filter-heading small,.filter-section small,.muted{font-size:11px;color:var(--console-muted);line-height:1.6}
 .filter-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(195px,1fr));gap:7px}
-.filter-option{display:flex;align-items:center;gap:7px;border:1px solid var(--console-border);border-radius:7px;padding:7px;background:var(--console-panel-raised);font-size:11px;min-width:0;cursor:pointer}
-.filter-option:has(input:checked){border-color:var(--p-primary-color);background:var(--console-accent-soft)}
-.filter-option input{flex:none;accent-color:var(--p-primary-color)}
-.filter-name{flex:none}.filter-option code{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.filter-option .caution{color:var(--p-orange-500);font-weight:bold}
 .ancestor-group{border:1px solid var(--console-border);border-radius:6px;padding:8px}
 .ancestor-group summary{cursor:pointer;font-size:11px;font-weight:600;display:flex;justify-content:space-between;gap:8px}
 .ancestor-group .filter-options{margin-top:9px}

@@ -36,24 +36,74 @@ test('LOC-08 cross filter allows unlimited AND fields, including true and false'
   assert.deepEqual(filterHierarchy(shot,other,['self:description','self:clickable','self:enabled']).map(n=>n.id),[8]);
   assert.equal(buildCrossFilterSelector(other,['self:description','self:clickable','self:enabled']).selector.clickable,false);
 });
-test('LOC-09 text filter uses same-node multi-segment fuzzy matching and ignores standalone dynamic numbers',()=>{
+test('LOC-09 fuzzy mode defaults OFF: original text is exact native selector',()=>{
   const shot=hierarchy();
   const original='升级中 长按可加速升级 松手开始加速升级 升级赛车拿钱 剩余 4450 能量  长按可加速升级';
   shot.nodes[3].text=original;
   shot.nodes[5].text='升级中   长按可加速升级 松手开始加速升级 升级赛车拿钱 剩余 9981 能量';
   shot.nodes[7].text='升级中 长按可加速升级 升级赛车拿钱 剩余 9981 能量';
   const options=buildFilterOptions(shot,4);
-  const matches=filterHierarchy(shot,options,['self:text']);
-  assert.deepEqual(matches.map(n=>n.id),[4,6]);
-  const built=buildCrossFilterSelector(options,['self:text']);
+  assert.equal(options.find(x=>x.id==='self:text')?.fuzzy,undefined);
+  assert.deepEqual(filterHierarchy(shot,options,['self:text']).map(n=>n.id),[4]);
+  assert.deepEqual(buildCrossFilterSelector(options,['self:text']).selector,{text:original});
+  const fuzzy=options.map(x=>x.id==='self:text'?{...x,fuzzy:true,fuzzyText:original}:x);
+  assert.deepEqual(filterHierarchy(shot,fuzzy,['self:text']).map(n=>n.id),[4,6]);
+  const built=buildCrossFilterSelector(fuzzy,['self:text']);
   assert.ok(built.selector?.xpath);
   assert.match(built.selector.xpath,/contains\(@text,'升级中'\)/);
   assert.match(built.selector.xpath,/contains\(@text,'升级赛车拿钱'\)/);
-  assert.match(built.selector.xpath,/contains\(@text,'能量'\)/);
   assert.doesNotMatch(built.selector.xpath,/@text=/);
   assert.doesNotMatch(built.selector.xpath,/4450|9981/);
   assert.equal((built.selector.xpath.match(/contains\(@text,'长按可加速升级'\)/g)||[]).length,1);
   assert.equal(built.requiresVerification,true);
+  const turnedOff=fuzzy.map(x=>({...x,fuzzy:false}));
+  assert.deepEqual(filterHierarchy(shot,turnedOff,['self:text']).map(n=>n.id),[4]);
+  assert.deepEqual(buildCrossFilterSelector(turnedOff,['self:text']).selector,{text:original});
+});
+test('LOC-09 target and ancestor text/description have independent fuzzy switches',()=>{
+  const shot=hierarchy();
+  shot.nodes[3].text='目标 123 充值';
+  shot.nodes[5].text='目标 456 充值';
+  shot.nodes[3].description='开始 123 升级';shot.nodes[5].description='开始 456 升级';
+  shot.nodes[2].text='活动 123 次数';shot.nodes[4].text='活动 456 次数';
+  shot.nodes[2].description='活动说明 首单 123';shot.nodes[4].description='活动说明 首单 456';
+  const original=buildFilterOptions(shot,4);
+  const ids=['self:text','self:description','ancestor:1:text','ancestor:1:description'];
+  assert.deepEqual(filterHierarchy(shot,original,ids).map(x=>x.id),[4]);
+  const fuzz=original.map(x=>ids.includes(x.id)?{...x,fuzzy:true}:x);
+  assert.deepEqual(filterHierarchy(shot,fuzz,ids).map(x=>x.id),[4,6]);
+  const xpath=buildCrossFilterSelector(fuzz,ids).selector?.xpath||'';
+  assert.match(xpath,/contains\(@text,'目标'\)/);
+  assert.match(xpath,/contains\(@content-desc,'开始'\)/);
+  assert.match(xpath,/ancestor::\*\[1\]\[contains\(@text,'活动'\)/);
+  assert.match(xpath,/ancestor::\*\[1\]\[contains\(@content-desc,'活动说明'\)/);
+  assert.doesNotMatch(xpath,/123|456/);
+  const onlyParentDescription=original.map(x=>x.id==='ancestor:1:description'
+    ?{...x,fuzzy:true,fuzzyText:'首单'}:x);
+  assert.deepEqual(filterHierarchy(shot,onlyParentDescription,['ancestor:1:description']).map(x=>x.id),[4,6]);
+  const exact=buildCrossFilterSelector(original,['self:description']).selector;
+  assert.deepEqual(exact,{description:'开始 123 升级'});
+});
+test('LOC-09 edited fuzzy fragments apply to one node, empty strings fail closed, quotes escape',()=>{
+  const shot=hierarchy();
+  shot.nodes[3].description='今日活动 限时加速 4450';
+  shot.nodes[5].description='今日活动 限时加速 7780';
+  const options=buildFilterOptions(shot,4);
+  const fuzzy=options.map(x=>x.id==='self:description'
+    ?{...x,fuzzy:true,fuzzyText:'活动 加速'}:x);
+  assert.deepEqual(filterHierarchy(shot,fuzzy,['self:description']).map(x=>x.id),[4,6]);
+  const built=buildCrossFilterSelector(fuzzy,['self:description']);
+  assert.match(built.selector.xpath,/contains\(@content-desc,'活动'\)/);
+  assert.match(built.selector.xpath,/contains\(@content-desc,'加速'\)/);
+  const exact=options.map(x=>x.id==='self:description'
+    ?{...x,fuzzy:false,fuzzyText:'不存在'}:x);
+  assert.deepEqual(buildCrossFilterSelector(exact,['self:description']).selector,
+    {description:'今日活动 限时加速 4450'});
+  const empty=fuzzy.map(x=>x.id==='self:description'?{...x,fuzzyText:'   '}:x);
+  assert.equal(buildCrossFilterSelector(empty,['self:description']).selector,null);
+  assert.deepEqual(filterHierarchy(shot,empty,['self:description']),[]);
+  const quote=fuzzy.map(x=>x.id==='self:description'?{...x,fuzzyText:`活动 "it's"`}:x);
+  assert.match(buildCrossFilterSelector(quote,['self:description']).selector.xpath,/concat\(/);
 });
 test('LOC-08 parent filters refine the repeated target and compile stable relations',()=>{
   const shot=hierarchy(),options=buildFilterOptions(shot,4);

@@ -52,6 +52,8 @@ const emit = defineEmits<{
     'select-node': [id: number];
     'choose-candidate': [id: string];
     'toggle-filter': [id: string,checked: boolean];
+    'toggle-fuzzy': [id: string, enabled: boolean];
+    'edit-fuzzy': [id: string, text: string];
     'verify-filter': [];
     'preview-match': [id: number];
     'focus-parent': [id: number];
@@ -130,6 +132,8 @@ function title(node: AutomationHierarchyNode) {
                             :filter-error="filterError" :verified="filterVerified" :verifying="verifying"
                             :truncated="snapshotTruncated"
                             @toggle="(id,checked) => emit('toggle-filter',id,checked)"
+                            @toggle-fuzzy="(id,enabled) => emit('toggle-fuzzy',id,enabled)"
+                            @edit-fuzzy="(id,text) => emit('edit-fuzzy',id,text)"
                             @verify="emit('verify-filter')"
                             @preview="id => emit('preview-match',id)"
                             @focus-parent="id => emit('focus-parent',id)"

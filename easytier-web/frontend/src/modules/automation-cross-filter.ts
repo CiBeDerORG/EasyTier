@@ -16,6 +16,10 @@ export type FilterOption = {
   id:string; field:FilterField; scope:'self'|'ancestor'; distance:number;
   nodeId:number; label:string; value:string|boolean; displayValue:string;
   caution?:string;
+  /** Toggle is opt-in; unchecked/default always means original exact match. */
+  fuzzy?:boolean;
+  /** User-edited fragments, preserved even while fuzzy is switched off. */
+  fuzzyText?:string;
 };
 export type FilterSnapshot = {nodes:AutomationHierarchyNode[];truncated:boolean};
 const BOOLEAN_FIELDS:ReadonlySet<string> = new Set([
@@ -23,7 +27,7 @@ const BOOLEAN_FIELDS:ReadonlySet<string> = new Set([
   'selected','checked','password',
 ]);
 const NATIVE_FIELDS:ReadonlySet<string> = new Set([
-  'resource_id','description','class_name','package',
+  'resource_id','description','text','class_name','package',
   'clickable','enabled','long_clickable','focusable','checkable','scrollable',
 ]);
 const XML_FIELDS:Record<FilterField,string> = {
@@ -34,7 +38,7 @@ const XML_FIELDS:Record<FilterField,string> = {
   password:'password',bounds:'bounds',
 };
 const LABELS:Record<FilterField,string> = {
-  resource_id:'Resource ID',description:'无障碍描述',text:'文本（分段模糊）',class_name:'类名',
+  resource_id:'Resource ID',description:'无障碍描述',text:'文本',class_name:'类名',
   package:'应用包名',clickable:'可点击',enabled:'已启用',
   long_clickable:'支持长按',focusable:'可聚焦',checkable:'可勾选',
   scrollable:'可滚动',selected:'已选中',checked:'已勾选',password:'密码控件',
@@ -50,11 +54,19 @@ const size=(v:string)=>new TextEncoder().encode(v).length;
 export function textMatchSegments(value:string):string[] {
   const source=value.trim().split(/\s+/u).filter(Boolean);
   const unique=[...new Set(source)].filter(part=>!/^\d+(?:[.,]\d+)*$/.test(part));
-  return unique.length?unique:[value.trim()];
+  return unique.length?unique:(value.trim()?[value.trim()]:[]);
 }
 export function textMatches(actual:string,expected:string):boolean {
-  return textMatchSegments(expected).every(part=>actual.includes(part));
+  const fragments=textMatchSegments(expected);
+  return fragments.length>0&&fragments.every(part=>actual.includes(part));
 }
+export function filterIsFuzzy(option:FilterOption):boolean {
+  return !!option.fuzzy && (option.field==='text'||option.field==='description');
+}
+function matchingText(option:FilterOption):string {
+  return option.fuzzyText ?? String(option.value);
+}
+
 
 export function boundsText(b:AutomationHierarchyNode['bounds']):string {
   return `[${b.left},${b.top}][${b.right},${b.bottom}]`;
@@ -88,9 +100,7 @@ export function buildFilterOptions(shot:FilterSnapshot,selectedId:number):Filter
       if(value===null)continue;
       const scope=level===0?'self':'ancestor';
       if(scope==='ancestor' && node.password) continue;
-      const caution=field==='text'
-        ? '按空白拆分多个文字片段，所有片段必须出现在同一控件；纯数字片段自动忽略以适配动态数值。'
-        : field==='bounds'
+      const caution=field==='bounds'
           ? '区域随布局和分辨率变化，建议只作为最后的限定条件。'
           : (field==='selected'||field==='checked')
             ? '这是动态状态，操作后可能变化。' : undefined;
@@ -124,14 +134,14 @@ export function filterHierarchy(shot:FilterSnapshot,allOptions:FilterOption[],id
     const subject=x.scope==='self'?node:parentAt(node,x.distance,byId);
     if(subject===undefined)return false;
     const actual=getValue(subject,x.field);
-    if(x.field==='text'&&typeof x.value==='string')
-      return typeof actual==='string'&&textMatches(actual,x.value);
+    if(filterIsFuzzy(x))
+      return typeof actual==='string' && textMatches(actual,matchingText(x));
     return actual===x.value;
   }));
 }
 function xpathCondition(x:FilterOption):string {
-  if(x.field==='text'&&typeof x.value==='string')
-    return textMatchSegments(x.value).map(part=>'contains(@text,'+xpathString(part)+')').join(' and ');
+  if(filterIsFuzzy(x))
+    return textMatchSegments(matchingText(x)).map(part=>'contains(@'+XML_FIELDS[x.field]+','+xpathString(part)+')').join(' and ');
   const literal=x.value===true?'true':x.value===false?'false':x.value;
   return '@'+XML_FIELDS[x.field]+'='+xpathString(literal);
 }
@@ -141,7 +151,10 @@ export function buildCrossFilterSelector(
   const chosen=options.filter(x=>ids.includes(x.id));
   if(!chosen.length || chosen.length!==new Set(ids).size)
     return {selector:null,error:'至少勾选一项有效属性。',requiresVerification:false};
-  const native=chosen.every(x=>x.scope==='self'&&NATIVE_FIELDS.has(x.field));
+  if(chosen.some(x=>filterIsFuzzy(x) &&
+    (!matchingText(x).trim() || size(matchingText(x))>256 || !textMatchSegments(matchingText(x)).length)))
+    return {selector:null,error:'模糊匹配请输入有效关键词（最多 256 字节）。',requiresVerification:true};
+  const native=chosen.every(x=>x.scope==='self'&&NATIVE_FIELDS.has(x.field)&&!filterIsFuzzy(x));
   if(native){
     const selector=Object.fromEntries(chosen.map(x=>[x.field,x.value])) as AutomationSelector;
     return {selector,requiresVerification:false};

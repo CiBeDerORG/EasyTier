@@ -79,10 +79,17 @@ const selected = computed(() => selectedId.value === null ? null : nodeIndex.val
 // These are the actual user-chosen AND conditions, not a pre-generated 1/2/3-field candidate.
 const activeFilterIds = ref<string[]>([]);
 const extraFilterOptions = ref<FilterOption[]>([]);
+// Each textual condition owns its own switch and editable fragments.
+// Toggling off restores the untouched source value, without erasing edits.
+const fuzzyOverrides = ref<Record<string,{enabled:boolean;text:string}>>({});
 const matchReviewOpen = ref(false);
 const pendingReviewAction = ref<InspectorAction | 'replace' | null>(null);
 const filterOptions = computed(() => snapshot.value && selectedId.value !== null
-    ? [...buildFilterOptions(snapshot.value,selectedId.value),...extraFilterOptions.value] : []);
+    ? [...buildFilterOptions(snapshot.value,selectedId.value),...extraFilterOptions.value].map(option => {
+        const override=fuzzyOverrides.value[option.id];
+        return override && (option.field==='text' || option.field==='description')
+            ? {...option,fuzzy:override.enabled,fuzzyText:override.text} : option;
+    }) : []);
 const filteredNodes = computed(() => snapshot.value
     ? filterHierarchy(snapshot.value,filterOptions.value,activeFilterIds.value) : []);
 const crossFilterBuild = computed(() => buildCrossFilterSelector(filterOptions.value,activeFilterIds.value));
@@ -281,6 +288,35 @@ function addParentFilter(nodeId:number,field:FilterField) {
     toggleFilter(id,true);
     feedback.value='已加入父级条件；当前匹配 '+filteredNodes.value.length+' 个，点击运行时可查看实际匹配列表。';
 }
+function toggleFuzzy(id:string,enabled:boolean) {
+    const option=filterOptions.value.find(item=>item.id===id);
+    if(!option || (option.field!=='text' && option.field!=='description')
+        || typeof option.value!=='string' || !selected.value)return;
+    fuzzyOverrides.value={...fuzzyOverrides.value,[id]:{
+        enabled,text:fuzzyOverrides.value[id]?.text ?? option.value,
+    }};
+    ++verificationGeneration;verifiedXPath.value=null;verifying.value=false;
+    if(activeFilterIds.value.includes(id)){
+        selectedCandidate.value=null;
+        coordinateConfirmed.value=false;
+        mode.value=crossFilterBuild.value.selector?.xpath?'xpath':'composite';
+    }
+    feedback.value=enabled
+        ? '已开启'+option.label+'分段模糊：当前快照预计匹配 '+filteredNodes.value.length+' 个控件。'
+        : '已关闭'+option.label+'模糊匹配，恢复按原文精确匹配。';
+}
+function editFuzzy(id:string,text:string) {
+    const option=filterOptions.value.find(item=>item.id===id);
+    if(!option || (option.field!=='text' && option.field!=='description')
+        || !fuzzyOverrides.value[id]?.enabled || !selected.value)return;
+    fuzzyOverrides.value={...fuzzyOverrides.value,[id]:{enabled:true,text}};
+    ++verificationGeneration;verifiedXPath.value=null;verifying.value=false;
+    if(activeFilterIds.value.includes(id)){
+        selectedCandidate.value=null;
+        mode.value=crossFilterBuild.value.selector?.xpath?'xpath':'composite';
+    }
+    feedback.value='已更新'+option.label+'关键词：当前快照预计匹配 '+filteredNodes.value.length+' 个控件。';
+}
 function toggleFilter(id:string, checked:boolean) {
     if (!filterOptions.value.some(x=>x.id===id) || !selected.value) return;
     const next=new Set(activeFilterIds.value);
@@ -420,7 +456,7 @@ function selectNode(id: number) {
         return;
     }
     manualAnchorId.value = null;
-    activeFilterIds.value=[];extraFilterOptions.value=[];previewNodeId.value=null;
+    activeFilterIds.value=[];extraFilterOptions.value=[];fuzzyOverrides.value={};previewNodeId.value=null;
     onLocatorModeChange();
     selectedId.value = id; feedback.value = '';
     const expanded = new Set(collapsedIds.value);
@@ -448,7 +484,7 @@ async function refresh() {
     ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
     manualAnchorId.value = null; anchorPicking.value = false;
     response.value = null; selectedId.value = null; selectedCandidate.value = null; coordinateConfirmed.value = false; collapsedIds.value = [];
-    activeFilterIds.value=[];previewNodeId.value=null;
+    activeFilterIds.value=[];extraFilterOptions.value=[];fuzzyOverrides.value={};previewNodeId.value=null;
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = ''; loading.value = true;
     try {
@@ -555,7 +591,7 @@ watch(selected, node => {
     coordinateConfirmed.value = false;
     verifiedXPath.value = null;
     selectedCandidate.value = null;
-    activeFilterIds.value=[];extraFilterOptions.value=[];previewNodeId.value=null;
+    activeFilterIds.value=[];extraFilterOptions.value=[];fuzzyOverrides.value={};previewNodeId.value=null;
     // Never automatically fall back to screen coordinates when all selectors are ambiguous.
     mode.value = 'composite';
 });
@@ -574,7 +610,7 @@ function clearAnchor() {
 async function chooseCandidate(id: string) {
     const candidate = locatorCandidates.value.find(item => item.id === id);
     if (!candidate || !snapshot.value || selectedId.value === null) return;
-    activeFilterIds.value=[];extraFilterOptions.value=[];previewNodeId.value=null;
+    activeFilterIds.value=[];extraFilterOptions.value=[];fuzzyOverrides.value={};previewNodeId.value=null;
     if (!selected.value) return;
     ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
     coordinateConfirmed.value = false;
@@ -673,7 +709,7 @@ watch([() => props.visible, () => props.device.id, () => props.device.target_fin
     ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
     anchorPicking.value = false; manualAnchorId.value = null;
     response.value = null; selectedId.value = null; selectedCandidate.value = null;
-    activeFilterIds.value=[];extraFilterOptions.value=[];previewNodeId.value=null;
+    activeFilterIds.value=[];extraFilterOptions.value=[];fuzzyOverrides.value={};previewNodeId.value=null;
     coordinateConfirmed.value = false; collapsedIds.value = []; loading.value = false;
     dragPickMode.value = false; dragStart.value = null; dragEnd.value = null;
     error.value = ''; feedback.value = '';
@@ -686,7 +722,7 @@ watch([() => props.screenWidth, () => props.screenHeight], () => {
     anchorPicking.value=false; manualAnchorId.value=null;
     dragPickMode.value=false;dragStart.value=null;dragEnd.value=null;
     selectedId.value=null;selectedCandidate.value=null;
-    activeFilterIds.value=[];extraFilterOptions.value=[];previewNodeId.value=null;
+    activeFilterIds.value=[];extraFilterOptions.value=[];fuzzyOverrides.value={};previewNodeId.value=null;
     response.value=null; ++requestGeneration; loading.value=false;
     if (props.visible) {
         feedback.value='原画面分辨率已变化，旧树快照作废，正在重新读取控件树。';
@@ -751,7 +787,8 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
                     :preferred-action="preferredAction"
                     @update-search="search = $event" @toggle-branch="toggleBranch"
                     @select-node="selectNode" @choose-candidate="chooseCandidate"
-                    @toggle-filter="toggleFilter" @verify-filter="verifyFilter"
+                    @toggle-filter="toggleFilter" @toggle-fuzzy="toggleFuzzy" @edit-fuzzy="editFuzzy"
+                    @verify-filter="verifyFilter"
                     @preview-match="previewMatch" @focus-parent="focusParent"
                     @parent-filter="addParentFilter" @reset-preview="restoreOriginalHighlight"
                     @start-anchor-pick="startAnchorPick" @clear-anchor="clearAnchor"
