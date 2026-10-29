@@ -2,7 +2,8 @@
 //! manually refresh Git; GET never touches Git or an Agent.
 use super::{AppStateInner, ConsoleInfoConfig, authed_user_id, users::AuthSession};
 use crate::{central_network::service::CentralNetworkService, deploy_catalog::{Catalog, Error}};
-use axum::{Extension, Json, Router, extract::Path, http::StatusCode, routing::{get, post}};
+use axum::{Extension, Json, Router, extract::{Path, Query}, http::StatusCode, routing::{get, post}};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -65,6 +66,45 @@ async fn prepare_package(
     Ok(Json(json!(package)))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeviceScope {
+    owner_user_id: i32,
+    machine_id: String,
+}
+
+async fn stage_on_agent(
+    auth: AuthSession,
+    Extension(config): Extension<ConsoleInfoConfig>,
+    Extension(central): Extension<Arc<CentralNetworkService>>,
+    Extension(catalog): CatalogService,
+    Extension(agent): Extension<Arc<crate::asset_agent::Manager>>,
+    Path((app_id, device_id)): Path<(String, String)>,
+    Query(scope): Query<DeviceScope>,
+) -> Outcome {
+    available(&auth, &config)?;
+    let device = super::assets::server_agent_entry::load_authorized(
+        &auth, &config, &central,
+        scope.owner_user_id, &scope.machine_id, &device_id,
+    ).await?;
+    // No arbitrary URL, script or local filesystem path is accepted from the
+    // browser. A package is only transferred to a real paired server device.
+    let (summary, bytes) = catalog.package_for_transfer(&app_id).await.map_err(failed)?;
+    let result = agent.stage_deploy_package(&device, &summary, bytes)
+        .await.map_err(|e| {
+            let (code, key) = match e {
+                crate::asset_agent::Error::Invalid(_) => (StatusCode::UNPROCESSABLE_ENTITY, "invalid_agent_binding"),
+                crate::asset_agent::Error::Conflict(_) | crate::asset_agent::Error::IdentityChanged =>
+                    (StatusCode::CONFLICT, "agent_binding_changed"),
+                crate::asset_agent::Error::PairRejected => (StatusCode::UNAUTHORIZED, "agent_pairing_rejected"),
+                crate::asset_agent::Error::Remote => (StatusCode::BAD_GATEWAY, "agent_package_transfer_failed"),
+                crate::asset_agent::Error::Storage => (StatusCode::SERVICE_UNAVAILABLE, "agent_binding_unavailable"),
+            };
+            fail(code, key, &e.to_string())
+        })?;
+    Ok(Json(result))
+}
+
 async fn refresh(
     auth: AuthSession,
     Extension(config): Extension<ConsoleInfoConfig>,
@@ -83,11 +123,16 @@ async fn refresh(
     catalog.refresh().await.map(Json).map_err(failed)
 }
 
-pub fn router(catalog: Arc<Catalog>) -> Router<AppStateInner> {
+pub fn router(
+    catalog: Arc<Catalog>,
+    agent: Arc<crate::asset_agent::Manager>,
+) -> Router<AppStateInner> {
     Router::new()
         .route("/api/v1/deploy/catalog", get(index))
         .route("/api/v1/deploy/catalog/{id}", get(detail))
         .route("/api/v1/deploy/catalog/{id}/package", post(prepare_package))
+        .route("/api/v1/deploy/catalog/{app_id}/transfer/{device_id}", post(stage_on_agent))
         .route("/api/v1/deploy/catalog/refresh", post(refresh))
+        .layer(Extension(agent))
         .layer(Extension(catalog))
 }
