@@ -52,6 +52,8 @@ def record_output(root: Path, directory: Path, input_key: str) -> None:
             changed = sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
             if changed:
                 print("Changed tracked WASM source inputs during build: " + ", ".join(changed), file=sys.stderr)
+                if "Cargo.lock" in changed:
+                    subprocess.run(["git", "diff", "--", "Cargo.lock"], cwd=root, check=False)
             elif snapshot.get("input_key") != input_key:
                 print("WASM input key changed without source-file changes.", file=sys.stderr)
         raise SystemExit("WASM source inputs changed during preparation/build; refusing to cache output under an outdated key.")
