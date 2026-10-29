@@ -7,7 +7,7 @@ import type { LocatorDemoResult } from '../../modules/automation-locator-demo';
 import ScriptStepEditor from './ScriptStepEditor.vue';
 
 const props = defineProps<{
-    step: AutomationStep; stepNumber: number; repicking?: boolean;
+    step: AutomationStep; stepNumber: number; ownerId?: number; repicking?: boolean;
     demoLoading?: boolean; demoResult?: LocatorDemoResult | null; demoError?: string;
     demoAvailable?: boolean;
     floating?: boolean;
@@ -68,7 +68,7 @@ function repick() {
         <Message v-if="warning" severity="warn" :closable="false">{{ warning }}</Message>
         <Message v-if="conflict" severity="warn" :closable="false">步骤在编辑期间已变化。当前修改不会自动覆盖新的草稿内容。</Message>
         <div class="edit-fields">
-            <ScriptStepEditor :model-value="edited"
+            <ScriptStepEditor :model-value="edited" :owner-id="ownerId"
                 lock-action-type @update:model-value="updateDraft"/>
             <label v-if="businessVerificationEligible || original.business_verification===true ||
                 edited.business_verification===true" class="business-check">

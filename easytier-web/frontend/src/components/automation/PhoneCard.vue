@@ -1086,7 +1086,7 @@ onBeforeUnmount(() => {
                 :title="'编辑第 '+editingStepNumber+' 步'"
                 @close="finishEditorClose">
                 <CardStepEditor :key="editingStep.id" floating
-                    :step="editingStep" :step-number="editingStepNumber"
+                    :step="editingStep" :step-number="editingStepNumber" :owner-id="ownerId"
                     :business-verification-eligible="businessVerificationEligible"
                     :repicking="repickingStepId === editingStep.id"
                     :demo-loading="demoLoading" :demo-result="demoResult"

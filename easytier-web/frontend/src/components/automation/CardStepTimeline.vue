@@ -89,7 +89,7 @@ const actions:{value:AutomationStepType;name:string}[]=[
     {value:'launch_app',name:'启动应用'},{value:'wait_for',name:'等待控件'},
     {value:'wait_gone',name:'等待消失'},{value:'assert',name:'断言控件'},
     {value:'assert_property',name:'断言属性'},{value:'scroll_find',name:'滚动查找'},
-    {value:'screenshot',name:'截图检查点'},
+    {value:'screenshot',name:'截图检查点'}, {value:'adb_command',name:'ADB 命令'},
 ];
 const blocked=computed(()=>!!layout.value.problem);
 const selectedAction=computed(()=>props.draft.steps.find(s=>s.id===props.draft.selectedStepId &&

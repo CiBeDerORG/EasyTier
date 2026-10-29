@@ -32,11 +32,12 @@ export const cardStepLabels: Record<AutomationStepType,string> = {
     input_text:'输入文字', launch_app:'打开应用', wait_for:'等待出现',
     wait_gone:'等待消失', if_gone:'消失则执行', if_else:'If / Else 条件分支',
     assert:'检查控件', assert_property:'属性断言', scroll_find:'滚动查找',
-    screenshot:'截图检查点',
+    screenshot:'截图检查点', adb_command:'ADB 命令',
 };
 
 function stepContext(step: AutomationStep): string {
-    // Never reveal input_text.text, parameter values or selector text.
+    // Never reveal input_text.text, ADB command arguments, parameters or selector text.
+    if (step.type === 'adb_command') return 'ADB Shell · 当前授权手机';
     if (step.type === 'key') return step.key ?? '未配置按键';
     if (step.type === 'if_gone') return 'Then · ' + (step.skip_count ?? '?') + ' 步';
     if (step.type === 'if_else') return 'Then · ' + (step.then_count ?? '?') + ' / Else · ' + (step.else_count ?? '?');
@@ -72,12 +73,14 @@ export function projectCardSteps(draft: AutomationDraftWorkspace): CardStepProje
             const ancestry = layout.entries[index]?.ancestors ?? [];
             return {
                 id:step.id, number:index+1, type:step.type,
-                label: step.type === 'key' && !step.key ? '待配置步骤' : cardStepLabels[step.type],
+                label: step.title?.trim() || (step.type === 'key' && !step.key
+                    ? '待配置步骤' : cardStepLabels[step.type]),
                 context:stepContext(step),
                 branch:ancestry.map(item => '步骤 ' + (item.conditionIndex+1) + ' · ' +
                     (item.lane === 'then' ? 'Then' : 'Else')).join(' / '),
                 depth:ancestry.length,
-                incomplete: step.type === 'key' && !step.key,
+                incomplete: (step.type === 'key' && !step.key) ||
+                    (step.type === 'adb_command' && !step.command?.trim()),
             };
         }),
         flowErrorAt:layout.problem ? layout.problem.index+1 : null,

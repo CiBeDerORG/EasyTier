@@ -6,7 +6,7 @@ import type {
     AutomationExecutorCapacity, AutomationExecutorCapacityInput, AutomationMediaSettings,
     AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog, AutomationAdbStatus, AutomationHierarchy, AutomationHierarchyNode,
     AutomationDraftRecord, AutomationDraftWrite, AutomationDraftInput, AutomationDraftReceipt,
-    AutomationExecutorTaskStatus,
+    AutomationExecutorTaskStatus, AutomationAdbFavorite,
 } from '../types/automation';
 
 export class AutomationApiError extends Error {
@@ -58,6 +58,15 @@ export default class AutomationApi {
         const data = await response.json();
         if (!response.ok) throw new AutomationApiError(response.status, data?.code ?? 'request_failed', data?.message ?? `HTTP ${response.status}`);
         return data;
+    }
+    adbFavorites(ownerId: number) {
+        return this.request<{items:AutomationAdbFavorite[]}>('/adb-favorites',ownerId);
+    }
+    saveAdbFavorite(ownerId: number, title: string, command: string) {
+        return this.request<AutomationAdbFavorite>('/adb-favorites',ownerId,'POST',{title,command});
+    }
+    deleteAdbFavorite(ownerId: number, id: string) {
+        return this.request<{deleted:boolean;id:string}>('/adb-favorites/'+encodeURIComponent(id),ownerId,'DELETE');
     }
     devices(ownerId: number) { return this.request<{ items: AutomationDevice[]; issues?: {device_id:string;machine_id:string;name:string;reason:string}[] }>('/devices', ownerId); }
     executorTaskStatus(ownerId:number,id:string) {

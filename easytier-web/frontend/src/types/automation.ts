@@ -17,10 +17,14 @@ export interface AutomationHierarchy {
     device_id: string; target_fingerprint: string; captured_at: string;
     snapshot: { width: number; height: number; truncated: boolean; nodes: AutomationHierarchyNode[] };
 }
-export type AutomationStepType = 'key' | 'tap' | 'long_press' | 'swipe' | 'drag' | 'input_text' | 'launch_app' | 'wait_for' | 'wait_gone' | 'if_gone' | 'if_else' | 'assert' | 'assert_property' | 'scroll_find' | 'screenshot';
+export type AutomationStepType = 'key' | 'tap' | 'long_press' | 'swipe' | 'drag' | 'input_text' | 'launch_app' | 'wait_for' | 'wait_gone' | 'if_gone' | 'if_else' | 'assert' | 'assert_property' | 'scroll_find' | 'screenshot' | 'adb_command';
 export interface AutomationStep {
     id: string;
     type: AutomationStepType;
+    /** Optional user title; shown instead of the action type in the timeline. */
+    title?: string;
+    /** One on-device ADB shell command, never an executable host command. */
+    command?: string;
     key?: AutomationKey;
     selector?: AutomationSelector;
     x?: number; y?: number; to_x?: number; to_y?: number;
@@ -32,6 +36,13 @@ export interface AutomationStep {
     business_verification?: true;
     scroll_container?: AutomationSelector;
     direction?: 'up' | 'down'; max_swipes?: number; skip_count?: number; then_count?: number; else_count?: number;
+}
+export interface AutomationAdbFavorite {
+    id: string;
+    title: string;
+    command: string;
+    created_at: string;
+    updated_at: string;
 }
 export interface AutomationContext {
     available: boolean; runner_configured: boolean; can_manage_others: boolean;
