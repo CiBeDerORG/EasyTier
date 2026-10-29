@@ -198,6 +198,7 @@ function loadReceipt() {
         unresolvedReceipt.value=readTrialReceipt(window.sessionStorage,props.ownerId,props.device.id);
         receiptFailure.value='';
     }catch(cause){
+        trialLog('receipt.read.exception',{error:trialErrorSnapshot(cause),rawCause:cause});
         unresolvedReceipt.value=null;
         receiptFailure.value='不能安全读取本页历史试跑请求：'+automationErrorMessage(cause);
     }
@@ -619,7 +620,8 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         trialLog('request.createRun.after',{elapsedMs:Date.now()-requestStartedAt,
             response:{runId:created.id,state:created.state,requestId:created.request_id,
                 devices:created.devices?.map(device=>({deviceId:device.device_id,state:device.state,
-                    error:device.error,message:device.message})),raw:created}});
+                    error:device.error,steps:device.steps?.map(step=>({stepId:step.step_id,state:step.state,
+                        message:step.message,error:step.error}))})),raw:created}});
         if(!valid(mine,owner,id,original))return; // receipt remains until read-only reconciliation
         if(!created.id || !created.devices.some(d=>d.device_id===id)) {
             uncertain.value=true;phase.value='unknown';
@@ -631,7 +633,7 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         result.observe(owner,created,id,payload.steps?.[0]?.id??'');
         warning.value='';
     }catch(cause){
-        trialLog('request.createRun.exception',{dispatched,requestId:proof.requestId,
+        trialLog('sendFrozen.exception',{dispatched,requestId:proof.requestId,
             request: {method:'POST',path:'/api/v1/automation/runs',ownerId:owner,deviceId:id,
                 stepId:proof.stepId},error:trialErrorSnapshot(cause),rawCause:cause});
         if(!valid(mine,owner,id,original)){
