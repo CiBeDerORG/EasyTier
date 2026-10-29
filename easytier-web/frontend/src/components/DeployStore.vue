@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { Button, InputText, Message, Select, Tag } from 'primevue';
+import { Button, Checkbox, InputNumber, InputText, Message, Select, Tag } from 'primevue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import ApiClient from '../modules/api';
 import { getApiBase } from '../modules/api-host';
-import type { DeployCatalogApp, DeployCatalogIndex } from '../types/deploy-catalog';
+import type { DeployCatalogApp, DeployCatalogConfigField, DeployCatalogIndex, DeployCatalogPackage } from '../types/deploy-catalog';
 
 const router = useRouter();
 const { locale } = useI18n();
@@ -20,6 +20,10 @@ const actionNames = ['install', 'update', 'uninstall'] as const;
 const working = ref(false);
 const error = ref('');
 const notice = ref('');
+const formValues = ref<Record<string, any>>({});
+const formErrors = ref<Record<string, string>>({});
+const packageResult = ref<DeployCatalogPackage | null>(null);
+const preparing = ref(false);
 let requestId = 0;
 let disposed = false;
 
@@ -43,6 +47,89 @@ const describe = (cause: unknown) => {
     return e.response?.data?.message || e.message || (cn.value ? '商店请求失败' : 'Catalog request failed');
 };
 
+function initializeForm(app: DeployCatalogApp | null) {
+    const values: Record<string, any> = {};
+    for (const field of app?.detail.config ?? []) {
+        // Secret defaults are never returned by the API and are never prefilled.
+        if (field.type === 'secret') values[field.key] = '';
+        else if (field.default !== undefined) values[field.key] = field.default;
+        else if (field.type === 'boolean') values[field.key] = false;
+        else if (field.type === 'number' || field.type === 'port') values[field.key] = null;
+        else values[field.key] = '';
+    }
+    formValues.value = values;
+    formErrors.value = {};
+    packageResult.value = null;
+}
+
+function isIpv4(value: string): boolean {
+    const parts = value.split('.');
+    return parts.length === 4 && parts.every(part =>
+        /^\\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255
+        && (part === '0' || !part.startsWith('0'))
+    );
+}
+
+function validateForm(): boolean {
+    const errors: Record<string, string> = {};
+    for (const field of selected.value?.detail.config ?? []) {
+        const value = formValues.value[field.key];
+        const blank = value === null || value === undefined
+            || (typeof value === 'string' && value.trim() === '');
+        const generatedSecret = field.type === 'secret' && field.generated_by_script;
+        if (blank) {
+            if (field.required && !generatedSecret) {
+                errors[field.key] = cn.value ? '此项为必填项' : 'This field is required';
+            }
+            continue;
+        }
+        if (field.type === 'port' || field.type === 'number') {
+            const number = Number(value);
+            const min = field.minimum ?? (field.type === 'port' ? 1 : Number.NEGATIVE_INFINITY);
+            const max = field.maximum ?? (field.type === 'port' ? 65535 : Number.POSITIVE_INFINITY);
+            if (!Number.isFinite(number) || (field.type === 'port' && !Number.isInteger(number))
+                || number < min || number > max) {
+                errors[field.key] = cn.value ? `请输入 ${min} 至 ${max} 范围内的有效数值` : `Enter a valid value between ${min} and ${max}`;
+            }
+        } else if (field.type === 'ipv4' && !isIpv4(String(value))) {
+            errors[field.key] = cn.value ? '请输入有效的 IPv4 地址' : 'Enter a valid IPv4 address';
+        } else if ((field.type === 'string' || field.type === 'secret')
+            && typeof value === 'string'
+            && ((field.min_length !== undefined && value.length < field.min_length)
+                || (field.max_length !== undefined && value.length > field.max_length))) {
+            errors[field.key] = cn.value ? '输入长度不符合要求' : 'Input length is outside the allowed range';
+        } else if (field.type === 'boolean' && typeof value !== 'boolean') {
+            errors[field.key] = cn.value ? '请选择布尔值' : 'Choose a boolean value';
+        }
+    }
+    formErrors.value = errors;
+    return Object.keys(errors).length === 0;
+}
+
+async function preparePackage() {
+    if (!selected.value || working.value || !validateForm()) return;
+    const current = ++requestId;
+    working.value = true;
+    preparing.value = true;
+    error.value = '';
+    notice.value = '';
+    try {
+        // Deliberately send only the application ID. Config and secret values
+        // remain in page memory and are not posted, logged, or persisted.
+        const result = await api.deployCatalogPreparePackage(selected.value.id);
+        if (disposed || current !== requestId) return;
+        packageResult.value = result;
+        notice.value = cn.value ? '表单格式检查通过，固定版本包已准备完成（未安装）' : 'Form checks passed; the pinned package is prepared (not installed)';
+    } catch (cause) {
+        if (!disposed && current === requestId) error.value = describe(cause);
+    } finally {
+        if (!disposed && current === requestId) {
+            working.value = false;
+            preparing.value = false;
+        }
+    }
+}
+
 async function load() {
     if (working.value) return;
     const current = ++requestId;
@@ -51,7 +138,13 @@ async function load() {
         const data = await api.deployCatalogIndex();
         if (disposed || current !== requestId) return;
         catalog.value = data;
-        if (selected.value) selected.value = data.items.find(app => app.id === selected.value?.id) ?? null;
+        if (selected.value) {
+            const previous = selected.value;
+            const next = data.items.find(app => app.id === previous.id) ?? null;
+            selected.value = next;
+            if (!next) initializeForm(null);
+            else if (next.git_revision !== previous.git_revision) initializeForm(next);
+        }
     } catch (cause) {
         if (!disposed && current === requestId) error.value = describe(cause);
     } finally {
@@ -68,7 +161,12 @@ async function refresh() {
         const data = await api.deployCatalogIndex();
         if (disposed || current !== requestId) return;
         catalog.value = data;
-        selected.value = selected.value ? data.items.find(app => app.id === selected.value?.id) ?? null : null;
+        if (selected.value) {
+            const previous = selected.value;
+            const next = data.items.find(app => app.id === previous.id) ?? null;
+            selected.value = next;
+            if (!next || next.git_revision !== previous.git_revision) initializeForm(next);
+        }
         notice.value = (cn.value ? '已手动更新商店到提交 ' : 'Store refreshed at commit ') + result.git_revision.slice(0, 12);
     } catch (cause) {
         // Preserve the preceding catalog and selection; no destructive clear.
@@ -83,7 +181,7 @@ async function showDetail(id: string) {
     working.value = true; error.value = '';
     try {
         const detail = await api.deployCatalogDetail(id);
-        if (!disposed && current === requestId) selected.value = detail;
+        if (!disposed && current === requestId) { selected.value = detail; initializeForm(detail); }
     } catch (cause) {
         if (!disposed && current === requestId) error.value = describe(cause);
     } finally {
