@@ -722,7 +722,7 @@ fn validate_manifest_shape(manifest: &ManifestV1, expected_id: &str) -> Result<(
         if field.min_length.is_some_and(|n| n > 4096)
             || field.max_length.is_some_and(|n| n == 0 || n > 4096)
             || field.min_length.zip(field.max_length).is_some_and(|(min, max)| min > max)
-            || field.pattern.as_ref().is_some_and(|p| p.len() > 500)
+            || field.pattern.as_ref().is_some_and(|p| p.len() > 500 || regex::Regex::new(p).is_err())
             || field.generated_by_script == Some(true) && field.kind != "secret" {
             return Err(Error::Invalid("Invalid configuration constraints"));
         }
