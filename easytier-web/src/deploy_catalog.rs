@@ -802,8 +802,11 @@ fn validate_manifest_shape(manifest: &ManifestV1, expected_id: &str) -> Result<(
             let path = action.path.as_deref().ok_or(Error::Invalid("Action script path is required"))?;
             safe_relative(path, true)?;
             let expected = format!("{}/{}", manifest.id, path);
-            if !package_destinations.contains(expected.as_str()) {
-                return Err(Error::Invalid("Action script is missing from the package"));
+            let script_file = manifest.package.files.iter()
+                .find(|file| file.destination == expected)
+                .ok_or(Error::Invalid("Action script is missing from the package"))?;
+            if !path.ends_with(".sh") || script_file.mode.as_deref().unwrap_or("0644") != "0755" {
+                return Err(Error::Invalid("Action script must be a packaged executable .sh file"));
             }
             let allowed = if name == "install" { "install" } else { "update" };
             if action.argv.len() > 1 || action.argv.iter().any(|arg| arg != allowed) {
