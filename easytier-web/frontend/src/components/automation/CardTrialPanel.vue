@@ -47,10 +47,33 @@ const emit=defineEmits<{ close: []; history: [runId: string]; repair: [runId: st
         message:string;diagnosis?:TrialLocatorDiagnosis|null}] }>();
 const api=new AutomationApi();
 const toast=useToast();
+let trialTraceId='';
+function trialLog(event:string,details:Record<string,unknown>={}){
+    console.log('[AutomationTrial]',{
+        traceId:trialTraceId||'not-started',
+        time:new Date().toISOString(),
+        event,
+        phase:phase.value,
+        ownerId:props.ownerId,
+        deviceId:props.device?.id,
+        stepId:props.step?.id,
+        stepType:props.step?.type,
+        ...details,
+    });
+}
+function trialErrorSnapshot(cause:unknown):Record<string,unknown>{
+    if(cause instanceof AutomationApiError){
+        return {name:cause.name,message:cause.message,status:cause.status,code:cause.code,
+            fieldErrors:cause.fieldErrors,stack:cause.stack};
+    }
+    if(cause instanceof Error)return {name:cause.name,message:cause.message,stack:cause.stack};
+    return {thrown:cause};
+}
 function toastTrialError(message:string){
     toast.add({severity:'error',summary:'自动化单步执行',detail:message.trim()||'单步执行失败，未提供具体原因。',life:7000});
 }
 function failTrial(message:string,nextPhase:PanelPhase='failed'){
+    trialLog('guard.blocked_or_failed',{message,nextPhase});
     phase.value=nextPhase;
     warning.value=message;
     toastTrialError(message);
@@ -293,25 +316,31 @@ function resetForOpen(){
     targetFingerprint.value=props.device.target_fingerprint ?? '';
 }
 function valid(mine:number, owner:number, deviceId:string, original:string):boolean {
-    if(disposed || !props.visible)return false;
-    if(mine!==epoch){toastTrialError('本次单步操作已过期，旧操作结果已忽略。');return false;}
-    if(props.ownerId!==owner){toastTrialError('当前账号已变化，已忽略旧单步操作结果。');return false;}
-    if(props.device.id!==deviceId){toastTrialError('当前目标手机已变化，已忽略旧单步操作结果。');return false;}
-    if(props.device.target_fingerprint!==targetFingerprint.value){
-        toastTrialError('目标手机绑定指纹已变化，已忽略旧单步操作结果。');return false;
-    }
-    if(!lockedIntent.value){toastTrialError('单步执行请求身份不存在，请关闭后重新打开执行窗口。');return false;}
-    if(lockedIntent.value.ownerId!==owner){toastTrialError('执行请求账号与当前账号不一致。');return false;}
-    if(lockedIntent.value.deviceId!==deviceId){toastTrialError('执行请求目标手机与当前手机不一致。');return false;}
-    if(lockedIntent.value.targetFingerprint!==props.device.target_fingerprint){
-        toastTrialError('执行期间目标手机绑定发生变化。');return false;
-    }
-    if(lockedIntent.value.stepId!==props.step?.id){toastTrialError('当前选中的步骤 ID 已变化。');return false;}
-    if(lockedIntent.value.stepJson!==JSON.stringify(props.step)){
-        toastTrialError('当前步骤内容已变化，旧执行结果不会应用到新步骤。');return false;
-    }
-    if(!props.step){toastTrialError('当前步骤已不存在。');return false;}
-    if(JSON.stringify(props.step)!==original){toastTrialError('当前步骤内容与提交时不一致，已取消后续处理。');return false;}
+    const reject=(check:string,message:string)=>{
+        trialLog('guard.valid.blocked',{check,message,mine,currentEpoch:epoch,
+            expectedOwner:owner,currentOwner:props.ownerId,expectedDeviceId:deviceId,
+            currentDeviceId:props.device.id,expectedStepId:lockedIntent.value?.stepId,
+            currentStepId:props.step?.id});
+        toastTrialError(message);
+        return false;
+    };
+    if(disposed || !props.visible)return reject('component_visible','单步窗口已关闭或组件已销毁，忽略旧操作结果。');
+    if(mine!==epoch)return reject('epoch','本次单步操作已过期，旧操作结果已忽略。');
+    if(props.ownerId!==owner)return reject('owner_id','当前账号已变化，已忽略旧单步操作结果。');
+    if(props.device.id!==deviceId)return reject('device_id','当前目标手机已变化，已忽略旧单步操作结果。');
+    if(props.device.target_fingerprint!==targetFingerprint.value)
+        return reject('device_fingerprint','目标手机绑定指纹已变化，已忽略旧操作结果。');
+    if(!lockedIntent.value)return reject('locked_intent','单步执行请求身份不存在，请关闭后重新打开执行窗口。');
+    if(lockedIntent.value.ownerId!==owner)return reject('intent_owner','执行请求账号与当前账号不一致。');
+    if(lockedIntent.value.deviceId!==deviceId)return reject('intent_device','执行请求目标手机与当前手机不一致。');
+    if(lockedIntent.value.targetFingerprint!==props.device.target_fingerprint)
+        return reject('intent_fingerprint','执行期间目标手机绑定发生变化。');
+    if(lockedIntent.value.stepId!==props.step?.id)return reject('intent_step_id','当前选中的步骤 ID 已变化。');
+    if(lockedIntent.value.stepJson!==JSON.stringify(props.step))
+        return reject('intent_step_json','当前步骤内容已变化，旧执行结果不会应用到新步骤。');
+    if(!props.step)return reject('step_exists','当前步骤已不存在。');
+    if(JSON.stringify(props.step)!==original)return reject('step_snapshot','当前步骤内容与提交时不一致，已取消后续处理。');
+    trialLog('guard.valid.passed',{mine,owner,deviceId,stepId:props.step?.id});
     return true;
 }
 function checkReadyToPrepare(): boolean {
@@ -333,6 +362,11 @@ function checkReadyToPrepare(): boolean {
     return true;
 }
 async function prepare(){
+    trialTraceId=uuid();
+    trialLog('prepare.enter',{visible:props.visible,runnerAvailable:props.runnerAvailable,
+        blocked:props.blocked,deviceFingerprint:props.device?.target_fingerprint,
+        adbEnabled:props.device?.connection?.enabled,availabilityReason:props.device?.availability_reason,
+        runOccupied:props.device?.run_occupied,step:props.step});
     loadReceipt();
     if(receiptFailure.value){failTrial(receiptFailure.value,'unknown');return;}
     if(unresolvedReceipt.value){
@@ -354,15 +388,27 @@ async function prepare(){
         // authorization, command policy and actual ADB execution.
         if(chosen.type==='adb_command'){
             phase.value='preparing';
-            const latest=(await api.devices(owner)).items.find(item=>item.id===id);
+            trialLog('request.devices.before',{method:'GET',path:'/api/v1/automation/devices',
+                ownerId:owner,query:{owner_user_id:owner},purpose:'ADB 单步执行前刷新设备状态'});
+            const devicesResponse=await api.devices(owner);
+            trialLog('request.devices.after',{count:devicesResponse.items.length,
+                matchingDevice:devicesResponse.items.find(item=>item.id===id)??null});
+            const latest=devicesResponse.items.find(item=>item.id===id);
             if(!valid(mine,owner,id,source))return;
             if(!latest)throw new Error('设备列表中找不到目标手机，请刷新设备列表。');
+            trialLog('guard.device.owner',{passed:latest.owner_user_id===owner,actual:latest.owner_user_id,expected:owner});
             if(latest.owner_user_id!==owner)throw new Error('目标手机不属于当前选择的账号。');
+            trialLog('guard.device.fingerprint',{passed:latest.target_fingerprint===targetFingerprint.value,
+                actual:latest.target_fingerprint,expected:targetFingerprint.value});
             if(latest.target_fingerprint!==targetFingerprint.value)throw new Error('目标手机绑定指纹已变化，请重新查询后再执行。');
+            trialLog('guard.device.adb_enabled',{passed:latest.connection.enabled,connection:latest.connection});
             if(!latest.connection.enabled)throw new Error('目标手机的 ADB 服务未启用。');
+            trialLog('guard.device.availability',{passed:!latest.availability_reason,reason:latest.availability_reason});
             if(latest.availability_reason)throw new Error('目标手机不可用：'+latest.availability_reason);
+            trialLog('guard.device.run_occupied',{passed:!latest.run_occupied,runOccupied:latest.run_occupied});
             if(latest.run_occupied)throw new Error('目标手机已有未结束的执行任务，请先查看执行记录或清理占用。');
             compatibilityReview.value=statelessCompatibility(owner,latest,[chosen]);
+            trialLog('guard.adb_compatibility_review',{review:compatibilityReview.value});
             phase.value='ready';
             void submit();
             return;
@@ -384,7 +430,10 @@ async function prepare(){
         if(!before.active_session || !['active','view_only'].includes(before.active_session.state))
             throw new Error('实时画面会话尚未处于可交接状态。');
         warning.value='正在核对原手机会话与执行器占用；原实时画面持续播放。';
+        trialLog('request.devices.before',{method:'GET',path:'/api/v1/automation/devices',
+            ownerId:owner,query:{owner_user_id:owner},purpose:'实时画面步骤二次设备复查'});
         const fresh=await api.devices(owner);
+        trialLog('request.devices.after',{count:fresh.items.length,matchingDevice:fresh.items.find(item=>item.id===id)??null});
         if(!valid(mine,owner,id,source))return;
         const row=fresh.items.find(item=>item.id===id);
         if(!row)throw new Error('准备前重新查询设备时，没有找到目标手机。');
@@ -405,7 +454,12 @@ async function prepare(){
         if(prepared?.phase==='ready'){
             // Prepared helper/ADB is not evidence that saved coordinates fit
             // this phone. Native-only steps do not require UiAutomator2.
-            const latestDevice=(await api.devices(owner)).items.find(item=>item.id===id);
+            trialLog('request.devices.before',{method:'GET',path:'/api/v1/automation/devices',
+                ownerId:owner,query:{owner_user_id:owner},purpose:'准备完成后复查设备'});
+            const latestDeviceResponse=await api.devices(owner);
+            trialLog('request.devices.after',{count:latestDeviceResponse.items.length,
+                matchingDevice:latestDeviceResponse.items.find(item=>item.id===id)??null});
+            const latestDevice=latestDeviceResponse.items.find(item=>item.id===id);
             if(!valid(mine,owner,id,source))return;
             if(!latestDevice)throw new Error('无法确认当前手机授权及绑定。');
             const checked=await reviewStepOnPhone(owner,latestDevice,chosen);
@@ -434,6 +488,8 @@ async function prepare(){
     }
 }
 async function submit(){
+    trialLog('submit.enter',{phase:phase.value,step:frozen.value,compatibilityReview:compatibilityReview.value,
+        hasPending:!!pending.value,hasUnresolvedReceipt:!!unresolvedReceipt.value});
     loadReceipt();
     if(receiptFailure.value){failTrial(receiptFailure.value,'unknown');return;}
     if(unresolvedReceipt.value){
@@ -466,11 +522,16 @@ async function submit(){
     if(intent.targetFingerprint!==props.device.target_fingerprint){failTrial('目标手机绑定已变化，请重新查询设备并打开单步执行。');return;}
     if(intent.stepId!==props.step?.id){failTrial('当前选中的步骤 ID 已变化，请重新打开单步执行窗口。');return;}
     if(intent.stepJson!==JSON.stringify(props.step)){failTrial('步骤内容在准备后发生变化，请重新准备后再执行。');return;}
+    trialLog('guard.intent.passed',{requestId:intent.requestId,ownerId:intent.ownerId,deviceId:intent.deviceId,
+        stepId:intent.stepId,targetFingerprint:intent.targetFingerprint,stepJson:intent.stepJson});
     const payload=makeSingleStepRun(frozen.value,id,intent.requestId,
         parameter.value ? {[parameter.value]:parameterValue.value} : {},true);
+    trialLog('request.payload.built',{payload});
     if(!payload){failTrial('步骤无法转换为单步执行请求，请检查步骤类型和步骤 ID。');return;}
     pending.value=payload; // Freeze request ID and body across uncertain HTTP outcomes.
     phase.value='submitting';warning.value='';
+    trialLog('submit.ready_to_dispatch',{requestId:payload.request_id,step:payload.steps?.[0],
+        stepCount:payload.steps?.length,deviceId:id,ownerId:owner});
     try{
         if(!valid(mine,owner,id,original)){
             failTrial('提交前账号、设备绑定或步骤内容已发生变化，已取消本次提交。');return;
@@ -479,10 +540,14 @@ async function submit(){
         // Do not repeat hierarchy/preview checks that cannot validate a shell
         // command. create_run() performs authoritative admission atomically.
         if(frozen.value.type==='adb_command'){
+            trialLog('submit.adb_direct_dispatch',{reason:'ADB shell 不依赖实时画面或控件树，直接进入统一 runs API'});
             await sendFrozen(mine,owner,id,original,payload);
             return;
         }
+        trialLog('request.devices.before',{method:'GET',path:'/api/v1/automation/devices',
+            ownerId:owner,query:{owner_user_id:owner},purpose:'非 ADB 步骤提交前复查'});
         const latest=await api.devices(owner);
+        trialLog('request.devices.after',{count:latest.items.length,matchingDevice:latest.items.find(item=>item.id===id)??null});
         if(!valid(mine,owner,id,original))return;
         const row=latest.items.find(item=>item.id===id);
         const handle=props.previewHandle();
@@ -521,6 +586,7 @@ async function submit(){
     }
 }
 async function sendFrozen(mine:number,owner:number,id:string,original:string,payload:AutomationRunInput){
+    trialLog('sendFrozen.enter',{requestId:payload.request_id,payload});
     const proof:TrialSubmissionReceipt={
         ownerId:owner,deviceId:id,stepId:payload.steps?.[0]?.id??'',requestId:payload.request_id,
         createdAt:new Date().toISOString(),
@@ -529,11 +595,21 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
     try {
         // Persist only UUID and device/step metadata BEFORE sending the POST.
         // Never serialize the POST body, inline parameters, selectors or text.
+        trialLog('receipt.persist.before',{proof});
         reserveTrialReceipt(window.sessionStorage,proof);
         unresolvedReceipt.value=proof;receiptFailure.value='';
+        trialLog('receipt.persist.after',{persisted:true,proof});
         dispatched=true;
         // Server create_run() still owns definitive BEGIN IMMEDIATE admission.
+        trialLog('request.createRun.before',{method:'POST',path:'/api/v1/automation/runs',
+            query:{owner_user_id:owner},requestId:payload.request_id,ownerId:owner,deviceId:id,
+            stepId:payload.steps?.[0]?.id,requestBody:payload});
+        const requestStartedAt=Date.now();
         const created=await api.createRun(owner,payload);
+        trialLog('request.createRun.after',{elapsedMs:Date.now()-requestStartedAt,
+            response:{runId:created.id,state:created.state,requestId:created.request_id,
+                devices:created.devices?.map(device=>({deviceId:device.device_id,state:device.state,
+                    error:device.error,message:device.message})),raw:created}});
         if(!valid(mine,owner,id,original))return; // receipt remains until read-only reconciliation
         if(!created.id || !created.devices.some(d=>d.device_id===id)) {
             uncertain.value=true;phase.value='unknown';
@@ -545,7 +621,13 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         result.observe(owner,created,id,payload.steps?.[0]?.id??'');
         warning.value='';
     }catch(cause){
-        if(!valid(mine,owner,id,original))return;
+        trialLog('request.createRun.exception',{dispatched,requestId:proof.requestId,
+            request: {method:'POST',path:'/api/v1/automation/runs',ownerId:owner,deviceId:id,
+                stepId:proof.stepId},error:trialErrorSnapshot(cause),rawCause:cause});
+        if(!valid(mine,owner,id,original)){
+            trialLog('request.createRun.exception_result_ignored',{reason:'current step/account/device/epoch changed'});
+            return;
+        }
         // Only explicit server validation/admission errors prove no run was
         // created. A generic network error, 408, 429 or 5xx never does.
         // 401/403 after an earlier accepted attempt, or 409 on an
@@ -554,6 +636,10 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         // keeps the persisted guard for manual read-only reconciliation.
         const definitive=dispatched && cause instanceof AutomationApiError &&
             [400,422].includes(cause.status);
+        trialLog('request.createRun.error_classification',{definitive,unknown:dispatched&&!definitive,
+            status:cause instanceof AutomationApiError?cause.status:undefined,
+            code:cause instanceof AutomationApiError?cause.code:undefined,
+            fieldErrors:cause instanceof AutomationApiError?cause.fieldErrors:undefined});
         if(definitive){
             try{clearTrialReceipt(window.sessionStorage,proof);unresolvedReceipt.value=null;}
             catch{receiptFailure.value='请求虽被拒绝，但未能清理本地保护凭据。';}
@@ -564,6 +650,8 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         const prefix=dispatched?'':'无法安全保存试跑请求身份，未发送动作：';
         const suffix=unknown?'。动作可能已被服务器接收；请按原请求编号只读核对，不能新建请求。':'';
         warning.value=prefix+details.join('；')+suffix;
+        trialLog('request.createRun.toast_details',{details,prefix,suffix,warning:warning.value,
+            finalPhase:phase.value,receiptStillPresent:!!unresolvedReceipt.value});
         details.forEach((detail,index)=>toastTrialError(prefix+detail+(index===details.length-1?suffix:'')));
         if(!unknown)pending.value=null;
     }
