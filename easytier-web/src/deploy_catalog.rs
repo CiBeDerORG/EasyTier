@@ -891,8 +891,8 @@ fn verified_file_bytes(root: &Path, relative: &str, max_bytes: u64) -> Result<(P
 }
 
 fn has_compose_variable(value: &str, key: &str) -> bool {
-    let plain = format!("\${{{key}}}");
-    let with_operator = format!("\${{{key}:");
+    let plain = format!("${{{key}}}");
+    let with_operator = format!("${{{key}:");
     value.contains(&plain) || value.find(&with_operator)
         .and_then(|start| value[start..].find('}')).is_some()
 }
@@ -1156,7 +1156,7 @@ services:
   portainer:
     image: portainer/portainer-ce:latest
     ports:
-      - "\${PORTAINER_HTTP_PORT:?required}:9000"
+      - "${PORTAINER_HTTP_PORT:?required}:9000"
     volumes:
       - ../data:/data
 "#).unwrap();
