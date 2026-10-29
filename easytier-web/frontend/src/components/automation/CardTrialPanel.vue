@@ -324,7 +324,10 @@ function valid(mine:number, owner:number, deviceId:string, original:string):bool
         toastTrialError(message);
         return false;
     };
-    if(disposed || !props.visible)return reject('component_visible','单步窗口已关闭或组件已销毁，忽略旧操作结果。');
+    if(disposed || !props.visible){
+        trialLog('guard.valid.silent_stale',{check:'component_visible',disposed,visible:props.visible});
+        return false;
+    }
     if(mine!==epoch)return reject('epoch','本次单步操作已过期，旧操作结果已忽略。');
     if(props.ownerId!==owner)return reject('owner_id','当前账号已变化，已忽略旧单步操作结果。');
     if(props.device.id!==deviceId)return reject('device_id','当前目标手机已变化，已忽略旧单步操作结果。');
@@ -482,8 +485,11 @@ async function prepare(){
             failTrial(detail,prepared?.phase==='unknown'?'unknown':'failed');
         }
     }catch(cause){
+        trialLog('prepare.exception',{error:trialErrorSnapshot(cause),rawCause:cause});
         if(valid(mine,owner,id,source)){
             failTrial(trialErrorMessage(cause));
+        }else{
+            trialLog('prepare.exception_result_ignored',{reason:'current step/account/device/epoch changed'});
         }
     }
 }
@@ -579,9 +585,13 @@ async function submit(){
         clearSecrets();
         await sendFrozen(mine,owner,id,original,payload);
     }catch(cause){
+        trialLog('submit.exception',{error:trialErrorSnapshot(cause),rawCause:cause,
+            pendingPayload:pending.value});
         if(valid(mine,owner,id,original)){
             const failedPayload=pending.value??undefined;
             pending.value=null;failTrial(trialErrorMessage(cause,failedPayload));
+        }else{
+            trialLog('submit.exception_result_ignored',{reason:'current step/account/device/epoch changed'});
         }
     }
 }
