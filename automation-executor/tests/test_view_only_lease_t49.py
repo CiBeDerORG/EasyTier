@@ -169,6 +169,53 @@ class ViewOnlyLeaseTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.media.command.assert_not_awaited()
         self.runtime.journal.release(foreign_holder,clean=True)
 
+    async def test_preparation_handoff_releases_manual_gesture_without_closing_preview(self):
+        manual_holder = "session:" + self.sid
+        preparation_holder = "prepare:" + str(uuid4())
+        self.runtime.journal.claim(self.phone, manual_holder, "manual")
+
+        await self.runtime._claim_preparation_after_manual(self.phone, preparation_holder)
+
+        control = self.runtime.journal.control(self.phone)
+        self.assertEqual(control["holder"], preparation_holder)
+        self.assertEqual(control["kind"], "prepare")
+        self.assertIn(self.sid, self.runtime.sessions, "the original live preview must stay open")
+        self.assertFalse(self.runtime.sessions[self.sid].view_only,
+                         "the floating manual switch must not be changed")
+        self.runtime.media.command.assert_awaited_once_with(
+            self.sid, {"type": "touch.release"})
+        self.runtime.journal.release(preparation_holder, clean=True)
+
+        # Manual permission remains enabled; its next command can claim the lease again.
+        self.runtime.journal.claim(self.phone, manual_holder, "manual")
+        self.runtime.journal.release(manual_holder, clean=True)
+
+    async def test_preparation_handoff_does_not_steal_lease_when_touch_release_fails(self):
+        manual_holder = "session:" + self.sid
+        self.runtime.journal.claim(self.phone, manual_holder, "manual")
+        self.runtime.media.command.side_effect = ExecutorError(
+            "touch_release_failed", "touch release was not confirmed", 409)
+
+        with self.assertRaises(ExecutorError):
+            await self.runtime._claim_preparation_after_manual(
+                self.phone, "prepare:" + str(uuid4()))
+
+        self.assertEqual(self.runtime.journal.control(self.phone)["holder"], manual_holder)
+        self.assertFalse(self.runtime.sessions[self.sid].view_only)
+        self.runtime.media.command.assert_awaited_once_with(
+            self.sid, {"type": "touch.release"})
+
+    async def test_automation_rpc_health_probe_marks_dead_server_unavailable(self):
+        with patch.object(self.runtime, "prepared", return_value=True), \
+             patch("automation_executor.runtime.asyncio.to_thread",
+                   new=AsyncMock(side_effect=TimeoutError())):
+            self.assertFalse(await self.runtime._automation_rpc_ready(self.phone))
+
+    async def test_automation_rpc_health_probe_accepts_zero_matching_views(self):
+        with patch.object(self.runtime, "prepared", return_value=True), \
+             patch("automation_executor.runtime.asyncio.to_thread", new=AsyncMock(return_value=0)):
+            self.assertTrue(await self.runtime._automation_rpc_ready(self.phone))
+
     async def test_run_releases_prior_manual_gesture_without_changing_viewer_switch(self):
         manual_holder="session:"+self.sid
         script_holder="run:"+str(uuid4())

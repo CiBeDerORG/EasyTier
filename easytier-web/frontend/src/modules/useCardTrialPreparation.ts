@@ -210,7 +210,7 @@ export function useCardTrialPreparation(
                 await confirmReady(target, key, version);
                 return state[key];
             }
-            if (!['preparing', 'not_prepared'].includes(component.state))
+            if (!['preparing', 'not_prepared', 'unavailable'].includes(component.state))
                 throw new Error('控件组件状态异常：' + component.state);
             // Recover an already-running initialization before starting a new one.
             const history = await read(key, version, '组件初始化历史',
@@ -220,11 +220,18 @@ export function useCardTrialPreparation(
             if (!job) {
                 if (component.state === 'preparing')
                     throw new UnknownTrial('UiAutomator2 显示准备中但找不到可确认任务，请查看工作台');
-                if (!allowActions) throw new Error('UiAutomator2 未准备；当前仅查询，不重新创建初始化任务');
+                if (!allowActions) throw new Error(component.state === 'unavailable'
+                    ? 'UiAutomator2 状态不可用；只读复核不会自动重启组件'
+                    : 'UiAutomator2 未准备；当前仅查询，不重新创建初始化任务');
                 // A timed-out POST may have been accepted. Do not submit another UUID automatically.
+                // "unavailable" means the helper may be stale even when its
+                // supervisor is alive; explicitly start one fenced re-preparation.
                 const requestId = uuid();
                 report(key, version, {
-                    phase: 'helper_start', requestId, message: '提交一次 UiAutomator2 初始化任务',
+                    phase: 'helper_start', requestId,
+                    message: component.state === 'unavailable'
+                        ? '检测到控件组件失效，正在清理旧进程并重新初始化'
+                        : '提交一次 UiAutomator2 初始化任务',
                 });
                 try {
                     job = await read(key, version, '组件初始化提交',

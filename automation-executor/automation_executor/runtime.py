@@ -126,6 +126,27 @@ class Runtime:
         return bool(helper and helper.ready_flag and helper.alive() and helper.target["target_fingerprint"] == target["target_fingerprint"]
                     and self.journal.prepared(target))
 
+    async def _automation_rpc_ready(self, target):
+        """Probe the live UiAutomator2 RPC, not just the supervisor's process flag."""
+        if not self.prepared(target):
+            return False
+
+        def check():
+            import adbutils
+            from uiautomator2.core import _jsonrpc_call, DEFAULT_SERVER_PORT
+            from uiautomator2._selector import Selector
+            dev = adbutils.adb.device(serial=f'{target["ip"]}:{target["adb_port"]}')
+            return _jsonrpc_call(dev, DEFAULT_SERVER_PORT, "count",
+                                 (Selector(className="android.view.View"),), 3, False)
+
+        try:
+            observed = await asyncio.wait_for(asyncio.to_thread(check), timeout=5)
+            return isinstance(observed, int) and not isinstance(observed, bool)
+        except Exception:
+            # Status checks are read-only. The caller decides whether it is
+            # allowed to start a fresh preparation under an exclusive claim.
+            return False
+
     def session(self, sid):
         current = self.sessions.get(sid)
         if not current or current.closing or asyncio.get_running_loop().time() >= current.deadline:
@@ -165,7 +186,7 @@ class Runtime:
                 self.journal.release(previous["holder"])
             pid = str(uuid4())
             holder = "prepare:" + pid
-            self.journal.claim(target, holder, "prepare")
+            await self._claim_preparation_after_manual(target, holder)
             try:
                 result = self.journal.create_preparation(pid, request_id, target)
                 task = asyncio.create_task(self._execute_preparation(pid, target, holder))
@@ -301,20 +322,10 @@ class Runtime:
             return {"device_id": device_id, "state": "adb_unavailable", "executor_id": self.journal.executor_id}
         if not self.prepared(target):
             return {"device_id": device_id, "state": "not_prepared", "executor_id": self.journal.executor_id}
-        # Probe the running server through raw read-only RPC. This must NEVER
-        # install, start or reconnect UiAutomator on a status query.
-        def check():
-            import adbutils
-            from uiautomator2.core import _jsonrpc_call, DEFAULT_SERVER_PORT
-            from uiautomator2._selector import Selector
-            dev = adbutils.adb.device(serial=f'{target["ip"]}:{target["adb_port"]}')
-            return _jsonrpc_call(dev, DEFAULT_SERVER_PORT, "count",
-                                 (Selector(className="android.view.View"),), 3, False)
-        try:
-            observed = await asyncio.wait_for(asyncio.to_thread(check), timeout=5)
-            state = "ready" if isinstance(observed, int) and not isinstance(observed, bool) else "unavailable"
-        except Exception:
-            state = "unavailable"
+        # This endpoint stays strictly read-only. A failed RPC probe is
+        # reported as unavailable; an explicit single-step/run request may
+        # then reinitialize the helper under its own exclusive claim.
+        state = "ready" if await self._automation_rpc_ready(target) else "unavailable"
         return {"device_id": device_id, "state": state, "executor_id": self.journal.executor_id}
 
     async def prepare(self, body):
@@ -724,6 +735,50 @@ class Runtime:
                 self.device_cancellations.pop(key,None)
             body["parameters"].clear()
 
+    async def _claim_preparation_after_manual(self, target, preparation_holder):
+        """Take the prepare lease after releasing an existing manual gesture.
+
+        Keep the live preview and floating manual switch unchanged. Only the
+        physical write lease is handed over, using the same confirmation rules
+        as a script run.
+        """
+        control = self.journal.control(target)
+        if not control or control["kind"] != "manual":
+            self.journal.claim(target, preparation_holder, "prepare")
+            return
+
+        manual_holder = control["holder"]
+        if not manual_holder.startswith("session:") or control["state"] != "active":
+            code = "cleanup_pending" if control["state"] == "cleanup_pending" else "device_busy"
+            raise ExecutorError(code, "手机仍有未确认的动作或清理任务，不能开始控件准备")
+        sid = manual_holder[len("session:"):]
+        viewer = self.sessions.get(sid)
+        if not viewer or viewer.closing or any(
+            viewer.target.get(key) != target.get(key)
+            for key in ("owner_user_id", "device_id", "target_fingerprint", "ip", "adb_port")
+        ):
+            raise ExecutorError("device_busy", "当前手控会话与准备目标不一致，不能接管动作权")
+
+        async with viewer.lock:
+            self.session(sid)
+            current = self.journal.control(target)
+            if current is None:
+                self.journal.claim(target, preparation_holder, "prepare")
+                return
+            if (current["holder"] != manual_holder or current["kind"] != "manual"
+                    or current["state"] != "active" or viewer.closing):
+                code = "cleanup_pending" if current["state"] == "cleanup_pending" else "device_busy"
+                raise ExecutorError(code, "手机动作权正在变化，不能开始控件准备")
+            record = self.journal.worker_record(manual_holder)
+            if record:
+                cleaned = await asyncio.to_thread(cleanup_record, record)
+                if not cleaned:
+                    self.journal.release(manual_holder, clean=False)
+                    raise ExecutorError("cleanup_pending", "手控输入进程清理未确认，控件准备未启动")
+            await self.media.command(sid, {"type": "touch.release"})
+            self.journal.release(manual_holder, clean=True)
+            self.journal.claim(target, preparation_holder, "prepare")
+
     async def _claim_run_after_manual(self, target, script_holder):
         """Release the prior manual gesture lease, not the user's manual switch.
 
@@ -800,10 +855,13 @@ class Runtime:
             # merely to execute these steps. Selector/touch/text/screenshot
             # scripts still require the authenticated helper.
             needs_ui = any(step["type"] not in ("key", "launch_app") for step in body["steps"])
-            if needs_ui and not self.prepared(target):
+            if needs_ui and not await self._automation_rpc_ready(target):
+                # A helper process can remain alive while the phone-side RPC
+                # server has died. Rebuild it before the first action, never
+                # discover this by sending a click to a broken service.
                 await self._update(rid, did, {"state": "starting", "steps": results})
                 await self._prepare_automation_helper(target)
-                if not self.prepared(target):
+                if not self.prepared(target) or not await self._automation_rpc_ready(target):
                     raise ExecutorError("automation_prepare_failed", "手机脚本控制组件未能确认就绪")
             if cancel.is_set() or self.journal.cancelled(rid) or self.journal.withdrawn(rid, did):
                 await self._update(rid, did, {"state": "cancelled", "steps": results})
