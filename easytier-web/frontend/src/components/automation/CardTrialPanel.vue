@@ -12,7 +12,7 @@ import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import { useCardRunStatus } from '../../modules/useCardRunStatus';
 import { trialRunNeedsReconciliation } from '../../modules/automation-run-result';
 import { makeSingleStepRun, stepTrialSafety } from '../../modules/automation-single-step';
-import { freezeInlineStepRunIntent, inlineStepIntentStillCurrent, type InlineStepRunIntent, type InlineStepRunProgress } from '../../modules/useInlineStepRun';
+import { freezeInlineStepRunIntent, type InlineStepRunIntent, type InlineStepRunProgress } from '../../modules/useInlineStepRun';
 import { cardStepLabels } from '../../modules/card-step-projection';
 import {
     reviewAutomationDeviceCompatibility,
@@ -293,12 +293,26 @@ function resetForOpen(){
     targetFingerprint.value=props.device.target_fingerprint ?? '';
 }
 function valid(mine:number, owner:number, deviceId:string, original:string):boolean {
-    return !disposed && props.visible && mine===epoch &&
-        props.ownerId===owner && props.device.id===deviceId &&
-        props.device.target_fingerprint===targetFingerprint.value &&
-        inlineStepIntentStillCurrent(lockedIntent.value,owner,deviceId,
-            props.device.target_fingerprint,props.step) &&
-        !!props.step && JSON.stringify(props.step)===original;
+    if(disposed || !props.visible)return false;
+    if(mine!==epoch){toastTrialError('本次单步操作已过期，旧操作结果已忽略。');return false;}
+    if(props.ownerId!==owner){toastTrialError('当前账号已变化，已忽略旧单步操作结果。');return false;}
+    if(props.device.id!==deviceId){toastTrialError('当前目标手机已变化，已忽略旧单步操作结果。');return false;}
+    if(props.device.target_fingerprint!==targetFingerprint.value){
+        toastTrialError('目标手机绑定指纹已变化，已忽略旧单步操作结果。');return false;
+    }
+    if(!lockedIntent.value){toastTrialError('单步执行请求身份不存在，请关闭后重新打开执行窗口。');return false;}
+    if(lockedIntent.value.ownerId!==owner){toastTrialError('执行请求账号与当前账号不一致。');return false;}
+    if(lockedIntent.value.deviceId!==deviceId){toastTrialError('执行请求目标手机与当前手机不一致。');return false;}
+    if(lockedIntent.value.targetFingerprint!==props.device.target_fingerprint){
+        toastTrialError('执行期间目标手机绑定发生变化。');return false;
+    }
+    if(lockedIntent.value.stepId!==props.step?.id){toastTrialError('当前选中的步骤 ID 已变化。');return false;}
+    if(lockedIntent.value.stepJson!==JSON.stringify(props.step)){
+        toastTrialError('当前步骤内容已变化，旧执行结果不会应用到新步骤。');return false;
+    }
+    if(!props.step){toastTrialError('当前步骤已不存在。');return false;}
+    if(JSON.stringify(props.step)!==original){toastTrialError('当前步骤内容与提交时不一致，已取消后续处理。');return false;}
+    return true;
 }
 function checkReadyToPrepare(): boolean {
     if(!targetFingerprint.value){failTrial('目标手机缺少设备绑定指纹，请重新查询设备状态。');return false;}
@@ -452,9 +466,6 @@ async function submit(){
     if(intent.targetFingerprint!==props.device.target_fingerprint){failTrial('目标手机绑定已变化，请重新查询设备并打开单步执行。');return;}
     if(intent.stepId!==props.step?.id){failTrial('当前选中的步骤 ID 已变化，请重新打开单步执行窗口。');return;}
     if(intent.stepJson!==JSON.stringify(props.step)){failTrial('步骤内容在准备后发生变化，请重新准备后再执行。');return;}
-    if(!inlineStepIntentStillCurrent(intent,owner,id,props.device.target_fingerprint,props.step)){
-        failTrial('单步执行身份或草稿内容已发生变化，已阻止提交。');return;
-    }
     const payload=makeSingleStepRun(frozen.value,id,intent.requestId,
         parameter.value ? {[parameter.value]:parameterValue.value} : {},true);
     if(!payload){failTrial('步骤无法转换为单步执行请求，请检查步骤类型和步骤 ID。');return;}
@@ -506,8 +517,6 @@ async function submit(){
         if(valid(mine,owner,id,original)){
             const failedPayload=pending.value??undefined;
             pending.value=null;failTrial(trialErrorMessage(cause,failedPayload));
-        }else{
-            toastTrialError('单步执行返回时，账号、设备或步骤已切换；当前结果未应用到新步骤，请检查原请求记录。');
         }
     }
 }
