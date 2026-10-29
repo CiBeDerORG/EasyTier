@@ -158,15 +158,13 @@ async function reviewStepOnPhone(owner:number, device:AutomationDevice, step:Aut
         // and capped full-attribute/parent rows when multiple targets match.
         const diagnosis=await readTrialDiagnosis(owner,device,step,hierarchy);
         trialDiagnosis.value=diagnosis;
-        if(step.selector.xpath)xpathVerified[step.id]=diagnosis?.count===1;
+        if(step.selector.xpath)xpathVerified[step.id]=diagnosis !== null && diagnosis.count <= 1;
     }
     const review=reviewAutomationDeviceCompatibility(owner,device,hierarchy,[step],Date.now(),
         {requireUniqueSelectors:true,xpathVerified});
-    // Native selectors and XPath must both be unique in the SAME live raw
-    // Android XML. A zero-result wait_gone is the one intentional exception.
-    if(step.selector && trialDiagnosis.value &&
-        (trialDiagnosis.value.count>1 ||
-         (trialDiagnosis.value.count===0 && step.type!=='wait_gone'))){
+    // Keep blocking ambiguous multi-match locators, but treat zero-match XPath
+    // diagnostics as informational so they cannot prevent the run request.
+    if(step.selector && trialDiagnosis.value && trialDiagnosis.value.count>1){
         review.status='blocked';
         review.issues.push({stepId:step.id,stepNumber:1,severity:'block',
             message:summarizeTrialDiagnosis(trialDiagnosis.value)});
@@ -455,7 +453,7 @@ async function prepare(){
             if(!valid(mine,owner,id,source))return;
             compatibilityReview.value=checked;
             if(checked.status==='blocked'){
-                const detail=trialDiagnosis.value && trialDiagnosis.value.count!==1
+                const detail=trialDiagnosis.value && trialDiagnosis.value.count>1
                     ? summarizeTrialDiagnosis(trialDiagnosis.value)
                     : checked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '设备安全校验未通过。';
                 failTrial(detail);
@@ -561,7 +559,7 @@ async function submit(){
         if(!valid(mine,owner,id,original))return;
         if(rechecked.status==='blocked'){
             pending.value=null;compatibilityReview.value=rechecked;
-            const detail=trialDiagnosis.value && trialDiagnosis.value.count!==1
+            const detail=trialDiagnosis.value && trialDiagnosis.value.count>1
                 ? summarizeTrialDiagnosis(trialDiagnosis.value)
                 : rechecked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '目标定位未通过实时安全验证。';
             failTrial(detail);return;
@@ -717,8 +715,7 @@ async function recheckPreparation(){
             if(!valid(mine,owner,id,original))return;
             if(!latestDevice)throw new Error('原授权设备已消失，不能继续试跑。');
             const checked=requiresReuseHierarchy([frozen.value])
-                ? reviewAutomationDeviceCompatibility(owner,latestDevice,
-                    await api.hierarchy(owner,id),[frozen.value],Date.now(),{requireUniqueSelectors:true})
+                ? await reviewStepOnPhone(owner,latestDevice,frozen.value)
                 : statelessCompatibility(owner,latestDevice,[frozen.value]);
             if(!valid(mine,owner,id,original))return;
             compatibilityReview.value=checked;
@@ -804,7 +801,7 @@ onBeforeUnmount(()=>{
 </script>
 
 <template>
-    <AutomationFloatingDialog :visible="visible && (!headless || phase==='unknown' || phase==='failed' || (phase==='ready' && !!parameter && !parameterValue) || (trialDiagnosis !== null && trialDiagnosis.count !== 1))" :portal-target="portalTarget"
+    <AutomationFloatingDialog :visible="visible && (!headless || phase==='unknown' || phase==='failed' || (phase==='ready' && !!parameter && !parameterValue) || (trialDiagnosis !== null && trialDiagnosis.count > 1))" :portal-target="portalTarget"
         :fullscreen="fullscreen" title="卡片单步骤试跑"
         :closable="!busy || phase === 'preparing'" @close="hide">
         <div class="card-trial-content">
