@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import subprocess
+import sys
 
 
 WASM_OUTPUT = Path("easytier-web/config-generator/src/generated/config-wasm")
@@ -41,9 +42,18 @@ def record_output(root: Path, directory: Path, input_key: str) -> None:
     # Preparation steps may rewrite Cargo.lock after the key was computed.
     # Compare only source files: setup-rust may change compiler environment vars.
     snapshot = json.loads((Path(os.environ["RUNNER_TEMP"]) / INPUT_SNAPSHOT).read_text(encoding="utf-8"))
+    current_inputs = source_inputs(root)
     if not isinstance(snapshot, dict) or snapshot.get("format") != 1 \
             or snapshot.get("input_key") != input_key \
-            or snapshot.get("files") != source_inputs(root):
+            or snapshot.get("files") != current_inputs:
+        if isinstance(snapshot, dict) and isinstance(snapshot.get("files"), list):
+            before = {item.get("path"): item for item in snapshot["files"] if isinstance(item, dict)}
+            after = {item.get("path"): item for item in current_inputs}
+            changed = sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
+            if changed:
+                print("Changed tracked WASM source inputs during build: " + ", ".join(changed), file=sys.stderr)
+            elif snapshot.get("input_key") != input_key:
+                print("WASM input key changed without source-file changes.", file=sys.stderr)
         raise SystemExit("WASM source inputs changed during preparation/build; refusing to cache output under an outdated key.")
     manifest = {"format": 1, "input_key": input_key, "files": output_hashes(directory)}
     (directory / MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
