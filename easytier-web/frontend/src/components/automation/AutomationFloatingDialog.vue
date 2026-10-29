@@ -59,6 +59,49 @@ function discardAndClose() {
     discardRequested.value = false;
     emit('close', 'discard');
 }
+/**
+ * Child dialogs are non-modal, so their default fullscreen placement must
+ * leave the main script panel's insertion menu clickable. An enlarged editor
+ * (custom title, ADB options, etc.) can otherwise blanket that menu.
+ * Move only when the natural/default position actually intersects its button;
+ * preserve user-draggable placement at all other times.
+ */
+function avoidCoveringMainAction() {
+    if (!props.visible || !props.fullscreen || !host.value || !panel.value) return;
+    const main = host.value.closest('.phone-screen')
+        ?.querySelector<HTMLElement>('.automation-floating-panel');
+    const target = main?.querySelector<HTMLElement>('.flow-tools .choice-trigger');
+    if (!target) return;
+    const bounds = host.value.getBoundingClientRect();
+    const targetBox = target.getBoundingClientRect();
+    const mainBox = main!.getBoundingClientRect();
+    const width = panel.value.offsetWidth, height = panel.value.offsetHeight;
+    if (!width || !height || !bounds.width || !bounds.height) return;
+    const maxX = Math.max(0, bounds.width - width - 8);
+    const maxY = Math.max(0, bounds.height - height - 8);
+    const targetRect = {x:targetBox.left-bounds.left,y:targetBox.top-bounds.top,
+        width:targetBox.width,height:targetBox.height};
+    const mainRect = {x:mainBox.left-bounds.left,y:mainBox.top-bounds.top,
+        width:mainBox.width,height:mainBox.height};
+    const overlap = (point:{x:number;y:number}, rect:typeof targetRect) =>
+        Math.max(0,Math.min(point.x+width,rect.x+rect.width)-Math.max(point.x,rect.x)) *
+        Math.max(0,Math.min(point.y+height,rect.y+rect.height)-Math.max(point.y,rect.y));
+    const current = position.value;
+    if (!overlap(current,targetRect)) return;
+    const clamp = (x:number,y:number) => ({
+        x:Math.max(0,Math.min(maxX,x)), y:Math.max(0,Math.min(maxY,y)),
+    });
+    const xs = [8,maxX,targetRect.x-width-12,targetRect.x+targetRect.width+12];
+    const ys = [8,maxY,targetRect.y-height-12,targetRect.y+targetRect.height+12];
+    const choices = xs.flatMap(x=>ys.map(y=>clamp(x,y)));
+    const score = (point:typeof current) =>
+        overlap(point,targetRect)*10000 + overlap(point,mainRect) +
+        Math.hypot(point.x-current.x,point.y-current.y)*0.01;
+    const best = choices.reduce((a,b)=>score(b)<score(a)?b:a,current);
+    if (!overlap(best,targetRect) && (best.x!==current.x || best.y!==current.y))
+        position.value = best;
+}
+
 function beginDrag(event: PointerEvent) {
     raise();
     pointerDown(event);
@@ -107,6 +150,9 @@ watch([() => props.visible, () => props.portalTarget], async ([visible, target])
                 position.value={x,y};
         }
         constrain();
+        // Host and panel are mounted after teleport, so geometry is available.
+        await nextTick();
+        avoidCoveringMainAction();
         if (props.visible && panel.value && !panel.value.contains(document.activeElement))
             panel.value.focus({ preventScroll: true });
     } else if (registered) {
@@ -117,6 +163,13 @@ watch([() => props.visible, () => props.portalTarget], async ([visible, target])
         restoreFocus();
     }
 }, { immediate: true, flush: 'post' });
+watch(() => props.fullscreen, async fullscreen => {
+    if (!fullscreen || !props.visible) return;
+    // The shared layer computes its fullscreen coordinates on nextTick.
+    await nextTick();
+    await nextTick();
+    avoidCoveringMainAction();
+}, { flush:'post' });
 watch(() => props.dirty, value => { if (!value) discardRequested.value = false; });
 onMounted(() => document.addEventListener('keydown', onDocumentKeydown, true));
 onBeforeUnmount(() => {
