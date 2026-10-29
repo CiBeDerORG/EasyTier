@@ -1215,6 +1215,21 @@ services:
     }
 
     #[test]
+    fn compose_port_contract_requires_protocol_and_declared_variables() {
+        let tcp = PortSpec {
+            id: "web".into(), label: "Web".into(), protocol: "tcp".into(),
+            purpose: "web".into(), host_port_key: "APP_PORT".into(),
+            bind_address_key: None, container_port: 8080, service: Some("app".into()),
+            path: None,
+        };
+        assert!(compose_port_matches(&json!("${APP_PORT:?required}:8080"), &tcp));
+        let udp = PortSpec { protocol: "udp".into(), ..tcp.clone() };
+        assert!(!compose_port_matches(&json!("${APP_PORT:?required}:8080"), &udp));
+        assert!(compose_port_matches(&json!("${APP_PORT:?required}:8080/udp"), &udp));
+        assert!(!compose_port_matches(&json!("9000:8080"), &tcp));
+    }
+
+    #[test]
     fn package_validator_checks_compose_contract_and_rejects_symlinks() {
         let root = std::env::temp_dir().join(format!("catalog-package-{}", Uuid::new_v4()));
         write_test_checkout(&root);
@@ -1267,7 +1282,16 @@ services:
         assert_eq!(first.file_count, manifest.package.files.len());
         assert!(!first.ready_for_agent);
         assert!(!first.install_enabled);
-        assert!(base.join("packages").join(format!("portainer-{sha}.tar")).is_file());
+        let archive_path = base.join("packages").join(format!("portainer-{sha}.tar"));
+        assert!(archive_path.is_file());
+        let listing = StdCommand::new("tar").arg("-tf").arg(&archive_path).output().unwrap();
+        assert!(listing.status.success());
+        let entries = String::from_utf8(listing.stdout).unwrap();
+        assert!(entries.contains("bundle.json"));
+        assert!(entries.contains("manifest/app.yaml"));
+        assert!(entries.contains("portainer/deploy/docker-compose.yaml"));
+        assert!(!entries.contains(".git"));
+        assert!(!entries.contains("portainer/data"));
 
         let second = catalog.prepare_package("portainer").await.unwrap();
         assert!(second.reused);
