@@ -48,8 +48,8 @@ const size=(v:string)=>new TextEncoder().encode(v).length;
  * numbers are ignored because values such as counters change between frames.
  */
 export function textMatchSegments(value:string):string[] {
-  const source=value.trim().split(/\\s+/u).filter(Boolean);
-  const unique=[...new Set(source)].filter(part=>!/^\\d+(?:[.,]\\d+)*$/.test(part));
+  const source=value.trim().split(/\s+/u).filter(Boolean);
+  const unique=[...new Set(source)].filter(part=>!/^\d+(?:[.,]\d+)*$/.test(part));
   return unique.length?unique:[value.trim()];
 }
 export function textMatches(actual:string,expected:string):boolean {
