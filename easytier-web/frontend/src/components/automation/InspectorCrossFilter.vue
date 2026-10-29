@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {computed,ref,watch} from 'vue';
-import {Button} from 'primevue';
 import type {AutomationHierarchyNode,AutomationSelector} from '../../types/automation';
 import {boundsText,type FilterOption,type FilterField} from '../../modules/automation-cross-filter';
 
@@ -185,8 +184,8 @@ function restoreOriginal(){
     </div>
     <p v-if="filterError" class="warning">{{filterError}}</p>
     <p v-else-if="activeIds.length===0" class="muted">请至少选择一项定位属性。</p>
-    <p v-else-if="matches.length===0" class="warning">当前快照未匹配控件，可保存条件；运行时重新查找。</p>
-    <p v-else class="muted">当前快照匹配 {{matches.length}} 个控件（允许多个）；可直接录入，点击运行时展示实际匹配列表。</p>
+    <p v-else-if="matches.length===0" class="warning">当前快照未匹配控件；请调整条件至唯一命中后再录入。</p>
+    <p v-else class="muted">当前快照匹配 {{matches.length}} 个控件；点击确认录入时，如果超过 1 个，将弹出属性对比列表继续过滤，唯一命中后才能录入。</p>
     <small class="muted">“范围”及 selected/checked 属于易变条件；请优先用描述、ID、类名和稳定父级属性。</small>
   </div>
 </section>
