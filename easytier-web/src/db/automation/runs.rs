@@ -535,11 +535,16 @@ impl AutomationStore {
     /// Emergency cleanup matches EXACTLY the same device-id OR persisted
     /// endpoint key admission fence used by create_session(). A past phone
     /// record can have a different id but still hold the same ADB endpoint.
-    pub(crate) async fn withdraw_endpoint_runs(&self,owner:i32,device:&str,key:&str,event:&str)->AutomationResult<usize> {
+    pub(crate) async fn withdraw_endpoint_runs(&self,device:&str,key:&str,event:&str)->AutomationResult<usize> {
         let mut tx=self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        // Admission checks every account for the physical device/endpoint, so
+        // emergency cleanup must fence every matching account's durable run.
         let rows=sqlx::query(
-            "SELECT d.run_id,d.device_id,r.runner_identity FROM automation_run_devices d              JOIN automation_runs r ON r.id=d.run_id              WHERE r.owner_user_id=? AND (d.device_id=? OR d.target_key=?) AND d.cleanup_confirmed=0              AND d.state IN ('dispatch_pending','queued','accepted','starting','running',             'cancel_requested','outcome_unknown','cleanup_pending')"
-        ).bind(owner).bind(device).bind(key).fetch_all(&mut *tx).await?;
+            "SELECT d.run_id,d.device_id,r.runner_identity FROM automation_run_devices d \
+             JOIN automation_runs r ON r.id=d.run_id \
+             WHERE (d.device_id=? OR d.target_key=?) AND d.cleanup_confirmed=0 \
+             AND d.state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending')"
+        ).bind(device).bind(key).fetch_all(&mut *tx).await?;
         let mut runs=HashSet::new();
         for row in &rows {
             let rid:String=row.try_get("run_id")?;
@@ -547,7 +552,8 @@ impl AutomationStore {
             let executor:Option<String>=row.try_get("runner_identity")?;
             let state=if executor.is_none(){"cancelled"}else{"cancel_requested"};
             sqlx::query(
-                "UPDATE automation_run_devices SET withdraw_requested=1,withdraw_event_id=?,                 state=?,cleanup_confirmed=?,updated_at=? WHERE run_id=? AND device_id=?"
+                "UPDATE automation_run_devices SET withdraw_requested=1,withdraw_event_id=?, \
+                 state=?,cleanup_confirmed=?,updated_at=? WHERE run_id=? AND device_id=?"
             ).bind(event).bind(state).bind(executor.is_none()).bind(now())
                 .bind(&rid).bind(&did).execute(&mut *tx).await?;
             runs.insert(rid);
@@ -567,20 +573,24 @@ impl AutomationStore {
     /// *owner-scoped* row which could make the session admission query busy.
     /// Re-check ALL endpoint holders (including cross-tenant) in the SAME
     /// transaction. Never claim success while the admission query still blocks.
-    pub(crate) async fn confirm_endpoint_cleanup(&self,owner:i32,device:&str,key:&str)
-        ->AutomationResult<Value> {
+    pub(crate) async fn confirm_endpoint_cleanup(&self,device:&str,key:&str)->AutomationResult<Value> {
         let mut tx=self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let stamp=now();
         let released=sqlx::query(
-            "UPDATE automation_run_devices SET cleanup_confirmed=1,updated_at=?,             state=CASE WHEN state IN ('dispatch_pending','queued','accepted','starting',             'running','cancel_requested','cleanup_pending') THEN 'interrupted' ELSE state END              WHERE (device_id=? OR target_key=?) AND cleanup_confirmed=0 AND run_id IN              (SELECT id FROM automation_runs WHERE owner_user_id=?)"
-        ).bind(&stamp).bind(device).bind(key).bind(owner).execute(&mut *tx).await?.rows_affected();
+            "UPDATE automation_run_devices SET cleanup_confirmed=1,updated_at=?, \
+             state=CASE WHEN state IN ('dispatch_pending','queued','accepted','starting', \
+             'running','cancel_requested','cleanup_pending') THEN 'interrupted' ELSE state END \
+             WHERE (device_id=? OR target_key=?) AND cleanup_confirmed=0"
+        ).bind(&stamp).bind(device).bind(key).execute(&mut *tx).await?.rows_affected();
         let closed=sqlx::query(
-            "UPDATE automation_sessions SET state='closed',updated_at=?              WHERE (device_id=? OR target_key=?) AND owner_user_id=? AND state NOT IN ('closed','failed')"
-        ).bind(&stamp).bind(device).bind(key).bind(owner).execute(&mut *tx).await?.rows_affected();
-        // Rebuild aggregate run states, including mixed-device historical runs.
+            "UPDATE automation_sessions SET state='closed',updated_at=? \
+             WHERE (device_id=? OR target_key=?) AND state NOT IN ('closed','failed')"
+        ).bind(&stamp).bind(device).bind(key).execute(&mut *tx).await?.rows_affected();
+        // Rebuild aggregate run states for every account sharing this endpoint.
         let affected:Vec<String>=sqlx::query_scalar(
-            "SELECT DISTINCT d.run_id FROM automation_run_devices d JOIN automation_runs r              ON r.id=d.run_id WHERE r.owner_user_id=? AND (d.device_id=? OR d.target_key=?)"
-        ).bind(owner).bind(device).bind(key).fetch_all(&mut *tx).await?;
+            "SELECT DISTINCT d.run_id FROM automation_run_devices d \
+             JOIN automation_runs r ON r.id=d.run_id WHERE (d.device_id=? OR d.target_key=?)"
+        ).bind(device).bind(key).fetch_all(&mut *tx).await?;
         for rid in affected {
             let states:Vec<String>=sqlx::query_scalar(
                 "SELECT state FROM automation_run_devices WHERE run_id=?"
@@ -589,10 +599,13 @@ impl AutomationStore {
                 .bind(aggregate(&states)).bind(&stamp).bind(&rid).execute(&mut *tx).await?;
         }
         let remaining_runs:i64=sqlx::query_scalar(
-            "SELECT COUNT(*) FROM automation_run_devices WHERE (device_id=? OR target_key=?)              AND cleanup_confirmed=0 AND state IN ('dispatch_pending','queued','accepted',             'starting','running','cancel_requested','outcome_unknown','cleanup_pending')"
+            "SELECT COUNT(*) FROM automation_run_devices WHERE (device_id=? OR target_key=?) \
+             AND cleanup_confirmed=0 AND state IN ('dispatch_pending','queued','accepted', \
+             'starting','running','cancel_requested','outcome_unknown','cleanup_pending')"
         ).bind(device).bind(key).fetch_one(&mut *tx).await?;
         let remaining_sessions:i64=sqlx::query_scalar(
-            "SELECT COUNT(*) FROM automation_sessions WHERE (device_id=? OR target_key=?)              AND state NOT IN ('closed','failed')"
+            "SELECT COUNT(*) FROM automation_sessions WHERE (device_id=? OR target_key=?) \
+             AND state NOT IN ('closed','failed')"
         ).bind(device).bind(key).fetch_one(&mut *tx).await?;
         tx.commit().await?;
         Ok(json!({"released_runs":released,"closed_sessions":closed,

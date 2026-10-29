@@ -114,7 +114,7 @@ pub(super) async fn ensure_route_unambiguous(connection:&mut SqliteConnection,ow
     let collision:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM asset_devices a JOIN asset_services c ON c.device_id=a.id AND c.service_type='adb' WHERE a.overlay_ip=? AND c.port=? AND a.id<>?)")
         .bind(ip).bind(port).bind(id).fetch_one(&mut *connection).await?;
     let endpoint=format!("default:{ip}:{port}");
-    let unresolved:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_sessions WHERE target_key=? AND owner_user_id<>? AND state NOT IN ('closed','failed')) OR EXISTS(SELECT 1 FROM automation_run_devices d JOIN automation_runs r ON r.id=d.run_id WHERE d.target_key=? AND r.owner_user_id<>? AND d.cleanup_confirmed=0 AND d.state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending'))")
+    let unresolved:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_sessions WHERE target_key=? AND owner_user_id<>? AND state NOT IN ('closed','failed')) OR EXISTS(SELECT 1 FROM automation_run_devices d JOIN automation_runs r ON r.id=d.run_id WHERE d.target_key=? AND r.owner_user_id<>? AND d.cleanup_confirmed=0 AND d.state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending') AND (r.runner_identity IS NOT NULL OR (r.state='dispatch_pending' AND julianday(r.updated_at)>=julianday('now','-60 seconds'))))")
         .bind(&endpoint).bind(owner).bind(&endpoint).bind(owner).fetch_one(&mut *connection).await?;
     if collision||unresolved {return Err(conflict("route_ambiguous","This shared executor cannot distinguish duplicate network addresses. Resolve conflicting asset mappings or pending cleanup before connecting."));}
     Ok(())
@@ -211,6 +211,17 @@ impl AutomationStore {
     }
 
     pub(crate) async fn target(&self, owner:i32,id:&str)->AutomationResult<Value> {
+        self.target_inner(owner,id,true).await
+    }
+
+    /// Explicit physical cleanup must be able to resolve this account's current
+    /// target even when another account has a lease for the same ADB endpoint.
+    /// The cleanup route fences and clears all matching endpoint holders first.
+    pub(crate) async fn target_for_cleanup(&self, owner:i32,id:&str)->AutomationResult<Value> {
+        self.target_inner(owner,id,false).await
+    }
+
+    async fn target_inner(&self, owner:i32,id:&str,enforce_route_unambiguous:bool)->AutomationResult<Value> {
         let mut connection=self.pool.acquire().await?;
         active_owner(&mut connection,owner).await?;
         let row=sqlx::query("SELECT a.name,a.machine_id,a.overlay_ip,a.endpoint_revision,s.id AS adb_service_id,s.port AS adb_port,s.connection_mode FROM asset_devices a JOIN asset_device_types t ON t.id=a.device_type_id AND t.owner_user_id=a.owner_user_id JOIN asset_services s ON s.device_id=a.id AND s.owner_user_id=a.owner_user_id AND s.service_type='adb' WHERE a.id=? AND a.owner_user_id=? AND EXISTS (SELECT 1 FROM json_each(t.semantic_kinds) WHERE value='phone') AND a.is_gateway_self=0 AND EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=s.id AND b.protocol='tcp' AND b.port=s.port) AND NOT EXISTS(SELECT 1 FROM asset_service_bindings b WHERE b.service_id=s.id AND b.protocol<>'tcp')")
@@ -233,7 +244,9 @@ impl AutomationStore {
         let mut connection=self.pool.acquire().await?;
         let version=fingerprint(&mut connection,owner,id,&self.runtime_observations).await?;
         if version!=initial_version {return Err(conflict("target_changed","The device target changed while it was being prepared."));}
-        ensure_route_unambiguous(&mut connection,owner,id,&ip,row.try_get("adb_port")?).await?;
+        if enforce_route_unambiguous {
+            ensure_route_unambiguous(&mut connection,owner,id,&ip,row.try_get("adb_port")?).await?;
+        }
         Ok(json!({"device_id":id,"name":row.try_get::<String,_>("name")?,"owner_user_id":owner,"machine_id":node,
             "ip":parsed.to_string(),"adb_port":row.try_get::<i64,_>("adb_port")?,"connection_mode":row.try_get::<String,_>("connection_mode")?,
             "adb_service_id":row.try_get::<String,_>("adb_service_id")?,"endpoint_revision":row.try_get::<i64,_>("endpoint_revision")?,"target_fingerprint":version,"route_context":"default"}))
@@ -248,6 +261,22 @@ impl AutomationStore {
         if fingerprint(&mut tx,owner,device_id,&self.runtime_observations).await?!=target["target_fingerprint"].as_str().unwrap_or("") {return Err(conflict("target_changed","The device address changed before the session was saved."));}
         ensure_route_unambiguous(&mut tx,owner,device_id,target["ip"].as_str().ok_or_else(not_found)?,target["adb_port"].as_i64().ok_or_else(not_found)?).await?;
         let key=target_key(&target)?;
+        // A NULL runner identity proves the run was never dispatched: binding
+        // the executor identity is committed before the POST to /runs. Older
+        // builds incorrectly left these rows as outcome_unknown when identity
+        // lookup failed, permanently blocking preview despite no device action.
+        // Reconcile only that provably-unsent case, plus abandoned dispatch
+        // admissions older than one minute. The transaction fences late binders.
+        let timestamp=now();
+        let never_dispatched:Vec<String>=sqlx::query_scalar(
+            "SELECT DISTINCT r.id FROM automation_runs r JOIN automation_run_devices d ON d.run_id=r.id WHERE (d.device_id=? OR d.target_key=?) AND d.cleanup_confirmed=0 AND d.state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending') AND r.runner_identity IS NULL AND (r.state='outcome_unknown' OR (r.state='dispatch_pending' AND julianday(r.updated_at)<julianday('now','-60 seconds')))"
+        ).bind(device_id).bind(&key).fetch_all(&mut *tx).await?;
+        for run_id in never_dispatched {
+            sqlx::query("UPDATE automation_run_devices SET state='cancelled',cleanup_confirmed=1,updated_at=? WHERE run_id=? AND cleanup_confirmed=0")
+                .bind(&timestamp).bind(&run_id).execute(&mut *tx).await?;
+            sqlx::query("UPDATE automation_runs SET cancel_requested=1,state='cancelled',never_started_confirmed_at=?,updated_at=? WHERE id=? AND runner_identity IS NULL AND state IN ('dispatch_pending','outcome_unknown')")
+                .bind(&timestamp).bind(&timestamp).bind(&run_id).execute(&mut *tx).await?;
+        }
         let busy:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_sessions WHERE (device_id=? OR target_key=?) AND state NOT IN ('closed','failed'))")
             .bind(device_id).bind(&key).fetch_one(&mut *tx).await?;
         if busy {return Err(conflict("device_busy","This device already has a viewing session or pending cleanup. Close it before opening another."));}

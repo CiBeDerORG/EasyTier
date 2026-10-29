@@ -413,16 +413,60 @@ async fn emergency_cleanup_releases_historical_device_id_still_holding_the_same_
     let denied=f.store.create_session(f.owner,f.owner,&phone,"wall").await.unwrap_err();
     assert_eq!(denied.code,"device_busy");
     let event=Uuid::new_v4().to_string();
-    let fenced=f.store.withdraw_endpoint_runs(f.owner,&phone,&key,&event).await.unwrap();
-    assert_eq!(fenced,1,"endpoint cleanup must include old device IDs");
-    let settled=f.store.confirm_endpoint_cleanup(f.owner,&phone,&key).await.unwrap();
+    // Simulate a historical run row from another account sharing this same
+    // physical endpoint. The preview gate is endpoint-wide, so cleanup must be too.
+    let foreign_run=Uuid::new_v4().to_string();
+    let foreign_device=Uuid::new_v4().to_string();
+    let foreign_request=Uuid::new_v4().to_string();
+    let foreign_executor=Uuid::new_v4().to_string();
+    let stamp=super::now();
+    sqlx::query(
+        "INSERT INTO automation_runs(id,actor_user_id,owner_user_id,request_id,request_hash,name,state,snapshot_json,parameters_json,concurrency,created_at,updated_at,runner_identity) SELECT ?,?,?,?,?,'cross-owner stale ADB lease','running',snapshot_json,parameters_json,concurrency,?,?,? FROM automation_runs WHERE id=?"
+    ).bind(&foreign_run).bind(f.other).bind(f.other).bind(&foreign_request)
+        .bind("cross-owner-request-hash").bind(&stamp).bind(&stamp)
+        .bind(&foreign_executor).bind(run_id).execute(&f.db.inner()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO automation_run_devices(run_id,device_id,ordinal,name,target_key,target_fingerprint,target_json,state,steps_json,updated_at) SELECT ?, ?, ordinal, name, target_key, target_fingerprint, target_json, 'running', '[]', ? FROM automation_run_devices WHERE run_id=?"
+    ).bind(&foreign_run).bind(&foreign_device).bind(&stamp).bind(run_id)
+        .execute(&f.db.inner()).await.unwrap();
+
+    let fenced=f.store.withdraw_endpoint_runs(&phone,&key,&event).await.unwrap();
+    assert_eq!(fenced,2,"endpoint cleanup must include historical IDs and other owners");
+    let settled=f.store.confirm_endpoint_cleanup(&phone,&key).await.unwrap();
     assert_eq!(settled["admission_clear"],true);
-    assert_eq!(settled["released_runs"],1);
+    assert_eq!(settled["released_runs"],2);
     assert_eq!(settled["remaining_runs"],0);
     assert_eq!(settled["remaining_sessions"],0);
     assert_eq!(f.store.run(f.owner,run_id).await.unwrap()["devices"][0]["cleanup_confirmed"],true);
+    assert_eq!(f.store.run(f.other,&foreign_run).await.unwrap()["devices"][0]["cleanup_confirmed"],true);
     let preview=f.store.create_session(f.owner,f.owner,&phone,"wall").await.unwrap();
     assert_eq!(preview["device_id"],phone);
+}
+
+#[tokio::test]
+async fn session_admission_reconciles_a_run_that_never_reached_the_executor() {
+    let f=Fixture::new().await;
+    let phone=f.phone().await;
+    let (run,created)=f.store.create_run(f.owner,f.owner,&json!({
+        "request_id":Uuid::new_v4().to_string(),
+        "name":"never dispatched","steps":[valid_step()],
+        "device_ids":[phone],"parameters":{},"concurrency":1
+    })).await.unwrap();
+    assert!(created);
+    let run_id=run["id"].as_str().unwrap();
+    // This is the previous failure path: identity lookup failed before any POST,
+    // but the old implementation left an outcome_unknown row with no executor ID.
+    f.store.set_run_dispatch_unknown(f.owner,run_id).await.unwrap();
+    let stale=f.store.run(f.owner,run_id).await.unwrap();
+    assert_eq!(stale["state"],"outcome_unknown");
+    assert_eq!(stale["devices"][0]["cleanup_confirmed"],false);
+
+    let preview=f.store.create_session(f.owner,f.owner,&phone,"wall").await.unwrap();
+    assert_eq!(preview["device_id"],phone);
+    let reconciled=f.store.run(f.owner,run_id).await.unwrap();
+    assert_eq!(reconciled["state"],"cancelled");
+    assert_eq!(reconciled["devices"][0]["state"],"cancelled");
+    assert_eq!(reconciled["devices"][0]["cleanup_confirmed"],true);
 }
 
 #[tokio::test]

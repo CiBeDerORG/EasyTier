@@ -22,10 +22,10 @@ pub(super) async fn create(auth: AuthSession, State(manager): State<AppStateInne
     let executor_id = match runner.identity().await {
         Ok(value)=>value,
         Err(_)=>{
-            // No identity is bound and no dispatch was issued. A later explicit
-            // cancellation can prove locally that this task never left the API.
-            store.set_run_dispatch_unknown(owner,&run_id).await.map_err(store_error)?;
-            return Ok(Json(store.run(owner,&run_id).await.map_err(store_error)?));
+            // Identity lookup failed before binding or POSTing to the executor.
+            // This run provably never reached a device; persist terminal cleanup
+            // now instead of leaving an outcome_unknown lease that blocks preview.
+            return Ok(Json(store.cancel_run(owner,&run_id).await.map_err(store_error)?));
         }
     };
     store.bind_run_executor(owner,&run_id,&executor_id).await.map_err(store_error)?;
@@ -186,7 +186,7 @@ pub(super) async fn force_cleanup_device(
     authorize(&auth,&config,&service,owner).await?;
     let device=id(&raw_device)?;
     let store=observed_store(&manager,&service,owner,Some(&[device.clone()])).await?;
-    let target=store.target(owner,&device).await.map_err(store_error)?;
+    let target=store.target_for_cleanup(owner,&device).await.map_err(store_error)?;
     // The create_session gate checks device ID OR *this same* endpoint key.
     // Cleaning only the current device ID previously left old ADB endpoint
     // leases behind, and the UI incorrectly reported that cleanup succeeded.
@@ -195,7 +195,7 @@ pub(super) async fn force_cleanup_device(
     let remote=runner(&runtime)?;
     let executor=remote.identity().await?;
     let event=Uuid::new_v4().to_string();
-    let fenced=store.withdraw_endpoint_runs(owner,&device,&key,&event)
+    let fenced=store.withdraw_endpoint_runs(&device,&key,&event)
         .await.map_err(store_error)?;
     let reply=remote.post(&format!("devices/{device}/force-cleanup"),&json!({
         "target":wire_target(&target),
@@ -210,7 +210,7 @@ pub(super) async fn force_cleanup_device(
     let mut result=reply;
     result["fenced_database_runs"]=json!(fenced);
     if result["cleanup_confirmed"]==true {
-        let settled=store.confirm_endpoint_cleanup(owner,&device,&key).await
+        let settled=store.confirm_endpoint_cleanup(&device,&key).await
             .map_err(store_error)?;
         let clear=settled["admission_clear"]==true;
         result["released_database_runs"]=settled["released_runs"].clone();
