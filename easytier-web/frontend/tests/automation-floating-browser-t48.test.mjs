@@ -26,8 +26,8 @@ before(async()=>{
   });
 });
 after(async()=>{await browser?.close();server?.kill();});
-async function setup(t,url=base){
-  const context=await browser.newContext({viewport:{width:1150,height:800}});
+async function setup(t,url=base,contextOptions={}){
+  const context=await browser.newContext({viewport:{width:1150,height:800},...contextOptions});
   t.after(()=>context.close());
   const page=await context.newPage(),errors=[];
   page.on('pageerror',error=>errors.push(error.message));
@@ -343,4 +343,52 @@ test('T57 product acceptance: native step and insert menus stay inside current v
   assert.equal(await original.getAttribute('data-product-acceptance'),'video-kept');
   assert.equal(await page.locator('.phone-card video.primary-video').count(),1);
   assert.equal(await page.locator('body > .p-select-overlay').count(),0);
+});
+
+test('T58 mobile portrait and narrow touch: insert-action dropdown remains inside the viewport and accepts choices',async t=>{
+  for(const viewport of [{width:390,height:844},{width:320,height:640}]){
+    await t.test(viewport.width+'x'+viewport.height+' touch portrait',async child=>{
+      const page=await setup(child,realCardFixture,{viewport,isMobile:true,hasTouch:true,deviceScaleFactor:2});
+      await page.locator('#open-panel').tap();
+      const panel=page.getByRole('region',{name:'自动化脚本'});
+      const select=panel.locator('.flow-tools .p-select');
+      await select.scrollIntoViewIfNeeded();
+      await select.tap();
+      const overlay=page.locator('.automation-subwindow-host .p-select-overlay:visible').last();
+      await overlay.waitFor();
+      assert.equal(await overlay.evaluate(node=>!!node.closest('.automation-subwindow-host.detached-subwindows')),true,
+        'mobile popup must stay in the existing viewport popup host');
+      const rect=await overlay.boundingBox();
+      assert.ok(rect && rect.width>=120,'menu must have touch-accessible width');
+      assert.ok(rect.x>=-1 && rect.x+rect.width<=viewport.width+1,
+        'menu must not overflow horizontally: '+JSON.stringify({viewport,rect}));
+      assert.ok(rect.y>=-1 && rect.y+rect.height<=viewport.height+1,
+        'menu must remain in the visible vertical viewport: '+JSON.stringify({viewport,rect}));
+      await overlay.getByRole('option',{name:'截图检查点'}).tap();
+      assert.match(await select.textContent(),/截图检查点/);
+      assert.equal(await page.locator('body > .p-select-overlay').count(),0,
+        'there must be no dropdown appended directly to document.body');
+    });
+  }
+});
+
+test('T59 mobile fullscreen touch: action popup must be operable inside the phone fullscreen layer',async t=>{
+  const page=await setup(t,realCardFixture,{
+    viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2,
+  });
+  await page.locator('#fullscreen-card').tap();
+  await page.waitForFunction(()=>document.fullscreenElement?.classList.contains('phone-screen'));
+  await page.evaluate(()=>window.phoneCardReview.open());
+  const panel=page.getByRole('region',{name:'自动化脚本'});
+  const select=panel.locator('.flow-tools .p-select');
+  await select.scrollIntoViewIfNeeded();
+  await select.tap();
+  const popup=page.locator('.phone-screen .automation-subwindow-host .p-select-overlay:visible').last();
+  await popup.waitFor();
+  assert.equal(await popup.evaluate(node=>!!document.fullscreenElement?.contains(node)),true);
+  const rect=await popup.boundingBox(),viewport=page.viewportSize();
+  assert.ok(rect && rect.x>=-1 && rect.x+rect.width<=viewport.width+1);
+  assert.ok(rect && rect.y>=-1 && rect.y+rect.height<=viewport.height+1);
+  await popup.getByRole('option',{name:'点击'}).tap();
+  assert.match(await select.textContent(),/点击/);
 });
