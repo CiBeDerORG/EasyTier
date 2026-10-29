@@ -61,78 +61,15 @@ fn parameter_name(value:&str)->bool {
         &&value.bytes().all(|c|c.is_ascii_alphanumeric()||c==b'_')
 }
 
-/// ADB steps are always pinned to the selected phone's existing connection.
+/// ADB steps are pinned to the selected phone; host ADB flags are forbidden.
 pub(super) fn adb_shell_command(value:&Value)->AutomationResult<String> {
     let command=value.as_str().ok_or_else(||AutomationError::field("command","Enter an ADB shell command."))?;
     let trimmed=command.trim();
     let parts=trimmed.split_whitespace().collect::<Vec<_>>();
     if trimmed.len()>1024 || parts.len()<3 || parts[0]!="adb" || parts[1]!="shell"
-        || trimmed.chars().any(|c|c.is_control() || ";|&<>use std::collections::HashSet;
-
-use serde_json::{Value, json};
-use uuid::Uuid;
-
-use super::{AutomationError, AutomationResult};
-
-pub(super) fn keys(value:&Value, allowed:&[&str])->AutomationResult<()> {
-    let Some(object)=value.as_object() else {return Err(AutomationError::field("body","An object is required."));};
-    if object.keys().any(|key|!allowed.contains(&key.as_str())
-        && !(key=="title" && allowed.contains(&"id") && allowed.contains(&"type"))) {return Err(AutomationError::field("body","The request contains unsupported fields."));}
-    Ok(())
-}
-
-pub(super) fn text(value:&Value,field:&str,max:usize,required:bool)->AutomationResult<String> {
-    let result=match value.get(field) {
-        None|Some(Value::Null) if !required=>String::new(),
-        Some(Value::String(s))=>s.trim().to_owned(),
-        _=>return Err(AutomationError::field(field,"A text value is required.")),
-    };
-    if (required&&result.is_empty())||result.len()>max||result.chars().any(|c|c=='\0') {return Err(AutomationError::field(field,"The value is empty, too long, or contains unsupported characters."));}
-    Ok(result)
-}
-
-fn coordinate(step:&Value,field:&str)->AutomationResult<()> {
-    if !step[field].as_f64().is_some_and(|n|n.is_finite()&&(0.0..=1.0).contains(&n)) {return Err(AutomationError::field(field,"Use a normalized coordinate from 0 to 1."));}
-    Ok(())
-}
-
-fn dimension(step:&Value,field:&str)->AutomationResult<()> {
-    if !step[field].as_u64().is_some_and(|n|(1..=16384).contains(&n)) {return Err(AutomationError::field(field,"The recorded screen dimensions are required."));}
-    Ok(())
-}
-
-fn selector(value:&Value)->AutomationResult<()> {
-    const BOOLEAN_FIELDS:&[&str]=&["clickable","enabled","long_clickable","focusable","checkable","scrollable"];
-    keys(value,&["resource_id","description","text","class_name","package","xpath",
-                 "clickable","enabled","long_clickable","focusable","checkable","scrollable"])?;
-    let object=value.as_object().ok_or_else(||AutomationError::field("selector","A selector is required."))?;
-    if object.is_empty() {return Err(AutomationError::field("selector","Choose at least one selector field."));}
-    if object.contains_key("xpath") && object.len()!=1 {
-        return Err(AutomationError::field("selector","XPath cannot be combined with native selector fields."));
-    }
-    for field in object.keys() {
-        if BOOLEAN_FIELDS.contains(&field.as_str()) {
-            if !value[field].is_boolean() {
-                return Err(AutomationError::field(field,"Selector boolean must be true or false."));
-            }
-        } else if !value[field].as_str().is_some_and(|s|!s.trim().is_empty()&&s.len()<=512&&!s.contains('\0')) {
-            return Err(AutomationError::field(field,"Selector text is empty or exceeds 512 bytes."));
-        }
-    }
-    if object.contains_key("xpath") && !value["xpath"].as_str().is_some_and(|s|s.starts_with('/')||s.starts_with('(')) {
-        return Err(AutomationError::field("xpath","XPath must begin with / or (."));
-    }
-    Ok(())
-}
-
-fn parameter_name(value:&str)->bool {
-    !value.is_empty()&&value.len()<=64&&value.bytes().next().is_some_and(|c|c.is_ascii_alphabetic()||c==b'_')
-        &&value.bytes().all(|c|c.is_ascii_alphanumeric()||c==b'_')
-}
-
-\\\r\n".contains(c))
+        || trimmed.chars().any(|c|c.is_control() || [59u32,124,38,60,62,36,96,92].contains(&(c as u32)))
         || matches!(parts[2],"sh"|"su"|"bash"|"ash"|"busybox"|"toybox") {
-        return Err(AutomationError::field("command","Enter a single adb shell command (no host options, shell interpreters, pipes or redirects)."));
+        return Err(AutomationError::field("command","Enter one adb shell command without host options, shell interpreters, pipes or redirects."));
     }
     Ok(trimmed.to_owned())
 }
