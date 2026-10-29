@@ -27,6 +27,8 @@ fn failed(e: Error) -> (StatusCode, Json<Value>) {
         Error::Uninitialized => fail(StatusCode::NOT_FOUND, "catalog_not_initialized", &e.to_string()),
         Error::Invalid(_) => fail(StatusCode::UNPROCESSABLE_ENTITY, "catalog_invalid", &e.to_string()),
         Error::Remote => fail(StatusCode::BAD_GATEWAY, "catalog_refresh_failed", &e.to_string()),
+        Error::RevisionUnavailable => fail(StatusCode::CONFLICT, "catalog_revision_unavailable", &e.to_string()),
+        Error::PackageConflict => fail(StatusCode::CONFLICT, "catalog_package_conflict", &e.to_string()),
         Error::Storage => fail(StatusCode::SERVICE_UNAVAILABLE, "catalog_storage_failed", &e.to_string()),
     }
 }
@@ -48,6 +50,19 @@ async fn detail(
 ) -> Outcome {
     available(&auth, &config)?;
     catalog.detail(&id).await.map(Json).map_err(failed)
+}
+
+async fn prepare_package(
+    auth: AuthSession,
+    Extension(config): Extension<ConsoleInfoConfig>,
+    Extension(catalog): CatalogService,
+    Path(id): Path<String>,
+) -> Outcome {
+    available(&auth, &config)?;
+    // Package preparation consumes only the selected catalog revision. Form
+    // values and secrets are intentionally not accepted by this endpoint.
+    let package = catalog.prepare_package(&id).await.map_err(failed)?;
+    Ok(Json(json!(package)))
 }
 
 async fn refresh(
@@ -72,6 +87,7 @@ pub fn router(catalog: Arc<Catalog>) -> Router<AppStateInner> {
     Router::new()
         .route("/api/v1/deploy/catalog", get(index))
         .route("/api/v1/deploy/catalog/{id}", get(detail))
+        .route("/api/v1/deploy/catalog/{id}/package", post(prepare_package))
         .route("/api/v1/deploy/catalog/refresh", post(refresh))
         .layer(Extension(catalog))
 }
