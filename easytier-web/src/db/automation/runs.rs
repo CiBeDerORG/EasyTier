@@ -203,6 +203,13 @@ fn sanitized_steps(incoming:&Value,script:&Value,previous:&Value)->AutomationRes
 
 impl AutomationStore {
     pub(crate) async fn create_run(&self,actor:i32,owner:i32,body:&Value)->AutomationResult<(Value,bool)> {
+        // Apply the backend default before hashing/idempotency checks and before
+        // validating an inline run, so the persisted snapshot and executor wire agree.
+        let mut normalized_body=body.clone();
+        if let Some(steps)=normalized_body.get_mut("steps") {
+            validation::default_adb_command_timeouts(steps);
+        }
+        let body=&normalized_body;
         validation::keys(body,&["request_id","script_id","revision","name","steps","device_ids","parameters","concurrency"])?;
         self.authorize(actor,owner).await?;
         let request_id=validation::text(body,"request_id",64,true)?;
@@ -242,7 +249,9 @@ impl AutomationStore {
             let revision=body["revision"].as_i64().filter(|n|*n>0).ok_or_else(||AutomationError::field("revision","The selected draft revision is required."))?;
             let row=sqlx::query("SELECT name,revision,steps_json FROM automation_scripts WHERE id=? AND owner_user_id=?").bind(script_id).bind(owner).fetch_optional(&mut *tx).await?.ok_or_else(not_found)?;
             if revision!=row.try_get::<i64,_>("revision")? {return Err(conflict("script_revision_changed","The script changed after it was selected. Review it before running."));}
-            json!({"schema_version":1,"script_id":script_id,"revision":revision,"name":row.try_get::<String,_>("name")?,"steps":validation::steps(&parse_json(&row.try_get::<String,_>("steps_json")?)?)?})
+            let mut saved_steps=parse_json(&row.try_get::<String,_>("steps_json")?)?;
+            validation::default_adb_command_timeouts(&mut saved_steps);
+            json!({"schema_version":1,"script_id":script_id,"revision":revision,"name":row.try_get::<String,_>("name")?,"steps":validation::steps(&saved_steps)?})
         } else {
             if body.get("revision").is_some(){return Err(AutomationError::field("revision","Inline steps do not have a saved draft revision."));}
             let name=if body.get("name").is_some(){validation::text(body,"name",128,true)?}else{"Script trial".into()};

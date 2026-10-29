@@ -62,6 +62,20 @@ fn parameter_name(value:&str)->bool {
 }
 
 /// ADB steps are pinned to the selected phone; host ADB flags are forbidden.
+/// Fill the server-side default for legacy/incomplete ADB steps before validation and dispatch.
+pub(super) fn default_adb_command_timeouts(input:&mut Value) {
+    let Some(items)=input.as_array_mut() else { return; };
+    for step in items {
+        if step.get("type").and_then(Value::as_str)==Some("adb_command")
+            && step.get("timeout_ms").map_or(true,Value::is_null)
+        {
+            if let Some(object)=step.as_object_mut() {
+                object.insert("timeout_ms".to_owned(),json!(10000));
+            }
+        }
+    }
+}
+
 pub(super) fn adb_shell_command(value:&Value)->AutomationResult<String> {
     let command=value.as_str().ok_or_else(||AutomationError::field("command","Enter an ADB shell command."))?;
     let trimmed=command.trim();

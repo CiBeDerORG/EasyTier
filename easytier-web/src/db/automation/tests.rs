@@ -298,6 +298,31 @@ async fn t49_run_uuid_is_idempotent_and_revision_is_checked_before_dispatch() {
 }
 
 #[tokio::test]
+async fn adb_run_defaults_missing_timeout_to_10000_and_preserves_explicit_values() {
+    let f=Fixture::new().await;
+    let phone=f.phone().await;
+    let body=json!({
+        "request_id":Uuid::new_v4().to_string(),
+        "name":"ADB timeout defaults",
+        "steps":[
+            {"id":Uuid::new_v4().to_string(),"type":"adb_command","command":"adb shell wm size"},
+            {"id":Uuid::new_v4().to_string(),"type":"adb_command","command":"adb shell wm size","timeout_ms":8000}
+        ],
+        "device_ids":[phone],"parameters":{},"concurrency":1
+    });
+    let (run,created)=f.store.create_run(f.owner,f.owner,&body).await.unwrap();
+    assert!(created);
+    assert_eq!(run["script_snapshot"]["steps"][0]["timeout_ms"],10000,
+        "missing ADB timeout must be backfilled by the backend");
+    assert_eq!(run["script_snapshot"]["steps"][1]["timeout_ms"],8000,
+        "an explicit timeout must not be overwritten");
+    let dispatch=f.store.dispatch_payload(f.owner,run["id"].as_str().unwrap()).await.unwrap();
+    assert_eq!(dispatch["steps"][0]["timeout_ms"],10000,
+        "the executor dispatch payload must include the backend default");
+    assert_eq!(dispatch["steps"][1]["timeout_ms"],8000);
+}
+
+#[tokio::test]
 async fn t49_rust_media_to_view_only_transition_fences_run_until_confirmed() {
     let f=Fixture::new().await;
     let phone=f.phone().await;
