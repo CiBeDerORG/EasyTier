@@ -67,6 +67,7 @@ clap = { workspace = true, features = [
 ] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+regex = "1.13.1"
 # Safe Rust YAML deserializer with duplicate-key rejection; used only for pinned Deploy manifests.
 serde-saphyr = { version = "=1.3.0", default-features = false, features = ["deserialize", "serde_derived_types"] }
 toml.workspace = true
