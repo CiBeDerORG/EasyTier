@@ -70,6 +70,28 @@ export interface AutomationDevice {
     active_session?: { id: string; state: string; actor_user_id: number; expires_at: string } | null;
     run_occupied?: boolean;
 }
+export interface AutomationExecutorTaskStatus {
+    device_id: string;
+    executor_id: string;
+    state: 'ready' | 'checking' | 'query_failed' | 'unavailable';
+    has_tasks: boolean;
+    task_count: number;
+    tasks: {
+        kind: 'script' | 'preparation';
+        run_id?: string;
+        task_id?: string;
+        device_id: string;
+        state: string;
+        stage?: string;
+        cleanup_confirmed?: boolean;
+        worker_present?: boolean;
+        task_running?: boolean;
+        target_fingerprint_matches?: boolean;
+    }[];
+    checked_at?: string;
+    message?: string;
+}
+
 export interface AutomationPreparation {
     id: string; request_id: string; device_id: string; owner_user_id: number;
     target_fingerprint: string; state: string; stage: string; code: string | null; message: string | null;

@@ -41,7 +41,7 @@ export const automationMessages = {
         enabledRequired: '请先启用此设备的自动化连接。', bindingUnavailable: '网络绑定需要先在节点详情中处理。',
         actionFailed: '操作失败', loading: '正在加载', recordingExists: '请先结束当前录制。',
         controlDisabledWhileHidden: '页面已隐藏，人工会话已结束。返回后请手动打开画面。',
-        cleanupFirst: '请先清理上一次会话，再重新连接。', endpointCleanupPending: '已自动重试旧接入清理，但仍未确认完成，因此配对被保护性阻断。请查看后面的状态码，并检查执行器或历史接入记录。', cleanupSaved: '停止并清理已有会话',
+        cleanupFirst: '请先清理上一次会话，再重新连接。', endpointCleanupPending: '已自动重试旧接入清理，但仍未确认完成，因此配对被保护性阻断。请查看后面的状态码，并检查执行器或历史接入记录。', cleanupSaved: '停止并清理已有会话', clearExecutorTasks: '清除执行器任务', executorTasksQueryFailed: '执行器任务校验失败',
     },
     en: {
         title: 'Automation center', description: 'View live phone screens, control selected devices and create reusable scripts.',
@@ -83,6 +83,6 @@ export const automationMessages = {
         portInvalid: 'Enter an integer port from 1 to 65535.', pairingInvalid: 'Enter a valid pairing port and a six-digit code.', textTooLong: 'Text may contain at most 2000 bytes. Shorten it before sending.',
         enabledRequired: 'Enable this device’s automation connection first.', bindingUnavailable: 'Resolve the network binding in Node details first.',
         actionFailed: 'Operation failed', loading: 'Loading', recordingExists: 'Finish the current recording first.',
-        controlDisabledWhileHidden: 'The page was hidden and manual sessions ended. Open screens manually when you return.', cleanupFirst: 'Clean up the previous session before reconnecting.', endpointCleanupPending: 'Saved endpoint cleanup was retried but remains unconfirmed. Pairing is blocked; check the status code and executor or previous endpoint records.', cleanupSaved: 'Stop and clean up the existing session',
+        controlDisabledWhileHidden: 'The page was hidden and manual sessions ended. Open screens manually when you return.', cleanupFirst: 'Clean up the previous session before reconnecting.', endpointCleanupPending: 'Saved endpoint cleanup was retried but remains unconfirmed. Pairing is blocked; check the status code and executor or previous endpoint records.', cleanupSaved: 'Stop and clean up the existing session', clearExecutorTasks: 'Clear executor tasks', executorTasksQueryFailed: 'Executor task validation failed',
     },
 };

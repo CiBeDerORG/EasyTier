@@ -6,6 +6,7 @@ import type {
     AutomationExecutorCapacity, AutomationExecutorCapacityInput, AutomationMediaSettings,
     AutomationPreparation, AutomationComponentStatus, AutomationPreparationLog, AutomationAdbStatus, AutomationHierarchy, AutomationHierarchyNode,
     AutomationDraftRecord, AutomationDraftWrite, AutomationDraftInput, AutomationDraftReceipt,
+    AutomationExecutorTaskStatus,
 } from '../types/automation';
 
 export class AutomationApiError extends Error {
@@ -59,6 +60,10 @@ export default class AutomationApi {
         return data;
     }
     devices(ownerId: number) { return this.request<{ items: AutomationDevice[]; issues?: {device_id:string;machine_id:string;name:string;reason:string}[] }>('/devices', ownerId); }
+    executorTaskStatus(ownerId:number,id:string) {
+        return this.request<AutomationExecutorTaskStatus>(
+            `/devices/${encodeURIComponent(id)}/executor-task-status`,ownerId);
+    }
     forceCleanup(ownerId:number,id:string) {
         return this.request<{device_id:string;executor_id:string;event_id:string;
             cleanup_confirmed:boolean;stopped_sessions:number;fenced_run_devices:number;
