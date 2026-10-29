@@ -8,6 +8,7 @@ pub(crate) mod runner;
 mod runs;
 mod scripts;
 mod adb_favorites;
+mod adb_presets;
 pub(crate) mod settings;
 pub(crate) mod sessions;
 
@@ -57,6 +58,8 @@ pub(crate) fn router(settings: Arc<settings::Settings>) -> Router<AppStateInner>
         .route("/api/v1/automation/drafts/{id}", get(drafts::get_one).put(drafts::update).delete(drafts::discard))
         .route("/api/v1/automation/adb-favorites", get(adb_favorites::list).post(adb_favorites::save))
         .route("/api/v1/automation/adb-favorites/{id}", axum::routing::delete(adb_favorites::remove))
+        .route("/api/v1/automation/adb-presets/hidden", get(adb_presets::list_hidden))
+        .route("/api/v1/automation/adb-presets/{id}/hidden", put(adb_presets::hide).delete(adb_presets::restore))
         .route("/api/v1/automation/scripts", get(scripts::list).post(scripts::create))
         .route("/api/v1/automation/scripts/requests/{request_id}", get(scripts::creation_receipt))
         .route("/api/v1/automation/scripts/{id}", put(scripts::update).delete(scripts::remove))
