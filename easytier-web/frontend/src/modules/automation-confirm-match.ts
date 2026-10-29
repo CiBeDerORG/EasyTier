@@ -1,7 +1,7 @@
 /** Confirm-time snapshot review. No forced re-pick or pixel-position identity check. */
 import type { AutomationHierarchyNode, AutomationSelector } from '../types/automation';
-import { buildFilterOptions, filterHierarchy, type FilterField, type FilterOption } from './automation-cross-filter';
-import { nativeSnapshotMatches } from './automation-trial-diagnostics';
+import { buildFilterOptions, filterHierarchy, type FilterField, type FilterOption } from './automation-cross-filter.ts';
+import { nativeSnapshotMatches } from './automation-trial-diagnostics.ts';
 
 type Snapshot = { nodes: AutomationHierarchyNode[]; truncated: boolean };
 
