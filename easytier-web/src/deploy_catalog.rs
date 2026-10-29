@@ -672,6 +672,159 @@ fn manifest_detail(m: &ManifestV1) -> Value {
     })
 }
 
+
+fn verified_file_bytes(root: &Path, relative: &str, max_bytes: u64) -> Result<(PathBuf, Vec<u8>), Error> {
+    let parts = safe_relative(relative, true)?;
+    let root_meta = std::fs::symlink_metadata(root).map_err(|_| Error::RevisionUnavailable)?;
+    if !root_meta.is_dir() || root_meta.file_type().is_symlink() {
+        return Err(Error::RevisionUnavailable);
+    }
+    let mut path = root.to_path_buf();
+    for (index, part) in parts.iter().enumerate() {
+        path.push(part);
+        let meta = std::fs::symlink_metadata(&path).map_err(|_| Error::Invalid("Package source file is missing"))?;
+        if meta.file_type().is_symlink() {
+            return Err(Error::Invalid("Package source symlinks are forbidden"));
+        }
+        if index + 1 < parts.len() {
+            if !meta.is_dir() { return Err(Error::Invalid("Package path contains a non-directory")); }
+        } else if !meta.is_file() || meta.len() > max_bytes {
+            return Err(Error::Invalid("Package source is not a bounded regular file"));
+        }
+    }
+    let bytes = std::fs::read(&path).map_err(|_| Error::Invalid("Package source cannot be read"))?;
+    if bytes.len() as u64 > max_bytes { return Err(Error::Invalid("Package source is too large")); }
+    Ok((path, bytes))
+}
+
+fn has_compose_variable(value: &str, key: &str) -> bool {
+    let plain = format!("\${{{key}}}");
+    let with_operator = format!("\${{{key}:");
+    value.contains(&plain) || value.find(&with_operator)
+        .and_then(|start| value[start..].find('}')).is_some()
+}
+
+fn compose_port_matches(entry: &Value, port: &PortSpec) -> bool {
+    if let Some(text) = entry.as_str() {
+        let target = port.container_port.to_string();
+        let target_suffix = format!(":{target}");
+        let protocol_suffix = format!(":{target}/{}", port.protocol);
+        if !text.ends_with(&target_suffix) && !text.ends_with(&protocol_suffix) {
+            return false;
+        }
+        if !has_compose_variable(text, &port.host_port_key) { return false; }
+        return port.bind_address_key.as_deref()
+            .is_none_or(|key| has_compose_variable(text, key));
+    }
+    let Some(map) = entry.as_object() else { return false };
+    let target_matches = map.get("target").is_some_and(|v|
+        v.as_u64() == Some(port.container_port as u64)
+            || v.as_str().and_then(|s| s.parse::<u32>().ok()) == Some(port.container_port));
+    let protocol_matches = map.get("protocol").and_then(Value::as_str).unwrap_or("tcp") == port.protocol;
+    let published = map.get("published").and_then(Value::as_str).unwrap_or("");
+    let bind = map.get("host_ip").and_then(Value::as_str).unwrap_or("");
+    target_matches && protocol_matches && has_compose_variable(published, &port.host_port_key)
+        && port.bind_address_key.as_deref().is_none_or(|key| has_compose_variable(bind, key))
+}
+
+fn normalize_mount_source(app_id: &str, source: &str) -> Option<String> {
+    if source.starts_with('/') || source.contains('\\') || source.contains('\0') { return None; }
+    let mut parts = vec![app_id.to_string(), "deploy".to_string()];
+    for item in source.split('/') {
+        match item {
+            "" | "." => {},
+            ".." => {
+                if parts.len() <= 1 { return None; }
+                parts.pop();
+            }
+            value if value.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-' || c == b'.') => {
+                parts.push(value.to_string());
+            }
+            _ => return None,
+        }
+    }
+    if parts.first().is_some_and(|part| part == app_id) {
+        Some(parts.join("/"))
+    } else { None }
+}
+
+fn validate_compose(root: &Path, manifest: &ManifestV1) -> Result<(), Error> {
+    let relative = format!("{}/{}", manifest.id, manifest.runtime.compose_file);
+    let (_, bytes) = verified_file_bytes(root, &relative, MAX_FILE_BYTES)?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| Error::Invalid("Compose file is not UTF-8"))?;
+    let compose: Value = parse_yaml(text, MAX_FILE_BYTES)?;
+    if compose.get("name").and_then(Value::as_str) != Some(manifest.runtime.compose_project.as_str()) {
+        return Err(Error::Invalid("Compose project does not match manifest"));
+    }
+    let services = compose.get("services").and_then(Value::as_object)
+        .filter(|services| !services.is_empty())
+        .ok_or(Error::Invalid("Compose must define services"))?;
+    for service in &manifest.verification.required_services {
+        if !services.contains_key(service) {
+            return Err(Error::Invalid("Verification references a missing Compose service"));
+        }
+        if manifest.verification.state == "healthy"
+            && services[service].get("healthcheck").is_none() {
+            return Err(Error::Invalid("Healthy verification requires a Compose healthcheck"));
+        }
+    }
+    for port in &manifest.ports {
+        let service = port.service.as_deref().ok_or(Error::Invalid("Port service is required"))?;
+        let entries = services.get(service).and_then(|s| s.get("ports")).and_then(Value::as_array)
+            .ok_or(Error::Invalid("Port service has no Compose port mapping"))?;
+        if !entries.iter().any(|entry| compose_port_matches(entry, port)) {
+            return Err(Error::Invalid("Manifest port does not match Compose binding"));
+        }
+    }
+    let mut mounted_data = BTreeSet::new();
+    for service in services.values() {
+        if let Some(volumes) = service.get("volumes").and_then(Value::as_array) {
+            for volume in volumes {
+                let source = if let Some(spec) = volume.as_str() {
+                    spec.split(':').next().unwrap_or("")
+                } else {
+                    volume.get("source").and_then(Value::as_str).unwrap_or("")
+                };
+                if source.starts_with("../") {
+                    if let Some(path) = normalize_mount_source(&manifest.id, source) {
+                        mounted_data.insert(path);
+                    }
+                }
+            }
+        }
+    }
+    if manifest.data.paths.iter().any(|path| !mounted_data.contains(path)) {
+        return Err(Error::Invalid("Manifest data retention path is not mounted by Compose"));
+    }
+    Ok(())
+}
+
+fn validate_package_files(root: &Path, manifest: &ManifestV1) -> Result<(), Error> {
+    let mut total = 0u64;
+    let mut sources = BTreeMap::<String, Vec<u8>>::new();
+    for file in &manifest.package.files {
+        let (_, bytes) = verified_file_bytes(root, &file.source, MAX_FILE_BYTES)?;
+        total = total.checked_add(bytes.len() as u64).ok_or(Error::Invalid("Package size overflow"))?;
+        if total > MAX_PACKAGE_BYTES { return Err(Error::Invalid("Package exceeds aggregate size limit")); }
+        sources.insert(file.source.clone(), bytes);
+    }
+    for field in &manifest.config {
+        if field.generated_by_script == Some(true) {
+            let action = &manifest.actions.install;
+            let script = action.path.as_ref()
+                .and_then(|p| sources.get(&format!("{}/{}", manifest.id, p)))
+                .ok_or(Error::Invalid("Generated secret install script is missing from package"))?;
+            let script = std::str::from_utf8(script).map_err(|_| Error::Invalid("Install script is not UTF-8"))?;
+            if !script.contains(&field.key)
+                || !(script.contains("ensure_hex_secret") || script.contains("generate")) {
+                return Err(Error::Invalid("Generated secret has no matching install implementation"));
+            }
+        }
+    }
+    validate_compose(root, manifest)?;
+    Ok(())
+}
+
 fn safe_manifest(root: &Path, id: &str) -> Result<Option<PathBuf>, Error> {
     if !safe_id(id) { return Ok(None); }
     let dir = root.join(id);
