@@ -263,9 +263,10 @@ class ViewOnlyLeaseTests(unittest.IsolatedAsyncioTestCase):
                    new=AsyncMock(side_effect=TimeoutError())):
             self.assertFalse(await self.runtime._automation_rpc_ready(self.phone))
 
-    async def test_automation_rpc_health_probe_accepts_zero_matching_views(self):
+    async def test_automation_rpc_health_probe_accepts_valid_hierarchy(self):
         with patch.object(self.runtime, "prepared", return_value=True), \
-             patch("automation_executor.runtime.asyncio.to_thread", new=AsyncMock(return_value=0)):
+             patch("automation_executor.runtime.asyncio.to_thread",
+                   new=AsyncMock(return_value='<hierarchy rotation="0" />')):
             self.assertTrue(await self.runtime._automation_rpc_ready(self.phone))
 
     async def test_run_releases_prior_manual_gesture_without_changing_viewer_switch(self):
