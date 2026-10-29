@@ -37,6 +37,7 @@ mod m20261028_000043_agent_docker_absences;
 mod m20261028_000044_deploy_catalog;
 mod m20261029_000045_deploy_catalog_packages;
 mod m20261029_000046_automation_adb_favorites;
+mod m20261029_000047_automation_adb_preset_visibility;
 
 #[cfg(test)]
 mod merge_upgrade_tests;
@@ -83,6 +84,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261028_000044_deploy_catalog::Migration),
             Box::new(m20261029_000045_deploy_catalog_packages::Migration),
             Box::new(m20261029_000046_automation_adb_favorites::Migration),
+            Box::new(m20261029_000047_automation_adb_preset_visibility::Migration),
         ]
     }
 }
