@@ -544,6 +544,18 @@ impl Catalog {
                 if !existing.status.success() || existing_sha.trim() != sha {
                     return Err(Error::PackageConflict);
                 }
+                let clean = timeout(Duration::from_secs(10),
+                    Command::new("git").arg("-C").arg(&destination)
+                        .args(["status", "--porcelain", "--untracked-files=all"])
+                        .env("GIT_CONFIG_NOSYSTEM", "1")
+                        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                        .env("GIT_OPTIONAL_LOCKS", "0")
+                        .kill_on_drop(true).output()
+                ).await.map_err(|_| Error::PackageConflict)?
+                    .map_err(|_| Error::PackageConflict)?;
+                if !clean.status.success() || !clean.stdout.is_empty() {
+                    return Err(Error::PackageConflict);
+                }
                 tokio::fs::remove_dir_all(stage).await.map_err(|_| Error::Storage)?;
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
