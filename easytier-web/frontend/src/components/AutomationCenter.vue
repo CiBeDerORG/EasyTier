@@ -60,6 +60,7 @@ interface PhoneHandle {
     openAutomationPanel(): void;
     cancelPointer(): void;
     resetPointer(): void;
+    resetTrialAfterCleanup(): void;
 }
 interface SyncSession { masterId: string; deviceIds: string[]; blocked: string[]; geometry: Record<string, { width: number; height: number }> }
 const { t } = useI18n({ useScope: 'local', messages: automationMessages });
@@ -683,6 +684,10 @@ async function forceCleanupDevice(id:string){
                 return;
             }
             floatingBatch.acknowledgeDeviceCleanup(owner,id);
+            // Verified executor and Web DB cleanup also retires the old
+            // single-step observer: an old outcome_unknown run must not keep
+            // the card in the trialActive state forever after cleanup.
+            cards.get(id)?.resetTrialAfterCleanup();
             // The executor has ended previous viewing sessions; the browser
             // must open a NEW one rather than keeping stale WebRTC status.
             const card=cards.get(id);

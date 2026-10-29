@@ -21,6 +21,7 @@ const emit=defineEmits<{
     select: [stepId: string];
     edit: [stepId: string];
     trial: [stepId: string];
+    'inspect-trial': [];
     delete: [stepId: string];
     undo: [];
     create: [type:AutomationStepType];
@@ -112,6 +113,15 @@ function canMove(id:string,delta:-1|1):boolean{
 <template>
     <!-- The ONLY visible timeline: parent ScriptSelector owns script name/count/collapse. -->
     <section class="card-steps" aria-label="当前脚本步骤">
+        <div v-if="trialActive" class="trial-busy-note" role="status">
+            <span>当前手机仍有单步试跑等待结束
+                <template v-if="trialProgress?.runId"> · 任务 {{ trialProgress.runId.slice(0,8) }}</template>
+                <template v-if="trialProgress?.phase"> · {{ trialProgress.label }}</template>
+            </span>
+            <button type="button" class="trial-inspect" @click.stop="emit('inspect-trial')">
+                查看状态 / 停止清理
+            </button>
+        </div>
         <div v-if="undoLabel" class="undo-line" role="status">
             <span>{{ undoLabel }}</span>
             <button type="button" @click="emit('undo')">撤销删除</button>
@@ -212,6 +222,9 @@ function canMove(id:string,delta:-1|1):boolean{
 
 <style scoped>
 .card-steps{padding:3px 0 0;min-width:0}
+.trial-busy-note{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:4px 0;padding:7px 9px;border:1px solid var(--console-border);border-radius:7px;font-size:11px;overflow-wrap:anywhere}
+.trial-busy-note span{flex:1 1 150px;min-width:0}
+.trial-inspect{border:1px solid var(--p-primary-color);border-radius:6px;background:transparent;color:var(--p-primary-color);cursor:pointer;padding:5px 8px;font-size:11px}
 .timeline{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:3px;max-height:260px;overflow-y:auto;overscroll-behavior:contain}
 .timeline-item{display:flex;align-items:stretch;flex-wrap:wrap;min-width:0;border:1px solid var(--console-border);border-radius:7px}
 .timeline-item.active{background:var(--console-accent-soft);border-color:var(--p-primary-color)}

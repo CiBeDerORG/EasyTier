@@ -137,6 +137,14 @@ const repairStepNumber = computed(() => repairStep.value
     ? props.draft.steps.findIndex(step => step.id === repairStep.value!.id)+1 : 0);
 const trialStepId = ref<string | null>(null);
 const trialProgress = ref<InlineStepRunProgress | null>(null);
+const trialInspectOpen = ref(false);
+const trialPanelKey = ref(0);
+function resetTrialAfterCleanup() {
+    trialStepId.value = null;
+    trialProgress.value = null;
+    trialInspectOpen.value = false;
+    ++trialPanelKey.value; // discard prior run observer only after verified cleanup
+}
 const trialToast = ref<{severity:'success'|'error';message:string}|null>(null);
 const trialCompare=ref<TrialLocatorDiagnosis|null>(null);
 let trialToastTimer:ReturnType<typeof setTimeout>|null=null;
@@ -153,6 +161,7 @@ function finishCardTrial(value:{phase:'succeeded'|'action_sent'|'failed'|'cancel
     trialCompare.value=value.phase==='failed' && (value.diagnosis?.count??0)>1
         ? value.diagnosis! : null;
     trialStepId.value=null;
+    trialInspectOpen.value=false;
 }
 onBeforeUnmount(()=>{if(trialToastTimer!==null)clearTimeout(trialToastTimer);});
 const batchVideoProtected=computed(()=>props.batchRunState.selected.includes(props.device.id) &&
@@ -187,6 +196,7 @@ async function openCardTrial(stepId: string, acknowledgedUnknown = false) {
     // T40: the trial window is teleported into the original phone-screen.
     // Never exit fullscreen or replace its WebRTC stream to start one step.
     notifiedUnknownTrial='';
+    trialInspectOpen.value=false;
     trialCompare.value=null;
     trialProgress.value=null; // Never show the previous run's action_sent as current progress.
     trialStepId.value = stepId;
@@ -840,7 +850,7 @@ function getStream() { return session.stream.value; }
 function getSessionId() { return session.getSessionId(); }
 defineExpose({ open, close, cancelRestoreIntent, endpointChanged, send: session.send, unlock: session.unlock,
     getState, getStream, getSessionId, cancelPointer, resetPointer, openAutomationPanel, closeAutomationPanel,
-    toggleAutomationPanel, getAutomationSubwindowHost });
+    toggleAutomationPanel, getAutomationSubwindowHost, resetTrialAfterCleanup });
 onBeforeUnmount(() => {
     document.removeEventListener('fullscreenchange', syncFullscreen);
     window.removeEventListener('resize', measureScreen);
@@ -1030,7 +1040,8 @@ onBeforeUnmount(() => {
                         :undo-label="undoDeleteLabel"
                         @select="emit('step-select',device.id,$event)"
                         @edit="emit('step-edit',device.id,$event)"
-                        @trial="openCardTrial" @delete="requestStepDeletion"
+                        @trial="openCardTrial" @inspect-trial="trialInspectOpen = true"
+                        @delete="requestStepDeletion"
                         @create="type=>emit('step-create',device.id,type)"
                         @branch="(id,lane,type)=>emit('step-branch-add',device.id,id,lane,type)"
                         @convert="(id,type)=>emit('step-convert-condition',device.id,id,type)"
@@ -1122,15 +1133,17 @@ onBeforeUnmount(() => {
             title="单步骤定位 · 多控件匹配对比" @close="trialCompare=null">
             <TrialLocatorCompare v-if="trialCompare" :diagnosis="trialCompare" />
         </AutomationFloatingDialog>
-        <CardTrialPanel :visible="trialStepId !== null" :headless="true" :owner-id="ownerId" :device="device"
+        <CardTrialPanel :key="trialPanelKey" :visible="trialStepId !== null"
+            :headless="!trialInspectOpen" :owner-id="ownerId" :device="device"
             :step="trialStep" :preview-handle="getTrialPreviewHandle"
             :portal-target="automationSubwindowHost" :fullscreen="isFullscreen"
             :runner-available="runnerAvailable"
             :blocked="!!recording || !!syncRole || !!unlocking || !!editingStepId"
             @progress="onTrialProgress" @finished="finishCardTrial"
-            @close="trialStepId = null"
-            @history="runId => { trialStepId = null; emit('trial-history',device.id,runId); }"
-            @repair="(runId,stepId) => { trialStepId = null; emit('trial-repair',device.id,runId,stepId); }" />
+            @cleanup="emit('force-cleanup',device.id)"
+            @close="trialStepId = null; trialInspectOpen = false"
+            @history="runId => { trialStepId = null; trialInspectOpen = false; emit('trial-history',device.id,runId); }"
+            @repair="(runId,stepId) => { trialStepId = null; trialInspectOpen = false; emit('trial-repair',device.id,runId,stepId); }" />
         <small v-if="session.state.unlockState === 'wake_sent'" class="unlock-notice">手机已发送亮屏指令；该 ADB 服务没有保存开屏密码，请在设备管理中配置后重试。</small>
         <small v-else-if="session.state.unlockState === 'already_unlocked'" class="unlock-notice">已检测到手机处于解锁状态，因此没有输入密码。</small>
         <small v-else-if="session.state.unlockState === 'lock_state_unknown'" class="unlock-notice">手机已唤醒，但 Android 未返回可靠的锁屏状态；为避免把密码输入其他应用，已跳过自动解锁。</small>

@@ -56,3 +56,23 @@ test('T40 panel resets completed run on reopen but resumes unresolved one read-o
   assert.match(panel,/resetForOpen\(\);/);
   assert.match(phone,/trialProgress\.value=null; \/\/ Never show the previous run/);
 });
+
+// Inline trial remains exclusive while the device still says running, even
+// after the individual action has been sent. A visible recovery entrypoint
+// must be available instead of locking the entire timeline with no feedback.
+test('T40 stalled one-step trial keeps buttons exclusive but exposes a recovery action',()=>{
+  const timeline=readFileSync(new URL('../src/components/automation/CardStepTimeline.vue',import.meta.url),'utf8');
+  const phone=readFileSync(new URL('../src/components/automation/PhoneCard.vue',import.meta.url),'utf8');
+  const panel=readFileSync(new URL('../src/components/automation/CardTrialPanel.vue',import.meta.url),'utf8');
+  const center=readFileSync(new URL('../src/components/AutomationCenter.vue',import.meta.url),'utf8');
+  assert.equal(summarizeCardRun(run('action_sent','running','running'),'phone-1','step-1').phase,'running');
+  assert.match(timeline,/v-if="trialActive" class="trial-busy-note"/);
+  assert.match(timeline,/@click.stop="emit\('inspect-trial'\)"/);
+  assert.match(phone,/@inspect-trial="trialInspectOpen = true"/);
+  assert.match(phone,/:headless="!trialInspectOpen"/);
+  assert.match(panel,/label="强制停止并清理本机任务"/);
+  assert.match(panel,/@click="emit\('cleanup'\)"/);
+  assert.match(phone,/@cleanup="emit\('force-cleanup',device.id\)"/);
+  assert.match(center,/cards.get\(id\)\?\.resetTrialAfterCleanup\(\)/);
+  assert.match(phone,/trialPanelKey.value; \/\/ discard prior run observer only after verified cleanup/);
+});

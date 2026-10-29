@@ -41,6 +41,7 @@ const props=defineProps<{
 }>();
 const emit=defineEmits<{ close: []; history: [runId: string]; repair: [runId: string, stepId: string];
     progress: [value: InlineStepRunProgress];
+    cleanup: [];
     finished: [value: {phase:'succeeded'|'action_sent'|'failed'|'cancelled';
         message:string;diagnosis?:TrialLocatorDiagnosis|null}] }>();
 const api=new AutomationApi();
@@ -618,6 +619,10 @@ onBeforeUnmount(()=>{
             </div>
             <div class="trial-actions">
                 <Button label="关闭" text size="small" @click="hide"/>
+                <Button v-if="currentRun && runView && trialRunNeedsReconciliation(runView)"
+                    label="强制停止并清理本机任务" icon="pi pi-stop-circle"
+                    severity="danger" outlined size="small"
+                    :disabled="!runnerAvailable" @click="emit('cleanup')"/>
                 <Button v-if="currentRun" label="刷新结果" outlined size="small"
                     :loading="runPolling" @click="result.refresh()"/>
                 <Button v-if="repairableRun" label="定位修复本步骤" icon="pi pi-wrench" outlined size="small"
