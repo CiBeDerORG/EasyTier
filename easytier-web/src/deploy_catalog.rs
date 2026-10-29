@@ -278,6 +278,165 @@ impl Catalog {
             .ok_or(Error::Invalid("Application not in catalog"))
     }
 
+
+    /// Build or reuse an immutable tar package from the exact Git commit stored
+    /// in the catalog. This never executes an install/update script and never
+    /// accepts configuration values or secrets from the caller.
+    pub async fn prepare_package(&self, id: &str) -> Result<DeployPackageSummary, Error> {
+        if !safe_id(id) { return Err(Error::Invalid("Invalid application identifier")); }
+        let _guard = self.package_lock.lock().await;
+        let index = self.list().await?;
+        if index["initialized"] != true { return Err(Error::Uninitialized); }
+        let raw_app = index["items"].as_array()
+            .and_then(|items| items.iter().find(|item| item["id"].as_str() == Some(id)))
+            .cloned().ok_or(Error::Invalid("Application not in catalog"))?;
+        let app: CatalogApp = serde_json::from_value(raw_app).map_err(|_| Error::Storage)?;
+        if app.git_revision.len() != 40 || !app.git_revision.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Err(Error::PackageConflict);
+        }
+        let root = self.base.join(format!("revision-{}", app.git_revision));
+        let root_meta = tokio::fs::symlink_metadata(&root).await
+            .map_err(|_| Error::RevisionUnavailable)?;
+        if root_meta.file_type().is_symlink() || !root_meta.is_dir() {
+            return Err(Error::RevisionUnavailable);
+        }
+        let head = timeout(Duration::from_secs(10),
+            Command::new("git").arg("-C").arg(&root).args(["rev-parse", "HEAD"])
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_OPTIONAL_LOCKS", "0")
+                .kill_on_drop(true).output()
+        ).await.map_err(|_| Error::RevisionUnavailable)?
+            .map_err(|_| Error::RevisionUnavailable)?;
+        if !head.status.success()
+            || String::from_utf8_lossy(&head.stdout).trim() != app.git_revision {
+            return Err(Error::RevisionUnavailable);
+        }
+        let (_, manifest_bytes) = verified_file_bytes(&root, &app.manifest_path, MAX_MANIFEST)?;
+        let manifest_sha256 = format!("{:x}", Sha256::digest(&manifest_bytes));
+        if manifest_sha256 != app.manifest_sha256 { return Err(Error::PackageConflict); }
+
+        let packages_dir = self.base.join("packages");
+        tokio::fs::create_dir_all(&packages_dir).await.map_err(|_| Error::Storage)?;
+        let packages_dir = tokio::fs::canonicalize(&packages_dir).await.map_err(|_| Error::Storage)?;
+        let archive_path = packages_dir.join(format!("{}-{}.tar", app.id, app.git_revision));
+        let pool = self.db.inner();
+        let existing = sqlx::query(
+            "SELECT manifest_sha256,package_sha256,package_size,file_count,built_at FROM deploy_catalog_packages WHERE app_id=? AND git_revision=?"
+        ).bind(&app.id).bind(&app.git_revision)
+            .fetch_optional(&pool).await.map_err(|_| Error::Storage)?;
+        if let Some(row) = existing {
+            let stored_manifest: String = row.try_get("manifest_sha256").map_err(|_| Error::Storage)?;
+            let stored_sha: String = row.try_get("package_sha256").map_err(|_| Error::Storage)?;
+            let stored_size: i64 = row.try_get("package_size").map_err(|_| Error::Storage)?;
+            let stored_count: i64 = row.try_get("file_count").map_err(|_| Error::Storage)?;
+            let built_at: String = row.try_get("built_at").map_err(|_| Error::Storage)?;
+            let meta = tokio::fs::symlink_metadata(&archive_path).await.map_err(|_| Error::PackageConflict)?;
+            if meta.file_type().is_symlink() || !meta.is_file() || stored_manifest != manifest_sha256
+                || stored_size <= 0 || stored_count <= 0 {
+                return Err(Error::PackageConflict);
+            }
+            let bytes = tokio::fs::read(&archive_path).await.map_err(|_| Error::PackageConflict)?;
+            if bytes.len() as i64 != stored_size
+                || format!("{:x}", Sha256::digest(&bytes)) != stored_sha {
+                return Err(Error::PackageConflict);
+            }
+            return Ok(DeployPackageSummary {
+                app_id: app.id, git_revision: app.git_revision, manifest_sha256,
+                package_sha256: stored_sha, package_size: stored_size as u64,
+                file_count: stored_count as usize, built_at, reused: true,
+                ready_for_agent: false, install_enabled: false,
+            });
+        }
+        if tokio::fs::symlink_metadata(&archive_path).await.is_ok() {
+            // Never overwrite an orphaned or tampered immutable artifact.
+            return Err(Error::PackageConflict);
+        }
+
+        let manifest_text = std::str::from_utf8(&manifest_bytes)
+            .map_err(|_| Error::Invalid("Manifest is not UTF-8"))?;
+        let manifest = parse_manifest(manifest_text)?;
+        validate_manifest_shape(&manifest, &app.id)?;
+        let source_bytes = validate_package_files(&root, &manifest)?;
+        let stage = packages_dir.join(format!(".stage-{}", Uuid::new_v4()));
+        let archive_tmp = packages_dir.join(format!(".{}-{}.tmp-{}.tar",
+            app.id, app.git_revision, Uuid::new_v4()));
+        tokio::fs::create_dir(&stage).await.map_err(|_| Error::Storage)?;
+
+        let artifact_result: Result<(String, u64, usize), Error> = async {
+            let mut file_digests = Vec::with_capacity(manifest.package.files.len());
+            for file in &manifest.package.files {
+                let bytes = source_bytes.get(&file.source)
+                    .ok_or(Error::Invalid("Validated package source disappeared"))?;
+                let destination = stage.join(&file.destination);
+                let parent = destination.parent().ok_or(Error::Invalid("Invalid package destination"))?;
+                tokio::fs::create_dir_all(parent).await.map_err(|_| Error::Storage)?;
+                tokio::fs::write(&destination, bytes).await.map_err(|_| Error::Storage)?;
+                set_file_mode(&destination, file.mode.as_deref().unwrap_or("0644"))?;
+                file_digests.push(PackageFileDigest {
+                    source: file.source.clone(),
+                    destination: file.destination.clone(),
+                    sha256: format!("{:x}", Sha256::digest(bytes)),
+                    size: bytes.len() as u64,
+                    mode: file.mode.clone().unwrap_or_else(|| "0644".to_string()),
+                });
+            }
+            let manifest_dest = stage.join("manifest").join("app.yaml");
+            tokio::fs::create_dir_all(manifest_dest.parent().ok_or(Error::Storage)?)
+                .await.map_err(|_| Error::Storage)?;
+            tokio::fs::write(&manifest_dest, &manifest_bytes).await.map_err(|_| Error::Storage)?;
+            set_file_mode(&manifest_dest, "0644")?;
+            let envelope = PackageEnvelope {
+                format_version: 1,
+                app_id: app.id.clone(),
+                git_revision: app.git_revision.clone(),
+                manifest_sha256: manifest_sha256.clone(),
+                manifest_path: "manifest/app.yaml".to_string(),
+                files: file_digests,
+            };
+            let envelope_bytes = serde_json::to_vec_pretty(&envelope).map_err(|_| Error::Storage)?;
+            tokio::fs::write(stage.join("bundle.json"), envelope_bytes).await.map_err(|_| Error::Storage)?;
+
+            let mut tar = Command::new("tar");
+            tar.arg("-cf").arg(&archive_tmp).arg("-C").arg(&stage)
+                .arg("bundle.json").arg("manifest/app.yaml");
+            for file in &manifest.package.files { tar.arg(&file.destination); }
+            let status = timeout(Duration::from_secs(45), tar.kill_on_drop(true).status())
+                .await.map_err(|_| Error::Storage)?.map_err(|_| Error::Storage)?;
+            if !status.success() { return Err(Error::Storage); }
+            let archive = tokio::fs::read(&archive_tmp).await.map_err(|_| Error::Storage)?;
+            if archive.is_empty() || archive.len() as u64 > MAX_PACKAGE_BYTES + 2 * 1024 * 1024 {
+                return Err(Error::Invalid("Built package exceeds archive size limit"));
+            }
+            Ok((format!("{:x}", Sha256::digest(&archive)), archive.len() as u64,
+                manifest.package.files.len()))
+        }.await;
+
+        if artifact_result.is_err() {
+            let _ = tokio::fs::remove_dir_all(&stage).await;
+            let _ = tokio::fs::remove_file(&archive_tmp).await;
+        }
+        let (package_sha256, package_size, file_count) = artifact_result?;
+        tokio::fs::rename(&archive_tmp, &archive_path).await.map_err(|_| Error::Storage)?;
+        let built_at = chrono::Utc::now().to_rfc3339();
+        let inserted = sqlx::query(
+            "INSERT INTO deploy_catalog_packages(app_id,git_revision,manifest_sha256,package_sha256,package_size,file_count,built_at) VALUES(?,?,?,?,?,?,?)"
+        ).bind(&app.id).bind(&app.git_revision).bind(&manifest_sha256)
+            .bind(&package_sha256).bind(package_size as i64).bind(file_count as i64).bind(&built_at)
+            .execute(&pool).await;
+        if inserted.is_err() {
+            let _ = tokio::fs::remove_file(&archive_path).await;
+            let _ = tokio::fs::remove_dir_all(&stage).await;
+            return Err(Error::Storage);
+        }
+        let _ = tokio::fs::remove_dir_all(&stage).await;
+        Ok(DeployPackageSummary {
+            app_id: app.id, git_revision: app.git_revision, manifest_sha256,
+            package_sha256, package_size, file_count, built_at, reused: false,
+            ready_for_agent: false, install_enabled: false,
+        })
+    }
+
     // Only the explicit admin POST calls git. Reading the catalog never calls
     // git/Agent/Docker or performs any network I/O.
     pub async fn refresh(&self) -> Result<Value, Error> {
