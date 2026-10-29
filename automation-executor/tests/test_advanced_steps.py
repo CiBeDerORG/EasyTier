@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from automation_executor.steps import execute, StepFailure
 from automation_executor.validation import steps
+from automation_executor.worker import _step_timeout_seconds
 
 
 TARGET = {"ip": "10.2.3.4", "adb_port": 33001,
@@ -182,6 +183,27 @@ class AdvancedExecutionTests(unittest.TestCase):
         self.assertEqual(preview["reason"], "unique_preview")
         self.assertEqual(preview["bounds"], {"left":40,"top":80,"right":160,"bottom":140})
         self.assertTrue(all(m in ("count", "dumpWindowHierarchy") for m,_ in runner.calls))
+
+    def test_xpath_tap_skips_unrelated_count_probe_and_clicks_matched_bounds(self):
+        xml = '''<hierarchy>
+          <node class="android.widget.FrameLayout" bounds="[0,0][320,640]">
+            <node class="android.widget.Button" text="保存" bounds="[20,50][140,120]"/>
+          </node>
+        </hierarchy>'''
+        runner = ActionHarness(hierarchy=xml)
+        result = runner.run(record("tap", selector={"xpath": "//*[@text='保存']"}))
+        self.assertEqual(result["state"], "action_sent")
+        self.assertEqual([method for method, _ in runner.calls],
+                         ["dumpWindowHierarchy", "click"])
+        self.assertEqual(runner.calls[-1], ("click", (80, 85)))
+
+    def test_step_timeout_allows_complete_rpc_chain_and_wait_grace(self):
+        xpath = {"xpath": "//*[@text='保存']"}
+        self.assertEqual(_step_timeout_seconds(record("tap", selector=xpath)), 30)
+        self.assertEqual(_step_timeout_seconds(record("wait_for", selector=xpath, timeout_ms=10000)), 28)
+        self.assertEqual(_step_timeout_seconds(record("wait_for", selector=xpath, timeout_ms=30000)), 48)
+        self.assertEqual(_step_timeout_seconds(record("wait_gone", selector=xpath, timeout_ms=30000)), 48)
+
 
     def test_xpath_preview_uniqueness_ignores_stale_recorded_dimensions(self):
         # Read-only XPath preview uses LIVE XML geometry, not a source-phone

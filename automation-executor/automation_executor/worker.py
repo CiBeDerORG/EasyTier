@@ -18,6 +18,21 @@ def start_tick(pid):
         return None
 
 
+def _step_timeout_seconds(step):
+    """Allow the full bounded RPC chain to finish before killing its worker.
+
+    A selector action can require count + objInfo + click (three 8s RPCs), or
+    XPath hierarchy capture (12s) followed by a click (8s). Wait-style steps
+    also need their configured observation window plus one in-flight RPC.
+    """
+    kind = step.get("type")
+    if kind in ("wait_for", "assert", "wait_gone", "scroll_find"):
+        wait_ms = step.get("timeout_ms", 0)
+        wait_seconds = wait_ms / 1000 if isinstance(wait_ms, (int, float)) and not isinstance(wait_ms, bool) else 0
+        return min(50, max(20, wait_seconds + 18))
+    return 30
+
+
 def _isolate(parent_pid, adb_binary):
     os.setsid()
     if os.name == "posix" and Path("/proc").exists():
@@ -300,7 +315,7 @@ async def execute_step(journal, holder, target, step, parameters, cancel, adb_bi
     # This future only waits for the current bounded child, never queries a device.
     receive = asyncio.create_task(asyncio.to_thread(read.recv))
     cancellation = asyncio.create_task(cancel.wait())
-    timeout = min(40, max(15, step.get("timeout_ms", 0) / 1000 + 8))
+    timeout = _step_timeout_seconds(step)
     outcome = None
     clean = False
     try:

@@ -61,9 +61,10 @@ def execute(target, step, parameters, artifact_path=None):
             raise StepFailure("action_rejected", "设备拒绝执行该动作")
         return result
 
-    # UI selectors are supported even when Android 17 rejects deviceInfo.
-    rpc("count", Selector(className="android.view.View"), timeout=5)
-
+    # Do not run an unrelated generic count probe before every action. Native
+    # selectors already count in find(); XPath selectors need a hierarchy read.
+    # The extra RPC used to consume up to five seconds before the XPath RPC and
+    # made the supervisor kill valid XPath actions before their own timeout.
     def find(raw, timeout_ms=0):
         translated = {"resource_id": "resourceId", "description": "description", "text": "text",
                       "class_name": "className", "package": "packageName", "clickable": "clickable",
