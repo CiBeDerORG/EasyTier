@@ -13,7 +13,7 @@ on:
           - amd64
           - arm64
   push:
-    branches: ["feat/node-attributes-main", "feat/node-attributes-tech-console", "feat/automation-center"]
+    branches: ["feat/node-attributes-main", "feat/node-attributes-tech-console", "feat/automation-center", "feat/server-app-lifecycle"]
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
@@ -39,12 +39,12 @@ env:
   CARGO_BUILD_JOBS: '2'
   CARGO_INCREMENTAL: '0'
   NATIVE_RUST_TOOLCHAIN: '1.95.0'
-  IMAGE_TAG: ${{ github.ref_name == 'feat/automation-center' && 'feat-automation-center' || github.ref_name == 'feat/node-attributes-tech-console' && 'feat-node-attributes-tech-console' || 'feat-node-attributes-main' }}
+  IMAGE_TAG: ${{ github.ref_name == 'feat/server-app-lifecycle' && 'feat-server-app-lifecycle' || github.ref_name == 'feat/automation-center' && 'feat-automation-center' || github.ref_name == 'feat/node-attributes-tech-console' && 'feat-node-attributes-tech-console' || 'feat-node-attributes-main' }}
 
 jobs:
   build_web:
     name: Build Web and config generator
-    if: github.repository == 'CiBeDerORG/EasyTier' && (github.ref == 'refs/heads/feat/node-attributes-main' || github.ref == 'refs/heads/feat/node-attributes-tech-console' || github.ref == 'refs/heads/feat/automation-center')
+    if: github.repository == 'CiBeDerORG/EasyTier' && (github.ref == 'refs/heads/feat/node-attributes-main' || github.ref == 'refs/heads/feat/node-attributes-tech-console' || (github.ref == 'refs/heads/feat/automation-center' || github.ref == 'refs/heads/feat/server-app-lifecycle'))
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -59,11 +59,11 @@ jobs:
           build-filter: './easytier-web/*'
 
       - name: Check automation frontend unit tests
-        if: github.ref == 'refs/heads/feat/automation-center'
+        if: (github.ref == 'refs/heads/feat/automation-center' || github.ref == 'refs/heads/feat/server-app-lifecycle')
         run: pnpm --dir easytier-web/frontend test:unit
 
       - name: Chromium floating window regression (no Android or ADB)
-        if: github.ref == 'refs/heads/feat/automation-center'
+        if: (github.ref == 'refs/heads/feat/automation-center' || github.ref == 'refs/heads/feat/server-app-lifecycle')
         run: |
           pnpm --dir easytier-web/frontend exec playwright install --with-deps chromium
           pnpm --dir easytier-web/frontend test:automation-floating-browser
@@ -82,7 +82,7 @@ jobs:
 
   build_native:
     name: Prepare native programs (${{ matrix.arch }})
-    if: github.repository == 'CiBeDerORG/EasyTier' && (github.ref == 'refs/heads/feat/node-attributes-main' || github.ref == 'refs/heads/feat/node-attributes-tech-console' || github.ref == 'refs/heads/feat/automation-center')
+    if: github.repository == 'CiBeDerORG/EasyTier' && (github.ref == 'refs/heads/feat/node-attributes-main' || github.ref == 'refs/heads/feat/node-attributes-tech-console' || (github.ref == 'refs/heads/feat/automation-center' || github.ref == 'refs/heads/feat/server-app-lifecycle'))
     strategy:
       fail-fast: false
       matrix:
@@ -232,7 +232,7 @@ jobs:
 
   test_native:
     name: Run native publication and LuCI regressions (${{ matrix.arch }})
-    if: github.repository == 'CiBeDerORG/EasyTier' && (github.ref == 'refs/heads/feat/node-attributes-main' || github.ref == 'refs/heads/feat/node-attributes-tech-console' || github.ref == 'refs/heads/feat/automation-center')
+    if: github.repository == 'CiBeDerORG/EasyTier' && (github.ref == 'refs/heads/feat/node-attributes-main' || github.ref == 'refs/heads/feat/node-attributes-tech-console' || (github.ref == 'refs/heads/feat/automation-center' || github.ref == 'refs/heads/feat/server-app-lifecycle'))
     strategy:
       fail-fast: false
       matrix:
