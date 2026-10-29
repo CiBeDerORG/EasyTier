@@ -23,6 +23,12 @@ export class AutomationApiError extends Error {
     }
 }
 export function automationErrorMessage(error: unknown): string {
+    if (error instanceof AutomationApiError && error.fieldErrors) {
+        const details = Object.entries(error.fieldErrors)
+            .filter(([, message]) => typeof message === 'string' && message.trim())
+            .map(([field, message]) => `${field}: ${message}`);
+        if (details.length) return `${error.message}（${details.join('；')}）`;
+    }
     return error instanceof Error ? error.message : 'Request failed';
 }
 
