@@ -5,8 +5,8 @@
  */
 import { reactive } from 'vue';
 import { v4 as uuid } from 'uuid';
-import AutomationApi, { AutomationApiError, automationErrorMessage } from './automation-api';
-import { initPreflightRow, requiresAutomationHelper } from './automation-preflight';
+import AutomationApi, { AutomationApiError, automationErrorMessage } from './automation-api.ts';
+import { initPreflightRow, requiresAutomationHelper } from './automation-preflight.ts';
 import type { AutomationStep, AutomationPreparation } from '../types/automation';
 
 export type CardTrialPhase =

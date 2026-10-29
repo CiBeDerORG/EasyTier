@@ -77,7 +77,8 @@ class IfElseExecutionTests(unittest.TestCase):
             result = runner.run(item("if_else", selector=BUTTON, then_count=2, else_count=1))
             self.assertEqual(result["branch_taken"], expected)
             self.assertEqual(result["state"], "condition_passed")
-            self.assertEqual([name for name, _ in runner.calls], ["count", "count"])
+            self.assertEqual([name for name, _ in runner.calls], ["count"],
+                             "if_else must use exactly one read-only selector observation")
 
     def test_rpc_failure_is_not_assumed_absent(self):
         runner = ActionHarness(count=lambda sel: 1 if sel.values.get("className") else None)

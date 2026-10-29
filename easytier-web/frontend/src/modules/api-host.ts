@@ -3,7 +3,7 @@
 // - split deploy with --api-host: injected as window.apiMeta by the server
 let apiMeta: {
     api_host: string;
-} | undefined = (window as any).apiMeta;
+} | undefined = typeof window === 'undefined' ? undefined : (window as any).apiMeta;
 
 // remove trailing slashes from the URL
 const cleanUrl = (url: string) => url.replace(/\/+$/, '');

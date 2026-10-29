@@ -1,4 +1,4 @@
-import { getApiBase } from './api-host';
+import { getApiBase } from './api-host.ts';
 import type {
     AutomationConnection, AutomationContext, AutomationDevice, AutomationPrepareResult,
     AutomationRun, AutomationRunInput, AutomationScript, AutomationScriptInput, AutomationSession,
