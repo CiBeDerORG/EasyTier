@@ -171,6 +171,15 @@ function onTrialProgress(value:InlineStepRunProgress){
     if(value.ownerId===props.ownerId && value.deviceId===props.device.id &&
         value.stepId===trialStepId.value){
         trialProgress.value=value;
+        // Terminal execution receipts come from the read-only server run
+        // observer. The progress event arrives before the finished event;
+        // release the card-level trial lock here as a second reliable path.
+        // Never release on "running" (even if a step's action was sent),
+        // "unknown" or local preparing/submitting states.
+        if(value.runId && (value.phase==='action_sent' || value.phase==='succeeded')){
+            trialStepId.value=null;
+            trialInspectOpen.value=false;
+        }
         if(value.phase==='unknown' && notifiedUnknownTrial!==value.requestId){
             notifiedUnknownTrial=value.requestId;
             showTrialToast('error',value.message || '本次试跑执行结果未确认；请只读查询旧请求，不能重复提交。');

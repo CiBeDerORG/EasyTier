@@ -76,3 +76,11 @@ test('T40 stalled one-step trial keeps buttons exclusive but exposes a recovery 
   assert.match(center,/cards.get\(id\)\?\.resetTrialAfterCleanup\(\)/);
   assert.match(phone,/trialPanelKey.value; \/\/ discard prior run observer only after verified cleanup/);
 });
+
+test('T40 authoritative action_sent releases the card-level trial lock',()=>{
+  const phone=readFileSync(new URL('../src/components/automation/PhoneCard.vue',import.meta.url),'utf8');
+  assert.match(phone,/if\(value\.runId && \(value\.phase==='action_sent' \|\| value\.phase==='succeeded'\)\)/);
+  assert.match(phone,/trialStepId\.value=null;\s*trialInspectOpen\.value=false;/);
+  assert.match(phone,/if\(value\.phase==='unknown'/);
+  assert.match(phone,/run_occupied \|\| device\.active_session/);
+});
