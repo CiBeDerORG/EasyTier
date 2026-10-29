@@ -2,8 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { Button } from 'primevue';
 import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
-import { FILTER_FIELDS, boundsText, type FilterField } from '../../modules/automation-cross-filter';
-import { comparisonFilterOption } from '../../modules/automation-confirm-match';
+import { FILTER_FIELDS, boundsText, buildFilterOptions, type FilterField } from '../../modules/automation-cross-filter';
 import type { AutomationHierarchyNode } from '../../types/automation';
 
 const props = defineProps<{
@@ -56,10 +55,28 @@ const different = computed(() => new Set(columns
     .map(col => (col.parent ? 'parent:' : 'self:') + col.key)));
 const changes = computed(() => columns.filter(col =>
     different.value.has((col.parent ? 'parent:' : 'self:') + col.key)).length);
+// Build selectable fields only once per displayed row. Re-running the full
+// hierarchy traversal for every table cell makes large phone trees laggy.
+const availableCells = computed(() => {
+    const available = new Set<string>();
+    const shot = { nodes: props.nodes, truncated: props.truncated };
+    if (props.truncated) return available;
+    for (const row of rows.value) {
+        const options = buildFilterOptions(shot, row.id);
+        const parent = row.parent_id === null ? null : parents.value.get(row.parent_id);
+        const distance = parent ? row.depth - parent.depth : 0;
+        for (const col of columns) {
+            if (options.some(option => option.field === col.key
+                && (col.parent ? option.scope === 'ancestor' && distance > 0
+                    && option.distance === distance : option.scope === 'self'))) {
+                available.add(row.id + ':' + (col.parent ? 'parent:' : 'self:') + col.key);
+            }
+        }
+    }
+    return available;
+});
 function canAdd(row: AutomationHierarchyNode, column: Column): boolean {
-    if (props.matches === null && props.nodes.length > 2500) return false;
-    return !!comparisonFilterOption({ nodes: props.nodes, truncated: props.truncated },
-        row.id, column.key, column.parent);
+    return availableCells.value.has(row.id + ':' + (column.parent ? 'parent:' : 'self:') + column.key);
 }
 function add(row: AutomationHierarchyNode, column: Column) {
     if (!canAdd(row, column)) return;
