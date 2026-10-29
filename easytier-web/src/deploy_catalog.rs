@@ -576,7 +576,6 @@ fn parse_yaml<T: serde::de::DeserializeOwned>(text: &str, max_bytes: u64) -> Res
     let mut options = serde_saphyr::Options::default();
     options.merge_keys = serde_saphyr::MergeKeyPolicy::Error;
     options.reject_unsupported_tags = true;
-    options.reject_tagged_field_names = true;
     options.alias_limits.max_total_replayed_events = 0;
     options.alias_limits.max_replay_stack_depth = 0;
     options.alias_limits.max_alias_expansions_per_anchor = 0;
