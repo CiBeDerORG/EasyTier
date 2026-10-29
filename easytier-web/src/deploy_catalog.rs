@@ -913,9 +913,12 @@ fn compose_port_matches(entry: &Value, port: &PortSpec) -> bool {
         let target = port.container_port.to_string();
         let target_suffix = format!(":{target}");
         let protocol_suffix = format!(":{target}/{}", port.protocol);
-        if !text.ends_with(&target_suffix) && !text.ends_with(&protocol_suffix) {
-            return false;
-        }
+        let suffix_matches = if port.protocol == "tcp" {
+            text.ends_with(&target_suffix) || text.ends_with(&protocol_suffix)
+        } else {
+            text.ends_with(&protocol_suffix)
+        };
+        if !suffix_matches { return false; }
         if !has_compose_variable(text, &port.host_port_key) { return false; }
         return port.bind_address_key.as_deref()
             .is_none_or(|key| has_compose_variable(text, key));
