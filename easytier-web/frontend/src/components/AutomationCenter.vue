@@ -39,7 +39,7 @@ import { updateCardDraftStep } from '../modules/automation-card-step-edit';
 import { planAutomationStepDeletion } from '../modules/automation-card-step-delete';
 import { canAccessAutomationCard } from '../modules/automation-floating-contract';
 import { locateReadOnlyStep, type LocatorDemoResult } from '../modules/automation-locator-demo';
-import type { AutomationDevice, AutomationStepType, AutomationExecutorTaskStatus } from '../types/automation';
+import type { AutomationStepType, AutomationExecutorTaskStatus } from '../types/automation';
 import {
     beginCapturedGesture, observeCapturedGesture, finishCapturedGesture,
     type CapturedGesture, type GestureRecordingResult,
