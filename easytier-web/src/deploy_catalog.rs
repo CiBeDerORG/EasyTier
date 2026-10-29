@@ -209,6 +209,7 @@ struct PackageEnvelope {
     git_revision: String,
     manifest_sha256: String,
     manifest_path: String,
+    allowed_actions: BTreeMap<String, String>,
     files: Vec<PackageFileDigest>,
 }
 
@@ -418,6 +419,17 @@ impl Catalog {
                 git_revision: app.git_revision.clone(),
                 manifest_sha256: manifest_sha256.clone(),
                 manifest_path: "manifest/app.yaml".to_string(),
+                allowed_actions: {
+                    let mut actions = BTreeMap::new();
+                    actions.insert("install".to_string(), manifest.actions.install.strategy.clone());
+                    if let Some(update) = &manifest.actions.update {
+                        actions.insert("update".to_string(), update.strategy.clone());
+                    }
+                    if let Some(uninstall) = &manifest.actions.uninstall {
+                        actions.insert("uninstall".to_string(), uninstall.strategy.clone());
+                    }
+                    actions
+                },
                 files: file_digests,
             };
             let envelope_bytes = serde_json::to_vec_pretty(&envelope).map_err(|_| Error::Storage)?;
