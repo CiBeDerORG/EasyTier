@@ -98,7 +98,7 @@ watch([() => props.visible,()=>props.fullscreen],async ([open,fullscreen],[wasOp
 .automation-floating-body small{color:var(--console-muted)}
 .automation-floating-caption{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Only the containing phone-screen enters the fullscreen top layer. */
-:global(.phone-screen:fullscreen) .automation-floating-host{position:absolute;inset:0;z-index:9}
+:global(.phone-screen:fullscreen) .automation-floating-host{position:absolute;inset:0;z-index:14}
 :global(.phone-screen:fullscreen) .automation-floating-panel{
     max-height:calc(100% - 16px);
     background:var(--console-panel);

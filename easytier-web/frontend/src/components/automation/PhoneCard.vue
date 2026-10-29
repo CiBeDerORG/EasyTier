@@ -1167,7 +1167,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:10p
 .role-badge{position:absolute;top:10px;left:10px;pointer-events:none}.record-badge{position:absolute;top:12px;right:12px;color:#fda4af;font-size:11px;display:flex;align-items:center;gap:5px}.record-badge>span{width:7px;height:7px;border-radius:50%;background:#fb7185}
 .phone-controls{position:absolute;z-index:6;transform:translateY(-50%);display:flex;align-items:center;gap:6px;transition:left .16s ease;touch-action:none}
 .phone-controls.menu-expanded{z-index:12}
-.automation-subwindow-host{position:absolute;inset:0;z-index:13;pointer-events:none}
+.automation-subwindow-host{position:absolute;inset:0;z-index:15;pointer-events:none}
 .automation-subwindow-host.detached-subwindows{position:fixed;inset:0;z-index:1120;pointer-events:none;contain:layout style}
 /* PrimeVue modal masks remain interactive even though this host itself
    ignores pointer events; the child dialog stays in the fullscreen layer. */

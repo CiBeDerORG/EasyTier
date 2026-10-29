@@ -74,3 +74,14 @@ test('UIA-06 other floating widgets do not rely on detached dropdown overlays',(
     assert.match(card,/:deep\(\.p-dialog-mask\)\{pointer-events:auto\}/);
     assert.doesNotMatch(card,/p-select-overlay|p-select-list-container/);
 });
+
+test('UIA-07 fullscreen layer order keeps the main panel above controls and child dialogs above the panel',()=>{
+    const main=floatingPanel.match(/:global\\(\\.phone-screen:fullscreen\\) \\.automation-floating-host\\{[^}]*z-index:(\\d+)/);
+    const controls=card.match(/\\.phone-controls\\.menu-expanded\\{z-index:(\\d+)\\}/);
+    const childHost=card.match(/\\.automation-subwindow-host\\{[^}]*z-index:(\\d+)/);
+    assert.ok(main,'fullscreen automation panel layer is explicit');
+    assert.ok(controls,'expanded manual controls layer is explicit');
+    assert.ok(childHost,'fullscreen child-dialog host layer is explicit');
+    assert.ok(Number(main[1])>Number(controls[1]),'automation controls must not be covered by the manual tray');
+    assert.ok(Number(childHost[1])>Number(main[1]),'editing child windows must remain above the main automation panel');
+});
