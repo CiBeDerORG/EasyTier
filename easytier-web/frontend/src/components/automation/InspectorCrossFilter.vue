@@ -185,16 +185,8 @@ function restoreOriginal(){
     </div>
     <p v-if="filterError" class="warning">{{filterError}}</p>
     <p v-else-if="activeIds.length===0" class="muted">请至少选择一项定位属性。</p>
-    <p v-else-if="matches.length>1" class="warning">仍匹配多个控件，可继续勾选当前目标或父级的属性。</p>
-    <p v-else-if="matches.length===0" class="warning">没有匹配目标，请取消部分条件。</p>
-    <p v-else-if="matches[0]?.id!==selectedId" class="warning">条件没有命中你最初选中的目标，不能录入。</p>
-    <template v-else>
-      <p class="muted">当前唯一命中原目标。{{selector?.xpath?'包含层级或动态属性，须重新读取手机 XML 验证。':'使用原生属性组合，可配置操作。'}}</p>
-      <Button v-if="selector?.xpath" label="验证交叉过滤条件（只读）"
-              size="small" :loading="verifying" :disabled="truncated||verifying||verified"
-              @click="emit('verify')" />
-      <small v-if="verified" class="verified">执行器已确认当前唯一目标</small>
-    </template>
+    <p v-else-if="matches.length===0" class="warning">当前快照未匹配控件，可保存条件；运行时重新查找。</p>
+    <p v-else class="muted">当前快照匹配 {{matches.length}} 个控件（允许多个）；可直接录入，点击运行时展示实际匹配列表。</p>
     <small class="muted">“范围”及 selected/checked 属于易变条件；请优先用描述、ID、类名和稳定父级属性。</small>
   </div>
 </section>

@@ -7,13 +7,12 @@ import { v4 as uuid } from 'uuid';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
 import type { AutomationDevice, AutomationHierarchy, AutomationHierarchyNode, AutomationSelector, AutomationStep } from '../../types/automation';
 import type { StepTarget } from '../../modules/automation-step-target';
-import { locatorIsUnique, rankLocatorCandidates } from '../../modules/automation-locator-candidates';
+import { rankLocatorCandidates } from '../../modules/automation-locator-candidates';
 import { rankRelationalCandidates } from '../../modules/automation-relational-locator';
 import { buildFilterOptions, filterHierarchy, buildCrossFilterSelector, type FilterOption, type FilterField } from '../../modules/automation-cross-filter';
 import InspectorPropertiesPanel from './InspectorPropertiesPanel.vue';
 import type { InspectorAction } from '../../modules/automation-inspector-actions';
 import { matchPickerPoint } from '../../modules/automation-pick-engine';
-import { revalidatePickedNativeTarget } from '../../modules/automation-inspector-revalidation';
 import type { PickerVideoPoint } from '../../modules/automation-picker-state';
 
 const props = defineProps<{
@@ -106,24 +105,10 @@ const selectedCandidate = ref<string | null>(null);
 // Coordinates are a deliberate, separately confirmed fallback, never a default.
 const coordinateConfirmed = ref(false);
 const confirmedLocator = computed<AutomationSelector | null>(() => {
-    if (activeFilterIds.value.length) {
-        if (!crossFilterUnique.value || !crossFilterBuild.value.selector
-            || mode.value === 'coordinates') return null;
-        const filtered = crossFilterBuild.value.selector;
-        if (filtered.xpath) {
-            return verifiedXPath.value === filtered.xpath && mode.value === 'xpath'
-                && !verifying.value ? filtered : null;
-        }
-        return snapshot.value && selectedId.value !== null
-            && locatorIsUnique(snapshot.value, selectedId.value, filtered) ? filtered : null;
-    }
-    const candidate = locatorCandidates.value.find(item => item.id === selectedCandidate.value && item.unique);
-    if (!candidate || !snapshot.value || selectedId.value === null) return null;
-    if (candidate.selector.xpath) {
-        return verifiedXPath.value === candidate.selector.xpath && mode.value === 'xpath'
-            && !verifying.value ? candidate.selector : null;
-    }
-    return locatorIsUnique(snapshot.value, selectedId.value, candidate.selector) ? candidate.selector : null;
+    // Store the user's filter, not a screen-position/unique-node assertion.
+    if (mode.value === 'coordinates') return null;
+    if (activeFilterIds.value.length) return crossFilterBuild.value.selector;
+    return locatorCandidates.value.find(item => item.id === selectedCandidate.value)?.selector ?? null;
 });
 const lineage = computed(() => {
     const chain: AutomationHierarchyNode[] = [];
@@ -241,8 +226,7 @@ function addParentFilter(nodeId:number,field:FilterField) {
             label:'父级'+field,value,displayValue:String(value),
         }];
     toggleFilter(id,true);
-    if(!crossFilterUnique.value)
-        feedback.value='已加入父级条件；当前仍匹配 '+filteredNodes.value.length+' 个，只有原目标唯一时才能录入。';
+    feedback.value='已加入父级条件；当前匹配 '+filteredNodes.value.length+' 个，点击运行时可查看实际匹配列表。';
 }
 function toggleFilter(id:string, checked:boolean) {
     if (!filterOptions.value.some(x=>x.id===id) || !selected.value) return;
@@ -534,100 +518,28 @@ function clearAnchor() {
     feedback.value = '已清除手动锚点，恢复自动寻找关联定位。';
 }
 async function chooseCandidate(id: string) {
-    const candidate = locatorCandidates.value.find(item => item.id === id && item.unique);
+    const candidate = locatorCandidates.value.find(item => item.id === id);
     if (!candidate || !snapshot.value || selectedId.value === null) return;
     activeFilterIds.value=[];extraFilterOptions.value=[];previewNodeId.value=null;
-    const shot = snapshot.value, node = selected.value;
-    if (!node) return;
+    if (!selected.value) return;
     ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
-    const generation = verificationGeneration;
     coordinateConfirmed.value = false;
     selectedCandidate.value = id;
     if (!candidate.selector.xpath) {
-        if (!locatorIsUnique(shot, node.id, candidate.selector)) {selectedCandidate.value=null;return;}
         const keys = Object.keys(candidate.selector);
         mode.value = keys.length === 1 && ['resource_id', 'text', 'description'].includes(keys[0])
             ? keys[0] as LocatorMode : 'composite';
         return;
     }
-    // Verify the generated relation on fresh RAW XML, not merely on the
-    // simplified frontend tree. No device action is sent.
-    mode.value = 'xpath'; verifying.value = true;
-    feedback.value = '正在只读复核关联定位，不会操作手机……';
-    try {
-        const result = await api.verifyLocator(props.ownerId, props.device.id, {
-            xpath: candidate.selector.xpath, expected_bounds: node.bounds,
-            width: shot.width, height: shot.height,
-        });
-        if (generation !== verificationGeneration || !props.visible
-            || selectedId.value !== node.id || selectedCandidate.value !== id) return;
-        if (!result.verified || result.device_id !== props.device.id
-            || result.target_fingerprint !== props.device.target_fingerprint) {
-            feedback.value = '关联定位没有再次匹配选中目标，或页面已变化；请刷新控件树后重新选择。';
-            return;
-        }
-        verifiedXPath.value = candidate.selector.xpath;
-        feedback.value = '关联 XPath 已通过执行器只读验证：仅命中原选中的控件，可以录入。';
-    } catch (cause) {
-        if (generation === verificationGeneration)
-            feedback.value = '关联定位验证失败：' + automationErrorMessage(cause);
-    } finally {
-        if (generation === verificationGeneration) verifying.value = false;
-    }
+    mode.value = 'xpath';
+    feedback.value = '已选择定位条件，点击运行时会展示实际匹配控件。';
 }
 function locator(): AutomationSelector | null {
     // AUT-10: native locators are only provided by the explicitly confirmed,
     // currently unique candidate. Coordinates are a separate manual fallback.
     return mode.value === 'coordinates' ? null : confirmedLocator.value;
 }
-/**
- * Perform a read-only, fresh device validation at submit time. The 20-second
- * snapshot TTL is for gestures only; spending time configuring filters must
- * not erase a previously selected business target.
- */
-async function verifyBeforeCommit(
-    original:AutomationHierarchy,originalNode:AutomationHierarchyNode,
-    selector:AutomationSelector|null,
-):Promise<boolean>{
-    const deviceId=props.device.id,fingerprint=props.device.target_fingerprint;
-    const owner=props.ownerId,commitToken=props.commitToken;
-    const request=requestGeneration,verification=verificationGeneration;
-    const originalMode=mode.value,originalFilters=activeFilterIds.value.join('|');
-    const sameScope=()=>props.visible && props.device.id===deviceId
-        && props.device.target_fingerprint===fingerprint && props.ownerId===owner
-        && props.commitToken===commitToken && requestGeneration===request
-        && verificationGeneration===verification && mode.value===originalMode
-        && activeFilterIds.value.join('|')===originalFilters
-        && selectedId.value===originalNode.id && response.value===original;
-    try{
-        let valid=false;
-        if(selector?.xpath){
-            const result=await api.verifyLocator(owner,deviceId,{
-                xpath:selector.xpath,expected_bounds:originalNode.bounds,
-                width:original.snapshot.width,height:original.snapshot.height,
-            });
-            valid=result.verified && result.device_id===deviceId
-                && result.target_fingerprint===fingerprint;
-        }else{
-            const latest=await api.hierarchy(owner,deviceId);
-            valid=latest.device_id===deviceId && latest.target_fingerprint===fingerprint
-                && revalidatePickedNativeTarget(originalNode,original.snapshot.width,
-                    original.snapshot.height,latest,selector);
-        }
-        if(!sameScope()) {
-            feedback.value='验证期间设备或筛选条件发生变化，请再次确认录入。';
-            return false;
-        }
-        if(!valid){
-            feedback.value='重新读取控件树后无法确认原目标仍然唯一且位置一致。已保留筛选条件，请重新右键拾取目标。';
-            return false;
-        }
-        return true;
-    }catch(cause){
-        if(sameScope()) feedback.value='重新验证控件失败，未录入步骤：'+automationErrorMessage(cause);
-        return false;
-    }
-}
+// Recording saves filters without fetching a second tree; trial/run diagnoses live matches.
 async function replaceTarget() {
     if (!canReplace.value || !selected.value || !response.value || !props.replaceStep
         || validatingSubmission.value)return;
@@ -636,9 +548,8 @@ async function replaceTarget() {
     const modeAtStart=mode.value;
     if(modeAtStart!=='coordinates'&&!selector)return;
     validatingSubmission.value=true;
-    feedback.value='正在重新读取手机控件树，核对原目标后更新步骤……';
+    feedback.value='正在保存控件筛选条件，点击运行时会展示实际匹配控件。';
     try{
-        if(!await verifyBeforeCommit(original,node,selector))return;
         if(!props.replaceStep || props.replaceStep.id!==stepId
             || mode.value!==modeAtStart || !props.visible)return;
         let target: StepTarget;
@@ -664,9 +575,8 @@ async function add(type: InspectorAction) {
     if(type==='scroll_find'&&(!selector||!scrollContainer.value))return;
     const scroller=scrollContainer.value;
     validatingSubmission.value=true;
-    feedback.value='正在重新读取手机控件树，核对原目标后录入步骤……';
+    feedback.value='正在录入控件筛选条件，点击运行时会展示实际匹配控件。';
     try{
-        if(!await verifyBeforeCommit(original,node,selector))return;
         if(mode.value!==modeAtStart || !props.visible)return;
         const step:AutomationStep={id:uuid(),type};
         if(selector)step.selector={...selector};
@@ -738,7 +648,7 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
             <Message v-if="!dragPickMode && snapshot?.truncated" severity="warn" :closable="false">当前页面控件过多，已截断。为防止错误定位，精确控件步骤暂不可添加。</Message>
             <Message v-if="!dragPickMode && replaceStep" severity="info" :closable="false">
                 正在更新已存在的 {{ replaceStep.type }} 步骤：只替换控件定位，不修改动作类型、步骤编号、按住时长、输入参数或条件分支。
-                需选择当前控件树中唯一匹配的定位条件；执行时仍会再次检查唯一性。
+                可录入匹配多个控件的定位条件；点击运行时展示真实匹配列表。
             </Message>
             <div class="inspector-columns">
                 <div class="original-screen-tools">

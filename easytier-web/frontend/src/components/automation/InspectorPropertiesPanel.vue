@@ -151,21 +151,19 @@ function title(node: AutomationHierarchyNode) {
                                 <small v-else-if="!locatorCandidates.length">没有安全候选，可改选其他控件。</small>
                                 <button v-for="item in locatorCandidates.slice(0, 8)" :key="item.id" type="button"
                                     class="candidate-row" :class="{ chosen: selectedCandidate === item.id }"
-                                    :disabled="!item.unique || verifying" @click="emit('choose-candidate', item.id)">
+                                    :disabled="verifying" @click="emit('choose-candidate', item.id)">
                                     <span>{{ item.label }} · {{ item.unique ? '唯一' : '匹配 ' + item.matches + ' 个' }}</span>
-                                    <small>{{ selectedCandidate === item.id
-                                        ? verifying ? '正在验证' : confirmedLocator ? '已验证' : '未通过验证'
-                                        : item.unique ? item.selector.xpath ? '选择并验证' : '选择' : '不可用' }}</small>
+                                    <small>{{ selectedCandidate === item.id ? '已选为过滤条件' : '可选择，运行时查看实际匹配' }}</small>
                                 </button>
-                                <small>请点选上方唯一候选进行确认。仅验证当前快照；不使用 instance 序号。界面变化后请刷新。</small>
+                                <small>允许选择匹配多个控件的候选；不保存 instance 序号，运行时会展示真实匹配列表。</small>
                             </div>
 
                         </details>
                         <div class="locator-choice">
                             <strong>当前执行定位：{{ mode === 'coordinates' ? '屏幕坐标（兜底）'
-                                : confirmedLocator?.xpath ? '已验证的层级条件 XPath'
+                                : confirmedLocator?.xpath ? '已配置的层级条件 XPath'
                                 : confirmedLocator ? '当前交叉过滤属性组合'
-                                : '待确认唯一条件' }}</strong>
+                                : '待配置定位条件' }}</strong>
                             <small>以上多选条件是正常定位入口；原来的 Resource ID / 文字 / 描述单选菜单已移除，避免保存错条件。</small>
                             <Button v-if="mode !== 'coordinates'" label="改用坐标兜底（不保存过滤条件）"
                                 outlined size="small" :disabled="!coordinatesAllowed"
@@ -183,7 +181,7 @@ function title(node: AutomationHierarchyNode) {
                         <div v-if="replaceStep" class="step-actions">
                             <Button label="更新当前步骤控件" icon="pi pi-check" size="small"
                                 :disabled="!canReplace" @click="emit('replace-target')" />
-                            <small v-if="activeMode && !activeMode.unique" class="hint">当前定位条件未通过唯一性检查，请选择其他条件或刷新控件树。</small>
+                            <small v-if="activeMode && !activeMode.unique" class="hint">请设置有效的定位条件，无需在录入时确保唯一。</small>
                             <small v-if="mode === 'xpath' && ['input_text', 'assert_property'].includes(replaceStep.type)" class="hint">此动作只支持组合控件定位，请选择 Resource ID、文字或组合条件。</small>
                             <small v-if="mode === 'coordinates' && !['tap', 'long_press'].includes(replaceStep.type)" class="hint">当前步骤必须使用唯一控件定位，不能使用画面坐标。</small>
                         </div>
@@ -193,7 +191,7 @@ function title(node: AutomationHierarchyNode) {
                                 <small>先确认控件定位条件，再录入脚本；不会直接操作手机。</small>
                                 <Button :label="'确认录入 · ' + actionLabel[preferredAction]" icon="pi pi-check" size="small"
                                     :disabled="!preferredEnabled" @click="emit('add-step', preferredAction)" />
-                                <small v-if="!preferredEnabled">请先选择当前控件树中唯一匹配的定位条件；若使用坐标，仅点击和长按可以手动确认。</small>
+                                <small v-if="!preferredEnabled">请先选择有效的过滤条件；多个匹配可录入，使用坐标需手动确认。</small>
                             </div>
                             <div class="other-step-actions">
                                 <small v-if="preferredAction">或选择其他操作</small>

@@ -3,6 +3,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { Button, InputText, Message, Tag } from 'primevue';
 import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
+import TrialLocatorCompare from './TrialLocatorCompare.vue';
 import { v4 as uuid } from 'uuid';
 import AutomationApi, { AutomationApiError, automationErrorMessage } from '../../modules/automation-api';
 import { useCardTrialPreparation, type CardTrialPhase } from '../../modules/useCardTrialPreparation';
@@ -557,7 +558,7 @@ onBeforeUnmount(()=>{
 </script>
 
 <template>
-    <AutomationFloatingDialog :visible="visible && (!headless || phase==='unknown' || (phase==='ready' && !!parameter && !parameterValue))" :portal-target="portalTarget"
+    <AutomationFloatingDialog :visible="visible && (!headless || phase==='unknown' || (phase==='ready' && !!parameter && !parameterValue) || (trialDiagnosis !== null && trialDiagnosis.count !== 1))" :portal-target="portalTarget"
         :fullscreen="fullscreen" title="卡片单步骤试跑"
         :closable="!busy || phase === 'preparing'" @close="hide">
         <div class="card-trial-content">
@@ -587,6 +588,7 @@ onBeforeUnmount(()=>{
                     第 {{ item.stepNumber }} 步：{{ item.message }}
                 </p>
             </div>
+            <TrialLocatorCompare v-if="trialDiagnosis" :diagnosis="trialDiagnosis" />
             <label v-if="phase==='ready' && parameter" class="param-input">
                 本次输入参数：{{ parameter }}
                 <InputText v-model="parameterValue" type="password" autocomplete="off"
