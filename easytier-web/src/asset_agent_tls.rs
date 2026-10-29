@@ -212,6 +212,15 @@ impl ServerCertVerifier for PinVerifier {
     }
 }
 pub(crate) fn pinned_client(pin: &Fingerprint) -> Result<reqwest::Client, String> {
+    pinned_client_with_timeout(pin, Duration::from_secs(8))
+}
+
+/// Larger verified package transfers use a longer timeout without weakening
+/// the TLS SPKI pin, HTTPS-only, no-proxy and no-redirect constraints.
+pub(crate) fn pinned_client_with_timeout(
+    pin: &Fingerprint,
+    request_timeout: Duration,
+) -> Result<reqwest::Client, String> {
     let crypto = Arc::new(rustls::crypto::ring::default_provider());
     let config = rustls::ClientConfig::builder_with_provider(crypto)
         .with_protocol_versions(&[&rustls::version::TLS13])
@@ -224,7 +233,7 @@ pub(crate) fn pinned_client(pin: &Fingerprint) -> Result<reqwest::Client, String
         .no_proxy()
         .https_only(true)
         .http1_only()
-        .timeout(Duration::from_secs(8))
+        .timeout(request_timeout)
         .connect_timeout(Duration::from_secs(4))
         .redirect(reqwest::redirect::Policy::none())
         .pool_max_idle_per_host(0)
