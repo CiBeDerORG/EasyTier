@@ -312,6 +312,20 @@ impl Catalog {
             || String::from_utf8_lossy(&head.stdout).trim() != app.git_revision {
             return Err(Error::RevisionUnavailable);
         }
+        // Do not package mutable working-tree content even when HEAD still
+        // matches. Any tracked or untracked change invalidates this checkout.
+        let status = timeout(Duration::from_secs(10),
+            Command::new("git").arg("-C").arg(&root)
+                .args(["status", "--porcelain", "--untracked-files=all"])
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_OPTIONAL_LOCKS", "0")
+                .kill_on_drop(true).output()
+        ).await.map_err(|_| Error::RevisionUnavailable)?
+            .map_err(|_| Error::RevisionUnavailable)?;
+        if !status.status.success() || !status.stdout.is_empty() {
+            return Err(Error::RevisionUnavailable);
+        }
         let (_, manifest_bytes) = verified_file_bytes(&root, &app.manifest_path, MAX_MANIFEST)?;
         let manifest_sha256 = format!("{:x}", Sha256::digest(&manifest_bytes));
         if manifest_sha256 != app.manifest_sha256 { return Err(Error::PackageConflict); }
