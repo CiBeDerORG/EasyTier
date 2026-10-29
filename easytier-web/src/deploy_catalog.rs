@@ -14,6 +14,9 @@ use uuid::Uuid;
 const REPO_URL: &str = "https://github.com/CiBeDerORG/deploy.git";
 const MAX_MANIFEST: u64 = 128 * 1024;
 const MAX_APPS: usize = 128;
+const MAX_PACKAGE_FILES: usize = 128;
+const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_PACKAGE_BYTES: u64 = 24 * 1024 * 1024;
 const REFRESH_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Debug, thiserror::Error)]
@@ -26,6 +29,10 @@ pub enum Error {
     Invalid(&'static str),
     #[error("Deploy catalog storage unavailable")]
     Storage,
+    #[error("Pinned catalog revision is not available locally; refresh the store again")]
+    RevisionUnavailable,
+    #[error("Immutable package cache conflicts with the pinned revision")]
+    PackageConflict,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -41,15 +48,180 @@ pub struct CatalogApp {
     pub detail: Value,
 }
 
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestV1 {
+    schema_version: u32,
+    id: String,
+    name: String,
+    summary: String,
+    category: String,
+    #[serde(default)]
+    homepage: Option<String>,
+    runtime: RuntimeSpec,
+    compatibility: CompatibilitySpec,
+    package: PackageSpec,
+    config: Vec<ConfigSpec>,
+    ports: Vec<PortSpec>,
+    actions: ActionsSpec,
+    verification: VerificationSpec,
+    data: DataSpec,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuntimeSpec {
+    kind: String,
+    compose_project: String,
+    compose_file: String,
+    #[serde(default)]
+    requires_root: Option<bool>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompatibilitySpec {
+    platforms: Vec<String>,
+    architectures: Vec<String>,
+    #[serde(default)]
+    requires_docker: Option<bool>,
+    #[serde(default)]
+    requires_compose_v2: Option<bool>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PackageSpec { files: Vec<PackageFileSpec> }
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PackageFileSpec {
+    source: String,
+    destination: String,
+    #[serde(default)]
+    mode: Option<String>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigSpec {
+    key: String,
+    label: String,
+    #[serde(rename = "type")]
+    kind: String,
+    target: String,
+    required: bool,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    default: Option<Value>,
+    #[serde(default)]
+    min_length: Option<usize>,
+    #[serde(default)]
+    max_length: Option<usize>,
+    #[serde(default)]
+    minimum: Option<i64>,
+    #[serde(default)]
+    maximum: Option<i64>,
+    #[serde(default)]
+    pattern: Option<String>,
+    #[serde(default)]
+    generated_by_script: Option<bool>,
+    #[serde(default)]
+    editable: Option<bool>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PortSpec {
+    id: String,
+    label: String,
+    protocol: String,
+    purpose: String,
+    host_port_key: String,
+    #[serde(default)]
+    bind_address_key: Option<String>,
+    container_port: u32,
+    #[serde(default)]
+    service: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ActionsSpec {
+    install: ActionSpec,
+    #[serde(default)]
+    update: Option<ActionSpec>,
+    #[serde(default)]
+    uninstall: Option<ActionSpec>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ActionSpec {
+    strategy: String,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    argv: Vec<String>,
+    #[serde(default)]
+    remove_orphans: bool,
+    #[serde(default)]
+    description: Option<String>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VerificationSpec {
+    mode: String,
+    required_services: Vec<String>,
+    state: String,
+    timeout_seconds: u64,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DataSpec {
+    paths: Vec<String>,
+    #[serde(default)]
+    named_volumes: Vec<String>,
+    default_retain: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DeployPackageSummary {
+    pub app_id: String,
+    pub git_revision: String,
+    pub manifest_sha256: String,
+    pub package_sha256: String,
+    pub package_size: u64,
+    pub file_count: usize,
+    pub built_at: String,
+    pub reused: bool,
+    pub ready_for_agent: bool,
+    pub install_enabled: bool,
+}
+#[derive(Clone, Debug, Serialize)]
+struct PackageFileDigest {
+    source: String,
+    destination: String,
+    sha256: String,
+    size: u64,
+    mode: String,
+}
+#[derive(Serialize)]
+struct PackageEnvelope {
+    format_version: u32,
+    app_id: String,
+    git_revision: String,
+    manifest_sha256: String,
+    manifest_path: String,
+    files: Vec<PackageFileDigest>,
+}
+
 pub struct Catalog {
     db: Db,
     base: PathBuf,
     refresh_lock: Mutex<()>,
+    package_lock: Mutex<()>,
 }
 
 impl Catalog {
     pub fn new(db: Db, base: PathBuf) -> Self {
-        Self { db, base, refresh_lock: Mutex::new(()) }
+        Self { db, base, refresh_lock: Mutex::new(()), package_lock: Mutex::new(()) }
     }
 
     pub fn from_environment(db: Db) -> Self {
