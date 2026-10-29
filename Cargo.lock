@@ -8498,6 +8498,7 @@ dependencies = [
  "granit-parser",
  "nohash-hasher",
  "num-traits",
+ "serde",
  "serde_core",
  "smallvec",
  "zmij",
