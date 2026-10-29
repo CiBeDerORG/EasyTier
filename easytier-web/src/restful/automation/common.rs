@@ -28,8 +28,12 @@ pub(crate) fn error(status: StatusCode, code: &str, message: &str) -> HttpError 
 }
 
 pub(crate) fn store_error(cause: AssetError) -> HttpError {
-    (StatusCode::from_u16(cause.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-     Json(json!({"code":cause.code,"message":cause.message,"field_errors":cause.field_errors})))
+    let status=StatusCode::from_u16(cause.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let mut payload=json!({"code":cause.code,"message":cause.message,"field_errors":cause.field_errors});
+    if let Some(details)=cause.details {
+        payload["diagnostics"]=details;
+    }
+    (status,Json(payload))
 }
 
 pub(crate) fn store(service: &CentralNetworkService) -> AutomationStore {

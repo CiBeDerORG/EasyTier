@@ -11,11 +11,17 @@ pub(crate) struct AssetError {
     pub(crate) code: String,
     pub(crate) message: String,
     pub(crate) field_errors: BTreeMap<String, String>,
+    pub(crate) details: Option<Value>,
 }
 
 impl AssetError {
     pub(crate) fn new(status: u16, code: &str, message: &str) -> Self {
-        Self { status, code: code.into(), message: message.into(), field_errors: BTreeMap::new() }
+        Self { status, code: code.into(), message: message.into(), field_errors: BTreeMap::new(), details: None }
+    }
+
+    pub(crate) fn with_details(mut self, details: Value) -> Self {
+        self.details = Some(details);
+        self
     }
 
     pub(crate) fn field(field: &str, message: &str) -> Self {

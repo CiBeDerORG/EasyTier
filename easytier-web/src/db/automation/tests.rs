@@ -384,6 +384,12 @@ async fn t49_rust_run_dispatch_fences_manual_restore_and_new_media_admission() {
     let denied=f.store.create_session(f.owner,f.owner,&phone,"wall").await.unwrap_err();
     assert_eq!(denied.status,409);
     assert_eq!(denied.code,"device_busy");
+    let diagnostics=denied.details.as_ref().expect("busy admission must include blocker diagnostics");
+    assert_eq!(diagnostics["stage"],"database_run_lease");
+    assert_eq!(diagnostics["blocking_run_count"],1);
+    assert_eq!(diagnostics["blocking_runs"][0]["run_id"],run["id"]);
+    assert_eq!(diagnostics["blocking_runs"][0]["run_state"],"dispatch_pending");
+    assert_eq!(diagnostics["blocking_runs"][0]["cleanup_confirmed"],false);
     assert_eq!(f.store.run(f.owner,run["id"].as_str().unwrap()).await.unwrap()["state"],
         "dispatch_pending");
 }

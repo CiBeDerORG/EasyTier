@@ -285,9 +285,78 @@ impl AutomationStore {
         // script has been recorded for dispatch but before executor claim.
         // Match by physical device OR ADB endpoint, including any tenant
         // sharing that endpoint. Unknown outcomes retain the lease.
-        let running:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_run_devices WHERE (device_id=? OR target_key=?) AND cleanup_confirmed=0 AND state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending'))")
-            .bind(device_id).bind(&key).fetch_one(&mut *tx).await?;
-        if running {return Err(conflict("device_busy","The device has a running script or unconfirmed script cleanup; manual preview is unavailable."));}
+        let blocking_rows=sqlx::query(
+            "SELECT d.run_id,d.device_id,d.target_key,d.target_fingerprint,d.state AS device_state, \
+             d.cleanup_confirmed,d.withdraw_requested,d.withdraw_event_id,d.updated_at AS device_updated_at, \
+             r.owner_user_id,r.actor_user_id,r.state AS run_state,r.runner_identity,r.updated_at AS run_updated_at \
+             FROM automation_run_devices d JOIN automation_runs r ON r.id=d.run_id \
+             WHERE (d.device_id=? OR d.target_key=?) AND d.cleanup_confirmed=0 \
+             AND d.state IN ('dispatch_pending','queued','accepted','starting','running','cancel_requested','outcome_unknown','cleanup_pending') \
+             ORDER BY d.updated_at DESC"
+        ).bind(device_id).bind(&key).fetch_all(&mut *tx).await?;
+        if !blocking_rows.is_empty() {
+            let mut blockers=Vec::with_capacity(blocking_rows.len());
+            for row in blocking_rows {
+                let run_id:String=row.try_get("run_id")?;
+                let row_device:String=row.try_get("device_id")?;
+                let row_key:String=row.try_get("target_key")?;
+                let row_fingerprint:String=row.try_get("target_fingerprint")?;
+                let device_state:String=row.try_get("device_state")?;
+                let run_state:String=row.try_get("run_state")?;
+                let cleanup_confirmed:bool=row.try_get("cleanup_confirmed")?;
+                let withdraw_requested:bool=row.try_get("withdraw_requested")?;
+                let withdraw_event_id:Option<String>=row.try_get("withdraw_event_id")?;
+                let device_updated_at:String=row.try_get("device_updated_at")?;
+                let run_updated_at:String=row.try_get("run_updated_at")?;
+                let row_owner:i32=row.try_get("owner_user_id")?;
+                let row_actor:i32=row.try_get("actor_user_id")?;
+                let runner_identity:Option<String>=row.try_get("runner_identity")?;
+                let device_matches=row_device==device_id;
+                let endpoint_matches=row_key==key;
+                let match_reason=match (device_matches,endpoint_matches) {
+                    (true,true)=>"device_id_and_adb_endpoint",
+                    (true,false)=>"device_id",
+                    (false,true)=>"adb_endpoint",
+                    (false,false)=>"unknown",
+                };
+                blockers.push(json!({
+                    "run_id":run_id,
+                    "device_id":row_device,
+                    "match_reason":match_reason,
+                    "device_state":device_state,
+                    "run_state":run_state,
+                    "cleanup_confirmed":cleanup_confirmed,
+                    "owner_matches":row_owner==owner,
+                    "actor_matches":row_actor==actor,
+                    "runner_identity_present":runner_identity.is_some(),
+                    "runner_identity":runner_identity,
+                    "withdraw_requested":withdraw_requested,
+                    "withdraw_event_id":withdraw_event_id,
+                    "target_fingerprint_matches":row_fingerprint==target["target_fingerprint"].as_str().unwrap_or(""),
+                    "device_updated_at":device_updated_at,
+                    "run_updated_at":run_updated_at
+                }));
+            }
+            let diagnostics=json!({
+                "stage":"database_run_lease",
+                "source":"sqlite.automation_run_devices",
+                "device_id":device_id,
+                "adb_endpoint":key,
+                "blocking_run_count":blockers.len(),
+                "blocking_runs":blockers,
+                "why_restart_did_not_clear_it":"This is a durable Web database lease. Restarting the Web and executor processes does not delete it. A row with runner_identity present is retained because execution may have reached the executor."
+            });
+            tracing::warn!(
+                owner_user_id=owner,
+                device_id=%device_id,
+                adb_endpoint=%key,
+                blocking_run_count=blockers.len(),
+                diagnostics=%diagnostics,
+                "automation manual preview blocked by persistent script lease"
+            );
+            return Err(conflict("device_busy","The device has a running script or unconfirmed script cleanup; manual preview is unavailable.")
+                .with_details(diagnostics));
+        }
         let id=Uuid::new_v4().to_string();let timestamp=now();
         sqlx::query("INSERT INTO automation_sessions(id,actor_user_id,owner_user_id,device_id,target_key,target_fingerprint,target_json,quality,state,created_at,updated_at,expires_at) VALUES(?,?,?,?,?,?,?,?,'opening',?,?,?)")
             .bind(&id).bind(actor).bind(owner).bind(device_id).bind(&key).bind(target["target_fingerprint"].as_str()).bind(target.to_string()).bind(quality).bind(&timestamp).bind(&timestamp).bind(deadline()).execute(&mut *tx).await?;
