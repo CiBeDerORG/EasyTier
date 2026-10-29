@@ -307,7 +307,7 @@ function resetForOpen(){
     targetFingerprint.value=props.device.target_fingerprint ?? '';
 }
 function valid(mine:number, owner:number, deviceId:string, original:string):boolean {
-    const reject=(check:string,message:string)=>{
+    const reject=(_check:string,message:string)=>{
         
         toastTrialError(message);
         return false;
@@ -607,7 +607,6 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         dispatched=true;
         // Server create_run() still owns definitive BEGIN IMMEDIATE admission.
         
-        const requestStartedAt=Date.now();
         trialLog('【HTTP 请求发送前 POST /api/v1/automation/runs】', {
             method: 'POST', path: '/api/v1/automation/runs',
             query: { owner_user_id: owner }, requestId: payload.request_id,
