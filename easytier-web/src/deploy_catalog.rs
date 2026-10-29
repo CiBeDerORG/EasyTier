@@ -748,10 +748,10 @@ fn normalize_mount_source(app_id: &str, source: &str) -> Option<String> {
     } else { None }
 }
 
-fn validate_compose(root: &Path, manifest: &ManifestV1) -> Result<(), Error> {
+fn validate_compose(manifest: &ManifestV1, sources: &BTreeMap<String, Vec<u8>>) -> Result<(), Error> {
     let relative = format!("{}/{}", manifest.id, manifest.runtime.compose_file);
-    let (_, bytes) = verified_file_bytes(root, &relative, MAX_FILE_BYTES)?;
-    let text = std::str::from_utf8(&bytes).map_err(|_| Error::Invalid("Compose file is not UTF-8"))?;
+    let bytes = sources.get(&relative).ok_or(Error::Invalid("Compose file is not in package sources"))?;
+    let text = std::str::from_utf8(bytes).map_err(|_| Error::Invalid("Compose file is not UTF-8"))?;
     let compose: Value = parse_yaml(text, MAX_FILE_BYTES)?;
     if compose.get("name").and_then(Value::as_str) != Some(manifest.runtime.compose_project.as_str()) {
         return Err(Error::Invalid("Compose project does not match manifest"));
@@ -799,7 +799,7 @@ fn validate_compose(root: &Path, manifest: &ManifestV1) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_package_files(root: &Path, manifest: &ManifestV1) -> Result<(), Error> {
+fn validate_package_files(root: &Path, manifest: &ManifestV1) -> Result<BTreeMap<String, Vec<u8>>, Error> {
     let mut total = 0u64;
     let mut sources = BTreeMap::<String, Vec<u8>>::new();
     for file in &manifest.package.files {
@@ -821,8 +821,8 @@ fn validate_package_files(root: &Path, manifest: &ManifestV1) -> Result<(), Erro
             }
         }
     }
-    validate_compose(root, manifest)?;
-    Ok(())
+    validate_compose(manifest, &sources)?;
+    Ok(sources)
 }
 
 fn safe_manifest(root: &Path, id: &str) -> Result<Option<PathBuf>, Error> {
