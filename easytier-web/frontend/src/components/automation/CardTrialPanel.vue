@@ -49,17 +49,26 @@ const api=new AutomationApi();
 const toast=useToast();
 let trialTraceId='';
 function trialLog(event:string,details:Record<string,unknown>={}){
-    console.log('[AutomationTrial]',{
+    // Only print the actual single-step HTTP request boundary. All other
+    // internal trace events are intentionally suppressed to keep Console readable.
+    const labels:Record<string,string>={
+        'request.createRun.before':'==========【单步执行请求 1/2：发送前｜POST /api/v1/automation/runs】==========',
+        'request.createRun.after':'==========【单步执行请求 2/2：响应成功｜POST /api/v1/automation/runs】==========',
+        'sendFrozen.exception':'==========【单步执行请求 2/2：响应异常｜POST /api/v1/automation/runs】==========',
+    };
+    const label=labels[event];
+    if(!label)return;
+    const output={
         traceId:trialTraceId||'not-started',
         time:new Date().toISOString(),
         event,
         phase:phase.value,
-        ownerId:props.ownerId,
-        deviceId:props.device?.id,
-        stepId:props.step?.id,
-        stepType:props.step?.type,
         ...details,
-    });
+    };
+    // Stringify into one readable block so DevTools doesn't hide fields in
+    // expandable nested objects. The before log includes the exact request body;
+    // the after log includes the response or HTTP status/code/field errors.
+    console.log(label+'\\n'+JSON.stringify(output,null,2));
 }
 function trialErrorSnapshot(cause:unknown):Record<string,unknown>{
     if(cause instanceof AutomationApiError){
