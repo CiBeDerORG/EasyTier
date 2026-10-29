@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Checkbox, InputNumber, InputText, Textarea } from 'primevue';
 import AutomationInlineSelect from './AutomationInlineSelect.vue';
 import { useI18n } from 'vue-i18n';
-import type { AutomationKey, AutomationSelector, AutomationStep, AutomationStepType } from '../../types/automation';
+import type { AutomationAdbFavorite, AutomationKey, AutomationSelector, AutomationStep, AutomationStepType } from '../../types/automation';
+import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
+import { builtinAdbCommands } from '../../modules/automation-adb-presets';
 
-const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean; lockActionType?: boolean }>();
+const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean; lockActionType?: boolean; ownerId?: number }>();
 const emit = defineEmits<{ 'update:modelValue': [step: AutomationStep] }>();
 const { locale } = useI18n();
 const cn = computed(() => locale.value === 'cn' || locale.value.startsWith('zh'));
@@ -27,6 +29,7 @@ const actionOptions = computed(() => [
     { value: 'assert_property', label: text('断言控件属性', 'Assert element property') },
     { value: 'scroll_find', label: text('滚动查找控件', 'Scroll until element appears') },
     { value: 'screenshot', label: text('截图检查点', 'Screenshot checkpoint') },
+    { value: 'adb_command', label: text('ADB 命令', 'ADB shell command') },
 ]);
 const keys = computed(() => [
     { value: 'HOME', label: text('主页', 'Home') }, { value: 'BACK', label: text('返回', 'Back') },
@@ -59,6 +62,87 @@ const inputModes = computed(() => [
     { value: 'literal', label: text('固定文字', 'Fixed text') },
     { value: 'parameter', label: text('运行时参数', 'Run parameter') },
 ]);
+const api = new AutomationApi();
+const favorites = ref<AutomationAdbFavorite[]>([]);
+const favoriteTitle = ref('');
+const favoriteBusy = ref(false);
+const favoriteMessage = ref('');
+const favoriteError = ref('');
+let favoriteLoadToken = 0;
+const builtinOptions = computed(() => [
+    { value: '', label: text('自定义命令', 'Custom command') },
+    ...builtinAdbCommands.map(item => ({
+        value: item.command, label: cn.value ? item.title : item.englishTitle,
+    })),
+]);
+const selectedBuiltin = computed(() => builtinAdbCommands.some(item =>
+    item.command === props.modelValue.command) ? props.modelValue.command ?? '' : '');
+const favoriteOptions = computed(() => [
+    { value: '', label: text('选择已收藏命令', 'Select saved command') },
+    ...favorites.value.map(item => ({ value: item.id, label: item.title })),
+]);
+const selectedFavorite = computed(() =>
+    favorites.value.find(item => item.command === props.modelValue.command) ?? null);
+function chooseBuiltin(value: string) {
+    const chosen = builtinAdbCommands.find(item => item.command === value);
+    if (!chosen) return;
+    update({ command: chosen.command, timeout_ms: props.modelValue.timeout_ms ?? 8000,
+        title: props.modelValue.title?.trim() ? props.modelValue.title : cn.value ? chosen.title : chosen.englishTitle });
+}
+function chooseFavorite(value: string) {
+    const chosen = favorites.value.find(item => item.id === value);
+    if (!chosen) return;
+    update({ command: chosen.command, timeout_ms: props.modelValue.timeout_ms ?? 8000,
+        title: props.modelValue.title?.trim() ? props.modelValue.title : chosen.title });
+    favoriteMessage.value = ''; favoriteError.value = '';
+}
+async function loadFavorites(owner: number) {
+    const token = ++favoriteLoadToken;
+    try {
+        const result = await api.adbFavorites(owner);
+        if (token === favoriteLoadToken && props.ownerId === owner) {
+            favorites.value = result.items;
+            favoriteError.value = '';
+        }
+    } catch (cause) {
+        if (token === favoriteLoadToken && props.ownerId === owner)
+            favoriteError.value = '加载常用命令失败：' + automationErrorMessage(cause);
+    }
+}
+watch(() => [props.ownerId, props.modelValue.type] as const, ([owner, kind]) => {
+    ++favoriteLoadToken; favorites.value = []; favoriteMessage.value = ''; favoriteError.value = '';
+    if (kind === 'adb_command' && owner && owner > 0) void loadFavorites(owner);
+}, { immediate: true });
+async function saveFavorite() {
+    const owner = props.ownerId, command = props.modelValue.command?.trim() ?? '';
+    if (!owner || favoriteBusy.value || props.disabled) return;
+    if (!command.startsWith('adb shell ') || !command.slice(10).trim()) {
+        favoriteError.value = '请输入完整的 adb shell 命令后再收藏。'; return;
+    }
+    const name = (favoriteTitle.value.trim() || props.modelValue.title?.trim() || '我的 ADB 命令');
+    if (Array.from(name).length > 80) { favoriteError.value = '收藏名称最多 80 字。'; return; }
+    favoriteBusy.value = true; favoriteError.value = '';
+    try {
+        const saved = await api.saveAdbFavorite(owner, name, command);
+        if (props.ownerId !== owner) return;
+        favorites.value = [saved, ...favorites.value.filter(item => item.id !== saved.id)];
+        favoriteMessage.value = '已保存到此账号的常用 ADB 命令';
+        favoriteTitle.value = '';
+    } catch (cause) { favoriteError.value = automationErrorMessage(cause); }
+    finally { favoriteBusy.value = false; }
+}
+async function deleteFavorite() {
+    const owner = props.ownerId, chosen = selectedFavorite.value;
+    if (!owner || !chosen || favoriteBusy.value || props.disabled) return;
+    favoriteBusy.value = true; favoriteError.value = '';
+    try {
+        await api.deleteAdbFavorite(owner, chosen.id);
+        if (props.ownerId !== owner) return;
+        favorites.value = favorites.value.filter(item => item.id !== chosen.id);
+        favoriteMessage.value = '已从常用命令中移除；当前步骤命令仍保留';
+    } catch (cause) { favoriteError.value = automationErrorMessage(cause); }
+    finally { favoriteBusy.value = false; }
+}
 const coordinateFields = computed(() => ['swipe', 'drag'].includes(props.modelValue.type)
     ? [{ key: 'x', label: text('起点 X', 'Start X') }, { key: 'y', label: text('起点 Y', 'Start Y') },
         { key: 'to_x', label: text('终点 X', 'End X') }, { key: 'to_y', label: text('终点 Y', 'End Y') }]
@@ -69,7 +153,8 @@ function update(patch: Partial<AutomationStep>) {
 }
 function changeType(type: AutomationStepType) {
     if (props.disabled || props.lockActionType || type === props.modelValue.type) return;
-    const step: AutomationStep = { id: props.modelValue.id, type };
+    const step: AutomationStep = { id: props.modelValue.id, type,
+        ...(props.modelValue.title ? { title: props.modelValue.title } : {}) };
     if (type === 'key') step.key = 'HOME';
     if (['tap', 'long_press', 'wait_for', 'wait_gone', 'if_gone', 'if_else', 'assert', 'assert_property', 'scroll_find'].includes(type)) step.selector = { resource_id: '' };
     if (type === 'swipe' || type === 'drag') Object.assign(step, {
@@ -81,6 +166,7 @@ function changeType(type: AutomationStepType) {
     if (type === 'if_else') { step.then_count = 1; step.else_count = 1; }
     if (type === 'input_text') step.text = '';
     if (type === 'launch_app') step.package = '';
+    if (type === 'adb_command') { step.command = ''; step.timeout_ms = 8000; }
     if (['wait_for', 'wait_gone', 'assert', 'scroll_find'].includes(type)) step.timeout_ms = 10000;
     if (type === 'assert_property') { step.property = 'enabled'; step.expected = true; }
     if (type === 'scroll_find') {
@@ -163,12 +249,65 @@ function updateNumber(key: string, value: number | null | undefined) {
 
 <template>
     <div class="step-editor">
+        <label class="field" :for="fieldId('title')">
+            <span>{{ text('步骤标题', 'Step title') }}</span>
+            <InputText :id="fieldId('title')" :model-value="modelValue.title ?? ''"
+                :maxlength="80" :disabled="disabled" autocomplete="off"
+                :placeholder="text('不填写则显示动作类型', 'Defaults to action name')"
+                @update:model-value="update({title: String($event ?? '').trim() ? String($event) : undefined})"/>
+            <small>{{ text('步骤列表会优先显示标题，不改变动作的实际类型。', 'The timeline displays this title instead of the action label.') }}</small>
+        </label>
         <div class="field" :for="fieldId('type')">
             <span>{{ text('操作类型', 'Action') }}</span>
             <AutomationInlineSelect :input-id="fieldId('type')" :model-value="modelValue.type" :options="actionOptions" option-label="label" option-value="value" :disabled="disabled || lockActionType || ['if_gone','if_else'].includes(modelValue.type)" @update:model-value="changeType($event as AutomationStepType)" />
         </div>
 
         <small v-if="['if_gone','if_else'].includes(modelValue.type)" class="hint">{{ text('条件节点的类型已锁定。需要修改类型时请删除整个条件块后重建。', 'Conditional types are locked. Remove the whole condition block to change the type.') }}</small>
+        <template v-if="modelValue.type === 'adb_command'">
+            <div class="field" :for="fieldId('adb-preset')">
+                <span>{{ text('内置常用 ADB 命令', 'Built-in ADB commands') }}</span>
+                <AutomationInlineSelect :input-id="fieldId('adb-preset')"
+                    :model-value="selectedBuiltin" :options="builtinOptions"
+                    option-label="label" option-value="value" :disabled="disabled"
+                    @update:model-value="chooseBuiltin(String($event))" />
+            </div>
+            <div v-if="ownerId" class="field" :for="fieldId('adb-favorite')">
+                <span>{{ text('我收藏的常用命令', 'My saved ADB commands') }}</span>
+                <AutomationInlineSelect :input-id="fieldId('adb-favorite')"
+                    :model-value="selectedFavorite?.id ?? ''" :options="favoriteOptions"
+                    option-label="label" option-value="value" :disabled="disabled || favoriteBusy"
+                    @update:model-value="chooseFavorite(String($event))" />
+            </div>
+            <label class="field" :for="fieldId('adb-command')">
+                <span>{{ text('手动输入 ADB 命令', 'ADB shell command') }}</span>
+                <Textarea :id="fieldId('adb-command')" :model-value="modelValue.command ?? ''"
+                    :rows="3" :maxlength="1024" :disabled="disabled"
+                    autocomplete="off" spellcheck="false"
+                    placeholder="adb shell input keyevent 3"
+                    @update:model-value="update({command: String($event ?? '')})"/>
+                <small>{{ text('仅支持当前手机的 adb shell 单条命令；禁止宿主机操作、管道和重定向。执行结果写入脚本记录，请勿填入密码。', 'One adb shell command against this phone only. No host operations, pipes or redirects. Do not include secrets.') }}</small>
+            </label>
+            <label class="field" :for="fieldId('adb-timeout')">
+                <span>{{ text('ADB 命令超时（毫秒）', 'ADB timeout (ms)') }}</span>
+                <InputNumber :input-id="fieldId('adb-timeout')"
+                    :model-value="modelValue.timeout_ms ?? 8000"
+                    :min="1000" :max="20000" :step="1000" :use-grouping="false"
+                    :disabled="disabled" @update:model-value="updateNumber('timeout_ms', $event)" />
+            </label>
+            <div v-if="ownerId" class="adb-favorite-actions">
+                <InputText v-model="favoriteTitle" :maxlength="80" :disabled="disabled || favoriteBusy"
+                    :placeholder="text('收藏名称（默认使用步骤标题）', 'Favorite name (defaults to title)')" />
+                <button type="button" :disabled="disabled || favoriteBusy || !modelValue.command?.trim()"
+                    @click="saveFavorite">{{ text('保存为常用', 'Save as favorite') }}</button>
+                <button v-if="selectedFavorite" type="button"
+                    :disabled="disabled || favoriteBusy" @click="deleteFavorite">
+                    {{ text('移除常用', 'Remove favorite') }}
+                </button>
+            </div>
+            <small v-if="favoriteMessage" class="hint" role="status">{{ favoriteMessage }}</small>
+            <small v-if="favoriteError" class="adb-favorite-error" role="alert">{{ favoriteError }}</small>
+        </template>
+
         <div v-if="modelValue.type === 'key'" class="field" :for="fieldId('key')">
             <span>{{ text('导航按键', 'Navigation key') }}</span>
             <AutomationInlineSelect :input-id="fieldId('key')" :model-value="modelValue.key" :options="keys" option-label="label" option-value="value" :disabled="disabled" @update:model-value="update({ key: String($event) as AutomationKey })" />
@@ -374,5 +513,10 @@ function updateNumber(key: string, value: number | null | undefined) {
 .selector-fields legend { padding: 0 5px; font-size: 12px; color: var(--console-muted); }
 .number-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .checkbox-field { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.adb-favorite-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.adb-favorite-actions :deep(.p-inputtext) { flex: 1 1 180px; min-width: 0; }
+.adb-favorite-actions button { padding: 7px 10px; border: 1px solid var(--console-border); border-radius: 6px; color: var(--p-primary-color); background: transparent; cursor: pointer; font-size: 12px; }
+.adb-favorite-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.adb-favorite-error { color: var(--p-red-500); white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .number-grid { grid-template-columns: 1fr; } }
 </style>
