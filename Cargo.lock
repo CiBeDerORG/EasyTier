@@ -2931,6 +2931,7 @@ dependencies = [
  "prost 0.14.4",
  "rand 0.8.8",
  "reqwest",
+ "regex",
  "ring",
  "rust-embed",
  "rust-i18n",
