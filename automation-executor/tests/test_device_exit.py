@@ -121,6 +121,51 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.runtime.shutdown();self.media_patch.stop();self.adb_patch.stop();self.directory.cleanup()
 
+    async def test_executor_task_status_reports_unknown_until_cleanup_is_confirmed(self):
+        phone = target()
+        body = run_body(self.runtime.journal, [phone])
+        self.runtime.journal.accept_run(body)
+        self.runtime.journal.update_device(body["id"], phone["device_id"], {
+            "state": "outcome_unknown", "cleanup_confirmed": False,
+        })
+        status = await self.runtime.device_task_status(phone["device_id"], {
+            "target": phone, "expected_executor_id": self.runtime.journal.executor_id,
+        })
+        self.assertTrue(status["has_tasks"])
+        self.assertEqual(status["task_count"], 1)
+        self.assertEqual(status["tasks"][0]["run_id"], body["id"])
+        self.assertEqual(status["tasks"][0]["state"], "outcome_unknown")
+        self.runtime.journal.update_device(body["id"], phone["device_id"], {
+            "cleanup_confirmed": True,
+        })
+        status = await self.runtime.device_task_status(phone["device_id"], {
+            "target": phone, "expected_executor_id": self.runtime.journal.executor_id,
+        })
+        self.assertFalse(status["has_tasks"])
+        self.assertEqual(status["task_count"], 0)
+
+    async def test_force_cleanup_marks_unknown_run_as_cleared_after_worker_reap(self):
+        phone = target()
+        body = run_body(self.runtime.journal, [phone])
+        self.runtime.journal.accept_run(body)
+        self.runtime.journal.update_device(body["id"], phone["device_id"], {
+            "state": "outcome_unknown", "cleanup_confirmed": False,
+        })
+        request = {
+            "target": phone,
+            "expected_executor_id": self.runtime.journal.executor_id,
+            "event_id": str(uuid4()),
+        }
+        with patch("automation_executor.runtime.cleanup_record", return_value=True):
+            result = await self.runtime.force_cleanup_device(phone["device_id"], request)
+        self.assertTrue(result["cleanup_confirmed"])
+        saved = self.runtime.journal.run(body["id"])["devices"][0]
+        self.assertTrue(saved["cleanup_confirmed"])
+        status = await self.runtime.device_task_status(phone["device_id"], {
+            "target": phone, "expected_executor_id": self.runtime.journal.executor_id,
+        })
+        self.assertFalse(status["has_tasks"])
+
     async def test_automation_status_exposes_rpc_failure_reason_and_stage(self):
         phone = target()
         class UiAutomationNotConnectedError(Exception):

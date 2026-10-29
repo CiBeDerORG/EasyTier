@@ -1207,6 +1207,94 @@ class Runtime:
         self.journal.update_device(rid,did,values)
         return self.journal.run(rid)
 
+    async def device_task_status(self, did, body):
+        """Read-only inventory of unresolved executor work for one physical phone."""
+        did = validation.identifier(did)
+        validation.object_fields(body, {"target", "expected_executor_id"},
+                                  {"target", "expected_executor_id"})
+        self.require_identity(body["expected_executor_id"])
+        target = validation.target(body["target"])
+        if target["device_id"] != did:
+            raise ExecutorError("target_mismatch", "任务查询目标与指定手机不一致", 409)
+        endpoint = validation.endpoint(target)
+
+        def same(saved):
+            return saved.get("device_id") == did or validation.endpoint(saved) == endpoint
+
+        tasks = []
+        # outcome_unknown is terminal for scheduling but remains a cleanup
+        # blocker until cleanup_confirmed is durably recorded.
+        pending_states = {
+            "queued", "accepted", "starting", "running", "cancel_requested",
+            "cleanup_pending", "outcome_unknown", "interrupted",
+        }
+        for row in list(self.journal.db.execute("SELECT run_id,device_id,target FROM run_targets")):
+            try:
+                saved_target = json.loads(row["target"])
+                if not same(saved_target):
+                    continue
+            except (ValueError, TypeError, KeyError, ExecutorError):
+                continue
+            run_id, saved_device_id = row["run_id"], row["device_id"]
+            run_row = self.journal.db.execute(
+                "SELECT result FROM runs WHERE id=?", (run_id,)).fetchone()
+            if not run_row:
+                continue
+            try:
+                result = json.loads(run_row["result"])
+                device_result = next(
+                    item for item in result.get("devices", [])
+                    if item.get("device_id") == saved_device_id
+                )
+            except (ValueError, TypeError, StopIteration):
+                continue
+            state = device_result.get("state", result.get("state", "unknown"))
+            cleanup_confirmed = device_result.get("cleanup_confirmed") is True
+            holder = "run:" + run_id + ":" + saved_device_id
+            worker_present = self.journal.worker_record(holder) is not None
+            running_task = self.device_tasks.get((run_id, saved_device_id))
+            task_running = bool(running_task and not running_task.done())
+            if worker_present or task_running or (state in pending_states and not cleanup_confirmed):
+                tasks.append({
+                    "kind": "script",
+                    "run_id": run_id,
+                    "device_id": saved_device_id,
+                    "state": state,
+                    "cleanup_confirmed": cleanup_confirmed,
+                    "worker_present": worker_present,
+                    "task_running": task_running,
+                    "target_fingerprint_matches": saved_target.get("target_fingerprint") == target.get("target_fingerprint"),
+                })
+
+        # Initialization/preparation jobs remain visible even if their original
+        # process no longer exists after an executor restart.
+        for row in self.journal.db.execute(
+                "SELECT id,target,state,stage FROM preparation_jobs "
+                "WHERE state IN ('queued','running','cancel_requested')"):
+            try:
+                saved_target = json.loads(row["target"])
+                if not same(saved_target):
+                    continue
+            except (ValueError, TypeError, KeyError, ExecutorError):
+                continue
+            tasks.append({
+                "kind": "preparation",
+                "task_id": row["id"],
+                "device_id": saved_target["device_id"],
+                "state": row["state"],
+                "stage": row["stage"],
+            })
+
+        return {
+            "device_id": did,
+            "executor_id": self.journal.executor_id,
+            "state": "ready",
+            "has_tasks": bool(tasks),
+            "task_count": len(tasks),
+            "tasks": tasks,
+            "checked_at": now(),
+        }
+
     async def force_cleanup_device(self, did, body):
         """Explicit, device-wide stop: every owner/session/script/helper for this phone.
 
@@ -1359,6 +1447,52 @@ class Runtime:
             for record in controls:
                 if record["holder"] not in holders:
                     active=True
+            if not active:
+                # Record that every affected run-device lease was physically
+                # reaped. Preserve unknown action outcomes instead of claiming
+                # that an interrupted action succeeded.
+                for run_id, related_device in old_runs:
+                    row = self.journal.db.execute(
+                        "SELECT result FROM runs WHERE id=?", (run_id,)).fetchone()
+                    if not row:
+                        continue
+                    try:
+                        saved_result = json.loads(row["result"])
+                        saved_device = next(
+                            item for item in saved_result.get("devices", [])
+                            if item.get("device_id") == related_device
+                        )
+                        steps = []
+                        has_unknown = False
+                        for step in saved_device.get("steps", []):
+                            state = step.get("state")
+                            if state == "running":
+                                state = "outcome_unknown"
+                                has_unknown = True
+                            elif state in ("pending", "queued"):
+                                state = "cancelled"
+                            elif state == "outcome_unknown":
+                                has_unknown = True
+                            steps.append({**step, "state": state})
+                        values = {"cleanup_confirmed": True}
+                        if saved_device.get("state") not in TERMINAL:
+                            values.update({
+                                "state": "outcome_unknown" if has_unknown else "cancelled",
+                                "steps": steps,
+                                "error": {
+                                    "code": "forced_cleanup",
+                                    "message": "设备任务已被强制清理；未完成动作结果不再自动重放",
+                                },
+                            })
+                        elif steps != saved_device.get("steps", []):
+                            values["steps"] = steps
+                        await self._update(run_id, related_device, values)
+                    except (ValueError, TypeError, StopIteration, ExecutorError):
+                        active = True
+                        break
+                    except Exception:
+                        active = True
+                        break
             if not active:
                 with self.journal.transaction() as db:
                     for related_device, fingerprint in related_targets:
