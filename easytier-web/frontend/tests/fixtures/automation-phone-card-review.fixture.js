@@ -62,6 +62,8 @@ const App={
       open:()=>card.value?.openAutomationPanel(),
       attempts:()=>[...attempts.value],
       close:()=>card.value?.closeAutomationPanel(),
+      // Mirrors the PhoneCard effect used after confirmed force cleanup.
+      closeSession:()=>card.value?.close(),
       setBatchPhase:phase=>{
         batch.phase=phase;
         batch.selected=phase==='idle'?[]:[phone];
@@ -119,7 +121,7 @@ const App={
       },
       edit:()=>{editing.value='step-one';card.value?.openAutomationPanel();},
       closeEdit:()=>{editing.value=null;},
-      state:()=>({phase:batch.phase,sessionId:card.value?.getSessionId(),
+      state:()=>({phase:batch.phase,sessionPhase:card.value?.getState().phase,sessionId:card.value?.getSessionId(),
         selectedStepId:draft.selectedStepId,editingStepId:editing.value}),
     };
     const control=(id,label,fn)=>h('button',{id,type:'button',onClick:fn,

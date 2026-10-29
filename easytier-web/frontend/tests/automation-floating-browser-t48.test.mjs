@@ -408,3 +408,29 @@ test('T59 mobile full screen: touch option stays inside original fullscreen phon
   await list.getByRole('option',{name:'点击'}).tap();
   assert.match(await choice.locator('.choice-current').textContent(),/点击/);
 });
+
+
+test('T60 offline post-cleanup session keeps the draft action selector usable on desktop and touch',async t=>{
+  for(const mode of [
+    {name:'desktop',options:{viewport:{width:1150,height:800},isMobile:false,hasTouch:false},touch:false},
+    {name:'mobile',options:{viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2},touch:true},
+  ]){
+    await t.test(mode.name,async child=>{
+      const page=await setup(child,realCardFixture,mode.options);
+      await page.locator('#open-panel')[mode.touch?'tap':'click']();
+      const panel=page.getByRole('region',{name:'自动化脚本'});
+      const choice=panel.locator('.flow-tools .automation-inline-choice');
+      await page.evaluate(()=>window.phoneCardReview.closeSession());
+      await page.locator('.phone-card .screen-placeholder').waitFor();
+      assert.equal(await panel.isVisible(),true,'post-cleanup must not discard the floating script draft');
+      const trigger=choice.locator('.choice-trigger');
+      await trigger[mode.touch?'tap':'click']();
+      const list=choice.locator('.choice-list');
+      await list.waitFor();
+      const option=list.getByRole('option',{name:'点击'});
+      await option[mode.touch?'tap':'click']();
+      assert.match(await choice.locator('.choice-current').textContent(),/点击/,
+        'the action type remains selectable after the phone session is closed');
+    });
+  }
+});
