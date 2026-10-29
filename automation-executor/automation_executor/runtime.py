@@ -1222,18 +1222,22 @@ class Runtime:
         if target["device_id"] != did:
             raise ExecutorError("target_mismatch", "强制清理目标与指定手机不一致", 409)
         endpoint = validation.endpoint(target)
+        # The button is explicitly device-wide: device ID or physical ADB
+        # endpoint wins over account ownership, matching the server admission
+        # fence. A reused endpoint cannot be safely treated as a separate phone.
         same = lambda value: (
-            value["owner_user_id"] == target["owner_user_id"]
-            and (value["device_id"] == did or validation.endpoint(value) == endpoint)
+            value["device_id"] == did or validation.endpoint(value) == endpoint
         )
         import json
         async with self.admission:
-            # Scope the forced release to this physical phone, regardless of
-            # which historical run/session/helper held its claim.
+            related_targets = {(did, target["target_fingerprint"]): target}
+            # Fence every historical run on this physical phone, regardless
+            # of which account originally created the run.
             old_runs = []
             for row in list(self.journal.db.execute("SELECT run_id,device_id,target FROM run_targets")):
                 old = json.loads(row["target"])
                 if same(old):
+                    related_targets[(old["device_id"], old["target_fingerprint"])] = old
                     self.journal.fence_device_run_only(
                         row["run_id"], row["device_id"], old["target_fingerprint"], body["event_id"])
                     old_runs.append((row["run_id"], row["device_id"]))
@@ -1252,9 +1256,13 @@ class Runtime:
             for pid, task in list(self.preparation_tasks.items()):
                 row = self.journal.db.execute(
                     "SELECT target FROM preparation_jobs WHERE id=?", (pid,)).fetchone()
-                if row and same(json.loads(row["target"])) and not task.done():
-                    task.cancel()
-                    pending.append(task)
+                if row:
+                    old_target = json.loads(row["target"])
+                    if same(old_target):
+                        related_targets[(old_target["device_id"], old_target["target_fingerprint"])] = old_target
+                        if not task.done():
+                            task.cancel()
+                            pending.append(task)
             if pending:
                 await asyncio.wait(pending,timeout=9)
             active = any(not task.done() for task in pending)
@@ -1263,18 +1271,32 @@ class Runtime:
             sessions = []
             for sid, item in list(self.sessions.items()):
                 if same(item.target):
+                    related_targets[(item.target["device_id"], item.target["target_fingerprint"])] = item.target
                     sessions.append(sid)
                     try:
                         reply = await asyncio.wait_for(self.close_session(sid), timeout=9)
                         active |= bool(reply.get("cleanup_pending"))
                     except Exception:
                         active = True
+            # A process restart can leave journal rows without an in-memory
+            # WebRTC object. Include them in the cleanup receipt and worker sweep.
+            for row in self.journal.db.execute("SELECT id,target FROM sessions WHERE state NOT IN ('closed','failed')"):
+                try:
+                    old_target = json.loads(row["target"])
+                except (ValueError, TypeError):
+                    active = True
+                    continue
+                if same(old_target):
+                    related_targets[(old_target["device_id"], old_target["target_fingerprint"])] = old_target
+                    if row["id"] not in sessions:
+                        sessions.append(row["id"])
             # Stop remembered UIA helpers regardless of which script started them.
             # If graceful close fails, the recorded process identity is checked
             # again below. A later confirmed reap must clear this transient failure.
             helpers_needing_reap = {}
             for helper_id, helper in list(self.helpers.items()):
                 if same(helper.target):
+                    related_targets[(helper.target["device_id"], helper.target["target_fingerprint"])] = helper.target
                     try:
                         stopped = await asyncio.wait_for(helper.close(), timeout=8)
                     except Exception:
@@ -1292,11 +1314,15 @@ class Runtime:
                 except (ValueError, TypeError):
                     active = True
                     continue
-                if same(old): controls.append(dict(row))
+                if same(old):
+                    related_targets[(old["device_id"], old["target_fingerprint"])] = old
+                    controls.append(dict(row))
             holders = {c["holder"] for c in controls}
             for run_id, device_id in old_runs:
                 holders.add("run:" + run_id + ":" + device_id)
-            holders.add("helper:" + did)
+            # Helpers can outlive the current device ID when the same physical
+            # ADB endpoint was previously registered under another account.
+            holders.update("helper:" + device_id for device_id, _ in related_targets)
             holders.update("session:" + sid for sid in sessions)
             # Include stranded workers even where a prior crash lost the control.
             for row in self.journal.db.execute("SELECT holder FROM workers"):
@@ -1335,24 +1361,26 @@ class Runtime:
                     active=True
             if not active:
                 with self.journal.transaction() as db:
-                    db.execute("DELETE FROM prepared WHERE device_id=?", (did,))
-                    # An older run withdrawal can leave a target-wide refusal
-                    # even after every run is fenced and workers are reaped.
-                    # Only lift non-retirement refusals for the CURRENT exact
-                    # fingerprint; never revive a physically retired target.
-                    db.execute(
-                        "DELETE FROM target_refusals WHERE device_id=? AND fingerprint=? "
-                        "AND NOT EXISTS(SELECT 1 FROM retirements r WHERE "
-                        "r.device_id=? AND r.fingerprint=?)",
-                        (did,target["target_fingerprint"],did,target["target_fingerprint"]))
+                    for related_device, related_target in related_targets:
+                        fingerprint = related_target["target_fingerprint"]
+                        db.execute("DELETE FROM prepared WHERE device_id=? AND fingerprint=?",
+                                   (related_device, fingerprint))
+                        # Clear only non-retirement refusals for each exact
+                        # target proven clean; never revive a retired target.
+                        db.execute(
+                            "DELETE FROM target_refusals WHERE device_id=? AND fingerprint=? "
+                            "AND NOT EXISTS(SELECT 1 FROM retirements r WHERE "
+                            "r.device_id=? AND r.fingerprint=?)",
+                            (related_device, fingerprint, related_device, fingerprint))
                     db.execute("UPDATE sessions SET state='closed',updated_at=? "
                                "WHERE id IN (" + ",".join("?" for _ in sessions) + ")",
                                (now(), *sessions)) if sessions else None
-                    db.execute("UPDATE preparation_jobs SET state='interrupted',"
-                               "stage='interrupted',code='forced_cleanup',"
-                               "message='用户强制清理本机占用',updated_at=? "
-                               "WHERE device_id=? AND state IN ('queued','running','cancel_requested')",
-                               (now(),did))
+                    for related_device, _ in related_targets:
+                        db.execute("UPDATE preparation_jobs SET state='interrupted',"
+                                   "stage='interrupted',code='forced_cleanup',"
+                                   "message='用户强制清理本机占用',updated_at=? "
+                                   "WHERE device_id=? AND state IN ('queued','running','cancel_requested')",
+                                   (now(), related_device))
             return {"device_id":did,"executor_id":self.journal.executor_id,
                     "event_id":body["event_id"],"cleanup_confirmed":not active,
                     "stopped_sessions":len(sessions),"fenced_run_devices":len(old_runs),

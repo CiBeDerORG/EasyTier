@@ -172,9 +172,9 @@ pub(super) async fn cancel_device(
     }
 }
 
-/// Explicit device-scoped emergency recovery. Fences ALL saved runs on
-/// this owned phone before terminating executor workers. No manual retry or
-/// ADB action is dispatched until the executor proves the device is released.
+/// Explicit device-scoped emergency recovery. Fences ALL saved runs sharing
+/// this physical ADB endpoint, regardless of owner, before terminating workers.
+/// No manual retry or ADB action is dispatched until cleanup is confirmed.
 pub(super) async fn force_cleanup_device(
     auth: AuthSession, State(manager): State<AppStateInner>,
     Extension(service): Service, Extension(config): Config,

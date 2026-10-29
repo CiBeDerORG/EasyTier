@@ -570,7 +570,7 @@ impl AutomationStore {
     }
 
     /// After the executor has stopped the physical endpoint, settle every
-    /// *owner-scoped* row which could make the session admission query busy.
+    /// every matching row which could make the session admission query busy.
     /// Re-check ALL endpoint holders (including cross-tenant) in the SAME
     /// transaction. Never claim success while the admission query still blocks.
     pub(crate) async fn confirm_endpoint_cleanup(&self,device:&str,key:&str)->AutomationResult<Value> {
