@@ -487,6 +487,25 @@ impl Catalog {
         })
     }
 
+    /// Return immutable package bytes after repeating the exact archive hash
+    /// verification. The Agent independently validates the tar inventory.
+    pub async fn package_for_transfer(&self, id: &str) -> Result<(DeployPackageSummary, Vec<u8>), Error> {
+        let summary = self.prepare_package(id).await?;
+        let file = self.base.join("packages")
+            .join(format!("{}-{}.tar", summary.app_id, summary.git_revision));
+        let metadata = tokio::fs::symlink_metadata(&file).await.map_err(|_| Error::PackageConflict)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file()
+            || metadata.len() != summary.package_size || metadata.len() > 26 * 1024 * 1024 {
+            return Err(Error::PackageConflict);
+        }
+        let bytes = tokio::fs::read(&file).await.map_err(|_| Error::PackageConflict)?;
+        if bytes.len() as u64 != summary.package_size
+            || format!("{:x}", Sha256::digest(&bytes)) != summary.package_sha256 {
+            return Err(Error::PackageConflict);
+        }
+        Ok((summary, bytes))
+    }
+
     // Only the explicit admin POST calls git. Reading the catalog never calls
     // git/Agent/Docker or performs any network I/O.
     pub async fn refresh(&self) -> Result<Value, Error> {
