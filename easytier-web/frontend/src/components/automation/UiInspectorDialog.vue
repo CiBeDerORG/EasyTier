@@ -11,6 +11,8 @@ import { rankLocatorCandidates } from '../../modules/automation-locator-candidat
 import { rankRelationalCandidates } from '../../modules/automation-relational-locator';
 import { buildFilterOptions, filterHierarchy, buildCrossFilterSelector, type FilterOption, type FilterField } from '../../modules/automation-cross-filter';
 import InspectorPropertiesPanel from './InspectorPropertiesPanel.vue';
+import InspectorMatchReview from './InspectorMatchReview.vue';
+import { confirmationMatches, comparisonFilterOption, replaceComparisonCondition } from '../../modules/automation-confirm-match';
 import type { InspectorAction } from '../../modules/automation-inspector-actions';
 import { matchPickerPoint } from '../../modules/automation-pick-engine';
 import type { PickerVideoPoint } from '../../modules/automation-picker-state';
@@ -77,6 +79,8 @@ const selected = computed(() => selectedId.value === null ? null : nodeIndex.val
 // These are the actual user-chosen AND conditions, not a pre-generated 1/2/3-field candidate.
 const activeFilterIds = ref<string[]>([]);
 const extraFilterOptions = ref<FilterOption[]>([]);
+const matchReviewOpen = ref(false);
+const pendingReviewAction = ref<InspectorAction | 'replace' | null>(null);
 const filterOptions = computed(() => snapshot.value && selectedId.value !== null
     ? [...buildFilterOptions(snapshot.value,selectedId.value),...extraFilterOptions.value] : []);
 const filteredNodes = computed(() => snapshot.value
@@ -110,6 +114,55 @@ const confirmedLocator = computed<AutomationSelector | null>(() => {
     if (activeFilterIds.value.length) return crossFilterBuild.value.selector;
     return locatorCandidates.value.find(item => item.id === selectedCandidate.value)?.selector ?? null;
 });
+// Confirm-time review uses the tree already on screen; no network re-fetch,
+// no original-pixel comparison and no required new right-click pick.
+const confirmationRows = computed(() => {
+    const shot = snapshot.value, selector = confirmedLocator.value;
+    if (!shot || !selector) return null;
+    const candidate = locatorCandidates.value.find(item => item.id === selectedCandidate.value);
+    return confirmationMatches(shot, selector, filterOptions.value, activeFilterIds.value,
+        selectedId.value, candidate?.matches);
+});
+function closeMatchReview() {
+    matchReviewOpen.value = false;
+    pendingReviewAction.value = null;
+    previewNodeId.value = null;
+}
+function openMatchReview(action: InspectorAction | 'replace') {
+    pendingReviewAction.value = action;
+    matchReviewOpen.value = true;
+    feedback.value = '请在对比列表中右键（移动端点击）属性值，缩小到唯一控件后最终确认录入。';
+}
+function addComparedAttribute(nodeId: number, field: FilterField, parent: boolean) {
+    const shot = snapshot.value;
+    if (!shot || !selected.value || shot.truncated) return;
+    const proposal = comparisonFilterOption(shot, nodeId, field, parent);
+    if (!proposal) {
+        feedback.value = '该属性无法安全转换为交叉过滤条件。';
+        return;
+    }
+    const matching = filterOptions.value.find(option => option.scope === proposal.scope
+        && option.distance === proposal.distance && option.field === proposal.field
+        && option.value === proposal.value);
+    const chosen = matching ?? proposal;
+    if (!matching) extraFilterOptions.value = [...extraFilterOptions.value.filter(option =>
+        option.id !== proposal.id), proposal];
+    const next = replaceComparisonCondition(filterOptions.value, activeFilterIds.value, chosen);
+    ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
+    selectedCandidate.value = null; coordinateConfirmed.value = false;
+    activeFilterIds.value = next;
+    mode.value = crossFilterBuild.value.selector?.xpath ? 'xpath' : 'composite';
+    feedback.value = '已加入“' + chosen.label + ' = ' + chosen.displayValue
+        + '”；当前筛选命中 ' + filteredNodes.value.length + ' 个控件。';
+}
+function confirmMatchReview() {
+    if (!matchReviewOpen.value || confirmationRows.value?.length !== 1
+        || !confirmedLocator.value || snapshot.value?.truncated) return;
+    const action = pendingReviewAction.value;
+    closeMatchReview();
+    if (action === 'replace') void replaceTarget();
+    else if (action) void add(action);
+}
 const lineage = computed(() => {
     const chain: AutomationHierarchyNode[] = [];
     const visited = new Set<number>();
@@ -389,6 +442,7 @@ function toggleBranch(id: number) {
 async function refresh() {
     if (!props.visible || loading.value) return;
     const generation = ++requestGeneration;
+    closeMatchReview();
     const pointHint = !initialPointUsed ? props.initialPoint : null;
     initialPointUsed = true;
     ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
@@ -547,6 +601,10 @@ async function replaceTarget() {
     const selector=locator();
     const modeAtStart=mode.value;
     if(modeAtStart!=='coordinates'&&!selector)return;
+    if (selector && confirmationRows.value?.length !== 1) {
+        openMatchReview('replace');
+        return;
+    }
     validatingSubmission.value=true;
     feedback.value='正在保存控件筛选条件，点击运行时会展示实际匹配控件。';
     try{
@@ -574,6 +632,10 @@ async function add(type: InspectorAction) {
     if(selector?.xpath && (type==='input_text'||type==='assert_property'))return;
     if(type==='scroll_find'&&(!selector||!scrollContainer.value))return;
     const scroller=scrollContainer.value;
+    if (selector && confirmationRows.value?.length !== 1) {
+        openMatchReview(type);
+        return;
+    }
     validatingSubmission.value=true;
     feedback.value='正在录入控件筛选条件，点击运行时会展示实际匹配控件。';
     try{
@@ -588,7 +650,10 @@ async function add(type: InspectorAction) {
         }
         if(type==='long_press')step.duration_ms=800;
         if(['wait_for','wait_gone','assert'].includes(type))step.timeout_ms=10000;
-        if(type==='assert_property'){step.property='enabled';step.expected=node.enabled;}
+        if(type==='assert_property'){
+            step.property='enabled';
+            step.expected=(selector ? confirmationRows.value?.[0] : node)?.enabled ?? node.enabled;
+        }
         if(type==='scroll_find'){
             if(!scroller)return;
             step.scroll_container=scroller;
@@ -604,6 +669,7 @@ watch([() => props.visible, () => props.device.id, () => props.device.target_fin
     committing.value = false;
     validatingSubmission.value=false;
     initialPointUsed = false;
+    closeMatchReview();
     ++verificationGeneration; verifiedXPath.value = null; verifying.value = false;
     anchorPicking.value = false; manualAnchorId.value = null;
     response.value = null; selectedId.value = null; selectedCandidate.value = null;
@@ -615,6 +681,7 @@ watch([() => props.visible, () => props.device.id, () => props.device.target_fin
 }, { immediate: true });
 watch([() => props.screenWidth, () => props.screenHeight], () => {
     coordinateConfirmed.value=false;
+    closeMatchReview();
     ++verificationGeneration; verifiedXPath.value=null; verifying.value=false;
     anchorPicking.value=false; manualAnchorId.value=null;
     dragPickMode.value=false;dragStart.value=null;dragEnd.value=null;
@@ -635,7 +702,7 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
     <AutomationFloatingDialog :visible="visible" :portal-target="portalTarget"
         :fullscreen="fullscreen" :title="device.name + (replaceStep ? ' · 重新拾取控件' : ' · 控件树与属性')"
         @close="emit('close')">
-        <div class="ui-inspector">
+        <div class="ui-inspector" :inert="matchReviewOpen">
             <div v-if="!dragPickMode" class="inspector-toolbar">
                 <div class="status">
                     <Tag :value="loading ? '正在读取' : snapshot ? '控件树已加载' : '未加载'" :severity="snapshot ? 'success' : 'secondary'" />
@@ -648,7 +715,7 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
             <Message v-if="!dragPickMode && snapshot?.truncated" severity="warn" :closable="false">当前页面控件过多，已截断。为防止错误定位，精确控件步骤暂不可添加。</Message>
             <Message v-if="!dragPickMode && replaceStep" severity="info" :closable="false">
                 正在更新已存在的 {{ replaceStep.type }} 步骤：只替换控件定位，不修改动作类型、步骤编号、按住时长、输入参数或条件分支。
-                可录入匹配多个控件的定位条件；点击运行时展示真实匹配列表。
+                点击确认录入时核对当前筛选数量；若匹配多个控件，右键对比列表属性继续过滤，直到唯一命中才录入。
             </Message>
             <div class="inspector-columns">
                 <div class="original-screen-tools">
@@ -703,6 +770,13 @@ watch([() => props.replaceStep?.id, () => props.replaceStep?.type], () => {
             </div>
         </div>
     </AutomationFloatingDialog>
+    <InspectorMatchReview :visible="visible && matchReviewOpen"
+        :portal-target="portalTarget" :fullscreen="fullscreen"
+        :matches="confirmationRows" :nodes="snapshot?.nodes ?? []"
+        :truncated="!!snapshot?.truncated" :selected-id="selectedId"
+        :filter-count="activeFilterIds.length"
+        @add-filter="addComparedAttribute" @preview="previewMatch"
+        @confirm="confirmMatchReview" @close="closeMatchReview" />
 </template>
 
 <style scoped>
