@@ -443,7 +443,19 @@ impl Catalog {
             let _ = tokio::fs::remove_file(&archive_tmp).await;
         }
         let (package_sha256, package_size, file_count) = artifact_result?;
-        tokio::fs::rename(&archive_tmp, &archive_path).await.map_err(|_| Error::Storage)?;
+        // Hard-link publication is atomic and fails if another process has
+        // already published this immutable key; unlike rename, it cannot
+        // overwrite an existing package artifact.
+        if let Err(error) = tokio::fs::hard_link(&archive_tmp, &archive_path).await {
+            let _ = tokio::fs::remove_file(&archive_tmp).await;
+            let _ = tokio::fs::remove_dir_all(&stage).await;
+            return if error.kind() == std::io::ErrorKind::AlreadyExists {
+                Err(Error::PackageConflict)
+            } else {
+                Err(Error::Storage)
+            };
+        }
+        tokio::fs::remove_file(&archive_tmp).await.map_err(|_| Error::Storage)?;
         let built_at = chrono::Utc::now().to_rfc3339();
         let inserted = sqlx::query(
             "INSERT INTO deploy_catalog_packages(app_id,git_revision,manifest_sha256,package_sha256,package_size,file_count,built_at) VALUES(?,?,?,?,?,?,?)"
