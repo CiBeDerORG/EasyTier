@@ -1235,12 +1235,15 @@ services:
     }
 
     #[test]
-    fn strict_yaml_rejects_duplicate_keys_anchors_tags_and_unknown_fields() {
+    fn strict_yaml_rejects_duplicate_keys_anchors_unsupported_tags_and_unknown_fields() {
         let manifest = parse_manifest(PORTAINER).unwrap();
         validate_manifest_shape(&manifest, "portainer").unwrap();
         assert!(parse_manifest(&PORTAINER.replace("name: Portainer\n", "name: Portainer\nname: Spoofed\n")).is_err());
         assert!(parse_manifest(&PORTAINER.replace("name: Portainer", "name: &shared Portainer")).is_err());
-        assert!(parse_manifest(&PORTAINER.replace("name: Portainer", "name: !!str Portainer")).is_err());
+        // Standard YAML tags such as !!str are supported by serde-saphyr;
+        // this manifest parser rejects application-specific/unsupported tags.
+        assert!(parse_manifest(&PORTAINER.replace("name: Portainer", "name: !!str Portainer")).is_ok());
+        assert!(parse_manifest(&PORTAINER.replace("name: Portainer", "name: !custom Portainer")).is_err());
         assert!(parse_manifest(&(PORTAINER.to_string() + "unexpected: true\n")).is_err());
         assert!(!safe_id("../bad"));
         assert!(!safe_id("PORTAINER"));
