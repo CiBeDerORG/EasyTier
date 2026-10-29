@@ -1,0 +1,3 @@
+GHCR rebuild requested: 2026-10-29
+Branch: feat/automation-center
+Reason: re-run automated build without modifying application source
