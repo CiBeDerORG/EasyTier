@@ -68,7 +68,7 @@ function trialLog(event:string,details:Record<string,unknown>={}){
     // Stringify into one readable block so DevTools doesn't hide fields in
     // expandable nested objects. The before log includes the exact request body;
     // the after log includes the response or HTTP status/code/field errors.
-    console.log(label+'\\n'+JSON.stringify(output,null,2));
+    console.log(label+'\n'+JSON.stringify(output,null,2));
 }
 function trialErrorSnapshot(cause:unknown):Record<string,unknown>{
     if(cause instanceof AutomationApiError){
