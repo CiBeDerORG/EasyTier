@@ -690,8 +690,8 @@ fn validate_manifest_shape(manifest: &ManifestV1, expected_id: &str) -> Result<(
         || manifest.compatibility.architectures.iter().any(|a| !["amd64", "arm64"].contains(&a.as_str()))
         || manifest.compatibility.platforms.iter().collect::<BTreeSet<_>>().len() != manifest.compatibility.platforms.len()
         || manifest.compatibility.architectures.iter().collect::<BTreeSet<_>>().len() != manifest.compatibility.architectures.len()
-        || manifest.compatibility.requires_docker == Some(false)
-        || manifest.compatibility.requires_compose_v2 == Some(false) {
+        || manifest.compatibility.requires_docker != Some(true)
+        || manifest.compatibility.requires_compose_v2 != Some(true) {
         return Err(Error::Invalid("Invalid platform or architecture compatibility"));
     }
     if manifest.package.files.is_empty() || manifest.package.files.len() > MAX_PACKAGE_FILES {
@@ -819,19 +819,27 @@ fn validate_manifest_shape(manifest: &ManifestV1, expected_id: &str) -> Result<(
         || !["running", "healthy"].contains(&manifest.verification.state.as_str())
         || manifest.verification.timeout_seconds < 5 || manifest.verification.timeout_seconds > 1200
         || manifest.verification.required_services.is_empty()
+        || manifest.verification.required_services.iter().any(|s|
+            s.is_empty() || !s.as_bytes()[0].is_ascii_alphanumeric()
+                || !s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-'))
         || manifest.verification.required_services.iter().collect::<BTreeSet<_>>().len()
             != manifest.verification.required_services.len() {
         return Err(Error::Invalid("Invalid post-install verification contract"));
     }
+    let mut data_paths = BTreeSet::new();
     for data_path in &manifest.data.paths {
         safe_relative(data_path, false)?;
         let data_root = format!("{}/data", manifest.id);
-        if data_path != &data_root && !data_path.starts_with(&format!("{data_root}/")) {
-            return Err(Error::Invalid("Data paths must be owned app data directories"));
+        if (data_path != &data_root && !data_path.starts_with(&format!("{data_root}/")))
+            || !data_paths.insert(data_path.to_ascii_lowercase()) {
+            return Err(Error::Invalid("Invalid or repeated app data path"));
         }
     }
+    let mut named_volumes = BTreeSet::new();
     for volume in &manifest.data.named_volumes {
-        if !safe_id(volume) { return Err(Error::Invalid("Invalid named volume")); }
+        if !safe_id(volume) || !named_volumes.insert(volume.to_ascii_lowercase()) {
+            return Err(Error::Invalid("Invalid or repeated named volume"));
+        }
     }
     if !manifest.data.default_retain {
         return Err(Error::Invalid("Application data must be retained by default"));
