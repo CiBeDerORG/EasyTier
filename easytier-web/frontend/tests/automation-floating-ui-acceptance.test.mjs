@@ -15,6 +15,7 @@ const contextMenu=load('CardContextMenu.vue');
 const trial=load('CardTrialPanel.vue');
 const inspector=load('UiInspectorDialog.vue');
 const phonePanel=load('PhoneAutomationPanel.vue');
+const center=load('../AutomationCenter.vue');
 
 test('UIA-01 all automation editing options are inline, no cross-window portal',()=>{
     assert.ok((step.match(/<AutomationInlineSelect\b/g)||[]).length>=10);
@@ -57,8 +58,8 @@ test('UIA-05 step row only selects; pencil is the only edit-opening action',()=>
     assert.match(row[0],/@click="emit\('select',step\.id\)"/);
     assert.doesNotMatch(row[0],/emit\('edit'/);
     assert.match(timeline,/class="step-edit"[\s\S]*?@click\.stop="emit\('edit',step\.id\)"/);
-    assert.match(phone,/@select="emit\('step-select',device\.id,\$event\)"/);
-    assert.match(phone,/'step-select': \[deviceId: string, stepId: string\]/);
+    assert.match(card,/@select="emit\('step-select',device\.id,\$event\)"/);
+    assert.match(card,/'step-select': \[deviceId: string, stepId: string\]/);
     assert.match(center,/@step-select="selectCardStep"/);
 });
 test('UIA-06 other floating widgets do not rely on detached dropdown overlays',()=>{
@@ -70,6 +71,6 @@ test('UIA-06 other floating widgets do not rely on detached dropdown overlays',(
     assert.match(trial,/<AutomationFloatingDialog/);
     assert.match(inspector,/<AutomationFloatingDialog/);
     assert.match(phonePanel,/:append-to="portalTarget \?\? 'body'"/);
-    assert.match(phone,/:deep\(\.p-dialog-mask\)\{pointer-events:auto\}/);
-    assert.doesNotMatch(phone,/p-select-overlay|p-select-list-container/);
+    assert.match(card,/:deep\(\.p-dialog-mask\)\{pointer-events:auto\}/);
+    assert.doesNotMatch(card,/p-select-overlay|p-select-list-container/);
 });
