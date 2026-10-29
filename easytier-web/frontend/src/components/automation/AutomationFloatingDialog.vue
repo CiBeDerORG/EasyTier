@@ -81,12 +81,9 @@ function onDocumentKeydown(event: KeyboardEvent) {
     // Only the topmost focused child handles ESC; never stop script execution.
     if (event.key !== 'Escape' || event.isComposing || !props.visible || !isTopmost() ||
         !(event.target instanceof Node) || !panel.value?.contains(event.target)) return;
-    // The expanded PrimeVue Select owns the first Escape: close its popup
+    // An expanded in-window choice list owns the first Escape; close it
     // without closing or discarding the containing step editor.
-    if(panel.value.querySelector(
-        '.p-select[aria-expanded="true"], .p-select [role="combobox"][aria-expanded="true"], '+
-        '.automation-inline-choice [aria-expanded="true"]'
-    ))return;
+    if(panel.value.querySelector('.automation-inline-choice [aria-expanded="true"]'))return;
     event.preventDefault();
     event.stopPropagation();
     if (discardRequested.value) keepEditing();

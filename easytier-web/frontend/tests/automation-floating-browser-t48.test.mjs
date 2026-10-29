@@ -294,6 +294,40 @@ test('T56 legacy mixed run is shown only as local status; stop uses own device I
 });
 
 
+test('T56 real PhoneCard: clicking a step only selects it; the pencil opens its editor',async t=>{
+  const page=await setup(t,realCardFixture);
+  await page.locator('#open-panel').click();
+  const panel=page.getByRole('region',{name:'自动化脚本'});
+  const row=panel.locator('.timeline-item');
+  assert.equal(await row.count(),1);
+  await row.locator('.step-select').click();
+  await page.waitForFunction(()=>window.phoneCardReview.state().selectedStepId==='step-one');
+  assert.equal(await row.evaluate(node=>node.classList.contains('active')),true,
+    'the clicked step must show selected highlight');
+  assert.equal(await page.getByRole('dialog',{name:/编辑第/}).count(),0,
+    'clicking the step row must not open an editor');
+  assert.equal(await page.evaluate(()=>window.phoneCardReview.state().editingStepId),null);
+  await row.locator('.step-edit').click();
+  const editor=page.getByRole('dialog',{name:/编辑第 1 步/});
+  await editor.waitFor();
+  assert.equal(await page.evaluate(()=>window.phoneCardReview.state().editingStepId),'step-one',
+    'the explicit pencil action must still open the editor');
+});
+
+test('T61 actual script selector menu stays clickable inside the floating panel',async t=>{
+  const page=await setup(t,realCardFixture);
+  await page.locator('#open-panel').click();
+  const panel=page.getByRole('region',{name:'自动化脚本'});
+  const trigger=panel.locator('.script-trigger');
+  await trigger.click();
+  const popover=panel.locator('.script-popover');
+  await popover.waitFor();
+  const name=popover.getByRole('textbox',{name:'新自动化脚本名称'});
+  await name.fill('内嵌脚本选择器交互验证');
+  assert.equal(await name.inputValue(),'内嵌脚本选择器交互验证');
+  assert.equal(await popover.isVisible(),true);
+});
+
 test('T57 real PhoneCard: desktop dropdowns can open, select and survive fullscreen',async t=>{
   const page=await setup(t,realCardFixture);
   await page.locator('#open-step').click();

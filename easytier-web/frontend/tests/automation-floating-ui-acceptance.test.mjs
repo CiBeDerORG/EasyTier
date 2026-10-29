@@ -10,13 +10,20 @@ const timeline=load('CardStepTimeline.vue');
 const componentPanel=load('PhoneAutomationPanel.vue');
 const dialog=load('AutomationFloatingDialog.vue');
 const scripts=load('AutomationScriptSelector.vue');
+const floatingPanel=load('AutomationFloatingPanel.vue');
+const contextMenu=load('CardContextMenu.vue');
+const trial=load('CardTrialPanel.vue');
+const inspector=load('UiInspectorDialog.vue');
+const phonePanel=load('PhoneAutomationPanel.vue');
 
 test('UIA-01 all automation editing options are inline, no cross-window portal',()=>{
     assert.ok((step.match(/<AutomationInlineSelect\b/g)||[]).length>=10);
     assert.doesNotMatch(step,/<Select\b/);
     assert.match(timeline,/<AutomationInlineSelect :model-value="insertType"/);
-    assert.match(editor,/:overlay-target="overlayTarget"/);
-    assert.match(card,/:overlay-target="automationSubwindowHost"/);
+    assert.match(editor,/:model-value="edited"/);
+    assert.doesNotMatch(step,/overlayTarget/);
+    assert.doesNotMatch(timeline,/overlayTarget|fullscreen-menu|page-menu/);
+    assert.match(card,/:portal-target="automationSubwindowHost"/);
     assert.match(inline,/class="choice-list"/);
     assert.doesNotMatch(inline,/<Teleport/);
     assert.match(inline,/@click.stop="toggle"/);
@@ -25,7 +32,7 @@ test('UIA-01 all automation editing options are inline, no cross-window portal',
 test('UIA-02 normal and fullscreen panels use one actual editing tree',()=>{
     assert.match(card,/<Teleport to="body" :disabled="isFullscreen">/);
     assert.match(card,/:fullscreen="isFullscreen"/);
-    assert.match(editor,/:key="fullscreen \? 'fullscreen-menu' : 'page-menu'"/);
+    assert.doesNotMatch(editor,/fullscreen-menu|page-menu/);
     assert.match(inline,/pointer-events:auto/);
     assert.match(componentPanel,/:append-to="portalTarget \?\? 'body'"/);
 });
@@ -43,4 +50,26 @@ test('UIA-04 result details and script menus remain valid independently clickabl
     assert.match(timeline,/class="batch-error-toggle"/);
     assert.match(scripts,/\.script-popover\{width:100%;max-width:100%/);
     assert.match(scripts,/overscroll-behavior:contain/);
+});
+test('UIA-05 step row only selects; pencil is the only edit-opening action',()=>{
+    const row=timeline.match(/<button class="step-select"[\s\S]*?<\/button>/);
+    assert.ok(row,'step row selector exists');
+    assert.match(row[0],/@click="emit\('select',step\.id\)"/);
+    assert.doesNotMatch(row[0],/emit\('edit'/);
+    assert.match(timeline,/class="step-edit"[\s\S]*?@click\.stop="emit\('edit',step\.id\)"/);
+    assert.match(phone,/@select="emit\('step-select',device\.id,\$event\)"/);
+    assert.match(phone,/'step-select': \[deviceId: string, stepId: string\]/);
+    assert.match(center,/@step-select="selectCardStep"/);
+});
+test('UIA-06 other floating widgets do not rely on detached dropdown overlays',()=>{
+    assert.match(scripts,/v-if="expanded" class="script-popover"/);
+    assert.doesNotMatch(scripts,/<Teleport/);
+    assert.match(contextMenu,/class="pick-context-menu"/);
+    assert.match(contextMenu,/@click\.stop/);
+    assert.match(floatingPanel,/\.automation-floating-panel[\s\S]*pointer-events:auto/);
+    assert.match(trial,/<AutomationFloatingDialog/);
+    assert.match(inspector,/<AutomationFloatingDialog/);
+    assert.match(phonePanel,/:append-to="portalTarget \?\? 'body'"/);
+    assert.match(phone,/:deep\(\.p-dialog-mask\)\{pointer-events:auto\}/);
+    assert.doesNotMatch(phone,/p-select-overlay|p-select-list-container/);
 });

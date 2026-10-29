@@ -2138,7 +2138,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         @batch-stop-device="stopBatchDevice" @batch-reconcile="reconcileBatch"
                         @force-cleanup="forceCleanupDevice"
                         @batch-new-run="startNewLocalRun"
-                        @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
+                        @step-select="selectCardStep" @step-edit="editCardStep" @step-delete="deleteCardDraftStep"
                         @step-create="createCardDraftStep" @step-branch-add="addCardBranchStep"
                         @step-convert-condition="convertCardCondition"
                         @step-move="moveCardDraftStep"

@@ -11,8 +11,6 @@ const props = defineProps<{
     demoLoading?: boolean; demoResult?: LocatorDemoResult | null; demoError?: string;
     demoAvailable?: boolean;
     floating?: boolean;
-    overlayTarget?: HTMLElement | null;
-    fullscreen?: boolean;
     businessVerificationEligible?: boolean;
 }>();
 const emit = defineEmits<{
@@ -70,8 +68,7 @@ function repick() {
         <Message v-if="warning" severity="warn" :closable="false">{{ warning }}</Message>
         <Message v-if="conflict" severity="warn" :closable="false">步骤在编辑期间已变化。当前修改不会自动覆盖新的草稿内容。</Message>
         <div class="edit-fields">
-            <ScriptStepEditor :key="fullscreen ? 'fullscreen-menu' : 'page-menu'"
-                :model-value="edited" :overlay-target="overlayTarget"
+            <ScriptStepEditor :model-value="edited"
                 lock-action-type @update:model-value="updateDraft"/>
             <label v-if="businessVerificationEligible || original.business_verification===true ||
                 edited.business_verification===true" class="business-check">

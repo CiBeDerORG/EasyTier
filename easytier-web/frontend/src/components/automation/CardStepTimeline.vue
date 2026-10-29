@@ -16,10 +16,9 @@ const props=defineProps<{
     trialActive?: boolean;
     batchRun?: AutomationRun | null;
     batchDeviceId?: string;
-    overlayTarget?: HTMLElement | null;
-    fullscreen?: boolean;
 }>();
 const emit=defineEmits<{
+    select: [stepId: string];
     edit: [stepId: string];
     trial: [stepId: string];
     delete: [stepId: string];
@@ -132,7 +131,8 @@ function canMove(id:string,delta:-1|1):boolean{
                     'batch-skipped': batchStepStates.get(step.id)==='skipped' }">
                 <button class="step-select" type="button"
                     :aria-pressed="step.id === draft.selectedStepId"
-                    :title="'编辑第 '+step.number+' 步：'+step.label" @click="emit('edit',step.id)">
+                    :aria-label="'选中第 '+step.number+' 步'"
+                    :title="'选中第 '+step.number+' 步：'+step.label" @click="emit('select',step.id)">
                     <span class="number">{{ step.number }}</span>
                     <span class="step-info" :style="{ paddingLeft: Math.min(step.depth,3)*6+'px' }">
                         <strong>{{ step.label }}</strong>

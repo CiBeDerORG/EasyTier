@@ -5,7 +5,7 @@ import AutomationInlineSelect from './AutomationInlineSelect.vue';
 import { useI18n } from 'vue-i18n';
 import type { AutomationKey, AutomationSelector, AutomationStep, AutomationStepType } from '../../types/automation';
 
-const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean; lockActionType?: boolean; overlayTarget?: HTMLElement | null }>();
+const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean; lockActionType?: boolean }>();
 const emit = defineEmits<{ 'update:modelValue': [step: AutomationStep] }>();
 const { locale } = useI18n();
 const cn = computed(() => locale.value === 'cn' || locale.value.startsWith('zh'));

@@ -119,7 +119,8 @@ const App={
       },
       edit:()=>{editing.value='step-one';card.value?.openAutomationPanel();},
       closeEdit:()=>{editing.value=null;},
-      state:()=>({phase:batch.phase,sessionId:card.value?.getSessionId()}),
+      state:()=>({phase:batch.phase,sessionId:card.value?.getSessionId(),
+        selectedStepId:draft.selectedStepId,editingStepId:editing.value}),
     };
     const control=(id,label,fn)=>h('button',{id,type:'button',onClick:fn,
       style:'padding:6px;margin:4px'},label);
@@ -135,6 +136,7 @@ const App={
         scripts:[],batchRunState:batch,
         draftSyncLabel:'工作草稿已同步 · 修订 7',
         batchDraftReady:true,editingStepId:editing.value,
+        onStepSelect:(_device,id)=>{draft.selectedStepId=id;},
         onStepEdit:(_device,id)=>{editing.value=id;},
         onDraftSave:id=>{attempts.value.push({type:'save',device:id});},
         onBatchStartLocal:(id,params)=>{attempts.value.push({type:'local',device:id,params});},
