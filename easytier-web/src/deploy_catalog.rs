@@ -776,7 +776,8 @@ fn validate_manifest_shape(manifest: &ManifestV1, expected_id: &str) -> Result<(
     }
     for data_path in &manifest.data.paths {
         safe_relative(data_path, false)?;
-        if !data_path.starts_with(&format!("{}/data/", manifest.id)) {
+        let data_root = format!("{}/data", manifest.id);
+        if data_path != &data_root && !data_path.starts_with(&format!("{data_root}/")) {
             return Err(Error::Invalid("Data paths must be owned app data directories"));
         }
     }
