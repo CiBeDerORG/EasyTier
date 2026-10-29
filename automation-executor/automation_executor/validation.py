@@ -4,6 +4,7 @@ import ipaddress
 import json
 import math
 import re
+import shlex
 from uuid import UUID
 
 from .errors import invalid
@@ -104,6 +105,22 @@ def coordinate(value):
         raise invalid("坐标必须为 0 到 1 之间的有限数值")
 
 
+def adb_shell_tokens(value):
+    """Parse one on-device ADB shell command; caller controls no host flags."""
+    command = text(value, 1024)
+    if any(c in command for c in (";", "|", "&", "<", ">", "$", "`", "\\", "\r", "\n")):
+        raise invalid("ADB 命令不允许管道、重定向、变量替换或多条命令")
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        raise invalid("ADB 命令引号不完整") from None
+    if len(tokens) < 3 or tokens[:2] != ["adb", "shell"] or tokens[2] in (
+        "sh", "su", "bash", "ash", "busybox", "toybox"
+    ):
+        raise invalid("仅支持当前手机的 adb shell 单条命令，不允许执行宿主机命令")
+    return tokens[2:]
+
+
 def steps(value):
     if not isinstance(value, list) or not 1 <= len(value) <= 100:
         raise invalid("脚本须包含 1 到 100 个步骤")
@@ -120,17 +137,24 @@ def steps(value):
         "if_else": {"selector", "then_count", "else_count"},
         "assert_property": {"selector", "property", "expected"},
         "scroll_find": {"selector", "scroll_container", "direction", "max_swipes", "duration_ms", "timeout_ms"},
-        "screenshot": set(),
+        "screenshot": set(), "adb_command": {"command", "timeout_ms"},
     }
     for item in value:
         if not isinstance(item, dict) or item.get("type") not in allowed:
             raise invalid("脚本包含不支持的动作")
         kind = item["type"]
-        object_fields(item, allowed[kind] | {"id", "type"}, {"id", "type"})
+        object_fields(item, allowed[kind] | {"id", "type", "title"}, {"id", "type"})
         sid = identifier(item["id"])
         if sid in ids:
             raise invalid("步骤标识重复")
         ids.add(sid)
+        if "title" in item:
+            title = text(item["title"], 256)
+            if len(title.strip()) > 80 or any(ord(c) < 32 or ord(c) == 127 for c in title):
+                raise invalid("步骤标题必须为 1–80 个可显示字符")
+        if kind == "adb_command":
+            adb_shell_tokens(item.get("command"))
+            integer(item.get("timeout_ms"), 1000, 20000)
         if kind == "key" and item.get("key") not in ("HOME", "BACK", "RECENT", "WAKE"):
             raise invalid("不支持该按键")
         if kind in ("tap", "long_press") and "selector" in item:

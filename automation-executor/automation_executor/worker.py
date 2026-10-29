@@ -26,6 +26,9 @@ def _step_timeout_seconds(step):
     also need their configured observation window plus one in-flight RPC.
     """
     kind = step.get("type")
+    if kind == "adb_command":
+        requested = step.get("timeout_ms", 8000)
+        return min(30, max(12, requested / 1000 + 8))
     if kind in ("wait_for", "assert", "wait_gone", "scroll_find"):
         wait_ms = step.get("timeout_ms", 0)
         wait_seconds = wait_ms / 1000 if isinstance(wait_ms, (int, float)) and not isinstance(wait_ms, bool) else 0

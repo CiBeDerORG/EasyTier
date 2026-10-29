@@ -1025,7 +1025,7 @@ class Runtime:
             # operations. Don't start/install the heavy UiAutomator helper
             # merely to execute these steps. Selector/touch/text/screenshot
             # scripts still require the authenticated helper.
-            needs_ui = any(step["type"] not in ("key", "launch_app") for step in body["steps"])
+            needs_ui = any(step["type"] not in ("key", "launch_app", "adb_command") for step in body["steps"])
             if needs_ui and not await self._automation_rpc_ready(target):
                 # A helper process can remain alive while the phone-side RPC
                 # server has died. Rebuild it before the first action, never

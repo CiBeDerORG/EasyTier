@@ -6,6 +6,7 @@ restart-and-retry wrapper: a failed response must never repeat a click/input.
 import base64
 import os
 from pathlib import Path
+from .validation import adb_shell_tokens
 import time
 
 
@@ -25,7 +26,7 @@ def execute(target, step, parameters, artifact_path=None):
     kind = step["type"]
     # Native-only actions must not call UiAutomator's RPC or attempt to
     # bootstrap its service. Every shell command targets the exact serial.
-    if kind in ("key", "launch_app"):
+    if kind in ("key", "launch_app", "adb_command"):
         try:
             if kind == "key":
                 code = {"HOME": 3, "BACK": 4, "RECENT": 187, "WAKE": 224}[step["key"]]
@@ -33,6 +34,14 @@ def execute(target, step, parameters, artifact_path=None):
                 if response.returncode != 0:
                     raise StepFailure("device_action_unconfirmed", "按键是否执行无法确认，请查看手机",
                                       outcome_unknown=True)
+            elif kind == "adb_command":
+                argv = adb_shell_tokens(step["command"])
+                response = dev.shell2(argv, timeout=step["timeout_ms"] / 1000)
+                if response.returncode != 0:
+                    raise StepFailure("adb_command_failed", "ADB 命令执行失败（退出码 " + str(response.returncode) + "）")
+                output = response.output.strip().replace("\x00", "")
+                return {"state": "action_sent",
+                        "message": ("ADB 命令已执行" + ("；输出：" + output[:300] if output else ""))}
             else:
                 response = dev.shell2(["am", "start", "-a", "android.intent.action.MAIN",
                                        "-c", "android.intent.category.LAUNCHER", "-p", step["package"]], timeout=10)
