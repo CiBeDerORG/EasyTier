@@ -1,7 +1,8 @@
 /** P1 regression: executor reports success in more than one step enum. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { summarizeCardRun } from '../src/modules/automation-run-result.ts';
+import { summarizeCardRun, trialRunNeedsReconciliation } from '../src/modules/automation-run-result.ts';
+import { readFileSync } from 'node:fs';
 const run=(stepState,deviceState='completed',runState='completed')=>({
   id:'run-42',state:runState,devices:[{
     device_id:'phone-1',state:deviceState,steps:[{step_id:'step-1',state:stepState}],
@@ -32,4 +33,26 @@ test('P1 action sent during active script is running rather than completed',()=>
 test('P1 missing or unrelated device is never marked succeeded',()=>{
   assert.notEqual(summarizeCardRun(run('assertion_passed'),'phone-2','step-1').phase,'succeeded');
   assert.notEqual(summarizeCardRun(run('assertion_passed'),'phone-1','missing').phase,'succeeded');
+});
+
+test('T40 action_sent is settled, so the next ▶ starts a fresh trial',()=>{
+  const sent=summarizeCardRun(run('action_sent'),'phone-1','step-1');
+  assert.equal(sent.phase,'action_sent');
+  assert.equal(trialRunNeedsReconciliation(sent),false);
+  for(const state of ['succeeded','failed','cancelled']){
+    assert.equal(trialRunNeedsReconciliation({phase:state}),false,state);
+  }
+  for(const state of ['queued','running','checking','unknown']){
+    assert.equal(trialRunNeedsReconciliation({phase:state}),true,state);
+  }
+  assert.equal(trialRunNeedsReconciliation(null),true,'missing run data must fail closed');
+});
+
+test('T40 panel resets completed run on reopen but resumes unresolved one read-only',()=>{
+  const panel=readFileSync(new URL('../src/components/automation/CardTrialPanel.vue',import.meta.url),'utf8');
+  const phone=readFileSync(new URL('../src/components/automation/PhoneCard.vue',import.meta.url),'utf8');
+  assert.match(panel,/if\(result\.run\.value && trialRunNeedsReconciliation\(runView\.value\)\)/);
+  assert.match(panel,/result\.resume\(\);/);
+  assert.match(panel,/resetForOpen\(\);/);
+  assert.match(phone,/trialProgress\.value=null; \/\/ Never show the previous run/);
 });

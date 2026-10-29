@@ -9,6 +9,7 @@ import AutomationApi, { AutomationApiError, automationErrorMessage } from '../..
 import { useCardTrialPreparation, type CardTrialPhase } from '../../modules/useCardTrialPreparation';
 import type { TrialPreviewHandle } from '../../modules/automation-run-handoff';
 import { useCardRunStatus } from '../../modules/useCardRunStatus';
+import { trialRunNeedsReconciliation } from '../../modules/automation-run-result';
 import { makeSingleStepRun, stepTrialSafety } from '../../modules/automation-single-step';
 import { freezeInlineStepRunIntent, inlineStepIntentStillCurrent, type InlineStepRunIntent, type InlineStepRunProgress } from '../../modules/useInlineStepRun';
 import { cardStepLabels } from '../../modules/card-step-projection';
@@ -531,9 +532,20 @@ function hide(){
 watch(()=>props.visible,open=>{
     ++epoch;
     if(open) {
-        if(result.run.value && result.view.value?.stepId===props.step?.id &&
-            result.view.value?.runId===result.run.value.id) result.resume();
-        else {
+        if(result.run.value && trialRunNeedsReconciliation(runView.value)) {
+            // Keep watching the SAME saved run when it is still executing or
+            // uncertain, regardless of which step the user selected.
+            // Never create a fresh action while an earlier one is unresolved.
+            phase.value=runView.value?.phase==='unknown'?'unknown':'observing';
+            warning.value=runView.value?.phase==='unknown'
+                ? '上一条试跑结果或清理尚未确认；只能只读查询原运行记录，不会再次发送动作。'
+                : '上一条试跑仍在执行；正在继续只读查询原运行记录。';
+            result.resume();
+        } else {
+            // An already settled action_sent/success/failure/cancellation
+            // must start with a NEW frozen request ID on the next ▶ click.
+            // Reusing the old completed run here made single-step replay
+            // appear stuck at "动作已发送".
             resetForOpen();
             if(phase.value==='idle') void nextTick(() => {
                 if(props.visible && !disposed && phase.value==='idle') void prepare();

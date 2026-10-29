@@ -19,6 +19,16 @@ const SUCCESSFUL_STEPS = new Set(['succeeded','completed','assertion_passed','co
 const FAIL = new Set(['failed', 'partial_failed']);
 const UNKNOWN = new Set(['outcome_unknown', 'cleanup_pending']);
 
+/**
+ * A previous trial may be reopened for observation only while its execution
+ * result is unresolved. "action_sent" is a *completed transport action*,
+ * not proof of business success; it is nevertheless a settled trial result
+ * and must not keep the play button tied to that old run forever.
+ */
+export function trialRunNeedsReconciliation(view: CardRunView | null): boolean {
+    return view === null || !['action_sent','succeeded','failed','cancelled'].includes(view.phase);
+}
+
 export function summarizeCardRun(
     run: AutomationRun, deviceId: string, stepId: string,
 ): CardRunView {

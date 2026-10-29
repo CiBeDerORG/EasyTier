@@ -188,6 +188,7 @@ async function openCardTrial(stepId: string, acknowledgedUnknown = false) {
     // Never exit fullscreen or replace its WebRTC stream to start one step.
     notifiedUnknownTrial='';
     trialCompare.value=null;
+    trialProgress.value=null; // Never show the previous run's action_sent as current progress.
     trialStepId.value = stepId;
 }
 function getTrialPreviewHandle(): TrialPreviewHandle {
