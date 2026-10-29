@@ -405,6 +405,92 @@ impl Manager {
         Ok(json!({"live_status":"online","fresh":true,"snapshot":snapshot}))
     }
 
+    /// Transfer verified, pinned Deploy bytes to one explicitly authorized
+    /// server's paired Agent. This only STAGES data; no install task is created.
+    pub async fn stage_deploy_package(
+        &self,
+        device: &Value,
+        summary: &crate::deploy_catalog::DeployPackageSummary,
+        bytes: Vec<u8>,
+    ) -> Result<Value, Error> {
+        if bytes.is_empty() || bytes.len() > 26 * 1024 * 1024
+            || summary.ready_for_agent || summary.install_enabled
+            || summary.package_size != bytes.len() as u64 {
+            return Err(Error::Invalid("Invalid read-only deployment package"));
+        }
+        let device_id = device["id"].as_str().ok_or(Error::Storage)?;
+        let owner = device["owner_user_id"].as_i64().ok_or(Error::Storage)?;
+        let row = sqlx::query(
+            "SELECT agent_id,spki_sha256,endpoint,token_cipher FROM asset_agent_bindings WHERE asset_device_id=? AND owner_user_id=?"
+        )
+        .bind(device_id).bind(owner)
+        .fetch_optional(&self.db.inner()).await
+        .map_err(|_| Error::Storage)?
+        .ok_or(Error::Invalid("Selected server does not have a paired Agent"))?;
+        let agent: String = row.try_get("agent_id").map_err(|_| Error::Storage)?;
+        let spki: String = row.try_get("spki_sha256").map_err(|_| Error::Storage)?;
+        let endpoint: String = row.try_get("endpoint").map_err(|_| Error::Storage)?;
+        let cipher: String = row.try_get("token_cipher").map_err(|_| Error::Storage)?;
+        let url = reqwest::Url::parse(&endpoint).map_err(|_| Error::IdentityChanged)?;
+        let host_ip = url.host_str().ok_or(Error::IdentityChanged)?
+            .trim_matches(|c| c == '[' || c == ']')
+            .parse::<IpAddr>().map_err(|_| Error::IdentityChanged)?;
+        if url.scheme() != "https" || url.port_or_known_default() != Some(7014)
+            || url.username() != "" || url.password().is_some()
+            || url.path() != "/" || url.query().is_some() || url.fragment().is_some()
+            || host_ip.is_loopback() || host_ip.is_unspecified() || host_ip.is_multicast() {
+            return Err(Error::IdentityChanged);
+        }
+        let pin = Fingerprint::parse(&spki).map_err(|_| Error::IdentityChanged)?;
+        let token = String::from_utf8(
+            self.credentials.open(&format!("asset-agent:{owner}:{device_id}"), &cipher)
+                .map_err(|_| Error::Storage)?,
+        ).map_err(|_| Error::Storage)?;
+        let controller = self.controller_id().await?;
+        let client = crate::asset_agent_tls::pinned_client_with_timeout(
+            &pin, std::time::Duration::from_secs(90),
+        ).map_err(|_| Error::Remote)?;
+        let response = client
+            .post(format!("{endpoint}/v1/deploy/packages"))
+            .header("X-EHA-Agent-ID", &agent)
+            .header("X-EHA-Controller-ID", &controller)
+            .header("X-EHA-Package-SHA256", &summary.package_sha256)
+            .header(reqwest::header::CONTENT_TYPE, "application/x-tar")
+            .bearer_auth(token)
+            .body(bytes)
+            .send().await.map_err(|_| Error::Remote)?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(Error::PairRejected);
+        }
+        if !response.status().is_success() {
+            return Err(Error::Remote);
+        }
+        if response.headers().get("X-EHA-Agent-ID")
+            .and_then(|value| value.to_str().ok()) != Some(agent.as_str()) {
+            return Err(Error::IdentityChanged);
+        }
+        let body = response.bytes().await.map_err(|_| Error::Remote)?;
+        if body.len() > 4096 {
+            return Err(Error::Remote);
+        }
+        let receipt: Value = serde_json::from_slice(&body).map_err(|_| Error::Remote)?;
+        if receipt["app_id"].as_str() != Some(summary.app_id.as_str())
+            || receipt["git_revision"].as_str() != Some(summary.git_revision.as_str())
+            || receipt["package_sha256"].as_str() != Some(summary.package_sha256.as_str())
+            || receipt["manifest_sha256"].as_str() != Some(summary.manifest_sha256.as_str())
+            || receipt["install_enabled"] != false || receipt["ready_for_agent"] != false {
+            return Err(Error::IdentityChanged);
+        }
+        Ok(json!({
+            "staged":true,"agent_id":agent,
+            "app_id":summary.app_id,"git_revision":summary.git_revision,
+            "package_sha256":summary.package_sha256,
+            "package_size":summary.package_size,
+            "receipt":receipt,
+            "install_enabled":false
+        }))
+    }
+
     pub async fn host(&self, device: &Value) -> Result<Value, Error> {
         if self.saved(device["id"].as_str().unwrap_or_default()).await?.is_none() {
             return Err(Error::Invalid("This server has no paired Agent"));
