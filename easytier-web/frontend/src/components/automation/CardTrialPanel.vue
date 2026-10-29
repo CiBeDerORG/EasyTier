@@ -2,6 +2,7 @@
 /** T14: one selected step on this phone; reuse T12/T13 and the ordinary /runs API. */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { Button, InputText, Message, Tag } from 'primevue';
+import { useToast } from 'primevue/usetoast';
 import AutomationFloatingDialog from './AutomationFloatingDialog.vue';
 import TrialLocatorCompare from './TrialLocatorCompare.vue';
 import { v4 as uuid } from 'uuid';
@@ -45,6 +46,63 @@ const emit=defineEmits<{ close: []; history: [runId: string]; repair: [runId: st
     finished: [value: {phase:'succeeded'|'action_sent'|'failed'|'cancelled';
         message:string;diagnosis?:TrialLocatorDiagnosis|null}] }>();
 const api=new AutomationApi();
+const toast=useToast();
+function toastTrialError(message:string){
+    toast.add({severity:'error',summary:'自动化单步执行',detail:message.trim()||'单步执行失败，未提供具体原因。',life:7000});
+}
+function failTrial(message:string,nextPhase:PanelPhase='failed'){
+    phase.value=nextPhase;
+    warning.value=message;
+    toastTrialError(message);
+}
+const validationFieldLabels:Record<string,string>={
+    body:'请求内容',request_id:'请求编号',name:'任务名称',steps:'步骤列表',
+    'steps.id':'步骤 ID','steps.type':'步骤类型',title:'步骤标题',
+    command:'ADB 命令',timeout_ms:'命令超时时间',device_ids:'目标手机',
+    parameters:'运行参数',package:'应用包名',key:'导航按键',
+};
+function chineseValidationMessage(message:string):string{
+    const known:Record<string,string>={
+        'Some fields are invalid.':'请求字段校验失败。',
+        'The request contains unsupported fields.':'请求中包含当前动作不支持的字段。',
+        'Enter an ADB shell command.':'请填写 ADB shell 命令。',
+        'Enter one adb shell command without host options, shell interpreters, pipes or redirects.':'只允许一条 adb shell 命令，不能包含宿主机参数、shell 解释器、管道或重定向。',
+        'ADB command timeout must be 1000–20000 ms.':'ADB 命令超时时间必须在 1000～20000 毫秒之间。',
+        'Each step requires a distinct UUID.':'每个步骤都必须有独立的 UUID。',
+        'Each step requires a distinct canonical UUID.':'步骤 ID 必须是规范 UUID，且不能重复。',
+        'Step title must be 1–80 visible characters.':'步骤标题必须为 1～80 个可见字符。',
+        'Choose a supported step.':'步骤类型不受支持。',
+        'Use between 1 and 100 steps.':'步骤数量必须在 1～100 步之间。',
+        'The script is too large.':'脚本内容超过允许大小。',
+        'A text value is required.':'该字段必须填写文本。',
+        'The value is empty, too long, or contains unsupported characters.':'该字段为空、超长或包含不支持的字符。',
+        'Choose a positive integer.':'该字段必须是正整数。',
+        'Select between 1 and 20 devices.':'请选择 1～20 台手机。',
+        'Use valid device identifiers.':'目标手机标识无效。',
+        'A script parameter is missing.':'脚本引用的运行参数缺失。',
+        'Parameter names and text values are invalid or too long.':'参数名称或参数值格式不正确，或长度超限。',
+    };
+    return known[message] ?? message;
+}
+function trialErrorMessage(cause:unknown,payload?:AutomationRunInput):string{
+    if(cause instanceof AutomationApiError){
+        const entries=Object.entries(cause.fieldErrors??{})
+            .filter(([,message])=>typeof message==='string' && !!message.trim())
+            .map(([field,message])=>(validationFieldLabels[field]??field)+'：'+chineseValidationMessage(message));
+        if(entries.length)return '服务器拒绝本次执行：'+entries.join('；');
+        const serverMessage=chineseValidationMessage(cause.message);
+        if(cause.status===422){
+            const step=payload?.steps?.[0];
+            const snapshot=step?.type==='adb_command'
+                ? '当前提交：步骤 ID='+String(step.id??'空')+'；动作类型='+String(step.type)
+                    +'；超时时间='+String(step.timeout_ms??'未填写')+' 毫秒；ADB 命令='+String(step.command??'未填写')
+                : '当前提交：步骤 ID='+String(step?.id??'空')+'；动作类型='+String(step?.type??'未填写');
+            return '服务器拒绝本次执行。'+serverMessage+'；服务端没有返回具体字段原因。'+snapshot+'。';
+        }
+        return serverMessage+'（错误代码：'+cause.code+'）';
+    }
+    return automationErrorMessage(cause);
+}
 const preparation=useCardTrialPreparation(api);
 const result=useCardRunStatus(api);
 const currentRun=result.run;
@@ -239,26 +297,34 @@ function valid(mine:number, owner:number, deviceId:string, original:string):bool
             props.device.target_fingerprint,props.step) &&
         !!props.step && JSON.stringify(props.step)===original;
 }
-function checkReadyToPrepare(): string | null {
-    if(!targetFingerprint.value || !props.device.connection.enabled || props.device.availability_reason)
-        return '目标设备绑定无效，请检查 ADB 服务。';
-    if(!usable.value)return '此步骤尚未配置完整、是条件分支节点或包含不安全的字面输入。';
+function checkReadyToPrepare(): boolean {
+    if(!targetFingerprint.value){failTrial('目标手机缺少设备绑定指纹，请重新查询设备状态。');return false;}
+    if(!props.device.connection.enabled){failTrial('目标手机的 ADB 服务未启用，请先启用 ADB 服务。');return false;}
+    if(props.device.availability_reason){failTrial('目标手机当前不可用：'+props.device.availability_reason);return false;}
+    if(!frozen.value){failTrial('没有选中要执行的步骤。');return false;}
+    if(!frozen.value.id){failTrial('当前步骤缺少步骤 ID，请重新添加该步骤。');return false;}
+    if(safety.value==='unsupported'){failTrial('该步骤类型不支持单独试跑，请先拆分或调整步骤。');return false;}
+    if(frozen.value.type==='key' && !frozen.value.key){failTrial('导航按键未选择，请编辑步骤并选择按键。');return false;}
+    if(frozen.value.type==='input_text' && !frozen.value.parameter && !('text' in frozen.value)){failTrial('输入文字步骤没有配置文字或运行参数。');return false;}
     const handle=props.previewHandle();
-    if(frozen.value?.type!=='adb_command' &&
-        (!handle.getSessionId() || handle.getState().phase!=='live'))
-        return '请先打开本机卡片原实时画面。';
-    return null;
+    if(frozen.value.type!=='adb_command' && !handle.getSessionId()){
+        failTrial('请先打开本机卡片的原实时画面。');return false;
+    }
+    if(frozen.value.type!=='adb_command' && handle.getState().phase!=='live'){
+        failTrial('本机实时画面尚未连接，请等待画面进入实时状态。');return false;
+    }
+    return true;
 }
 async function prepare(){
     loadReceipt();
-    if(receiptFailure.value || unresolvedReceipt.value) {
-        phase.value='unknown';
-        warning.value=receiptFailure.value || '该手机尚有未核实的试跑请求，请先按请求编号只读查询执行记录。';
-        return;
+    if(receiptFailure.value){failTrial(receiptFailure.value,'unknown');return;}
+    if(unresolvedReceipt.value){
+        failTrial('该手机尚有未核实的试跑请求（'+unresolvedReceipt.value.requestId+'），请先只读查询执行记录，不能新建第二条动作。','unknown');return;
     }
-    if(busy.value || pending.value || result.run.value)return;
-    const problem=checkReadyToPrepare();
-    if(problem){phase.value='failed';warning.value=problem;return;}
+    if(busy.value){failTrial('当前单步操作仍在处理中，请等待当前操作返回。',phase.value);return;}
+    if(pending.value){failTrial('当前步骤已有待确认的试跑请求，请先核对原请求结果。','unknown');return;}
+    if(result.run.value){failTrial('当前步骤已有执行记录，请先查看或刷新该记录。',phase.value);return;}
+    if(!checkReadyToPrepare())return;
     const mine=++epoch,owner=props.ownerId,id=props.device.id;
     const source=JSON.stringify(props.step);
     const chosen=frozen.value!;
@@ -273,10 +339,12 @@ async function prepare(){
             phase.value='preparing';
             const latest=(await api.devices(owner)).items.find(item=>item.id===id);
             if(!valid(mine,owner,id,source))return;
-            if(!latest || latest.owner_user_id!==owner ||
-                latest.target_fingerprint!==targetFingerprint.value ||
-                !latest.connection.enabled || latest.availability_reason || latest.run_occupied)
-                throw new Error('目标手机不可用、绑定已变化或存在未结束任务。');
+            if(!latest)throw new Error('设备列表中找不到目标手机，请刷新设备列表。');
+            if(latest.owner_user_id!==owner)throw new Error('目标手机不属于当前选择的账号。');
+            if(latest.target_fingerprint!==targetFingerprint.value)throw new Error('目标手机绑定指纹已变化，请重新查询后再执行。');
+            if(!latest.connection.enabled)throw new Error('目标手机的 ADB 服务未启用。');
+            if(latest.availability_reason)throw new Error('目标手机不可用：'+latest.availability_reason);
+            if(latest.run_occupied)throw new Error('目标手机已有未结束的执行任务，请先查看执行记录或清理占用。');
             compatibilityReview.value=statelessCompatibility(owner,latest,[chosen]);
             phase.value='ready';
             void submit();
@@ -285,24 +353,31 @@ async function prepare(){
         phase.value='releasing';
         const handle=props.previewHandle();
         const sid=handle.getSessionId();
-        if(!sid || handle.getState().phase!=='live')
-            throw new Error('原视频必须保持实时连接，才能准备脚本。');
+        if(!sid)throw new Error('原实时画面会话不存在，请重新打开手机画面。');
+        if(handle.getState().phase!=='live')throw new Error('原视频画面尚未处于实时连接状态，请等待连接完成。');
         // Manual permission is solely the user's floating icon setting.
         // The Executor arbitrates script and manual actions by physical lease.
         const before=(await api.devices(owner)).items.find(item=>item.id===id);
         if(!valid(mine,owner,id,source))return;
-        if(!before || before.owner_user_id!==owner || before.target_fingerprint!==targetFingerprint.value ||
-            before.run_occupied || before.active_session?.id!==sid ||
-            !['active','view_only'].includes(before.active_session.state))
-            throw new Error('原会话权限转换中、已变化或脚本占用未释放，不能准备。');
+        if(!before)throw new Error('设备列表中找不到目标手机，请刷新设备列表。');
+        if(before.owner_user_id!==owner)throw new Error('目标手机不属于当前账号。');
+        if(before.target_fingerprint!==targetFingerprint.value)throw new Error('目标手机绑定指纹已变化，请重新打开画面。');
+        if(before.run_occupied)throw new Error('目标手机仍有未结束的执行任务，请先处理任务占用。');
+        if(before.active_session?.id!==sid)throw new Error('实时画面会话已变化，请重新打开手机画面。');
+        if(!before.active_session || !['active','view_only'].includes(before.active_session.state))
+            throw new Error('实时画面会话尚未处于可交接状态。');
         warning.value='正在核对原手机会话与执行器占用；原实时画面持续播放。';
         const fresh=await api.devices(owner);
         if(!valid(mine,owner,id,source))return;
         const row=fresh.items.find(item=>item.id===id);
-        if(!row || row.owner_user_id!==owner || row.target_fingerprint!==targetFingerprint.value ||
-            row.run_occupied || row.active_session?.id!==sid ||
-            !['active','view_only'].includes(row.active_session.state) || handle.getSessionId()!==sid)
-            throw new Error('原手机会话身份或执行器占用在准备前变化，禁止继续。');
+        if(!row)throw new Error('准备前重新查询设备时，没有找到目标手机。');
+        if(row.owner_user_id!==owner)throw new Error('重新查询后发现目标手机账号归属已变化。');
+        if(row.target_fingerprint!==targetFingerprint.value)throw new Error('重新查询后发现目标手机绑定已变化。');
+        if(row.run_occupied)throw new Error('目标手机在准备期间出现未结束的执行任务。');
+        if(row.active_session?.id!==sid)throw new Error('目标手机的实时画面会话在准备期间发生变化。');
+        if(!row.active_session || !['active','view_only'].includes(row.active_session.state))
+            throw new Error('目标手机的实时画面会话当前不可交接。');
+        if(handle.getSessionId()!==sid)throw new Error('当前画面窗口与原会话不一致，请重新打开手机画面。');
         handedOffSessionId.value=sid;
         phase.value='preparing';warning.value='';
         const prepared=await preparation.run({
@@ -320,10 +395,10 @@ async function prepare(){
             if(!valid(mine,owner,id,source))return;
             compatibilityReview.value=checked;
             if(checked.status==='blocked'){
-                phase.value='failed';
-                warning.value=trialDiagnosis.value && trialDiagnosis.value.count!==1
+                const detail=trialDiagnosis.value && trialDiagnosis.value.count!==1
                     ? summarizeTrialDiagnosis(trialDiagnosis.value)
                     : checked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '设备安全校验未通过。';
+                failTrial(detail);
             }else {
                 phase.value='ready';warning.value='';
                 // One deliberate press of ▶ authorizes this one frozen step.
@@ -332,41 +407,60 @@ async function prepare(){
             }
         }
         else {
-            phase.value=prepared?.phase==='unknown'?'unknown':'failed';
-            warning.value=prepared?.message || '无法确认设备准备状态。';
+            const detail=prepared?.message || '无法确认设备准备状态。';
+            failTrial(detail,prepared?.phase==='unknown'?'unknown':'failed');
         }
     }catch(cause){
         if(valid(mine,owner,id,source)){
-            phase.value='failed';warning.value=automationErrorMessage(cause);
+            failTrial(trialErrorMessage(cause));
         }
     }
 }
 async function submit(){
     loadReceipt();
-    if(receiptFailure.value || unresolvedReceipt.value) {
-        phase.value='unknown';warning.value=receiptFailure.value || '旧试跑尚未核实，禁止新请求。';return;
+    if(receiptFailure.value){failTrial(receiptFailure.value,'unknown');return;}
+    if(unresolvedReceipt.value){
+        failTrial('上一条试跑请求尚未核实（'+unresolvedReceipt.value.requestId+'），请先只读查询原请求。','unknown');return;
     }
-    if(phase.value!=='ready' || pending.value || !frozen.value || !usable.value)return;
-    if(!compatibilityReview.value || compatibilityReview.value.status==='blocked'){
-        warning.value='当前手机兼容性核验尚未通过，不能执行此步骤。';return;
+    if(phase.value!=='ready'){failTrial('当前阶段为“'+phase.value+'”，不是待执行状态。',phase.value);return;}
+    if(pending.value){failTrial('当前步骤已有待提交或待确认的请求，请先核对原请求。','unknown');return;}
+    if(!frozen.value){failTrial('没有冻结的步骤内容，请关闭并重新打开单步执行窗口。');return;}
+    if(!frozen.value.id){failTrial('当前步骤缺少步骤 ID，请重新添加该步骤。');return;}
+    if(safety.value==='unsupported'){failTrial('该类型的步骤不支持单独执行。');return;}
+    if(frozen.value.type==='key' && !frozen.value.key){failTrial('导航按键未选择，请编辑步骤后再执行。');return;}
+    if(frozen.value.type==='input_text' && !frozen.value.parameter && !('text' in frozen.value)){
+        failTrial('输入文字步骤没有配置固定文字或运行参数。');return;
     }
-    if(parameter.value && (!parameterValue.value ||
-        new TextEncoder().encode(parameterValue.value).length>2000)) {
-        warning.value='请输入本次试跑参数（最多 2000 字节）。';return;
+    if(!usable.value){failTrial('当前步骤尚未配置完整，不能执行。');return;}
+    if(!compatibilityReview.value){failTrial('尚未完成当前手机的兼容性核验，请先重新准备步骤。');return;}
+    if(compatibilityReview.value.status==='blocked'){
+        failTrial(compatibilityReview.value.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '当前手机兼容性核验未通过。');return;
+    }
+    if(parameter.value && !parameterValue.value.trim()){failTrial('请输入本次运行参数。');return;}
+    if(parameter.value && new TextEncoder().encode(parameterValue.value).length>2000){
+        failTrial('本次运行参数超过 2000 字节，请缩短后重试。');return;
     }
     const owner=props.ownerId,id=props.device.id,mine=++epoch;
     const original=JSON.stringify(props.step);
     const intent=lockedIntent.value;
-    if(!inlineStepIntentStillCurrent(intent,owner,id,props.device.target_fingerprint,props.step)) {
-        warning.value='单步执行身份或草稿内容已发生变化，拒绝产生新设备动作。';return;
+    if(!intent){failTrial('单步执行请求身份未初始化，请关闭后重新打开窗口。');return;}
+    if(intent.ownerId!==owner){failTrial('执行请求账号与当前账号不一致，请重新打开单步执行窗口。');return;}
+    if(intent.deviceId!==id){failTrial('执行请求目标手机与当前手机不一致，请重新打开单步执行窗口。');return;}
+    if(intent.targetFingerprint!==props.device.target_fingerprint){failTrial('目标手机绑定已变化，请重新查询设备并打开单步执行。');return;}
+    if(intent.stepId!==props.step?.id){failTrial('当前选中的步骤 ID 已变化，请重新打开单步执行窗口。');return;}
+    if(intent.stepJson!==JSON.stringify(props.step)){failTrial('步骤内容在准备后发生变化，请重新准备后再执行。');return;}
+    if(!inlineStepIntentStillCurrent(intent,owner,id,props.device.target_fingerprint,props.step)){
+        failTrial('单步执行身份或草稿内容已发生变化，已阻止提交。');return;
     }
-    const payload=makeSingleStepRun(frozen.value,id,intent!.requestId,
+    const payload=makeSingleStepRun(frozen.value,id,intent.requestId,
         parameter.value ? {[parameter.value]:parameterValue.value} : {},true);
-    if(!payload){warning.value='步骤不支持脱离上下文单独执行。';return;}
+    if(!payload){failTrial('步骤无法转换为单步执行请求，请检查步骤类型和步骤 ID。');return;}
     pending.value=payload; // Freeze request ID and body across uncertain HTTP outcomes.
     phase.value='submitting';warning.value='';
     try{
-        if(!valid(mine,owner,id,original))throw new Error('提交前账号、设备或脚本步骤发生变化。');
+        if(!valid(mine,owner,id,original)){
+            failTrial('提交前账号、设备绑定或步骤内容已发生变化，已取消本次提交。');return;
+        }
         // The ADB-only path already checked this device in prepare().
         // Do not repeat hierarchy/preview checks that cannot validate a shell
         // command. create_run() performs authoritative admission atomically.
@@ -378,32 +472,38 @@ async function submit(){
         if(!valid(mine,owner,id,original))return;
         const row=latest.items.find(item=>item.id===id);
         const handle=props.previewHandle();
-        if(!row || row.owner_user_id!==owner || !row.connection.enabled ||
-            row.availability_reason || row.target_fingerprint!==targetFingerprint.value ||
-            !handedOffSessionId.value || handle.getSessionId()!==handedOffSessionId.value ||
-            row.active_session?.id!==handedOffSessionId.value ||
-            !['active','view_only'].includes(row.active_session.state) || row.run_occupied)
-            throw new Error('原视频会话或设备绑定在提交前变化，未提交试跑。');
+        if(!row)throw new Error('提交前重新查询设备时，没有找到目标手机。');
+        if(row.owner_user_id!==owner)throw new Error('目标手机账号归属已变化。');
+        if(!row.connection.enabled)throw new Error('目标手机的 ADB 服务已关闭。');
+        if(row.availability_reason)throw new Error('目标手机当前不可用：'+row.availability_reason);
+        if(row.target_fingerprint!==targetFingerprint.value)throw new Error('目标手机绑定指纹已变化。');
+        if(!handedOffSessionId.value)throw new Error('原实时画面会话交接凭据缺失，请重新准备步骤。');
+        if(handle.getSessionId()!==handedOffSessionId.value)throw new Error('当前画面窗口已不再对应原实时画面会话。');
+        if(row.active_session?.id!==handedOffSessionId.value)throw new Error('服务端记录的实时画面会话已变化。');
+        if(!row.active_session || !['active','view_only'].includes(row.active_session.state))
+            throw new Error('实时画面会话已关闭或尚未进入可用状态。');
+        if(row.run_occupied)throw new Error('目标手机已有未结束的执行任务，请先处理任务占用。');
         const rechecked=await reviewStepOnPhone(owner,row,frozen.value);
         if(!valid(mine,owner,id,original))return;
         if(rechecked.status==='blocked'){
             pending.value=null;compatibilityReview.value=rechecked;
-            phase.value='failed';
-            warning.value=trialDiagnosis.value && trialDiagnosis.value.count!==1
+            const detail=trialDiagnosis.value && trialDiagnosis.value.count!==1
                 ? summarizeTrialDiagnosis(trialDiagnosis.value)
-                : rechecked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '目标定位未通过实时安全验证。';return;
+                : rechecked.issues.filter(i=>i.severity==='block').map(i=>i.message).join('；') || '目标定位未通过实时安全验证。';
+            failTrial(detail);return;
         }
         // The just-captured hierarchy and device fingerprint are fresh.
         // A harmless warning difference must not force another risk click.
         if(compatibilityReview.value?.targetFingerprint!==row.target_fingerprint){
-            pending.value=null;phase.value='failed';
-            warning.value='设备绑定已变化，试跑已中止。';return;
+            pending.value=null;failTrial('兼容性核验使用的设备指纹与最新设备指纹不一致，试跑已中止。');return;
         }
         clearSecrets();
         await sendFrozen(mine,owner,id,original,payload);
     }catch(cause){
         if(valid(mine,owner,id,original)){
-            pending.value=null;phase.value='failed';warning.value=automationErrorMessage(cause);
+            pending.value=null;failTrial(trialErrorMessage(cause,pending.value??undefined));
+        }else{
+            toastTrialError('单步执行返回时，账号、设备或步骤已切换；当前结果未应用到新步骤，请检查原请求记录。');
         }
     }
 }
@@ -447,9 +547,11 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         }
         const unknown=dispatched && !definitive;
         uncertain.value=unknown;phase.value=unknown?'unknown':'failed';
+        const detail=trialErrorMessage(cause,payload);
         warning.value=(dispatched?'': '无法安全保存试跑请求身份，未发送动作：')+
-            automationErrorMessage(cause)+
+            detail+
             (unknown?'。动作可能已被服务器接收；请按原请求编号只读核对，不能新建请求。':'');
+        toastTrialError(warning.value);
         if(!unknown)pending.value=null;
     }
 }
