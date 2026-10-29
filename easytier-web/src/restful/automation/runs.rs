@@ -172,6 +172,33 @@ pub(super) async fn cancel_device(
     }
 }
 
+/// Read-only check of the configured executor's durable task journal for a phone.
+pub(super) async fn executor_task_status(
+    auth: AuthSession, State(manager): State<AppStateInner>,
+    Extension(service): Service, Extension(config): Config,
+    Extension(runtime): Runtime, query: OwnerInput,
+    Path(raw_device): Path<String>, headers: HeaderMap,
+) -> HttpResult<Json<Value>> {
+    require_origin(&headers,false)?;
+    let owner=owner(query)?;
+    authorize(&auth,&config,&service,owner).await?;
+    let device=id(&raw_device)?;
+    let store=observed_store(&manager,&service,owner,Some(&[device.clone()])).await?;
+    let target=store.target_for_cleanup(owner,&device).await.map_err(store_error)?;
+    let remote=runner(&runtime)?;
+    let executor=remote.identity().await?;
+    let result=remote.post(&format!("devices/{device}/task-status"),&json!({
+        "target":wire_target(&target),
+        "expected_executor_id":executor,
+    })).await?;
+    if result["device_id"]!=device || result["executor_id"]!=executor
+        || !result["has_tasks"].is_boolean() || !result["tasks"].is_array() {
+        return Err(error(StatusCode::BAD_GATEWAY,"runner_response_invalid",
+            "执行器任务校验响应不匹配，不能确认该设备是否仍有任务。"));
+    }
+    Ok(Json(result))
+}
+
 /// Explicit device-scoped emergency recovery. Fences ALL saved runs sharing
 /// this physical ADB endpoint, regardless of owner, before terminating workers.
 /// No manual retry or ADB action is dispatched until cleanup is confirmed.
