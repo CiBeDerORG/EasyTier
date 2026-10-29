@@ -1012,6 +1012,9 @@ fn validate_compose(manifest: &ManifestV1, sources: &BTreeMap<String, Vec<u8>>) 
     let services = compose.get("services").and_then(Value::as_object)
         .filter(|services| !services.is_empty())
         .ok_or(Error::Invalid("Compose must define services"))?;
+    if services.iter().any(|(name, detail)| name.is_empty() || !detail.is_object()) {
+        return Err(Error::Invalid("Compose services must be named mappings"));
+    }
     for service in &manifest.verification.required_services {
         if !services.contains_key(service) {
             return Err(Error::Invalid("Verification references a missing Compose service"));
@@ -1048,6 +1051,13 @@ fn validate_compose(manifest: &ManifestV1, sources: &BTreeMap<String, Vec<u8>>) 
     }
     if manifest.data.paths.iter().any(|path| !mounted_data.contains(path)) {
         return Err(Error::Invalid("Manifest data retention path is not mounted by Compose"));
+    }
+    if !manifest.data.named_volumes.is_empty() {
+        let declared = compose.get("volumes").and_then(Value::as_object)
+            .ok_or(Error::Invalid("Declared named volumes are absent from Compose"))?;
+        if manifest.data.named_volumes.iter().any(|volume| !declared.contains_key(volume)) {
+            return Err(Error::Invalid("Declared owned named volume is missing from Compose"));
+        }
     }
     Ok(())
 }
