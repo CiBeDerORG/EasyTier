@@ -485,6 +485,8 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         # helper using the same script's control claim before running steps.
         a=target()
         self.runtime.prepared=lambda t: Runtime.prepared(self.runtime,t)
+        # Model RPC health using actual prepared state; no live ADB required.
+        self.runtime._automation_rpc_ready.side_effect=lambda t: self.runtime.prepared(t)
         helper=SimpleNamespace(target=a, ready_flag=True, alive=lambda:True,
                                ready=AsyncMock(return_value={'state':'automation_ready'}),
                                close=AsyncMock(return_value=True))
@@ -518,6 +520,8 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_script_preparation_failure_is_recorded_without_executing_steps(self):
         a=target()
         self.runtime.prepared=lambda t: Runtime.prepared(self.runtime,t)
+        # An absent helper must not be considered a healthy RPC server.
+        self.runtime._automation_rpc_ready.side_effect=lambda t: self.runtime.prepared(t)
         helper=SimpleNamespace(target=a,ready_flag=False,alive=lambda:False,
                                ready=AsyncMock(side_effect=ExecutorError('automation_prepare_failed','准备控件失败')),
                                close=AsyncMock(return_value=True))
@@ -886,12 +890,13 @@ class HelperBootstrapTests(unittest.TestCase):
         gate=SimpleNamespace(wait=lambda seconds:True)
         with patch('automation_executor.worker._isolate'), patch.dict(sys.modules,{'uiautomator2':module}):
             worker._helper_entry(channel,gate,1234,target(),'adb')
-        self.assertEqual([m.get('stage') for m in messages[:5]],
-                         ['isolate_process','wait_for_gate','import_sdk','connect_device','start_uiautomator'])
-        self.assertEqual(messages[5]['stage'],'verify_hierarchy')
-        self.assertEqual(messages[6]['result']['state'],'automation_ready')
-        self.assertEqual(messages[6]['result']['display'],{'width':1080,'height':2400})
-        self.assertEqual(stopped,[False])
+        self.assertEqual([m.get('stage') for m in messages[:6]],
+                         ['isolate_process','wait_for_gate','import_sdk','connect_device',
+                          'stop_stale_uiautomator','start_uiautomator'])
+        self.assertEqual(messages[6]['stage'],'verify_hierarchy')
+        self.assertEqual(messages[7]['result']['state'],'automation_ready')
+        self.assertEqual(messages[7]['result']['display'],{'width':1080,'height':2400})
+        self.assertEqual(stopped,[True,False], 'stop stale service before restarting')
 
 
 class NativeActionTests(unittest.TestCase):
