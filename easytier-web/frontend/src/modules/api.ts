@@ -3,7 +3,7 @@ import { type Api, NetworkTypes, Utils } from 'easytier-frontend-lib';
 import { Md5 } from 'ts-md5';
 import type { NetworkMapConfig, NodeRuntimeInfo, ServiceEntry, ServiceInput } from './network-space';
 import type { DeleteManagedUserResult, ManagedUserList, UserAdminContext } from '../types/user-admin';
-import type { DeployCatalogApp, DeployCatalogIndex, DeployCatalogRefresh } from '../types/deploy-catalog';
+import type { DeployCatalogApp, DeployCatalogIndex, DeployCatalogPackage, DeployCatalogRefresh } from '../types/deploy-catalog';
 import type { PublicationMutationResult } from './publication-sync';
 import type {
     AddressPreviewInput, ApplyAddressInput, ApplyBindingInput, AssetAccount, AssetContextResponse,
@@ -440,6 +440,13 @@ export class ApiClient {
     /** The only Git operation; controller authorizes admins server-side. */
     public async deployCatalogRefresh(): Promise<DeployCatalogRefresh> {
         return this.client.post<unknown, DeployCatalogRefresh>('/deploy/catalog/refresh');
+    }
+
+    /** Prepare/reuse a package for the selected pinned commit; no config values are sent. */
+    public async deployCatalogPreparePackage(id: string): Promise<DeployCatalogPackage> {
+        return this.client.post<unknown, DeployCatalogPackage>(
+            `/deploy/catalog/${encodeURIComponent(id)}/package`, {},
+        );
     }
 
     /** Explicit on-demand scan only. Stale snapshots must never authorize mutation. */
