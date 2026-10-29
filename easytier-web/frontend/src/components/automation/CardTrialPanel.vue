@@ -84,12 +84,12 @@ function chineseValidationMessage(message:string):string{
     };
     return known[message] ?? message;
 }
-function trialErrorMessage(cause:unknown,payload?:AutomationRunInput):string{
+function trialErrorDetails(cause:unknown,payload?:AutomationRunInput):string[]{
     if(cause instanceof AutomationApiError){
         const entries=Object.entries(cause.fieldErrors??{})
             .filter(([,message])=>typeof message==='string' && !!message.trim())
             .map(([field,message])=>(validationFieldLabels[field]??field)+'：'+chineseValidationMessage(message));
-        if(entries.length)return '服务器拒绝本次执行：'+entries.join('；');
+        if(entries.length)return entries.map(entry=>'服务器拒绝本次执行：'+entry);
         const serverMessage=chineseValidationMessage(cause.message);
         if(cause.status===422){
             const step=payload?.steps?.[0];
@@ -97,11 +97,14 @@ function trialErrorMessage(cause:unknown,payload?:AutomationRunInput):string{
                 ? '当前提交：步骤 ID='+String(step.id??'空')+'；动作类型='+String(step.type)
                     +'；超时时间='+String(step.timeout_ms??'未填写')+' 毫秒；ADB 命令='+String(step.command??'未填写')
                 : '当前提交：步骤 ID='+String(step?.id??'空')+'；动作类型='+String(step?.type??'未填写');
-            return '服务器拒绝本次执行。'+serverMessage+'；服务端没有返回具体字段原因。'+snapshot+'。';
+            return ['服务器拒绝本次执行。'+serverMessage+'；服务端没有返回具体字段原因。'+snapshot+'。'];
         }
-        return serverMessage+'（错误代码：'+cause.code+'）';
+        return [serverMessage+'（错误代码：'+cause.code+'）'];
     }
-    return automationErrorMessage(cause);
+    return [automationErrorMessage(cause)];
+}
+function trialErrorMessage(cause:unknown,payload?:AutomationRunInput):string{
+    return trialErrorDetails(cause,payload).join('；');
 }
 const preparation=useCardTrialPreparation(api);
 const result=useCardRunStatus(api);
@@ -185,7 +188,7 @@ const safety=computed(()=>frozen.value ? stepTrialSafety(frozen.value) : 'unsupp
 const parameter=computed(()=>frozen.value?.type==='input_text' ? frozen.value.parameter : undefined);
 const usable=computed(()=>!!frozen.value && !!frozen.value.id &&
     safety.value!=='unsupported' && !(frozen.value.type==='key' && !frozen.value.key) &&
-    !(frozen.value.type==='input_text' && !frozen.value.parameter));
+    !(frozen.value.type==='input_text' && !frozen.value.parameter && !('text' in frozen.value)));
 const started=computed(()=>!!result.run.value || !!pending.value);
 const label=computed(()=>frozen.value ? (frozen.value.title?.trim() || cardStepLabels[frozen.value.type]) : '未选择步骤');
 const inlineStatus=computed<InlineStepRunProgress|null>(() => {
@@ -501,7 +504,8 @@ async function submit(){
         await sendFrozen(mine,owner,id,original,payload);
     }catch(cause){
         if(valid(mine,owner,id,original)){
-            pending.value=null;failTrial(trialErrorMessage(cause,pending.value??undefined));
+            const failedPayload=pending.value??undefined;
+            pending.value=null;failTrial(trialErrorMessage(cause,failedPayload));
         }else{
             toastTrialError('单步执行返回时，账号、设备或步骤已切换；当前结果未应用到新步骤，请检查原请求记录。');
         }
@@ -547,11 +551,11 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         }
         const unknown=dispatched && !definitive;
         uncertain.value=unknown;phase.value=unknown?'unknown':'failed';
-        const detail=trialErrorMessage(cause,payload);
-        warning.value=(dispatched?'': '无法安全保存试跑请求身份，未发送动作：')+
-            detail+
-            (unknown?'。动作可能已被服务器接收；请按原请求编号只读核对，不能新建请求。':'');
-        toastTrialError(warning.value);
+        const details=trialErrorDetails(cause,payload);
+        const prefix=dispatched?'':'无法安全保存试跑请求身份，未发送动作：';
+        const suffix=unknown?'。动作可能已被服务器接收；请按原请求编号只读核对，不能新建请求。':'';
+        warning.value=prefix+details.join('；')+suffix;
+        details.forEach((detail,index)=>toastTrialError(prefix+detail+(index===details.length-1?suffix:'')));
         if(!unknown)pending.value=null;
     }
 }
