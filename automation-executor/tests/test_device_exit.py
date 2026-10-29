@@ -121,6 +121,47 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.runtime.shutdown();self.media_patch.stop();self.adb_patch.stop();self.directory.cleanup()
 
+    async def test_automation_status_exposes_rpc_failure_reason_and_stage(self):
+        phone = target()
+        class UiAutomationNotConnectedError(Exception):
+            pass
+        adbutils_module = ModuleType("adbutils")
+        adbutils_module.adb = SimpleNamespace(device=lambda serial: object())
+        uiautomator_module = ModuleType("uiautomator2")
+        uiautomator_module.__path__ = []
+        core_module = ModuleType("uiautomator2.core")
+        core_module.DEFAULT_SERVER_PORT = 9008
+        def fail_rpc(*args, **kwargs):
+            raise UiAutomationNotConnectedError("uiautomation not connected at 10.60.1.20:37001")
+        core_module._jsonrpc_call = fail_rpc
+        selector_module = ModuleType("uiautomator2._selector")
+        selector_module.Selector = lambda **kwargs: object()
+        with patch.dict(sys.modules, {
+                "adbutils": adbutils_module,
+                "uiautomator2": uiautomator_module,
+                "uiautomator2.core": core_module,
+                "uiautomator2._selector": selector_module}):
+            result = await self.runtime.automation_status({"target": phone})
+        self.assertEqual(result["state"], "unavailable")
+        self.assertEqual(result["code"], "uiautomator_service_disconnected")
+        self.assertEqual(result["stage"], "uiautomator_rpc")
+        self.assertIn("未连接", result["message"])
+        self.assertEqual(result["diagnostics"]["probe"]["exception_type"],
+                         "UiAutomationNotConnectedError")
+        self.assertNotIn("10.60.1.20:37001",
+                         result["diagnostics"]["probe"]["exception_message"])
+        self.assertIn("helper", result["diagnostics"])
+
+    async def test_automation_status_explains_missing_helper(self):
+        phone = target()
+        self.runtime.prepared = Runtime.prepared.__get__(self.runtime, Runtime)
+        result = await self.runtime.automation_status({"target": phone})
+        self.assertEqual(result["state"], "not_prepared")
+        self.assertEqual(result["code"], "automation_helper_missing")
+        self.assertEqual(result["stage"], "helper_state")
+        self.assertIn("重新初始化", result["message"])
+        self.assertFalse(result["diagnostics"]["helper"]["helper_present"])
+
     async def test_capacity_settings_have_no_arbitrary_cap_and_survive_restart(self):
         first = self.runtime.runtime_limits()
         self.assertEqual(first["max_running"], 3)

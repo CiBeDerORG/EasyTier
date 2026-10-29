@@ -83,6 +83,9 @@ export interface AutomationAdbStatus {
 export interface AutomationComponentStatus {
     device_id: string; state: 'ready' | 'not_prepared' | 'preparing' | 'adb_unavailable' | 'unavailable' | 'checking' | 'query_failed';
     executor_id: string; preparation_id?: string; stage?: string;
+    code?: string | null; message?: string;
+    /** Executor-side helper health and the last read-only RPC probe failure. */
+    diagnostics?: Record<string, unknown>;
 }
 export interface AutomationPreparationLog {
     seq: number; at: string; level: string; stage: string; message: string;

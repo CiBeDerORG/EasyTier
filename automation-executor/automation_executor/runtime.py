@@ -126,26 +126,151 @@ class Runtime:
         return bool(helper and helper.ready_flag and helper.alive() and helper.target["target_fingerprint"] == target["target_fingerprint"]
                     and self.journal.prepared(target))
 
-    async def _automation_rpc_ready(self, target):
-        """Probe the live UiAutomator2 RPC, not just the supervisor's process flag."""
+    def _automation_helper_diagnostics(self, target):
+        """Expose the independent helper/lease facts needed to explain status."""
+        helper = self.helpers.get(target["device_id"])
+        helper_target = getattr(helper, "target", None) if helper else None
+        target_matches = bool(
+            helper_target and helper_target.get("target_fingerprint") == target["target_fingerprint"]
+        )
+        try:
+            helper_alive = bool(helper and helper.alive())
+        except Exception:
+            helper_alive = False
+        try:
+            journal_prepared = bool(self.journal.prepared(target))
+        except Exception:
+            journal_prepared = False
+        worker_record = self.journal.worker_record("helper:" + target["device_id"])
+        process = getattr(helper, "process", None) if helper else None
+        return {
+            "helper_present": helper is not None,
+            "helper_alive": helper_alive,
+            "helper_ready_flag": bool(getattr(helper, "ready_flag", False)) if helper else False,
+            "helper_target_matches": target_matches,
+            "journal_prepared": journal_prepared,
+            "worker_record_present": worker_record is not None,
+            "worker_pid": getattr(process, "pid", None) if process else (worker_record.get("pid") if worker_record else None),
+        }
+
+    @staticmethod
+    def _automation_probe_exception_message(exc, target):
+        """Keep useful SDK detail while redacting the selected phone endpoint."""
+        try:
+            message = " ".join(str(exc).split())[:400]
+        except Exception:
+            message = ""
+        endpoint = f'{target["ip"]}:{target["adb_port"]}'
+        if endpoint:
+            message = message.replace(endpoint, "<device-endpoint>")
+        if target["ip"]:
+            message = message.replace(target["ip"], "<device-ip>")
+        return message or "异常没有提供可读详情"
+
+    async def _automation_rpc_probe(self, target):
+        """Return a bounded, read-only RPC probe plus actionable failure evidence."""
+        helper = self._automation_helper_diagnostics(target)
         if not self.prepared(target):
-            return False
+            if helper["helper_present"] and not helper["helper_target_matches"]:
+                code, message = "automation_target_changed", "现存控件进程绑定的设备指纹与当前设备不一致"
+            elif not helper["helper_present"]:
+                code, message = "automation_helper_missing", "执行器中没有该设备的控件进程，请重新初始化控件"
+            elif not helper["helper_alive"]:
+                code, message = "automation_helper_process_exited", "控件进程已退出，手机端服务状态尚未验证"
+            elif not helper["helper_ready_flag"]:
+                code, message = "automation_helper_not_ready", "控件进程尚未完成初始化握手"
+            else:
+                code, message = "automation_preparation_not_recorded", "控件进程存在，但执行器没有当前设备的就绪记录"
+            return {
+                "ready": False, "code": code, "message": message, "stage": "helper_state",
+                "diagnostics": {"helper": helper},
+            }
+
+        class ProbeFailure(Exception):
+            def __init__(self, stage, original):
+                super().__init__(str(original))
+                self.stage = stage
+                self.original = original
+
+        probe_stage = {"value": "load_rpc_sdk"}
 
         def check():
-            import adbutils
-            from uiautomator2.core import _jsonrpc_call, DEFAULT_SERVER_PORT
-            from uiautomator2._selector import Selector
-            dev = adbutils.adb.device(serial=f'{target["ip"]}:{target["adb_port"]}')
-            return _jsonrpc_call(dev, DEFAULT_SERVER_PORT, "count",
-                                 (Selector(className="android.view.View"),), 3, False)
+            try:
+                probe_stage["value"] = "load_rpc_sdk"
+                import adbutils
+                from uiautomator2.core import _jsonrpc_call, DEFAULT_SERVER_PORT
+                from uiautomator2._selector import Selector
+                probe_stage["value"] = "adb_device_lookup"
+                dev = adbutils.adb.device(serial=f'{target["ip"]}:{target["adb_port"]}')
+                probe_stage["value"] = "uiautomator_rpc"
+                observed = _jsonrpc_call(
+                    dev, DEFAULT_SERVER_PORT, "count",
+                    (Selector(className="android.view.View"),), 3, False,
+                )
+                probe_stage["value"] = "rpc_response_validation"
+                return observed
+            except Exception as exc:
+                raise ProbeFailure(probe_stage["value"], exc) from exc
 
         try:
             observed = await asyncio.wait_for(asyncio.to_thread(check), timeout=5)
-            return isinstance(observed, int) and not isinstance(observed, bool)
-        except Exception:
-            # Status checks are read-only. The caller decides whether it is
-            # allowed to start a fresh preparation under an exclusive claim.
-            return False
+        except asyncio.TimeoutError:
+            stage = probe_stage["value"]
+            return {
+                "ready": False, "code": "automation_rpc_timeout",
+                "message": "控件服务状态探测超时（5 秒），未确认 UiAutomator2 RPC 是否可用",
+                "stage": stage,
+                "diagnostics": {
+                    "helper": helper,
+                    "probe": {"method": "count", "timeout_seconds": 5,
+                              "exception_type": "TimeoutError", "exception_message": "probe exceeded 5 seconds"},
+                },
+            }
+        except ProbeFailure as failure:
+            stage = failure.stage
+            exc = failure.original
+            exception_type = type(exc).__name__
+            if stage == "load_rpc_sdk":
+                code, message = "uiautomator_sdk_unavailable", "执行器无法加载 UiAutomator2 RPC 依赖"
+            elif stage == "adb_device_lookup":
+                code, message = "adb_device_lookup_failed", "ADB 已通过前置检查，但 RPC 探测无法重新绑定设备"
+            elif exception_type == "UiAutomationNotConnectedError":
+                code, message = "uiautomator_service_disconnected", "手机端 UiAutomator2 服务未连接或无障碍服务已断开"
+            elif exception_type in ("HTTPError", "ConnectionError", "ReadTimeout", "ConnectTimeout"):
+                code, message = "uiautomator_rpc_transport_error", "访问手机端 UiAutomator2 RPC 时发生连接或 HTTP 错误"
+            else:
+                code, message = "uiautomator_rpc_failed", "手机端 UiAutomator2 RPC 探测抛出异常"
+            return {
+                "ready": False, "code": code, "message": message, "stage": stage,
+                "diagnostics": {
+                    "helper": helper,
+                    "probe": {
+                        "method": "count", "exception_type": exception_type,
+                        "exception_message": self._automation_probe_exception_message(exc, target),
+                    },
+                },
+            }
+
+        if not isinstance(observed, int) or isinstance(observed, bool):
+            return {
+                "ready": False, "code": "uiautomator_rpc_invalid_response",
+                "message": "UiAutomator2 RPC 已响应，但返回值不是预期的整数",
+                "stage": "rpc_response_validation",
+                "diagnostics": {
+                    "helper": helper,
+                    "probe": {"method": "count", "result_type": type(observed).__name__},
+                },
+            }
+        return {
+            "ready": True, "code": None, "message": "UiAutomator2 RPC 探测成功",
+            "stage": "complete",
+            "diagnostics": {"helper": helper, "probe": {"method": "count", "result_type": type(observed).__name__}},
+        }
+
+    async def _automation_rpc_ready(self, target):
+        """Boolean compatibility wrapper for script admission and readiness checks."""
+        result = await self._automation_rpc_probe(target)
+        return result["ready"]
 
     def session(self, sid):
         current = self.sessions.get(sid)
@@ -314,19 +439,48 @@ class Runtime:
         device_id = target["device_id"]
         pending = self.journal.active_preparation(device_id)
         if pending:
-            return {"device_id": device_id, "state": "preparing", "preparation_id": pending["id"],
-                    "stage": pending["stage"], "executor_id": self.journal.executor_id}
+            return {
+                "device_id": device_id, "state": "preparing",
+                "code": pending.get("code") or "automation_preparing",
+                "message": pending.get("message") or "控件初始化任务正在执行",
+                "preparation_id": pending["id"], "stage": pending["stage"],
+                "diagnostics": {
+                    "preparation_state": pending.get("state"),
+                    "preparation_stage": pending.get("stage"),
+                },
+                "executor_id": self.journal.executor_id,
+            }
         try:
             await adb.require_connected(self.settings.adb_binary, target)
-        except ExecutorError:
-            return {"device_id": device_id, "state": "adb_unavailable", "executor_id": self.journal.executor_id}
-        if not self.prepared(target):
-            return {"device_id": device_id, "state": "not_prepared", "executor_id": self.journal.executor_id}
-        # This endpoint stays strictly read-only. A failed RPC probe is
-        # reported as unavailable; an explicit single-step/run request may
-        # then reinitialize the helper under its own exclusive claim.
-        state = "ready" if await self._automation_rpc_ready(target) else "unavailable"
-        return {"device_id": device_id, "state": state, "executor_id": self.journal.executor_id}
+        except ExecutorError as exc:
+            return {
+                "device_id": device_id, "state": "adb_unavailable",
+                "code": exc.code, "message": exc.message, "stage": "adb_connection",
+                "diagnostics": {"exception_type": type(exc).__name__},
+                "executor_id": self.journal.executor_id,
+            }
+        except Exception as exc:
+            return {
+                "device_id": device_id, "state": "adb_unavailable",
+                "code": "adb_status_probe_failed", "message": "检查 ADB 连接时发生未分类异常",
+                "stage": "adb_connection",
+                "diagnostics": {"exception_type": type(exc).__name__,
+                                "exception_message": self._automation_probe_exception_message(exc, target)},
+                "executor_id": self.journal.executor_id,
+            }
+
+        # This endpoint is strictly read-only. Return the actual reason and
+        # probe stage; never silently collapse an RPC exception into unavailable.
+        probe = await self._automation_rpc_probe(target)
+        state = "ready" if probe["ready"] else (
+            "not_prepared" if probe["stage"] == "helper_state" else "unavailable"
+        )
+        return {
+            "device_id": device_id, "state": state,
+            "code": probe["code"], "message": probe["message"],
+            "stage": probe["stage"], "diagnostics": probe["diagnostics"],
+            "executor_id": self.journal.executor_id,
+        }
 
     async def prepare(self, body):
         if self.shutting_down:
