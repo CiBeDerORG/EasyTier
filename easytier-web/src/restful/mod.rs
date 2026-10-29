@@ -357,8 +357,8 @@ impl RestfulServer {
             .merge(rpc::router())
             .merge(geocoding::router())
             .merge(deploy_agent::router(deploy_credentials))
-            .merge(asset_agent::router(asset_agents))
-            .merge(deploy_catalog::router(deploy_catalog))
+            .merge(asset_agent::router(asset_agents.clone()))
+            .merge(deploy_catalog::router(deploy_catalog, asset_agents))
             .route_layer(login_required!(Backend))
             // Asset handlers authenticate the session themselves so errors use
             // their JSON contract, including unauthenticated requests.
