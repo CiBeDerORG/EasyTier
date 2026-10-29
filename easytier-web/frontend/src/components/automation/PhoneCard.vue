@@ -4,7 +4,7 @@ import { Button, Tag } from 'primevue';
 import { useI18n } from 'vue-i18n';
 import { v4 as uuid } from 'uuid';
 import AutomationApi from '../../modules/automation-api';
-import type { AutomationControl, AutomationDevice, AutomationMediaSettings, AutomationComponentStatus, AutomationPhoneConnectionState, AutomationStep } from '../../types/automation';
+import type { AutomationControl, AutomationDevice, AutomationMediaSettings, AutomationComponentStatus, AutomationExecutorTaskStatus, AutomationPhoneConnectionState, AutomationStep } from '../../types/automation';
 import { automationMessages } from './messages';
 import type { EndpointEvent } from '../../modules/discovery-api';
 import { usePhoneSession } from './usePhoneSession';
@@ -48,6 +48,7 @@ const props = defineProps<{
     device: AutomationDevice; ownerId: number; selected: boolean; runnerAvailable: boolean;
     phoneConnection?: AutomationPhoneConnectionState; phoneConnectionError?: string;
     componentStatus?: AutomationComponentStatus;
+    executorTaskStatus?: AutomationExecutorTaskStatus;
     forceCleanupBusy?: boolean;
     syncRole?: 'master' | 'follower'; syncActive: boolean; recording: boolean; unlocking?: boolean;
     pickerPhase?: PickerPhase; pickerError?: string;
@@ -879,12 +880,16 @@ onBeforeUnmount(() => {
                         <i :class="phoneConnection === 'connecting' ? 'pi pi-spin pi-spinner' : 'pi pi-link'" aria-hidden="true" />
                     </button>
                 </span>
-                <span class="card-action-tip" title="强制清理本机全部自动化占用（停止脚本与旧预览）">
+                <span v-if="executorTaskStatus?.has_tasks || device.run_occupied"
+                    class="card-action-tip"
+                    :title="executorTaskStatus?.has_tasks
+                        ? '清除执行器任务：' + (executorTaskStatus?.task_count ?? 0) + ' 条；停止该设备下所有未确认任务与残留工作进程'
+                        : '清除该设备的执行器任务及服务端残留占用'">
                     <button type="button" class="card-icon force-cleanup-icon"
                         :disabled="!runnerAvailable || forceCleanupBusy"
-                        :aria-label="forceCleanupBusy ? '正在强制清理本机占用' : '强制清理本机全部自动化占用'"
+                        :aria-label="forceCleanupBusy ? '正在清除执行器任务' : '清除执行器任务'"
                         @click="emit('force-cleanup',device.id)">
-                        <i :class="forceCleanupBusy ? 'pi pi-spin pi-spinner' : 'pi pi-wrench'" aria-hidden="true"/>
+                        <i :class="forceCleanupBusy ? 'pi pi-spin pi-spinner' : 'pi pi-stop-circle'" aria-hidden="true"/>
                     </button>
                 </span>
                 <span class="card-action-tip" :title="screenActionHint">

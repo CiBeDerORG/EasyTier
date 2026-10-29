@@ -39,7 +39,7 @@ import { updateCardDraftStep } from '../modules/automation-card-step-edit';
 import { planAutomationStepDeletion } from '../modules/automation-card-step-delete';
 import { canAccessAutomationCard } from '../modules/automation-floating-contract';
 import { locateReadOnlyStep, type LocatorDemoResult } from '../modules/automation-locator-demo';
-import type { AutomationStepType } from '../types/automation';
+import type { AutomationDevice, AutomationStepType, AutomationExecutorTaskStatus } from '../types/automation';
 import {
     beginCapturedGesture, observeCapturedGesture, finishCapturedGesture,
     type CapturedGesture, type GestureRecordingResult,
@@ -95,6 +95,8 @@ const busy = ref(false); const connecting = ref(false); const error = ref(''); c
 const phoneConnecting = ref(false);
 const componentChecking = ref(false);
 const componentStatuses = ref<Record<string, AutomationComponentStatus>>({});
+const executorTaskStatuses = ref<Record<string, AutomationExecutorTaskStatus>>({});
+let executorTaskStatusGeneration = 0;
 const componentStatusResults = ref<{ id: string; name: string; state: string; message?: string }[]>([]);
 const componentStateLabel: Record<string, string> = {
     ready: '已就绪', not_prepared: '未准备', preparing: '准备中',
@@ -662,6 +664,24 @@ async function forceCleanupDevice(id:string){
         const result=await api.forceCleanup(owner,id);
         if(owner!==ownerId.value||disposed)return;
         if(result.cleanup_confirmed){
+            let verified: AutomationExecutorTaskStatus;
+            try {
+                verified = await api.executorTaskStatus(owner,id);
+            } catch (cause) {
+                floatingRunMessages[id] = '服务端已返回清理确认，但二次校验执行器任务失败：' + automationErrorMessage(cause);
+                error.value = floatingRunMessages[id];
+                return;
+            }
+            if (owner !== ownerId.value || disposed) return;
+            executorTaskStatuses.value[id] = { ...verified, state: 'ready' };
+            if (verified.has_tasks) {
+                floatingRunMessages[id] = '清理回执后仍检测到执行器任务（' + verified.task_count +
+                    ' 条），未宣称清理完成。任务：' + verified.tasks.map(task =>
+                        (task.run_id ?? task.task_id ?? task.device_id) + ' [' + task.state + ']'
+                    ).join('、');
+                error.value = floatingRunMessages[id];
+                return;
+            }
             floatingBatch.acknowledgeDeviceCleanup(owner,id);
             // The executor has ended previous viewing sessions; the browser
             // must open a NEW one rather than keeping stale WebRTC status.
@@ -729,6 +749,43 @@ async function loadGatewayCatalog(owner: number) {
         }
     }
 }
+function queryExecutorTaskStatuses(items: AutomationDevice[], owner: number, request: number) {
+    const generation = ++executorTaskStatusGeneration;
+    const eligible: AutomationDevice[] = [];
+    for (const device of items) {
+        const canProbe = runnerAvailable.value && device.connection.enabled &&
+            !device.availability_reason && !!device.target_fingerprint;
+        executorTaskStatuses.value[device.id] = {
+            device_id: device.id, executor_id: '', state: canProbe ? 'checking' : 'unavailable',
+            has_tasks: device.run_occupied === true, task_count: 0, tasks: [],
+        };
+        if (canProbe) eligible.push(device);
+    }
+    const valid = () => !disposed && owner === ownerId.value &&
+        request === loadGeneration && generation === executorTaskStatusGeneration;
+    const queue = [...eligible];
+    const worker = async () => {
+        while (queue.length && valid()) {
+            const device = queue.shift()!;
+            try {
+                const status = await api.executorTaskStatus(owner, device.id);
+                if (!valid() || !devices.value.some(item =>
+                    item.id === device.id && item.target_fingerprint === device.target_fingerprint)) continue;
+                executorTaskStatuses.value[device.id] = { ...status, state: 'ready' };
+            } catch (cause) {
+                if (!valid() || !devices.value.some(item =>
+                    item.id === device.id && item.target_fingerprint === device.target_fingerprint)) continue;
+                executorTaskStatuses.value[device.id] = {
+                    device_id: device.id, executor_id: '', state: 'query_failed',
+                    has_tasks: device.run_occupied === true, task_count: 0, tasks: [],
+                    message: automationErrorMessage(cause),
+                };
+            }
+        }
+    };
+    void Promise.all(Array.from({ length: Math.min(4, queue.length) }, () => worker()));
+}
+
 async function loadDevices() {
     if (!ownerId.value || !context.value?.available) return;
     const owner = ownerId.value; const request = ++loadGeneration;
@@ -739,6 +796,12 @@ async function loadDevices() {
         // A cached component state belongs to one exact ADB target revision.
         const previousTargets = new Map(devices.value.map(item => [item.id, item.target_fingerprint]));
         devices.value = response.items; sourceIssues.value = response.issues ?? []; subscribeEndpoints();
+        for (const id of Object.keys(executorTaskStatuses.value)) {
+            const current = response.items.find(item => item.id === id);
+            if (!current || previousTargets.get(id) !== current.target_fingerprint)
+                delete executorTaskStatuses.value[id];
+        }
+        queryExecutorTaskStatuses(response.items, owner, request);
         reconcilePickerBindings();
         for (const id of Object.keys(componentStatuses.value)) {
             const device = response.items.find(item => item.id === id);
@@ -825,6 +888,8 @@ async function changeOwner(id: number) {
     stopEvents?.(); stopEvents = undefined;
     ++workspaceGeneration; ++loadGeneration; ++statusQueryGeneration;
     adbActionVersions.clear();
+    executorTaskStatuses.value = {};
+    ++executorTaskStatusGeneration;
     await closeAll();
     closeInspector();
     stopAllPicking();
@@ -2119,6 +2184,7 @@ onBeforeUnmount(() => { stopEvents?.();
                         :inspector-preferred-action="inspectorDeviceId === device.id ? inspectorPreferredAction : null"
                         :repair-context="cardRepairContext?.deviceId === device.id ? cardRepairContext : null"
                         :force-cleanup-busy="!!cleanupBusy[device.id]"
+                        :executor-task-status="executorTaskStatuses[device.id]"
                         :demo-result="locatorDemos[device.id]?.stepId === cardStepEditor?.stepId ? locatorDemos[device.id]?.result : null"
                         :demo-loading="locatorDemos[device.id]?.loading ?? false" :demo-error="locatorDemos[device.id]?.error"
                         :draft-save-busy="savingFloatingDraft" :draft-save-message="floatingDraftMessage"
