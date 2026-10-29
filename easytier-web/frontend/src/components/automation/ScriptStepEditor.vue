@@ -64,6 +64,8 @@ const inputModes = computed(() => [
 ]);
 const api = new AutomationApi();
 const favorites = ref<AutomationAdbFavorite[]>([]);
+const hiddenBuiltinIds = ref<string[]>([]);
+const presetBusy = ref(false);
 const favoriteTitle = ref('');
 const favoriteBusy = ref(false);
 const favoriteMessage = ref('');
@@ -71,12 +73,13 @@ const favoriteError = ref('');
 let favoriteLoadToken = 0;
 const builtinOptions = computed(() => [
     { value: '', label: text('自定义命令', 'Custom command') },
-    ...builtinAdbCommands.map(item => ({
+    ...builtinAdbCommands.filter(item => !hiddenBuiltinIds.value.includes(item.id)).map(item => ({
         value: item.command, label: cn.value ? item.title : item.englishTitle,
     })),
 ]);
-const selectedBuiltin = computed(() => builtinAdbCommands.some(item =>
-    item.command === props.modelValue.command) ? props.modelValue.command ?? '' : '');
+const selectedBuiltinPreset = computed(() => builtinAdbCommands.find(item =>
+    item.command === props.modelValue.command && !hiddenBuiltinIds.value.includes(item.id)) ?? null);
+const selectedBuiltin = computed(() => selectedBuiltinPreset.value?.command ?? '');
 const favoriteOptions = computed(() => [
     { value: '', label: text('选择已收藏命令', 'Select saved command') },
     ...favorites.value.map(item => ({ value: item.id, label: item.title })),
@@ -99,9 +102,12 @@ function chooseFavorite(value: string) {
 async function loadFavorites(owner: number) {
     const token = ++favoriteLoadToken;
     try {
-        const result = await api.adbFavorites(owner);
+        const [result, hidden] = await Promise.all([
+            api.adbFavorites(owner), api.hiddenAdbPresets(owner),
+        ]);
         if (token === favoriteLoadToken && props.ownerId === owner) {
             favorites.value = result.items;
+            hiddenBuiltinIds.value = hidden.items;
             favoriteError.value = '';
         }
     } catch (cause) {
@@ -110,7 +116,8 @@ async function loadFavorites(owner: number) {
     }
 }
 watch(() => [props.ownerId, props.modelValue.type] as const, ([owner, kind]) => {
-    ++favoriteLoadToken; favorites.value = []; favoriteMessage.value = ''; favoriteError.value = '';
+    ++favoriteLoadToken; favorites.value = []; hiddenBuiltinIds.value = [];
+    favoriteMessage.value = ''; favoriteError.value = '';
     if (kind === 'adb_command' && owner && owner > 0) void loadFavorites(owner);
 }, { immediate: true });
 async function saveFavorite() {
@@ -130,6 +137,33 @@ async function saveFavorite() {
         favoriteTitle.value = '';
     } catch (cause) { favoriteError.value = automationErrorMessage(cause); }
     finally { favoriteBusy.value = false; }
+}
+async function deleteBuiltinPreset() {
+    const owner = props.ownerId, chosen = selectedBuiltinPreset.value;
+    if (!owner || !chosen || presetBusy.value || favoriteBusy.value || props.disabled) return;
+    presetBusy.value = true; favoriteError.value = '';
+    try {
+        await api.hideAdbPreset(owner, chosen.id);
+        if (props.ownerId !== owner) return;
+        hiddenBuiltinIds.value = [...new Set([...hiddenBuiltinIds.value, chosen.id])];
+        favoriteMessage.value = `已从当前账号的内置常用列表删除“${chosen.title}”；当前步骤命令仍保留`;
+    } catch (cause) {
+        favoriteError.value = '删除内置命令失败：' + automationErrorMessage(cause);
+    } finally { presetBusy.value = false; }
+}
+async function restoreHiddenBuiltinPresets() {
+    const owner = props.ownerId, ids = [...hiddenBuiltinIds.value];
+    if (!owner || !ids.length || presetBusy.value || favoriteBusy.value || props.disabled) return;
+    presetBusy.value = true; favoriteError.value = '';
+    try {
+        for (const id of ids) await api.restoreAdbPreset(owner, id);
+        if (props.ownerId !== owner) return;
+        hiddenBuiltinIds.value = [];
+        favoriteMessage.value = '已恢复全部内置常用 ADB 命令';
+    } catch (cause) {
+        favoriteError.value = '恢复内置命令失败：' + automationErrorMessage(cause);
+        await loadFavorites(owner);
+    } finally { presetBusy.value = false; }
 }
 async function deleteFavorite() {
     const owner = props.ownerId, chosen = selectedFavorite.value;
@@ -271,6 +305,19 @@ function updateNumber(key: string, value: number | null | undefined) {
                     option-label="label" option-value="value" :disabled="disabled"
                     @update:model-value="chooseBuiltin(String($event))" />
             </div>
+            <div class="adb-favorite-actions">
+                <button v-if="selectedBuiltinPreset" type="button"
+                    :disabled="disabled || presetBusy || favoriteBusy" @click="deleteBuiltinPreset">
+                    {{ text('删除选中的内置命令', 'Delete selected built-in command') }}
+                </button>
+                <button v-if="hiddenBuiltinIds.length" type="button"
+                    :disabled="disabled || presetBusy || favoriteBusy" @click="restoreHiddenBuiltinPresets">
+                    {{ text('恢复已删除内置命令', 'Restore deleted built-ins') }} ({{ hiddenBuiltinIds.length }})
+                </button>
+            </div>
+            <small v-if="selectedBuiltinPreset" class="hint">
+                {{ text('删除只影响当前账号的内置命令列表，不会修改已经填入步骤的命令。', 'Deletion only hides this preset for your account; existing step commands are unchanged.') }}
+            </small>
             <div v-if="ownerId" class="field" :for="fieldId('adb-favorite')">
                 <span>{{ text('我收藏的常用命令', 'My saved ADB commands') }}</span>
                 <AutomationInlineSelect :input-id="fieldId('adb-favorite')"

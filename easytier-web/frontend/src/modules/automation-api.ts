@@ -68,6 +68,17 @@ export default class AutomationApi {
     deleteAdbFavorite(ownerId: number, id: string) {
         return this.request<{deleted:boolean;id:string}>('/adb-favorites/'+encodeURIComponent(id),ownerId,'DELETE');
     }
+    hiddenAdbPresets(ownerId: number) {
+        return this.request<{items:string[]}>('/adb-presets/hidden',ownerId);
+    }
+    hideAdbPreset(ownerId: number, id: string) {
+        return this.request<{preset_id:string;hidden:boolean}>(
+            `/adb-presets/${encodeURIComponent(id)}/hidden`,ownerId,'PUT');
+    }
+    restoreAdbPreset(ownerId: number, id: string) {
+        return this.request<{preset_id:string;hidden:boolean}>(
+            `/adb-presets/${encodeURIComponent(id)}/hidden`,ownerId,'DELETE');
+    }
     devices(ownerId: number) { return this.request<{ items: AutomationDevice[]; issues?: {device_id:string;machine_id:string;name:string;reason:string}[] }>('/devices', ownerId); }
     executorTaskStatus(ownerId:number,id:string) {
         return this.request<AutomationExecutorTaskStatus>(
