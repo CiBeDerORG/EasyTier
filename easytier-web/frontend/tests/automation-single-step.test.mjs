@@ -34,6 +34,15 @@ test('single assertion strips only the business marker and preserves UUID and se
   assert.equal(check.business_verification,true);
 });
 
+test('ADB single-step requests always include the default timeout when an edited legacy step omitted it',()=>{
+  const legacyStep={id,type:'adb_command',command:'adb shell am force-stop com.taobao.taobao'};
+  const body=makeSingleStepRun(legacyStep,'phone-a','request-a',{},true);
+  assert.equal(body.steps[0].timeout_ms,8000);
+  assert.equal(legacyStep.timeout_ms,undefined);
+  const explicit=makeSingleStepRun({...legacyStep,timeout_ms:12000},'phone-a','request-b',{},true);
+  assert.equal(explicit.steps[0].timeout_ms,12000);
+});
+
 test('mutating actions require explicit confirmation, never implicit run',()=>{
   assert.equal(makeSingleStepRun(key,'phone-a','request-a',{},false),null);
   assert.equal(makeSingleStepRun(key,'phone-a','request-a',{},true).steps[0].key,'HOME');

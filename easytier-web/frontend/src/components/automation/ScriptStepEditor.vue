@@ -184,7 +184,12 @@ const coordinateFields = computed(() => ['swipe', 'drag'].includes(props.modelVa
     : [{ key: 'x', label: 'X' }, { key: 'y', label: 'Y' }]);
 
 function update(patch: Partial<AutomationStep>) {
-    if (!props.disabled) emit('update:modelValue', { ...props.modelValue, ...patch });
+    if (props.disabled) return;
+    const next: AutomationStep = { ...props.modelValue, ...patch };
+    // The input displays 8000 as a fallback; ensure the fallback is also
+    // materialized in the step model whenever an existing ADB step is edited.
+    if (next.type === 'adb_command' && next.timeout_ms == null) next.timeout_ms = 8000;
+    emit('update:modelValue', next);
 }
 function changeType(type: AutomationStepType) {
     if (props.disabled || props.lockActionType || type === props.modelValue.type) return;

@@ -17,10 +17,15 @@ export function stepTrialSafety(step: AutomationStep): StepTrialSafety {
 export function isolateAutomationStep(step: AutomationStep): AutomationStep | null {
     if (!step.id || stepTrialSafety(step) === 'unsupported') return null;
     const { business_verification: _ignored, ...clean } = step;
+    // Backfill the same UI default at the request boundary too, so older or
+    // otherwise incomplete drafts can never omit timeout_ms from an ADB trial.
+    const normalized = clean.type === 'adb_command' && clean.timeout_ms == null
+        ? { ...clean, timeout_ms: 8000 }
+        : clean;
     return {
-        ...clean,
-        ...(clean.selector ? { selector: { ...clean.selector } } : {}),
-        ...(clean.scroll_container ? { scroll_container: { ...clean.scroll_container } } : {}),
+        ...normalized,
+        ...(normalized.selector ? { selector: { ...normalized.selector } } : {}),
+        ...(normalized.scroll_container ? { scroll_container: { ...normalized.scroll_container } } : {}),
     };
 }
 
