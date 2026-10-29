@@ -4,7 +4,13 @@ import {readFileSync} from 'node:fs';
 const load=p=>readFileSync(new URL('../src/'+p,import.meta.url),'utf8');
 test('forced device cleanup is reachable even while preview is blocked',()=>{
  const card=load('components/automation/PhoneCard.vue');
- assert.match(card,/aria-label="forceCleanupBusy \? '正在强制清理本机占用' : '强制清理本机全部自动化占用'"/);
+ // Verify the visible recovery action is independent of the preview being live.
+ // The executor may have unfinished work even when the screen cannot open.
+ const clearButton = card.match(/<Button v-if="executorTaskStatus\?\.has_tasks \|\| device\.run_occupied"[\s\S]*?@click="emit\('force-cleanup',device\.id\)" \/>/);
+ assert.ok(clearButton, 'occupied phone must offer executor cleanup before preview opens');
+ assert.match(clearButton[0], /:label="forceCleanupBusy \? '正在清除执行器任务' : t\('clearExecutorTasks'\)"/);
+ assert.match(clearButton[0], /:disabled="!runnerAvailable \|\| forceCleanupBusy \|\| batchVideoProtected"/);
+ assert.doesNotMatch(clearButton[0], /session\.state\.phase\s*===\s*'live'/);
  assert.match(card,/@click="emit\('force-cleanup',device\.id\)"/);
  const consolePanel=load('components/automation/FloatingBatchRunPanel.vue');
  assert.match(consolePanel,/强制清理本机占用/);
