@@ -36,6 +36,25 @@ test('LOC-08 cross filter allows unlimited AND fields, including true and false'
   assert.deepEqual(filterHierarchy(shot,other,['self:description','self:clickable','self:enabled']).map(n=>n.id),[8]);
   assert.equal(buildCrossFilterSelector(other,['self:description','self:clickable','self:enabled']).selector.clickable,false);
 });
+test('LOC-09 text filter uses same-node multi-segment fuzzy matching and ignores standalone dynamic numbers',()=>{
+  const shot=hierarchy();
+  const original='升级中 长按可加速升级 松手开始加速升级 升级赛车拿钱 剩余 4450 能量  长按可加速升级';
+  shot.nodes[3].text=original;
+  shot.nodes[5].text='升级中   长按可加速升级 松手开始加速升级 升级赛车拿钱 剩余 9981 能量';
+  shot.nodes[7].text='升级中 长按可加速升级 升级赛车拿钱 剩余 9981 能量';
+  const options=buildFilterOptions(shot,4);
+  const matches=filterHierarchy(shot,options,['self:text']);
+  assert.deepEqual(matches.map(n=>n.id),[4,6]);
+  const built=buildCrossFilterSelector(options,['self:text']);
+  assert.ok(built.selector?.xpath);
+  assert.match(built.selector.xpath,/contains\(@text,'升级中'\)/);
+  assert.match(built.selector.xpath,/contains\(@text,'升级赛车拿钱'\)/);
+  assert.match(built.selector.xpath,/contains\(@text,'能量'\)/);
+  assert.doesNotMatch(built.selector.xpath,/@text=/);
+  assert.doesNotMatch(built.selector.xpath,/4450|9981/);
+  assert.equal((built.selector.xpath.match(/contains\(@text,'长按可加速升级'\)/g)||[]).length,1);
+  assert.equal(built.requiresVerification,true);
+});
 test('LOC-08 parent filters refine the repeated target and compile stable relations',()=>{
   const shot=hierarchy(),options=buildFilterOptions(shot,4);
   assert.ok(options.some(o=>o.id==='ancestor:1:resource_id'&&o.value==='demo:id/card-a'));
