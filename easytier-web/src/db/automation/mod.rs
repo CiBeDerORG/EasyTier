@@ -2,6 +2,7 @@
 mod runs;
 mod scripts;
 mod drafts;
+mod adb_favorites;
 mod validation;
 #[cfg(test)]
 mod tests;
