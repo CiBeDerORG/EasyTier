@@ -47,27 +47,9 @@ const emit=defineEmits<{ close: []; history: [runId: string]; repair: [runId: st
         message:string;diagnosis?:TrialLocatorDiagnosis|null}] }>();
 const api=new AutomationApi();
 const toast=useToast();
-){
-    // Only print the actual single-step HTTP request boundary. All other
-    // internal trace events are intentionally suppressed to keep Console readable.
-    const labels:Record<string,string>={
-        'request.createRun.before':'==========【单步执行请求 1/2：发送前｜POST /api/v1/automation/runs】==========',
-        'request.createRun.after':'==========【单步执行请求 2/2：响应成功｜POST /api/v1/automation/runs】==========',
-        'sendFrozen.exception':'==========【单步执行请求 2/2：响应异常｜POST /api/v1/automation/runs】==========',
-    };
-    const label=labels[event];
-    if(!label)return;
-    const output={
-        traceId:trialTraceId||'not-started',
-        time:new Date().toISOString(),
-        event,
-        phase:phase.value,
-        ...details,
-    };
-    // Stringify into one readable block so DevTools doesn't hide fields in
-    // expandable nested objects. The before log includes the exact request body;
-    // the after log includes the response or HTTP status/code/field errors.
-    console.log(label+'\n'+JSON.stringify(output,null,2));
+function trialLog(event:string, details:Record<string,unknown>={}){
+    // Print the event as a standalone first argument so it is visible without expanding the object.
+    console.log('[AutomationTrial]', event, details);
 }
 function trialErrorSnapshot(cause:unknown):Record<string,unknown>{
     if(cause instanceof AutomationApiError){
@@ -371,7 +353,7 @@ function checkReadyToPrepare(): boolean {
     return true;
 }
 async function prepare(){
-    console.log('【单步执行｜prepare 入参】', {
+    trialLog('【准备单步执行 prepare】', {
         ownerId: props.ownerId, deviceId: props.device?.id, step: props.step,
         visible: props.visible, runnerAvailable: props.runnerAvailable, blocked: props.blocked,
         targetFingerprint: props.device?.target_fingerprint,
@@ -498,7 +480,7 @@ async function prepare(){
     }
 }
 async function submit(){
-    console.log('【单步执行｜submit 入参】', {
+    trialLog('【提交单步执行 submit】', {
         ownerId: props.ownerId, deviceId: props.device?.id,
         currentStep: props.step, frozenStep: frozen.value, phase: phase.value,
         compatibilityReview: compatibilityReview.value, hasPending: !!pending.value,
@@ -602,7 +584,7 @@ async function submit(){
     }
 }
 async function sendFrozen(mine:number,owner:number,id:string,original:string,payload:AutomationRunInput){
-    console.log('【单步执行｜sendFrozen 入参／请求发送前】', {
+    trialLog('【发送单步执行请求 sendFrozen】', {
         mine, ownerId: owner, deviceId: id, originalStepSnapshot: original,
         requestMethod: 'POST', requestPath: '/api/v1/automation/runs',
         query: { owner_user_id: owner }, requestPayload: payload,
@@ -626,14 +608,14 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         // Server create_run() still owns definitive BEGIN IMMEDIATE admission.
         
         const requestStartedAt=Date.now();
-        console.log('【单步执行｜sendFrozen 请求即将发出】', {
+        trialLog('【HTTP 请求发送前 POST /api/v1/automation/runs】', {
             method: 'POST', path: '/api/v1/automation/runs',
             query: { owner_user_id: owner }, requestId: payload.request_id,
             requestPayload: payload,
         });
         const requestStartedAt = Date.now();
         const created=await api.createRun(owner,payload);
-        console.log('【单步执行｜sendFrozen 请求成功返回】', {
+        trialLog('【HTTP 请求成功返回 POST /api/v1/automation/runs】', {
             elapsedMs: Date.now() - requestStartedAt, response: created,
         });
         
@@ -649,7 +631,7 @@ async function sendFrozen(mine:number,owner:number,id:string,original:string,pay
         warning.value='';
     }catch(cause){
         
-        console.error('【单步执行｜sendFrozen 请求异常返回】', {
+        console.error('[AutomationTrial]', '【HTTP 请求异常返回 POST /api/v1/automation/runs】', {
             requestMethod: 'POST', requestPath: '/api/v1/automation/runs',
             query: { owner_user_id: owner }, requestId: payload.request_id,
             requestPayload: payload, error: trialErrorSnapshot(cause), rawCause: cause,
