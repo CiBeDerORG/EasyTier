@@ -226,6 +226,22 @@ export function createAutomationScriptWorkspace(
     }
     async function publish(deviceId:string,formalName:string,formalDescription:string):Promise<void> {
         if(state.busy)return;
+        // A failed draft write must not permanently disable the user's
+        // publish action. Attempt a safe retry (preserving the pending UUID)
+        // and publish ONLY after the server confirms that same draft.
+        if(guard.value==='unsynced') {
+            state.busy=true;state.error='';
+            try {
+                await draftSync.retry();
+                if(!draftSync.canLeave()) {
+                    state.error=draftSync.state.message || '草稿尚未同步，未提交正式脚本。';
+                    return;
+                }
+            } catch(cause) {
+                state.error='保存工作草稿失败：'+automationErrorMessage(cause);
+                return;
+            } finally {state.busy=false;}
+        }
         let scope:{owner:number;scriptId?:string;revision?:number};
         try{scope=ensureFormalScope(deviceId);}
         catch(cause){state.error=automationErrorMessage(cause);return;}

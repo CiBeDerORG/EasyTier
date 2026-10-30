@@ -560,3 +560,10 @@
 - T60 由已有 `test:automation-floating-browser` 命令执行；该命令已在 `.github/workflows/node-attributes-image.yml` 的自动构建流程中，前面的单元测试通过后会继续执行。
 - **执行情况：未执行浏览器测试或其他验证**，遵守调试模式；此测试是回归保障，不是已通过的证明。真实强制清理 API、Android/FnOS 部署与真机操作仍待实际验收。
 
+
+## 2026-10-30 · 草稿保存 resource_id 空值 422 与正式保存按钮不可点击
+- 截图复现：PUT /api/v1/automation/drafts/:id 返回 422，字段 resource_id 报 Selector text is empty or exceeds 512 bytes；联动 guard=unsynced 导致正式按钮禁用。
+- 根因：ScriptStepEditor.vue 初始填入 resource_id: '' 占位，修改字段也会把空字符串带入 selector；后端 validation.rs 将出现的字段一律按非空 512 字节校验。
+- 修改：前端编辑时清除空属性；同步序列化时净化可选空值并指出缺少定位条件的具体步骤；后端统一净化空可选 selector 字段后再进行严格校验；正式按钮允许在 unsynced 状态点击，处理时安全重试服务端草稿，只有确认 canLeave 后才能正式写入。
+- 安全边界：所有定位字段都为空、超长定位器、修订冲突、仍在编辑、尚未确认写入等情况均不能跳过校验；原步骤 ID/顺序不变，网络未知结果的同 UUID 幂等重试不变。
+- 代码新增后端针对空字段及越界的回归测试，但**未执行测试、构建或真机验收**；遵循本轮 BUG 修复不主动运行验证。待实际部署后手动确认 4 步草稿保存、正式保存按钮、重新加载及多端冲突流程。

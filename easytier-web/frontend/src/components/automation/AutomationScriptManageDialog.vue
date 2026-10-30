@@ -35,7 +35,8 @@ watch(()=>[props.visible,props.mode,props.source?.id] as const,([visible])=>{
     description.value=props.draftDescription;
     acknowledged.value='';
 },{immediate:true});
-const allowed=computed(()=>props.guard==='clean'&&!props.busy);
+const allowed=computed(()=>(props.guard==='clean' ||
+    (props.mode==='publish' && props.guard==='unsynced')) && !props.busy && !props.saveBusy);
 const validName=computed(()=>!!name.value.trim()&&new TextEncoder().encode(name.value.trim()).length<=128);
 const validDescription=computed(()=>new TextEncoder().encode(description.value).length<=2000);
 function confirm(){
@@ -80,6 +81,7 @@ function confirm(){
                 {{ guard==='editor'?'步骤编辑尚未确认，先保存步骤。':
                    guard==='conflict'?'工作草稿出现修订冲突，先解决冲突。':
                    guard==='loading'?'正在加载服务器工作草稿，请完成同步后继续。':
+                   mode==='publish'?'工作草稿尚未同步。点击“保存为正式版本”会先安全重试草稿保存，确认成功后才正式发布。':
                    '工作草稿仍有尚未确认的修改，请先保存并等待同步。' }}
             </p>
             <p v-if="saveMessage" class="manage-hint" role="status">{{ saveMessage }}</p>

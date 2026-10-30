@@ -98,6 +98,20 @@ pub(super) fn saved_steps(input:&Value)->AutomationResult<Value> {
 }
 
 pub(super) fn steps(input:&Value)->AutomationResult<Value> {
+    // A widget may have a valid text/description filter but no Android resource-id.
+    // Empty optional native fields must not invalidate that genuine locator.
+    // Normalize once for drafts, published scripts and execution snapshots.
+    let mut normalized=input.clone();
+    if let Some(steps)=normalized.as_array_mut() {
+        for step in steps {
+            for field in ["selector","scroll_container"] {
+                if let Some(selector)=step.get_mut(field).and_then(Value::as_object_mut) {
+                    selector.retain(|_,value| !value.as_str().is_some_and(|s|s.trim().is_empty()));
+                }
+            }
+        }
+    }
+    let input=&normalized;
     let items=input.as_array().filter(|v|!v.is_empty()&&v.len()<=100).ok_or_else(||AutomationError::field("steps","Use between 1 and 100 steps."))?;
     if input.to_string().len()>256*1024 {return Err(AutomationError::field("steps","The script is too large."));}
     // Only newly marked scripts opt into business verification. Existing
@@ -436,5 +450,31 @@ mod loc08_boolean_selector_regressions {
             }
         }
         assert!(selector(&json!({"xpath":"//*","enabled":true})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod empty_optional_selector_regressions {
+    use super::steps;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    fn tap(selector:serde_json::Value)->serde_json::Value {
+        json!({"id":Uuid::new_v4().to_string(),"type":"tap","selector":selector})
+    }
+
+    #[test]
+    fn blank_resource_id_is_ignored_when_another_filter_exists() {
+        let result=steps(&json!([tap(json!({
+            "resource_id":"", "text":"领淘金币", "enabled":false,
+            "description":"  "
+        }))])).unwrap();
+        assert_eq!(result[0]["selector"],json!({"text":"领淘金币","enabled":false}));
+    }
+
+    #[test]
+    fn blank_only_selector_and_oversized_filter_remain_invalid() {
+        assert!(steps(&json!([tap(json!({"resource_id":"  "}))])).is_err());
+        assert!(steps(&json!([tap(json!({"resource_id":"","text":"x".repeat(513)}))])).is_err());
     }
 }

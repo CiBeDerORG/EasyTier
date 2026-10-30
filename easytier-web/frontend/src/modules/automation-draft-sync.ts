@@ -40,9 +40,41 @@ function toSummary(record: AutomationDraftRecord): DraftSummary {
     return {id:record.id,name:record.name,revision:record.revision,
         updatedAt:record.updated_at,count:record.steps.length};
 }
+/** Clean optional blank selector attributes on the wire without modifying
+ * the current editor, step identity, or the CAS retry snapshot. */
+export function cleanDraftSelector(selector: AutomationStep['selector']): AutomationStep['selector'] {
+    if (!selector) return selector;
+    return Object.fromEntries(Object.entries(selector).filter(([, value]) =>
+        typeof value !== 'string' || value.trim().length > 0)) as AutomationStep['selector'];
+}
+export function draftStepValidationIssue(steps: readonly AutomationStep[]): string | null {
+    const encoder = new TextEncoder();
+    for (const [index, step] of steps.entries()) {
+        const fields: Array<'selector' | 'scroll_container'> = step.type === 'scroll_find'
+            ? ['selector','scroll_container'] : step.selector ? ['selector'] : [];
+        if (!fields.length && ['wait_for','wait_gone','if_gone','if_else','assert','assert_property','scroll_find'].includes(step.type))
+            fields.push('selector');
+        for (const field of fields) {
+            const selector = cleanDraftSelector(step[field]);
+            if (!selector || !Object.keys(selector).length)
+                return `第 ${index+1} 步（${step.title || step.type}）缺少控件定位条件，请编辑此步骤后保存。`;
+            for (const [key, value] of Object.entries(selector)) {
+                if (typeof value === 'string' && encoder.encode(value).length > 512)
+                    return `第 ${index+1} 步（${step.title || step.type}）的 ${key} 超过 512 字节，请缩短定位条件。`;
+            }
+        }
+    }
+    return null;
+}
 function snapshotOf(workspace: AutomationDraftWorkspace): DraftSnapshot {
     // Immutable wire body: retries must use the original request_id AND body.
-    return JSON.parse(draftFingerprint(workspace)) as DraftSnapshot;
+    const snapshot = JSON.parse(draftFingerprint(workspace)) as DraftSnapshot;
+    snapshot.steps = snapshot.steps.map(step => ({
+        ...step,
+        ...(step.selector ? {selector:cleanDraftSelector(step.selector)} : {}),
+        ...(step.scroll_container ? {scroll_container:cleanDraftSelector(step.scroll_container)} : {}),
+    }));
+    return snapshot;
 }
 const initialFingerprint=JSON.stringify({name:'',description:'',steps:[],script_id:null,script_revision:null});
 
@@ -171,6 +203,12 @@ export function createAutomationDraftSync(api: AutomationApi, workspace: Automat
             workspace.ownerId!==state.ownerId || state.phase==='conflict')return;
         if(busy)return busy;
         if(!pending && currentSnapshot()===confirmed)return;
+        // A deterministic validation error should not send a known-invalid
+        // document or make the user guess which of 100 steps needs editing.
+        if(!pending) {
+            const issue=draftStepValidationIssue(workspace.steps);
+            if(issue) {state.phase='unsynced';state.message=issue;return;}
+        }
         const owner=state.ownerId,e=epoch;
         if(!pending) {
             pending={owner,id:state.id,revision:state.revision,requestId:uuid(),

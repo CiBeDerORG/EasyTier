@@ -246,7 +246,11 @@ function changeSelectorMode(value: string) {
     update({ selector: value === 'xpath' ? { xpath: '//*[@text=""]' } : { resource_id: '' } });
 }
 function selectorValue(field: keyof AutomationSelector, value: string | undefined) {
-    update({ selector: { ...props.modelValue.selector, [field]: value ?? '' } });
+    const selector = { ...props.modelValue.selector };
+    // Blank inputs are placeholders, not UiAutomator matching conditions.
+    if (!value?.trim()) delete selector[field];
+    else Object.assign(selector, { [field]: value });
+    update({ selector });
 }
 function clickableValue(value: string) {
     if (props.disabled || !props.modelValue.selector) return;
@@ -283,7 +287,9 @@ function booleanValue(field: typeof booleanFields[number]['key'], value: string)
 }
 function scrollContainerValue(field: keyof AutomationSelector, value: string | undefined) {
     if (props.disabled) return;
-    const scroll_container: AutomationSelector = { ...props.modelValue.scroll_container, [field]: value ?? '' };
+    const scroll_container = { ...props.modelValue.scroll_container };
+    if (!value?.trim()) delete scroll_container[field];
+    else Object.assign(scroll_container, { [field]: value });
     update({ scroll_container });
 }
 function numberValue(key: string): number | undefined {
