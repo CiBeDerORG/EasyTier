@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n';
 import type { AutomationAdbFavorite, AutomationKey, AutomationSelector, AutomationStep, AutomationStepType } from '../../types/automation';
 import AutomationApi, { automationErrorMessage } from '../../modules/automation-api';
 import { builtinAdbCommands } from '../../modules/automation-adb-presets';
+import { switchTapLongPressStep } from '../../modules/automation-step-type-transition';
 
 const props = defineProps<{ modelValue: AutomationStep; disabled?: boolean; lockActionType?: boolean; excludeConditionalTypes?: boolean; ownerId?: number }>();
 const emit = defineEmits<{ 'update:modelValue': [step: AutomationStep] }>();
@@ -198,8 +199,27 @@ function update(patch: Partial<AutomationStep>) {
     if (next.type === 'adb_command' && next.timeout_ms == null) next.timeout_ms = 8000;
     emit('update:modelValue', next);
 }
+// Remember the press duration only inside this editor: tap steps must not send duration_ms.
+const lastLongPress = ref<{ stepId: string; durationMs: number } | null>(null);
+watch(() => props.modelValue.id, () => { lastLongPress.value = null; });
+
 function changeType(type: AutomationStepType) {
     if (props.disabled || props.lockActionType || type === props.modelValue.type) return;
+    // Tap and long press use the same locator/coordinates. Keep the current inputs
+    // rather than rebuilding the selector whenever the action type changes.
+    if ((type === 'tap' || type === 'long_press') &&
+        (props.modelValue.type === 'tap' || props.modelValue.type === 'long_press')) {
+        if (props.modelValue.type === 'long_press') {
+            lastLongPress.value = {
+                stepId: props.modelValue.id,
+                durationMs: props.modelValue.duration_ms ?? 800,
+            };
+        }
+        const savedDuration = lastLongPress.value?.stepId === props.modelValue.id
+            ? lastLongPress.value.durationMs : undefined;
+        emit('update:modelValue', switchTapLongPressStep(props.modelValue, type, savedDuration));
+        return;
+    }
     const step: AutomationStep = { id: props.modelValue.id, type,
         ...(props.modelValue.title ? { title: props.modelValue.title } : {}) };
     if (type === 'key') step.key = 'HOME';
